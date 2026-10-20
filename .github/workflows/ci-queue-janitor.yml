@@ -30,9 +30,14 @@ name: CI queue janitor
 # GitHub delays scheduled runs (the */10 cron fired 55 minutes apart on
 # 2026-09-25), and pull request CI trusts a snapshot for at most
 # MAX_SNAPSHOT_MINUTES, so a CI run being requested also starts a sweep. It
-# skips when the newest snapshot is under FRESH_SECONDS old, and the
-# concurrency group keeps one sweep running and one waiting, so a burst of
-# pushes costs at most one extra sweep.
+# skips when the newest snapshot is under 600 s old, one cron interval, so it
+# only stands in for a late cron. A cron sweep skips when a snapshot is under
+# 300 s old, the case where a requested CI run has just stood in for it. A
+# full sweep costs 130 to 170 API requests from the GITHUB_TOKEN budget every
+# workflow in the repository shares. With a 240 s skip for requested runs and
+# none for the cron, CI being requested hundreds of times an hour drove about
+# 12 sweeps an hour, and the budget ran out on 2026-10-06. Now there are about
+# 6. The concurrency group keeps one sweep running and one waiting.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -47,10 +52,7 @@ on:
         default: true
         type: boolean
 
-permissions:
-  actions: write
-  pull-requests: read
-  contents: read
+permissions: {}
 
 env:
   # The file behind the `CI` display name in on.workflow_run.workflows;
@@ -65,16 +67,23 @@ concurrency:
 
 jobs:
   sweep:
+    permissions:
+      actions: write
+      pull-requests: read
+      contents: read
     name: Sweep wasted macOS demand
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Skip when the pool snapshot is fresh
         id: fresh
-        if: github.event_name == 'workflow_run'
+        if: github.event_name != 'workflow_dispatch'
         env:
+          # This gate must remain the first step so requested-run freshness
+          # stays cheap; the App token is minted only after a stale snapshot
+          # needs the cancellation API.
           GH_TOKEN: ${{ github.token }}
-          FRESH_SECONDS: "240"
+          FRESH_SECONDS: ${{ github.event_name == 'workflow_run' && '600' || '300' }}
         run: |
           set -euo pipefail
           newest="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=macos-pool-load&per_page=20" \
@@ -88,6 +97,21 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != '' && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Check out trusted janitor
         if: steps.fresh.outputs.skip != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -97,7 +121,7 @@ jobs:
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}

@@ -27,7 +27,8 @@ extension RemoteSessionCoordinator {
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
         let cleanupSucceeded = stopReverseRelayLocked(cleanupScope: cleanupScope)
-        if cleanupSucceeded {
+        if cleanupSucceeded, hasTouchedRemotePasteDirectory {
+            hasTouchedRemotePasteDirectory = false
             cleanupRemotePasteDirectoryLocked()
         }
         remotePortScanGeneration &+= 1

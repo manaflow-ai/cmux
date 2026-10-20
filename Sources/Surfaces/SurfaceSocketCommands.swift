@@ -358,7 +358,14 @@ extension TerminalController {
         if reuse, name == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new: `reuse` needs a `name` to look for.")
         }
-        return v2VmCall(id: id, timeoutSeconds: 240) {
+        return v2VmCall(
+            id: id,
+            timeoutSeconds: 240,
+            daemonUnavailableMessage: String(
+                localized: "socket.cloudVM.tuiDaemonUnavailable",
+                defaultValue: "Could not create a workspace on this Cloud VM. Wake the machine or retry `cmux vm workspace new`."
+            )
+        ) {
             let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {

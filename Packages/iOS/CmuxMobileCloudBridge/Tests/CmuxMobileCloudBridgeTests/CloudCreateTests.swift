@@ -30,6 +30,7 @@ struct CloudCreateTests {
         /// When set, `createWorkspace` waits for one gate element first, so a
         /// test can hold a create open.
         var createGate: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)?
+        var catalogGate: (stream: AsyncStream<Void>, continuation: AsyncStream<Void>.Continuation)?
         private var _createWaiters = 0
         var createWaiters: Int { lock.withLock { _createWaiters } }
         var createdWorkspaceCount: Int { lock.withLock { workspaces.count - 1 } }
@@ -38,7 +39,11 @@ struct CloudCreateTests {
             workspaces: [CloudWorkspaceSummary],
             terminals: [CloudTerminalSummary]
         ) {
-            lock.withLock { (workspaces, terminals) }
+            if let gate = catalogGate {
+                var iterator = gate.stream.makeAsyncIterator()
+                _ = await iterator.next()
+            }
+            return lock.withLock { (workspaces, terminals) }
         }
 
         func attach(
@@ -121,6 +126,9 @@ struct CloudCreateTests {
         let created = await bridge.externalHostCreateWorkspace(onHost: Self.hostID)
 
         #expect(created == row("ws-2"))
+        await settle(until: {
+            store.workspaces.first { $0.rpcWorkspaceID == created }?.terminals.isEmpty == false
+        })
         let published = try! #require(store.workspaces.first { $0.rpcWorkspaceID == created })
         #expect(published.terminals.map(\.id.rawValue) == [CloudAddress(machineID: "vm-1", component: "t-2").identifier])
     }
@@ -214,6 +222,25 @@ struct CloudCreateTests {
         #expect(store.selectedTerminalID.map(existing.contains) ?? true)
     }
 
+    @Test("New Cloud Workspace selection is published before its catalog is ready")
+    func storeSelectsOptimisticWorkspaceBeforeCatalogReload() async {
+        let (_, provider, store) = await makeBridge()
+        provider.link.catalogGate = AsyncStream<Void>.makeStream()
+
+        let result = await store.createExternalHostWorkspace(onHost: Self.hostID)
+
+        guard case .success = result else {
+            Issue.record("create failed: \(result)")
+            return
+        }
+        #expect(store.selectedWorkspaceID == listed("ws-2", in: store))
+        #expect(store.selectedWorkspace?.terminals.isEmpty == true)
+
+        provider.link.catalogGate?.continuation.finish()
+        await settle(until: { store.selectedWorkspace?.terminals.isEmpty == false })
+        #expect(store.selectedWorkspace?.terminals.count == 1)
+    }
+
     @Test("New Workspace aimed at a machine by id opens the new one")
     func storeCreatesWorkspaceOnTheMachineByID() async {
         let (_, _, store) = await makeBridge()
@@ -239,6 +266,7 @@ struct CloudCreateTests {
             return
         }
         #expect(store.selectedWorkspaceID == listed("ws-2", in: store))
+        await settle(until: { store.selectedWorkspace?.terminals.isEmpty == false })
         #expect(store.selectedTerminalID?.rawValue == CloudAddress(machineID: "vm-1", component: "t-2").identifier)
     }
 }

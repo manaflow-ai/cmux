@@ -58,6 +58,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Ordering used by the Go to Workspace command-palette switcher.
+    public let goToWorkspaceOrder = DefaultsKey<WorkspaceSwitcherOrder>(
+        id: "app.goToWorkspaceOrder",
+        defaultValue: .sidebar,
+        userDefaultsKey: "goToWorkspaceOrder"
+    )
+
     /// Folder the Open Folder panel starts in. Empty keeps the active
     /// workspace's directory. Supports a leading `~`.
     public let defaultWorkspacePath = DefaultsKey<String>(
@@ -168,14 +175,6 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sendAnonymousTelemetry"
     )
 
-    /// How What's New appears after an update. Quiet by default: an indicator
-    /// the user can open, never an automatic window.
-    public let whatsNew = DefaultsKey<WhatsNewPresentationMode>(
-        id: "app.whatsNew",
-        defaultValue: .quiet,
-        userDefaultsKey: "whatsNewPresentationMode"
-    )
-
     public let confirmQuitMode = DefaultsKey<ConfirmQuitMode>(
         id: "app.confirmQuit",
         defaultValue: .always,
@@ -211,6 +210,27 @@ public struct AppCatalogSection: SettingCatalogSection {
 
     /// Gates the "Close workspace?" prompts (running processes, multi-workspace
     /// close). The "Close pinned workspace?" prompt is not gated by it.
+    public let warnBeforeClosingAgentSession = DefaultsKey<Bool>(
+        id: "app.warnBeforeClosingAgentSession",
+        defaultValue: true,
+        userDefaultsKey: "warnBeforeClosingAgentSession",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingAgentSession",
+                defaultValue: "Warn Before Closing Active Agent Session"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-agent-session",
+            searchKeywords: ["close", "agent", "session", "working", "confirmation"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingAgentSession",
+                    keywords: ["warn", "close", "agent", "session"]
+                )
+            ))
+        )
+    )
+
     public let warnBeforeClosingWorkspace = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingWorkspace",
         defaultValue: true,
@@ -227,6 +247,30 @@ public struct AppCatalogSection: SettingCatalogSection {
                 commandPalette: .init(
                     id: "warnBeforeClosingWorkspace",
                     keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
+    /// Opt-in: ask before every workspace close, even when nothing in the
+    /// workspace is running. Overrides `warnBeforeClosingWorkspace` for the
+    /// workspace prompts, the way pinning does for a single workspace.
+    public let alwaysConfirmWorkspaceClose = DefaultsKey<Bool>(
+        id: "app.alwaysConfirmWorkspaceClose",
+        defaultValue: false,
+        userDefaultsKey: "alwaysConfirmWorkspaceClose",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.alwaysConfirmWorkspaceClose",
+                defaultValue: "Always Confirm Closing Workspaces"
+            ),
+            section: .app,
+            searchID: "always-confirm-workspace-close",
+            searchKeywords: ["always", "close", "workspace", "confirmation", "idle", "protect"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "alwaysConfirmWorkspaceClose",
+                    keywords: ["always", "confirm", "close", "workspace"]
                 )
             ))
         )

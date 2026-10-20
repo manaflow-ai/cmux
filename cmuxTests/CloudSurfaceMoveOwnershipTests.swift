@@ -97,7 +97,32 @@ struct CloudSurfaceMoveOwnershipTests {
         }
     }
 
-    @Test("Foreign Cloud terminal, browser and display moves leave both workspaces intact", arguments: SurfaceResourceKind.allCases, ["a", "b"])
+    @Test("A browser moves into and back out of a Cloud workspace without changing its identity")
+    func browserRoundTrip() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+            let source = fixture.workspace
+            let destination = fixture.manager.addWorkspace(title: "Cloud", select: false)
+            defer { destination.teardownAllPanels() }
+            destination.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "browser-destination", isBase: false)
+            let pane = try #require(source.bonsplitController.allPaneIds.first)
+            let browser = try #require(source.newBrowserSurface(inPane: pane, url: URL(string: "about:blank"), focus: false))
+            let tab = try #require(source.surfaceIdFromPanelId(browser.id))
+            let transfer = PaneDragTransfer(tabId: tab.uuid, sourcePaneId: pane.id,
+                                           sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier))
+            #expect(destination.surfaceDropRejection(transfer, source: .surface) == nil)
+            #expect(fixture.appDelegate.canMoveBonsplitTab(tabId: tab.uuid, toWorkspace: destination.id))
+            #expect(fixture.appDelegate.moveSurface(panelId: browser.id, toWorkspace: destination.id, focus: false, focusWindow: false))
+            #expect(destination.panels[browser.id] === browser)
+            #expect(source.panels[browser.id] == nil)
+            #expect(fixture.appDelegate.moveSurface(panelId: browser.id, toWorkspace: source.id, focus: false, focusWindow: false))
+            #expect(source.panels[browser.id] === browser)
+            #expect(destination.panels[browser.id] == nil)
+        }
+    }
+
+    @Test("Foreign Cloud terminal and display moves leave both workspaces intact", arguments: [SurfaceResourceKind.terminal, .display], ["a", "b"])
     func foreignCloudMove(kind: SurfaceResourceKind, owner: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()

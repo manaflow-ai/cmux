@@ -100,6 +100,7 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         url: URL?,
+        preferredProfileID: UUID? = nil,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         if let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -131,6 +132,7 @@ extension TerminalController {
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             initialInput: kind == .terminal ? inputs.initialInput : nil,
             focus: false,
+            preferredProfileID: kind == .browser ? preferredProfileID : nil,
             preloadInitialNavigationInBackground: kind == .browser
         )
         guard let newPanelId else {
@@ -369,6 +371,9 @@ extension TerminalController {
         }
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
+        }
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
         }
         if !force,
            let panel = windowDock.panel(for: TabID(uuid: surfaceId)),

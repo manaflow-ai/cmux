@@ -77,6 +77,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     // Every var below is confined to `queue` (see the isolation essay).
     // Internal so the coordinator's same-module extension files can reach them.
     var isStopping = false
+    /// Set once this session has created or written its private remote paste
+    /// directory, so teardown only spends an ssh round trip when there is
+    /// something of ours to remove.
+    var hasTouchedRemotePasteDirectory = false
     var proxyLease: RemoteProxyLease?
     var proxyLeaseGeneration: UInt64 = 0
     /// Whether this connection attempt still needs a proxy tunnel.  Keeping

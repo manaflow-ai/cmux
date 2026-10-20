@@ -74,6 +74,8 @@ import Testing
 
         let staleCurrentDirectory = workspace.currentDirectory
         let requestedDirectory = "/tmp/cmux-requested-tab-cwd-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: requestedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: requestedDirectory) }
         let sourcePanel = try #require(
             workspace.newTerminalSurface(
                 inPane: sourcePaneId,

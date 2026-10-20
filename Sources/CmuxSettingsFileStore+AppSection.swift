@@ -56,6 +56,13 @@ extension CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if let raw = jsonString(section["goToWorkspaceOrder"]) {
+            if let order = WorkspaceSwitcherOrder(rawValue: raw) {
+                snapshot.managedUserDefaults[SettingCatalog().app.goToWorkspaceOrder.userDefaultsKey] = .string(order.rawValue)
+            } else {
+                logInvalid("app.goToWorkspaceOrder", sourcePath: sourcePath)
+            }
+        }
         if section.keys.contains("tabBarVisibility") {
             if let raw = jsonString(section["tabBarVisibility"]),
                let visibility = PaneTabBarVisibility(rawValue: raw) {
@@ -82,15 +89,6 @@ extension CmuxSettingsFileStore {
             }
         } else if section.keys.contains("paneResizeStepPixels") {
             logInvalid("app.paneResizeStepPixels", sourcePath: sourcePath)
-        }
-        if let raw = jsonString(section["whatsNew"]) {
-            if let mode = WhatsNewPresentationMode(rawValue: raw) {
-                snapshot.managedUserDefaults[AppCatalogSection().whatsNew.userDefaultsKey] = .string(mode.rawValue)
-            } else {
-                logInvalid("app.whatsNew", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("whatsNew") {
-            logInvalid("app.whatsNew", sourcePath: sourcePath)
         }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {

@@ -26,7 +26,8 @@ export default async function CloudOverviewPage({
 }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "docs.cloudOverview" });
-  // Nightly docs run ahead of the Cloud rollout, so only release docs show the beta opt-in.
+  // Nightly docs omit the release-only activation guidance, so only release
+  // docs show the beta opt-in.
   const showBetaNote = docsChannel() === "release";
 
   return (
@@ -71,8 +72,8 @@ cmux vm agent --agent claude --machine brave-otter --sync -- "fix the failing te
       <CodeBlock lang="json">{`{
   "shortcuts": {
     "bindings": {
-      "newCloudMachine": "cmd+y",
-      "newCloudWorkspace": "cmd+shift+y"
+      "newCloudMachine": "cmd+shift+y",
+      "newCloudWorkspace": "cmd+y"
     }
   }
 }`}</CodeBlock>

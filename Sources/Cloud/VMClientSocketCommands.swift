@@ -57,9 +57,17 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "maxDiskMb": limits.maxDiskMb.map { $0 as Any } ?? NSNull(),
+                        "maxMemoryMb": limits.maxMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "maxVcpus": limits.maxVcpus.map { $0 as Any } ?? NSNull(),
                         "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
                         "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
+                        "vcpusByMemoryMb": limits.vcpusByMemoryMb.map { $0 as Any } ?? NSNull(),
+                        "poolVcpus": limits.resourcePool.map { $0.poolVcpus as Any } ?? NSNull(),
+                        "poolMemoryMb": limits.resourcePool.map { $0.poolMemoryMb as Any } ?? NSNull(),
+                        "usedVcpus": limits.resourcePool.map { $0.usedVcpus as Any } ?? NSNull(),
+                        "usedMemoryMb": limits.resourcePool.map { $0.usedMemoryMb as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -233,10 +241,38 @@ extension TerminalController {
             let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
+            var networkPolicy: CloudNetworkPolicy?
+            if let rawPolicy = params["network_policy"], !(rawPolicy is NSNull) {
+                guard let decoded = try? CloudNetworkPolicy(foundationObject: rawPolicy) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidNetworkPolicy",
+                            defaultValue: "vm.create `network_policy` must be an object with a mode of full, allowlist, or none."
+                        )
+                    )
+                }
+                networkPolicy = decoded
+            }
+            var agentUpdates: CloudAgentUpdates?
+            if let rawAgentUpdates = params["agent_updates"], !(rawAgentUpdates is NSNull) {
+                guard let decoded = CloudAgentUpdates(wireValue: rawAgentUpdates) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidAgentUpdates",
+                            defaultValue: "vm.create `agent_updates` must be latest or image."
+                        )
+                    )
+                }
+                agentUpdates = decoded
+            }
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
-                await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, agentUpdates: agentUpdates, idempotencyKey: idempotencyKey)
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, attach: vm.createAttach, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -332,6 +368,10 @@ extension TerminalController {
                 if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
                 return payload
             }
+        case "vm.network_get", "vm.network_update":
+            return socketWorkerCloudNetworkResponse(method: method, id: id, params: params)
+        case "vm.agent_updates_get", "vm.agent_updates_set":
+            return socketWorkerCloudAgentUpdatesResponse(method: method, id: id, params: params)
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
@@ -347,16 +387,32 @@ extension TerminalController {
                     "displayName": stored ?? NSNull(),
                 ]
             }
-        case "vm.pause", "vm.resume":
+        case "vm.hygiene":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.hygiene requires `id`. Run `cmux vm ls` to find one.")
+            }
+            // Only a literal true applies; anything else is the dry-run.
+            let apply = (params["apply"] as? Bool) == true
+            return v2CloudCall(id: id, method: method, params: params) {
+                let data = try await VMClient.shared.hygiene(id: vmId, apply: apply)
+                return (try JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+            }
+        case "vm.pause", "vm.resume", "vm.restart":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "\(method) requires `id`. Run `cmux vm ls` to find one.")
             }
             let resume = method == "vm.resume"
+            let restart = method == "vm.restart"
             return v2CloudCall(id: id, method: method, params: params) {
-                let status = resume
-                    ? try await VMClient.shared.resume(id: vmId)
-                    : try await VMClient.shared.pause(id: vmId)
-                if !resume {
+                let status: String
+                if restart {
+                    status = try await VMClient.shared.restart(id: vmId)
+                } else if resume {
+                    status = try await VMClient.shared.resume(id: vmId)
+                } else {
+                    status = try await VMClient.shared.pause(id: vmId)
+                }
+                if !resume && !restart {
                     await CmuxTuiSurfaceProviderRegistry.shared.machineBecameInactive(vmId, status: status)
                 }
                 return ["id": vmId, "status": status]
@@ -566,8 +622,16 @@ extension TerminalController {
                 }
                 var payload: [String: Any]
                 var isCreatedReceipt = false
+                let createdReceiptSession = await registry.createdTrustedCarrierSession(machineID: vmId) ?? "cloud"
                 if deviceFingerprint == nil,
-                   let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
+                   let endpoint = await registry.takeCreatedTrustedCarrierEndpoint(machineID: vmId) {
+                    isCreatedReceipt = true
+                    // New Machine: preserve the create receipt's complete
+                    // endpoint, including any explicitly assigned daemon
+                    // session instead of the default `cloud` session.
+                    payload = Self.socketWorkerCloudAttachPayload(endpoint)
+                } else if deviceFingerprint == nil,
+                          let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
                     isCreatedReceipt = true
                     // New Machine: the create receipt already proved the
                     // snapshot-v2 trusted listener and named the private
@@ -578,7 +642,7 @@ extension TerminalController {
                         "route": createdRoute,
                         "token": "",
                         "expires_at_unix": 0,
-                        "session": "cmux",
+                        "session": createdReceiptSession,
                         "trusted_carrier": true,
                     ]
                 } else if let deviceFingerprint {
@@ -594,7 +658,7 @@ extension TerminalController {
                         "route": knownRoute,
                         "token": "",
                         "expires_at_unix": 0,
-                        "session": "cmux",
+                        "session": createdReceiptSession,
                         "trusted_carrier": deviceFingerprint == CloudTuiClientPaths.carrierDeviceMarker,
                     ]
                 } else {
@@ -717,6 +781,31 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
+
+    private nonisolated static func socketWorkerCloudAttachPayload(_ endpoint: VMCmuxRemoteEndpoint) -> [String: Any] {
+        var payload: [String: Any] = [
+            "transport": "cmux-remote",
+            "route": endpoint.route,
+            "token": endpoint.token,
+            "expires_at_unix": endpoint.expiresAtUnix,
+            "session": endpoint.session,
+            "trusted_carrier": endpoint.trustedCarrier,
+        ]
+        if let build = endpoint.daemonBuild {
+            var raw: [String: Any] = [:]
+            if let commit = build.commit { raw["commit"] = commit }
+            if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+            if let version = build.version { raw["version"] = version }
+            payload["daemon_build"] = raw
+        }
+        if let addresses = endpoint.networkAddresses {
+            payload["network_addresses"] = [
+                "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        return payload
+    }
     /// Handles the `remotes.*` socket methods backing `cmux remotes`. Each maps
     /// to a single ``RemotesClient`` operation (the shared registry mutation
     /// path); the CLI does presentation only.
@@ -822,6 +911,29 @@ extension TerminalController {
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
+        }
+        if let agentUpdates = vm.agentUpdates {
+            payload["agentUpdates"] = agentUpdates.rawValue
+        }
+        if let cmuxTuiContract = vm.cmuxTuiContract, !cmuxTuiContract.isEmpty {
+            payload["cmuxTuiContract"] = cmuxTuiContract
+        }
+        if let attach = vm.createAttach {
+            payload["attach"] = socketWorkerCloudAttachPayload(attach)
+        }
+        if let claim = vm.resourcePoolClaim ?? vm.resourceReservation {
+            payload["resources"] = [
+                "vcpus": claim.vcpus,
+                "memoryMb": claim.memoryMb,
+                "diskMb": claim.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
+        }
+        if let reservation = vm.resourceReservation {
+            payload["resourceReservation"] = [
+                "vcpus": reservation.vcpus,
+                "memoryMb": reservation.memoryMb,
+                "diskMb": reservation.diskMb.map { $0 as Any } ?? NSNull(),
+            ]
         }
         if vm.addressIPv4 != nil || vm.addressIPv6 != nil {
             var address: [String: Any] = [:]

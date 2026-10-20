@@ -25,6 +25,11 @@ extension AgentLaunchCommandSnapshot {
            !path.isEmpty {
             selectedEnvironment["PATH"] = path
         }
+        if let stableSurfaceId = environment["CMUX_STABLE_SURFACE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           UUID(uuidString: stableSurfaceId) != nil {
+            selectedEnvironment["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId
+        }
         self.init(
             launcher: launcher,
             executablePath: executablePath,
@@ -653,25 +658,12 @@ extension SurfaceResumeBindingIndex {
                   let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
-            let binding: SurfaceResumeBindingSnapshot?
-            if let tmuxBinding = TmuxResumeParser.binding(
+            guard let binding = ProcessDetectedTerminalBinding.binding(
                 processName: process.name,
                 processPath: process.path,
-                arguments: processArguments.arguments,
-                environment: processArguments.environment,
+                processArguments: processArguments,
                 capturedAt: capturedAt
-            ) {
-                binding = tmuxBinding
-            } else {
-                binding = TerminalSSHSessionDetector.resumeBinding(
-                    processName: process.name,
-                    processPath: process.path,
-                    arguments: processArguments.arguments,
-                    environment: processArguments.environment,
-                    capturedAt: capturedAt
-                )
-            }
-            guard let binding else { continue }
+            ) else { continue }
             guard process.pid > (selectedPIDByPanel[panelKey] ?? Int.min) else {
                 continue
             }
@@ -789,7 +781,7 @@ private extension CmuxVaultAgentSessionIDSource {
     }
 }
 
-private extension CmuxTopProcessSnapshot {
+extension CmuxTopProcessSnapshot {
     func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
         var result: [RestorableAgentSessionIndex.PanelKey: Set<Int>] = [:]
         for process in cmuxScopedProcesses() {

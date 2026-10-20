@@ -492,6 +492,12 @@ extension ControlCommandCoordinator {
             return .err(code: "internal_error", message: "Failed moving source surface into target pane", data: nil)
         case .moveTargetFailed:
             return .err(code: "internal_error", message: "Failed moving target surface into source pane", data: nil)
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .swapped(let windowID, let workspaceID, let sourcePane, let targetPane, let sourceSurface, let targetSurface):
             return .ok(.object([
                 "window_id": .string(windowID.uuidString),
@@ -541,6 +547,12 @@ extension ControlCommandCoordinator {
             return .err(code: "internal_error", message: "Failed to detach source surface", data: nil)
         case .createWorkspaceFailed:
             return .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .destinationPaneUnresolved(let workspaceID, let surfaceID):
             return .err(
                 code: "internal_error",

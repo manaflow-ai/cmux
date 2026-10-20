@@ -23,10 +23,10 @@ const runRepo = <T>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, unk
 
 describe("independent Cloud VM limits", () => {
   test("retired deployment overrides cannot reduce the advertised paid allowance", () => {
-    const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "5", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "5" };
-    expect(maxActiveVmsForPlan("pro", env)).toBe(50);
-    expect(maxActiveVmsForPlan("founders", env)).toBe(50);
-    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(200);
+    const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "1" };
+    expect(maxActiveVmsForPlan("pro", env)).toBe(5);
+    expect(maxActiveVmsForPlan("founders", env)).toBe(5);
+    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(20);
   });
 
   dbTest("admits the third machine, all 50 sizes, and exactly one concurrent final slot", async () => {
@@ -55,6 +55,32 @@ describe("independent Cloud VM limits", () => {
       expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 50 });
       const retry = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "independent-0" }));
       expect(retry.inserted).toBe(false);
+    } finally {
+      await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    }
+  });
+
+  dbTest("the active-limit error names only the running and provisioning machines it counted", async () => {
+    const team = "team-limit-names";
+    await sql`delete from cloud_vms where billing_team_id = ${team}`;
+    try {
+      const input = {
+        userId: "user-limit-names", billingTeamId: team, billingPlanId: "pro",
+        provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 2,
+        resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
+      };
+      for (const key of ["named-a", "named-b", "named-paused"]) {
+        await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: key, maxActiveVms: 3 }));
+      }
+      await sql`update cloud_vms set status = 'paused' where billing_team_id = ${team} and idempotency_key = 'named-paused'`;
+      await sql`update cloud_vms set status = 'running', provider_vm_id = 'pvm-' || idempotency_key, display_name = 'Box A'
+        where billing_team_id = ${team} and idempotency_key = 'named-a'`;
+      const failure = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "named-over" }).pipe(Effect.flip));
+      expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 2 });
+      const machines = (failure as { activeMachines?: readonly { name: string; status: string }[] }).activeMachines ?? [];
+      expect(machines.map(machine => machine.status).sort()).toEqual(["provisioning", "running"]);
+      expect(machines.find(machine => machine.status === "running")?.name).toBe("Box A");
+      expect(machines.every(machine => machine.name.length > 0)).toBe(true);
     } finally {
       await sql`delete from cloud_vms where billing_team_id = ${team}`;
     }

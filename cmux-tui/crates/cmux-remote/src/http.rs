@@ -326,6 +326,9 @@ async fn run_workspace_http_server(
     let permits = Arc::new(Semaphore::new(limits.maximum_connections));
     let (connection_shutdown, _) = watch::channel(false);
     let mut connections = JoinSet::new();
+    // Spacing for accept errors that persist (descriptor exhaustion).
+    let mut accept_backoff =
+        cmux_tui_core::backoff::Backoff::new(Duration::from_millis(10), Duration::from_secs(1));
     loop {
         tokio::select! {
             biased;
@@ -362,6 +365,7 @@ async fn run_workspace_http_server(
                 };
                 match accepted {
                     Ok((stream, _)) => {
+                        accept_backoff.reset();
                         let _ = stream.set_nodelay(true);
                         connections.spawn(serve_workspace_http_connection(
                             stream,
@@ -371,12 +375,14 @@ async fn run_workspace_http_server(
                             connection_shutdown.subscribe(),
                         ));
                     }
-                    Err(_) => {
+                    Err(error) => {
                         drop(permit);
-                        tokio::select! {
-                            biased;
-                            _ = &mut shutdown => break,
-                            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
+                        if cmux_tui_core::backoff::accept_error_needs_backoff(&error) {
+                            tokio::select! {
+                                biased;
+                                _ = &mut shutdown => break,
+                                _ = tokio::time::sleep(accept_backoff.next_delay()) => {}
+                            }
                         }
                     }
                 }

@@ -28,7 +28,7 @@ extension DockSplitStore {
                 forPanelId: restore.stablePanelID,
                 kind: expectedKind
             ) else {
-                terminal.restoreRecovery.state = .checking
+                terminal.restoreRecovery.markCheckingPreservingFailure()
                 continue
             }
             guard deferredAgentResumeRestoreMatchesCurrentSession(
@@ -66,8 +66,38 @@ extension DockSplitStore {
                 nil
             }
             if let liveSessionOwner {
+                let attachInput = restore.restoresRemoteWorkspaceTerminalSnapshot
+                    ? nil
+                    : AgentRestoreAttachCommand.startupInput(
+                        liveOwner: liveSessionOwner,
+                        restorableAgent: restore.restorableAgent,
+                        resumeBinding: currentResumeBinding ?? restore.resumeBinding,
+                        tmuxStartCommand: restore.tmuxStartCommand,
+                        workingDirectory: restore.resumeWorkingDirectory,
+                        dialect: restore.noticeDialect
+                    )
                 terminal.restoreRecovery.state = .liveOwner(
-                    kind: liveSessionOwner.kind, processID: liveSessionOwner.processID
+                    kind: liveSessionOwner.kind,
+                    processID: liveSessionOwner.processID,
+                    attachInput: attachInput,
+                    attachAvailable: false
+                )
+                let attachOrNoticeInput = attachInput ?? AgentRestoreLiveOwnerNotice(
+                    processID: liveSessionOwner.processID
+                ).startupInput(dialect: restore.noticeDialect)
+                restoredAgentLifecycle.setResumeState(
+                    attachInput == nil ? .manualResumeAvailable : .awaitingAutoResumeCommand,
+                    panelId: panelId
+                )
+                restoredAgentLifecycle.registerStartupInput(attachOrNoticeInput, panelId: panelId)
+                _ = terminal.surface.admitStartupRestoreRuntime(initialInput: attachOrNoticeInput)
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: workspaceId,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
                 )
                 continue
             }
@@ -116,7 +146,15 @@ extension DockSplitStore {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                cancelDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    retireBinding: false
+                )
+                terminal.restoreRecovery.state = .failed(
+                    reason: "resume-command-unavailable",
+                    recoveryInput: nil
+                )
                 continue
             }
             let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
@@ -163,6 +201,10 @@ extension DockSplitStore {
                 } else {
                     restoredAgentLifecycle.setResumeState(nil, panelId: panelId)
                 }
+                terminal.restoreRecovery.state = .failed(
+                    reason: "startup-admission-rejected",
+                    recoveryInput: startupInput
+                )
             } else {
                 terminalStartupRestoreCoordinator.recordDeferredResumeIntent(
                     panelID: panelId,

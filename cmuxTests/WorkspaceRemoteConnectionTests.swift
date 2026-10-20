@@ -30,14 +30,11 @@ private final class ManualRemotePTYLifecycleCommitLease:
         case inFlight
         case completed
     }
-
     private struct State {
         var isCurrent = true
         var delivery = DeliveryState.available
     }
-
     private nonisolated let state = OSAllocatedUnfairLock(initialState: State())
-
     var isCurrent: Bool {
         get {
             state.withLock { $0.isCurrent }
@@ -122,6 +119,9 @@ private final class NativeSSHCleanupRecorder {
 }
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
+    private var previousCloudMarker: Any?
+    override func setUp() { super.setUp(); previousCloudMarker = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey); UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }
+    override func tearDown() { if let previousCloudMarker { UserDefaults.standard.set(previousCloudMarker, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) } else { UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey) }; super.tearDown() }
     /// A control path in the resolved form the broker will claim lifecycle ownership of:
     /// cmux's socket directory followed by 40 hex digits, which is what `ssh -G` expands `%C` into
     /// before a configuration reaches the app. `NativeSSHControlMasterKey` refuses to own a
@@ -2671,7 +2671,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         try Data("second".utf8).write(to: secondFileURL)
 
         let session = DetectedSSHSession(
-            destination: "lawrence@example.com",
+            destination: "dev@example.com",
             port: 2200,
             identityFile: "/Users/test/.ssh/id_ed25519",
             configFile: nil,
@@ -2696,7 +2696,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "copy failed")
             }
             if executable == "/usr/bin/ssh" {
-                return (status: 0, stdout: "", stderr: "")
+                let stdout = arguments.contains {
+                    $0.contains("__CMUX_REMOTE_PASTE_HOME__")
+                } ? "__CMUX_REMOTE_PASTE_HOME__/home/test user\n" : ""
+                return (status: 0, stdout: stdout, stderr: "")
             }
             XCTFail("unexpected executable \(executable)")
             return (status: 1, stdout: "", stderr: "unexpected executable")
@@ -2714,12 +2717,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .last
         )
         let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        XCTAssertTrue(
+            uploadedRemotePath.hasPrefix("/home/test user/.cache/cmux/paste/"),
+            String(uploadedRemotePath)
+        )
+        let uploadedFileName = try XCTUnwrap(uploadedRemotePath.split(separator: "/").last)
+        // The first ssh call prepares the private paste directory; cleanup runs
+        // after the failed copy and addresses the file through "$HOME/...".
         let cleanupInvocation = try XCTUnwrap(
-            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+            invocations.last(where: { $0.executable == "/usr/bin/ssh" })
         )
         let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
 
-        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+        XCTAssertTrue(cleanupCommand.contains("rm -f --"), cleanupCommand)
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedFileName)), cleanupCommand)
     }
 
     func testDetectsForegroundSSHSessionForTTY() {
@@ -2736,7 +2747,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     "-o", "StrictHostKeyChecking=accept-new",
                     "-p", "2200",
                     "-i", "/Users/test/.ssh/id_ed25519",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
@@ -2744,7 +2755,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             session,
             DetectedSSHSession(
-                destination: "lawrence@example.com",
+                destination: "dev@example.com",
                 port: 2200,
                 identityFile: "/Users/test/.ssh/id_ed25519",
                 configFile: nil,
@@ -2781,6 +2792,72 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertNil(session)
     }
 
+    func testDetectsForcedTTYSSHSessionWithRemoteTmuxCommandForImagePaste() throws {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-tt",
+                    "my-host",
+                    "tmux",
+                    "new-session",
+                    "-A",
+                    "-s",
+                    "pastetest",
+                ],
+            ]
+        )
+
+        let detectedSession = try XCTUnwrap(session)
+        XCTAssertEqual(detectedSession.destination, "my-host")
+
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-21064.png")
+        try Data("image-payload".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(
+            TerminalImageTransferPlanner.plan(
+                fileURLs: [fileURL],
+                target: .remote(.detectedSSH(detectedSession))
+            ),
+            .uploadFiles([fileURL], .detectedSSH(detectedSession))
+        )
+    }
+
+    func testForcedTTYSSHDetectionRespectsTTYOptionPrecedence() {
+        let cases: [([String], Bool)] = [
+            (["ssh", "-o", "RequestTTY=force", "-o", "RequestTTY=no", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY=auto", "-o", "RequestTTY=force", "my-host", "tmux"], false),
+            (["ssh", "-o", "RequestTTY force", "my-host", "tmux"], true),
+            (["ssh", "-oRequestTTY=force", "my-host", "tmux"], true),
+            (["ssh", "-o", "RequestTTY=no", "-t", "my-host", "tmux"], true),
+            (["ssh", "-T", "-t", "my-host", "tmux"], true),
+            (["ssh", "-t", "-T", "my-host", "tmux"], false),
+        ]
+
+        for (arguments, shouldDetect) in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+
+            XCTAssertEqual(
+                session != nil,
+                shouldDetect,
+                "Unexpected detection result for arguments: \(arguments)"
+            )
+        }
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2792,7 +2869,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     "ssh",
                     "-S", "/tmp/cmux-ssh-%C",
                     "-p", "2200",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
@@ -2815,7 +2892,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "/opt/homebrew/bin/et",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
@@ -2823,7 +2900,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             session,
             DetectedSSHSession(
-                destination: "lawrence@example.com",
+                destination: "dev@example.com",
                 port: nil,
                 identityFile: nil,
                 configFile: nil,
@@ -2838,6 +2915,104 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testRejectsUnknownEternalTerminalLongOptionWithEqualsValue() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "et",
+                    "--definitely-unknown=value",
+                    "example.com",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
+    func testDetectsRecognizedEternalTerminalLongOptions() {
+        let valueSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--username=dev", "example.com"],
+            ]
+        )
+        XCTAssertEqual(valueSession?.destination, "dev@example.com")
+
+        let flagSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--help", "example.com"],
+            ]
+        )
+        XCTAssertEqual(flagSession?.destination, "example.com")
+    }
+
+    func testDetectsDocumentedEternalTerminalSSHConfigOptions() {
+        let valueSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--ssh-config=/tmp/et.conf", "example.com"],
+            ]
+        )
+        XCTAssertEqual(valueSession?.destination, "example.com")
+        XCTAssertEqual(valueSession?.configFile, "/tmp/et.conf")
+        let valueSCP = valueSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(valueSCP.contains("-F"))
+        XCTAssertTrue(valueSCP.contains("/tmp/et.conf"))
+
+        let noConfigSession = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+            ],
+            argumentsByPID: [
+                2145: ["et", "--no-ssh-config", "example.com"],
+            ]
+        )
+        XCTAssertEqual(noConfigSession?.destination, "example.com")
+        XCTAssertEqual(noConfigSession?.configFile, "/dev/null")
+        let noConfigSCP = noConfigSession?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop.png"
+        ) ?? []
+        XCTAssertTrue(noConfigSCP.contains("-F"))
+        XCTAssertTrue(noConfigSCP.contains("/dev/null"))
+    }
+
+    func testRejectsValuesAttachedToEternalTerminalNoArgumentOptions() {
+        let cases = [
+            ["et", "--help=value", "example.com"],
+            ["et", "--forward-ssh-agent=value", "example.com"],
+        ]
+
+        for arguments in cases {
+            let session = TerminalSSHSessionDetector.detectForTesting(
+                ttyName: "/dev/ttys004",
+                processes: [
+                    .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "et"),
+                ],
+                argumentsByPID: [2145: arguments]
+            )
+            XCTAssertNil(session)
+        }
+    }
+
     func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2847,7 +3022,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "et",
-                    "-u", "lawrence",
+                    "-u", "dev",
                     "-p", "2022",
                     "--jport", "2023",
                     "example.com:2024",
@@ -2855,7 +3030,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertEqual(session?.destination, "dev@example.com")
         XCTAssertNil(session?.port)
 
         let scpArgs = session?.scpArgumentsForTesting(
@@ -2863,7 +3038,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             remotePath: "/tmp/cmux-drop-123.png"
         ) ?? []
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@example.com:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionWithBracketedIPv6ServerPortForSCP() {
@@ -2875,13 +3050,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "et",
-                    "-u", "lawrence",
+                    "-u", "dev",
                     "[2001:db8::1]:2022",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@[2001:db8::1]")
+        XCTAssertEqual(session?.destination, "dev@[2001:db8::1]")
 
         let scpArgs = session?.scpArgumentsForTesting(
             localPath: "/tmp/local.png",
@@ -2889,7 +3064,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         ) ?? []
         XCTAssertNil(session?.port)
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@[2001:db8::1]:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionWithFullIPv6ServerPortForSCP() {
@@ -2901,13 +3076,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "et",
-                    "-u", "lawrence",
+                    "-u", "dev",
                     "2001:db8:0:0:0:0:0:1:2022",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@[2001:db8:0:0:0:0:0:1]")
+        XCTAssertEqual(session?.destination, "dev@[2001:db8:0:0:0:0:0:1]")
 
         let scpArgs = session?.scpArgumentsForTesting(
             localPath: "/tmp/local.png",
@@ -2915,7 +3090,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         ) ?? []
         XCTAssertNil(session?.port)
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionPreservesAmbiguousCompressedIPv6LiteralForSCP() {
@@ -2927,13 +3102,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "et",
-                    "-u", "lawrence",
+                    "-u", "dev",
                     "2001:db8::1:2022",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@2001:db8::1:2022")
+        XCTAssertEqual(session?.destination, "dev@2001:db8::1:2022")
 
         let scpArgs = session?.scpArgumentsForTesting(
             localPath: "/tmp/local.png",
@@ -2941,7 +3116,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         ) ?? []
         XCTAssertNil(session?.port)
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
@@ -2953,13 +3128,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             argumentsByPID: [
                 2145: [
                     "et",
-                    "lawrence@example.com",
+                    "dev@example.com",
                     "--ssh-option", "Port=2200",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertEqual(session?.destination, "dev@example.com")
         XCTAssertNil(session?.port)
 
         let scpArgs = session?.scpArgumentsForTesting(
@@ -2967,7 +3142,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             remotePath: "/tmp/cmux-drop-123.png"
         ) ?? []
         XCTAssertFalse(scpArgs.contains("-P"))
-        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@example.com:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionStripsNativeJumpHostServerPortForSCP() {
@@ -2980,7 +3155,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 2145: [
                     "et",
                     "--jumphost", "relay@bastion.example.com:2022",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
@@ -2996,7 +3171,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(scpArgs.contains("-J"))
         XCTAssertTrue(scpArgs.contains("relay@bastion.example.com"))
         XCTAssertFalse(scpArgs.contains("relay@bastion.example.com:2022"))
-        XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@example.com:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsEternalTerminalSessionSSHOptionsForSCP() {
@@ -3015,7 +3190,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     "--jumphost", "bastion.example.com",
                     "--command", "uptime",
                     "-x",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
@@ -3023,7 +3198,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(
             session,
             DetectedSSHSession(
-                destination: "lawrence@example.com",
+                destination: "dev@example.com",
                 port: 2200,
                 identityFile: "/Users/test/.ssh/id_ed25519",
                 configFile: nil,
@@ -3100,7 +3275,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     func testDetectedSSHSessionBracketsIPv6LiteralSCPDestination() {
         let session = DetectedSSHSession(
-            destination: "lawrence@2001:db8::1",
+            destination: "dev@2001:db8::1",
             port: nil,
             identityFile: nil,
             configFile: nil,
@@ -3118,7 +3293,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             remotePath: "/tmp/cmux-drop-123.png"
         )
 
-        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+        XCTAssertEqual(scpArgs.last, "dev@[2001:db8::1]:/tmp/cmux-drop-123.png")
     }
 
     func testDetectsForegroundSSHSessionWithLowercaseAgentFlag() {
@@ -3131,12 +3306,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 2145: [
                     "ssh",
                     "-a",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertEqual(session?.destination, "dev@example.com")
         XCTAssertFalse(session?.forwardAgent ?? true)
     }
 
@@ -3150,12 +3325,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 2145: [
                     "ssh",
                     "-B", "en0",
-                    "lawrence@example.com",
+                    "dev@example.com",
                 ],
             ]
         )
 
-        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertEqual(session?.destination, "dev@example.com")
     }
 
     func testIgnoresBackgroundSSHProcessForTTY() {
@@ -3165,7 +3340,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 .init(pid: 2145, pgid: 2145, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
             ],
             argumentsByPID: [
-                2145: ["ssh", "lawrence@example.com"],
+                2145: ["ssh", "dev@example.com"],
             ]
         )
 
@@ -3306,10 +3481,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
-        let flag = CmuxFeatureFlags.cloudMachinesFlag
-        let previousRemoteOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
-        CmuxFeatureFlags.shared.setOverride(true, for: flag)
-        defer { CmuxFeatureFlags.shared.setOverride(previousRemoteOverride, for: flag) }
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
             destination: "cloud VM",

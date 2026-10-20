@@ -296,7 +296,7 @@ mod tests {
     fn ssh_exec_command_is_exact_and_user_input_only_selects_destination() {
         let connector = SshCloudConnector::new(SshOptions {
             host: "cmux.cloud".into(),
-            user: Some("lawrence".into()),
+            user: Some("dev".into()),
             port: Some(2222),
             identity_file: Some(Path::new("/keys/cmux").into()),
         })
@@ -306,13 +306,13 @@ mod tests {
             &args[args.len() - 5..],
             [
                 OsStr::new("--"),
-                OsStr::new("lawrence@cmux.cloud"),
+                OsStr::new("dev@cmux.cloud"),
                 OsStr::new("cmux"),
                 OsStr::new("machine"),
                 OsStr::new("register"),
             ]
         );
-        assert!(args.contains(&OsString::from("lawrence@cmux.cloud")));
+        assert!(args.contains(&OsString::from("dev@cmux.cloud")));
         assert!(args.contains(&OsString::from("IdentitiesOnly=yes")));
         assert!(args.contains(&OsString::from("BatchMode=yes")));
         assert!(args.contains(&OsString::from("StrictHostKeyChecking=yes")));

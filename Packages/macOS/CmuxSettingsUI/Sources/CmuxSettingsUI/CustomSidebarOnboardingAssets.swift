@@ -14,6 +14,22 @@ public struct CustomSidebarOnboardingAssets: Sendable {
         catalog.templates
     }
 
+    public func previewImageURL(id: String) -> URL? {
+        previewImageURL(id: id, theme: "dark")
+    }
+
+    /// Returns the bundled light or dark preview image for a template.
+    /// - Parameters:
+    ///   - id: The template identifier.
+    ///   - theme: `light` or `dark`.
+    public func previewImageURL(id: String, theme: String) -> URL? {
+        Bundle.module.url(
+            forResource: "\(id)-\(theme)",
+            withExtension: "png",
+            subdirectory: "CustomSidebarTemplatePreviews"
+        )
+    }
+
     /// Loads the known-good interpreted-Swift starter sidebar.
     public func starterTemplate() -> CustomSidebarTemplate? {
         guard let sourceURL = Bundle.module.url(

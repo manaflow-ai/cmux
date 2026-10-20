@@ -28,8 +28,16 @@ FAILURES = []
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish"],
+    "dogfood-artifact-publish.yml": ["publish"],
 }
-ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+ARTIFACT_SECRETS = {
+    "CF_R2_ACCESS_KEY_ID",
+    "CF_R2_SECRET_ACCESS_KEY",
+    "CF_R2_ACCOUNT_ID",
+    "CMUX_CEF_R2_ACCESS_KEY_ID",
+    "CMUX_CEF_R2_SECRET_ACCESS_KEY",
+    "CMUX_CEF_R2_ACCOUNT_ID",
+}
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
@@ -41,6 +49,13 @@ RELEASE_JOBS = {
     "iroh-release-gate.yml": ["simulator-e2e"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
+}
+
+# The cmux NEXT feed's own token lives in `release-next` (policy: branch
+# nightly-next only). main carries nightly-next-rollback.yml only so GitHub
+# lists it for dispatch; its job runs only on nightly-next.
+RELEASE_NEXT_JOBS = {
+    "nightly-next-rollback.yml": ["rollback"],
 }
 
 
@@ -58,6 +73,11 @@ def main():
         for job in jobs:
             definition = document["jobs"].get(job, {})
             _check(definition.get("environment") == "release", f"{name} {job} runs in the release environment")
+    for name, jobs in RELEASE_NEXT_JOBS.items():
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job in jobs:
+            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+                   f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)

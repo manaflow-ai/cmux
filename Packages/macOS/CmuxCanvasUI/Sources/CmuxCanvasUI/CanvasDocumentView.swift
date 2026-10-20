@@ -26,8 +26,16 @@ final class CanvasDocumentView: NSView {
         }
     }
 
+    /// False when the window backdrop shows through; only the dots are drawn.
+    var drawsBackground = true {
+        didSet {
+            guard drawsBackground != oldValue else { return }
+            needsDisplay = true
+        }
+    }
+
     override var isFlipped: Bool { true }
-    override var isOpaque: Bool { true }
+    override var isOpaque: Bool { drawsBackground }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -40,13 +48,18 @@ final class CanvasDocumentView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        canvasBackground.setFill()
-        dirtyRect.fill()
+        if drawsBackground {
+            canvasBackground.setFill()
+            dirtyRect.fill()
+        }
 
         // Dots are aligned to canvas space so they stay put when the document
         // re-centers around content.
         let spacing = Self.gridSpacing
         let radius = Self.gridDotRadius
+        // Panes can be clear (see ``drawsBackground``), so keep the grid out
+        // from under them instead of relying on their fill to hide it.
+        let paneFrames = subviews.compactMap { ($0 as? CanvasPaneView)?.frame }
         NSColor.tertiaryLabelColor.withAlphaComponent(0.18).setFill()
         let phaseX = canvasToDocumentOffset.x.truncatingRemainder(dividingBy: spacing)
         let phaseY = canvasToDocumentOffset.y.truncatingRemainder(dividingBy: spacing)
@@ -59,7 +72,9 @@ final class CanvasDocumentView: NSView {
             while y < dirtyRect.minY { y += spacing }
             while y <= dirtyRect.maxY {
                 let dot = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
-                NSBezierPath(ovalIn: dot).fill()
+                if !paneFrames.contains(where: { $0.intersects(dot) }) {
+                    NSBezierPath(ovalIn: dot).fill()
+                }
                 y += spacing
             }
             x += spacing
