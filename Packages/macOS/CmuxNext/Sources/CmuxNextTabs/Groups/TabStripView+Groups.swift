@@ -40,6 +40,7 @@ extension TabStripView {
             chip.themeScope = themeScope
             chip.scale = window?.backingScaleFactor ?? 2
             chip.accessibility.setAccessibilityParent(self)
+            chip.accessibility.setAccessibilityIdentifier("cmux.tabs.group.\(group.rawValue)")
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
             let band = TabGroupBandCell(color: item.tint)
             band.themeScope = themeScope
@@ -150,6 +151,17 @@ extension TabStripView {
         if let old = groups.hoveredChip { groups.chips[old]?.isHovered = false }
         groups.hoveredChip = group
         if let group { groups.chips[group]?.isHovered = true }
+    }
+
+    /// `group`'s summary card (`GroupHoverCardSummary`), the same card a sidebar group shows.
+    func groupHoverSummary(_ group: TabGroupItem, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
+        let members = displayed.filter { $0.groupID == group.id }.map { tab in
+            GroupHoverCardMember(title: tab.title.isEmpty ? Strings.untitled : tab.title,
+                                 activity: tab.isWaiting ? .waiting : GroupHoverCardMember.Activity(tab.indicator),
+                                 unread: tab.isUnread ? 1 : 0, lastActivity: tab.hover.since, branch: tab.hover.branch)
+        }
+        let title = group.name.isEmpty ? Strings.groupTabCount(members.count) : group.name
+        return GroupHoverCardSummary.make(title: title, kind: .tabGroup, members: members, options: options, now: now)
     }
 
     func groupHoverContent(_ group: TabGroupItem) -> TabHoverCardContent {

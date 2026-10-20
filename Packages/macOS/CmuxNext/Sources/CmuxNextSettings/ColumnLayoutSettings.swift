@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusPaneOnScroll`. A missing key is the default with no
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusFollowsMouse`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -19,7 +19,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
     public static let rowsPath = ["layout", "rows"]
-    public static let focusPaneOnScrollPath = ["layout", "focusPaneOnScroll"]
+    public static let focusFollowsMousePath = ["layout", "focusFollowsMouse"]
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
@@ -28,8 +28,9 @@ public nonisolated enum ColumnLayoutSettings {
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
     /// `layout.rows` defaults on for dogfood (rows.md O1).
     public static let rowsFallback = true
-    /// `layout.focusPaneOnScroll` defaults on: a scroll over a pane focuses it.
-    public static let focusPaneOnScrollFallback = true
+    /// `layout.focusFollowsMouse` defaults off: hovering or scrolling a pane leaves
+    /// keyboard focus where it is, so typing is never pulled into another pane.
+    public static let focusFollowsMouseFallback = false
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
@@ -107,15 +108,15 @@ public nonisolated enum ColumnLayoutSettings {
         } else {
             snapshot.layoutRows = rowsFallback
         }
-        if let value = root.value(at: focusPaneOnScrollPath) {
+        if let value = root.value(at: focusFollowsMousePath) {
             if let on = value.boolValue {
-                snapshot.focusPaneOnScroll = on
+                snapshot.focusFollowsMouse = on
             } else {
-                snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusPaneOnScroll", message: "expected true or false"))
+                snapshot.focusFollowsMouse = focusFollowsMouseFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusFollowsMouse", message: "expected true or false"))
             }
         } else {
-            snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
+            snapshot.focusFollowsMouse = focusFollowsMouseFallback
         }
         snapshot.diagnostics += diagnostics
     }

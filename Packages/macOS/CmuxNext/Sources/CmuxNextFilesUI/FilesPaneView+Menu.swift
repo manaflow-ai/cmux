@@ -8,6 +8,12 @@ extension FilesPaneView {
         let menu = NSMenu()
         if entry != nil {
             menu.addItem(item(FilesStrings.open, "doc", #selector(menuOpen)))
+            // Open With ▸ (every app the system reports, the default first, Other…), Finder's
+            // second row; the clicked item's type picks the apps.
+            if let entry, let fileMenu {
+                let url = entry.url
+                menu.addItem(fileMenu.openWithItem(forFileNamed: entry.name, isDirectory: entry.kind == .folder || entry.kind == .package) { url })
+            }
             if entry?.kind == .package {
                 menu.addItem(item(FilesStrings.showPackageContents, "shippingbox", #selector(menuShowPackage)))
             }
@@ -27,6 +33,10 @@ extension FilesPaneView {
             menu.addItem(.separator())
             menu.addItem(item(FilesStrings.copy, "doc.on.doc", #selector(menuCopy)))
             menu.addItem(item(FilesStrings.copyPath, "link", #selector(menuCopyPath)))
+            if let entry, let fileMenu {
+                let url = entry.url
+                menu.addItem(fileMenu.shareItem { url })
+            }
         }
         menu.addItem(item(FilesStrings.paste, "doc.on.clipboard", #selector(menuPaste)))
         menu.addItem(item(FilesStrings.moveHere, "arrow.down.doc", #selector(menuMoveHere)))

@@ -17,6 +17,14 @@ nonisolated enum WorkspaceVerbStrings {
     /// A grouped row's Move to Top and Move to Bottom (they move it inside its group).
     static var moveToTopOfGroup: String { text("workspaceVerbs.moveToTopOfGroup", "Move to Top of Group") }
     static var moveToBottomOfGroup: String { text("workspaceVerbs.moveToBottomOfGroup", "Move to Bottom of Group") }
+    /// A group header's Pin row, titled as the change it makes (pinned groups list first).
+    static var pinGroup: String { text("workspaceVerbs.pinGroup", "Pin Group") }
+    static var unpinGroup: String { text("workspaceVerbs.unpinGroup", "Unpin Group") }
+    /// A group header's Collapse/Expand row, titled as the change it makes.
+    static var collapseGroup: String { text("workspaceVerbs.collapseGroup", "Collapse Group") }
+    static var subgroupTooDeep: String { text("workspaceVerbs.refusal.subgroupTooDeep", "groups nest at most 3 levels deep") }
+    static var subgroupNeedsDocument: String { text("workspaceVerbs.refusal.subgroupNeedsDocument", "this sidebar cannot nest groups yet") }
+    static var expandGroup: String { text("workspaceVerbs.expandGroup", "Expand Group") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "WorkspaceVerbs", bundle: .module)

@@ -42,6 +42,7 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
@@ -51,6 +52,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(PermissionsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
         // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
         let errors = ErrorJournalService.make(environment: services.environment)
@@ -88,6 +90,8 @@ final class AppControl {
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
+            .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
             .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
@@ -148,7 +152,8 @@ final class AppControl {
             .mainActor("debug.hover_cards") { [weak services] call in
                 guard let services else { return .value(.null) }
                 if call.params["dismiss"]?.boolValue == true { services.hoverCards.dismiss(.action) }
-                return .value(.object(services.hoverCards.report.mapValues(JSONValue.string)))
+                // `gallery: sidebar|tabs|none` shows the card kinds over fixture data (HoverCardGallery).
+                return .value(.object((HoverCardGallery.show(call.params["gallery"]?.stringValue) ?? services.hoverCards.report).mapValues(JSONValue.string)))
             },
             // Pane chrome alignment: tab pill gaps, border, first terminal cell.
             .mainActor("debug.pane_chrome") { [weak services] _ in
@@ -232,6 +237,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursorDemo.handle(call.params, services: services))
             },
+            // A click on an agent cursor's name tag, as the person's (the tag is a link).
+            .mainActor("debug.agent_cursor.click_tag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.clickTag(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
@@ -253,6 +263,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
+            // One omnibar click from rest to the frame that shows focus and select-all (omnibar-mousedown-latency).
+            .async("debug.omnibar_bench") { [weak services] call in
+                await DebugOmnibarClickBench.run(call.params, services)
+            }.withDeadline(.fixed(.seconds(15))),
             .mainActor("debug.omnibar_type") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.type(call.params, services: services))
