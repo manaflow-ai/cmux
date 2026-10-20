@@ -151,4 +151,42 @@ registry '{"entries": [{"name": "swift miss", "kind": "swift", "package": "Pkg",
 PATH="$tmp/fakebin:$PATH" run
 expect "a swift filter matching no test fails" 1 "^FAST-TIER FAIL swift miss .*matched no test"
 
+# The Swift package builds and the cargo test build share no outputs, so they
+# run side by side: the build phase takes the longer of the two, not the sum.
+# Each fake build sleeps 3 s; one after the other would take at least 6 s.
+mkdir -p "$tmp/slowbin"
+cat > "$tmp/slowbin/cargo" <<'EOF2'
+#!/usr/bin/env bash
+case " $* " in *" --no-run "*) echo "cargo build output"; sleep 3; [ -z "${FAKE_CARGO_BUILD_FAILS:-}" ]; exit ;; esac
+echo "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.01s"
+EOF2
+cat > "$tmp/slowbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then echo "swift build output"; sleep 3; exit 0; fi
+echo "Test run with 3 tests in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/slowbin/cargo" "$tmp/slowbin/swift"
+registry '{"entries": [
+  {"name": "core hit", "kind": "cargo", "path": "crate", "package": "core", "filter": "matches", "owner": "op-test"},
+  {"name": "swift hit", "kind": "swift", "package": "Pkg", "filter": "Matches", "owner": "op-test"}]}'
+started=$(date +%s)
+PATH="$tmp/slowbin:$PATH" run --receipt "$tmp/receipt.json"
+elapsed=$(( $(date +%s) - started ))
+expect "concurrent builds still run every entry" 0 "^FAST-TIER PASS swift hit "
+expect "a build's output stays in the log, named by its build" 0 "^\[Pkg\] swift build output$"
+if [ "$elapsed" -ge 6 ]; then
+  echo "FAIL: the Swift and cargo builds ran one after the other (${elapsed}s, want under 6s)" >&2
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+python3 -I - "$tmp/receipt.json" <<'PY'
+import json, sys
+builds = json.load(open(sys.argv[1]))["builds"]
+assert [b["name"] for b in builds] == ["Pkg", "crate"], builds
+assert all(b["status"] == "pass" and b["seconds"] >= 2.5 for b in builds), builds
+PY
+FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
+expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate: the tests do not build"
+if grep -q "^FAST-TIER PASS" <<<"$out"; then echo "FAIL: entries ran after a failed build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+
 echo "fast-tier.test: ok"

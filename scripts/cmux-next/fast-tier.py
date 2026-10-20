@@ -36,6 +36,7 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
 
 KINDS = {"swift": ("package", "filter"), "cargo": ("path", "package"), "script": ("path",)}
@@ -119,27 +120,67 @@ def line(status, entry, seconds, extra=""):
     return f"FAST-TIER {status} {entry['name']} {seconds:.1f}s owner={entry['owner']} bead={entry.get('bead') or 'none'}{tail}"
 
 
+def run_build(root, argv, cwd, what, log_lock):
+    """One build, its output streamed line by line under a `[what]` prefix so a
+    build running beside another stays readable. Returns (returncode, seconds)."""
+    started = time.monotonic()
+    proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    for output_line in proc.stdout:
+        with log_lock:
+            print(f"[{what}] {output_line.rstrip()}", flush=True)
+    return proc.wait(), time.monotonic() - started
+
+
 def build_packages(root, entries, dry_run, timing):
-    """Builds every Swift package and cargo test binary once, outside the entries' time cap."""
-    builds = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
-              for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
+    """Builds every Swift package and cargo test binary once, outside the entries' time cap.
+
+    The Swift builds and the cargo builds share no outputs, so the two groups run
+    side by side (each group in order): on a warm runner the CmuxNext build
+    (~160 s) and the cmux-tui test build (~115 s) used to run one after the other.
+    """
+    swift = [(["swift", "build", "--build-tests", "--package-path", package], ".", package)
+             for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")]
+    cargo = []
     for path in dict.fromkeys(e["path"] for e in entries if e["kind"] == "cargo"):
         packages = [arg for e in entries if e["kind"] == "cargo" and e["path"] == path for arg in ("-p", e["package"])]
-        builds.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
-    for argv, cwd, what in builds:
-        print("BUILD " + describe(argv, cwd), flush=True)
-        started = time.monotonic()
-        if dry_run:
+        cargo.append((["cargo", "test", "--locked", "--no-run", *packages], path, path))
+    builds = swift + cargo
+    if dry_run:
+        for argv, cwd, what in builds:
+            print("BUILD " + describe(argv, cwd), flush=True)
             timing.append({"name": what, "command": describe(argv, cwd), "seconds": 0.0, "status": "dry-run"})
+        return True
+
+    log_lock = threading.Lock()
+    results = {}
+
+    def run_group(group):
+        for argv, cwd, what in group:
+            with log_lock:
+                print("BUILD " + describe(argv, cwd), flush=True)
+            returncode, seconds = run_build(root, argv, cwd, what, log_lock)
+            results[what] = (returncode, seconds)
+            if returncode != 0:
+                return
+
+    threads = [threading.Thread(target=run_group, args=(group,)) for group in (swift, cargo) if group]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    ok = True
+    for argv, cwd, what in builds:
+        if what not in results:
             continue
-        done = subprocess.run(argv, cwd=root / cwd)
-        seconds = time.monotonic() - started
-        status = "pass" if done.returncode == 0 else "fail"
+        returncode, seconds = results[what]
+        status = "pass" if returncode == 0 else "fail"
         timing.append({"name": what, "command": describe(argv, cwd), "seconds": round(seconds, 3), "status": status})
-        if done.returncode != 0:
+        if returncode != 0:
             print(f"FAST-TIER FAIL build:{what}: the tests do not build", flush=True)
-            return False
-    return True
+            ok = False
+    return ok
 
 
 def write_receipt(path, *, status, started_wall, builds, results, total_seconds, kinds=None):
