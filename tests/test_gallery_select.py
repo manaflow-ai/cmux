@@ -260,9 +260,11 @@ class WorkflowTests(unittest.TestCase):
 
     def test_mark_stale_runs_on_every_head_move(self):
         # Not only `synchronize`: a reopen or ready-for-review also moves past the old images.
+        # A `Gallery:` edit shares the group and can cancel the synchronize run, so both jobs
+        # run on the same events.
         cond = self.jobs["mark-stale"]["if"]
         self.assertNotIn("== 'synchronize'", cond)
-        self.assertIn("!= 'edited'", cond)
+        self.assertEqual(cond, self.jobs["capture"]["if"])
         self.assertEqual(self.jobs["mark-stale"]["permissions"]["pull-requests"], "write")
 
     def test_artifact_name_is_pr_and_exact_head(self):

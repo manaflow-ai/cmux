@@ -38,9 +38,10 @@ jobs:
   # The section shows the previous head's images until the capture replaces
   # them; say so. Base-branch scripts only, no pull request code.
   mark-stale:
-    # Any event but a body edit (the head is the same then); stale() writes
-    # nothing when the section already shows this head or there is none.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.action != 'edited' }}
+    # Same events as capture: a body edit that mentions `Gallery:` shares the
+    # concurrency group and can cancel a synchronize run, so it must mark stale
+    # too. stale() writes nothing when the section already shows this head.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
