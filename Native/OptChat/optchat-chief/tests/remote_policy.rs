@@ -20,6 +20,7 @@ use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
 use optchat_chief::daemon::DaemonEvent;
+use optchat_chief::tools::SendCall;
 use serde_json::{Value, json};
 
 const DEVICE: &str = "remote_inst_1";
@@ -429,6 +430,67 @@ fn security_a_private_turn_posts_nothing_after_membership_becomes_shared() {
     assert!(
         sends(&h).is_empty(),
         "a reply produced with private context reached the new participant"
+    );
+}
+
+#[test]
+fn security_a_private_turn_loses_output_tools_when_membership_becomes_shared() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "work from private context");
+    h.step();
+    h.agents.wait_prompts(1);
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(shared),
+        },
+    }));
+
+    let (send_reply, sent) = channel();
+    h.brain.step(Input::Send {
+        call: SendCall {
+            text: Some("PRIVATE-TOOL-OUTPUT".into()),
+            ..SendCall::default()
+        },
+        reply: send_reply,
+    });
+    let (spawn_reply, spawned) = channel();
+    h.brain.step(Input::SpawnRegister {
+        tasks: vec!["carry private instructions into a child".into()],
+        peer: None,
+        place: None,
+        reply: spawn_reply,
+    });
+
+    let send = sent.recv().unwrap();
+    let spawn = spawned.recv().unwrap();
+    assert!(
+        send.as_ref()
+            .is_err_and(|e| e.contains("membership became shared")),
+        "send stayed authorized after the disclosure boundary changed: {send:?}"
+    );
+    assert!(
+        spawn
+            .as_ref()
+            .is_err_and(|e| e.contains("membership became shared")),
+        "spawn stayed authorized after the disclosure boundary changed: {spawn:?}"
+    );
+    assert!(
+        sends(&h).is_empty(),
+        "a private-context tool posted to the group"
     );
 }
 
