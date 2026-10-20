@@ -48,7 +48,7 @@ test("the first tiles are None and the shuffles", async () => {
 
 test("Shuffle Your Images shuffles the folder the person's images are in", async () => {
   const { page, card } = await picker();
-  await act(async () => card.querySelector<HTMLButtonElement>('[aria-label="Shuffle Your Images"]')!.click());
+  await act(async () => card.querySelector<HTMLInputElement>('[aria-label="Shuffle Your Images"]')!.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: `folder:${FOLDER}` });
   page.unmount();
@@ -67,7 +67,7 @@ test("Shuffle a Folder… asks the app for a folder", async () => {
 
 test("a shuffled folder shows as the chosen tile, by the folder's name", async () => {
   const { page, card } = await picker("/settings/appearance", "folder:/Users/me/Pictures/Trips");
-  const chosen = card.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')!;
+  const chosen = card.querySelector<HTMLInputElement>('button[aria-pressed="true"]')!;
   expect(chosen.textContent).toContain("Trips");
   page.unmount();
 });
@@ -81,11 +81,15 @@ test("This Workspace comes after the shuffles: All Workspaces is the default", a
   page.unmount();
 });
 
-test("Change Picture shows in the card while a shuffle is chosen", async () => {
+test("Change Picture is in the card, on while a shuffle is chosen and off otherwise", async () => {
+  const control = (card: HTMLElement) =>
+    card.querySelector<HTMLElement>('[data-row-key="appearance.backgroundRotation"]')!.querySelector<HTMLInputElement>(
+      ".row-control input, .row-control button, .row-control select",
+    )!;
   const still = await picker();
-  expect(still.card.querySelector('[data-row-key="appearance.backgroundRotation"]')).toBeNull();
+  expect(control(still.card).disabled).toBe(true);
   still.page.unmount();
   const shuffling = await picker("/settings/appearance", "daily");
-  expect(shuffling.card.querySelector('[data-row-key="appearance.backgroundRotation"]')).not.toBeNull();
+  expect(control(shuffling.card).disabled).toBe(false);
   shuffling.page.unmount();
 });

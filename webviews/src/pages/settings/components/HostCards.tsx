@@ -334,8 +334,9 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       <div className="rows">
-        {/* How often the shuffle turns: the app's, so only for All Workspaces. */}
-        {!own && shuffles && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} />}
+        {/* How often the shuffle turns: the app's, so only for All Workspaces. Off without a shuffle,
+          but still here, so search and a deep link find it. */}
+        {!own && rotation && <SettingRow row={rotation} focused={focus === ROTATION_KEY} inactive={!shuffles} />}
         {!own && opacity && (
           <SettingRow row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
             focused={focus === BACKGROUND_OPACITY_KEY}
