@@ -47,7 +47,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     }
     if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}, "queue": {"type": "boolean", "description": "true: a low-priority FYI that waits for the running turn to end. Default false: it is steered in, else the turn is interrupted and this is its next prompt."}}, "required": ["id", "message"], "additionalProperties": false}}));
         list.push(json!({"name": "control", "description": CONTROL_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},

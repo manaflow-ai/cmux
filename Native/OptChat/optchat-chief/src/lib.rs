@@ -51,6 +51,7 @@ pub mod rpc;
 pub mod run;
 pub mod session_dir;
 pub mod settle_status;
+pub mod single_flight;
 pub mod state;
 pub mod subagents;
 pub mod tools;
