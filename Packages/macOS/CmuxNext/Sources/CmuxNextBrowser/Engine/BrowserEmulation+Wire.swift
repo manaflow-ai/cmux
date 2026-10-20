@@ -3,8 +3,9 @@ public import Foundation
 /// The daemon's browser-devices-v1 JSON, read in the engine module so the
 /// App only passes bytes through (extra.emulation, browser.devices.list).
 extension BrowserEmulation {
-    /// `extra.emulation` of a tab record; nil when absent or unreadable.
-    public init?(record json: Data?) {
+    /// `extra.emulation` of a tab record; nil when absent or unreadable. `tabID` is the daemon tab
+    /// it belongs to (the fit bar's commands name it).
+    public init?(record json: Data?, tabID: String? = nil) {
         guard let json, let fields = (try? JSONSerialization.jsonObject(with: json)) as? [String: Any] else { return nil }
         let calls = (fields["chromium_calls"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }
         let callsJSON = calls.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -14,13 +15,16 @@ extension BrowserEmulation {
                   let minWidth = (fit["min_width"] as? NSNumber)?.intValue, let maxWidth = (fit["max_width"] as? NSNumber)?.intValue
             else { return nil }
             self.init(width: 0, height: 0, deviceScaleFactor: 0, userAgent: "", chromiumCallsJSON: callsJSON,
-                      fit: Fit(aspectWidth: aspectWidth, aspectHeight: aspectHeight, minWidth: minWidth, maxWidth: maxWidth))
+                      fit: Fit(aspectWidth: aspectWidth, aspectHeight: aspectHeight, minWidth: minWidth, maxWidth: maxWidth,
+                               value: fit["value"] as? String ?? "\(aspectWidth):\(aspectHeight)"))
+            self.tabID = tabID
             return
         }
         guard let width = (fields["width"] as? NSNumber)?.intValue, let height = (fields["height"] as? NSNumber)?.intValue,
               let ratio = (fields["device_scale_factor"] as? NSNumber)?.doubleValue else { return nil }
         self.init(width: width, height: height, deviceScaleFactor: ratio, userAgent: fields["user_agent"] as? String ?? "",
                   chromiumCallsJSON: callsJSON)
+        self.tabID = tabID
     }
 }
 
@@ -37,7 +41,9 @@ extension BrowserDeviceMenu {
                let ratio = (screen["device-pixel-ratio"] as? NSNumber)?.doubleValue {
                 size = (width, height, ratio)
             }
-            return Device(title: title, category: device["category"] as? String ?? "mobile",
+            return Device(title: title, category: device["category"] as? String ?? "mobile", group: device["group"] as? String,
+                          brand: device["brand"] as? String ?? "Other", released: device["released"] as? String ?? "",
+                          rumored: device["rumored"] as? Bool == true,
                           shownByDefault: (device["show-by-default"] as? Bool) != false,
                           isCustom: device["origin"] as? String == "custom", size: size)
         }

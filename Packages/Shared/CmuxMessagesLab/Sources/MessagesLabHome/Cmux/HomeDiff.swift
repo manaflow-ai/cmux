@@ -25,6 +25,9 @@ import Foundation
 struct HomeDiff: Equatable {
     var actions: [Action] = []
     var rebuild = false
+    /// Where the running reply's posted message goes among `actions` (the stream's
+    /// `.streamEnd(replacedBy:)` is dispatched there, in transcript order).
+    var handOffAt: Int?
 
     static func == (a: HomeDiff, b: HomeDiff) -> Bool {
         a.rebuild == b.rebuild && a.actions.map(describe) == b.actions.map(describe)
@@ -36,7 +39,8 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil }) -> HomeDiff {
+                     media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil },
+                     handOff: IdempotencyKey? = nil) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
@@ -57,8 +61,9 @@ struct HomeDiff: Equatable {
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
-                // A shown reply whose thread changed (its root paged in or out, or was retracted): MessagesLab has no action for it.
-                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots) else { d.rebuild = true; return d }
+                // A shown reply whose thread or parent changed (its root or parent paged in or out, or was retracted): MessagesLab has no action for it.
+                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots),
+                      HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots) else { d.rebuild = true; return d }
                 guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
@@ -67,8 +72,10 @@ struct HomeDiff: Equatable {
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
-            } else {
+            } else if item.key != handOff {
                 d.actions.append(.receive(msg(item)))
+            } else {
+                d.handOffAt = d.actions.count // the running reply's stream takes it in place (ProjectionCore.stream)
             }
         }
         d.keepNewestStatus()

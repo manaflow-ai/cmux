@@ -53,11 +53,14 @@ const MAX_NAME_CHARS: usize = 80;
 const MAX_BODY_CHARS: usize = 200;
 
 impl Mux {
-    /// This machine's acpmux socket (`set_acpmux_socket`), and a watch of its
-    /// chats that posts their notifications for as long as the daemon runs.
+    /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
+    /// chats that posts their notifications for as long as the daemon runs,
+    /// and the agent message pump (`agent_message_pump.rs`), which the watch
+    /// wakes whenever it reaches acpmux.
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
+        self.start_agent_message_pump();
         let mux = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("mux-agent-chat-notices".into())
@@ -142,7 +145,14 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
             Some(live) if !live.shutting_down.load(std::sync::atomic::Ordering::Acquire) => {}
             _ => return,
         }
-        if let Ok(stream) = UnixStream::connect(socket)
+        let stream = UnixStream::connect(socket);
+        if stream.is_ok()
+            && let Some(live) = mux.upgrade()
+        {
+            // acpmux is back: what waited for it goes out now.
+            live.wake_agent_message_pump();
+        }
+        if let Ok(stream) = stream
             && follow(mux, stream, &mut chats).is_ok()
         {
             backoff.reset();

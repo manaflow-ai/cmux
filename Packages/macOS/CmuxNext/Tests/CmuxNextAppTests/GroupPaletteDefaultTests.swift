@@ -110,7 +110,7 @@ import Testing
                 header.updateLayer()
                 let bar = try #require(header.layer?.sublayers?.first { $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 })
                 let drawn = try Self.rgb(bar.backgroundColor)
-                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark)).fill
+                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark), inks: .onColor).fill
                 #expect(Self.same(drawn, want), "\(name) \(color) header: \(drawn), want \(want)")
             }
             let lines = Self.views(GroupLineView.self, in: sidebar)

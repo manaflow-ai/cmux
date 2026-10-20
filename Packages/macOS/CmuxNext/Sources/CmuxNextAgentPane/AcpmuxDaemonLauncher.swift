@@ -34,13 +34,15 @@ nonisolated enum AcpmuxDaemonLauncher {
 
     /// The daemon's environment: this app's, without any inherited Computer
     /// Use variable, plus `childEnvironment`, the current Computer Use socket
-    /// and agent token (never the host token), and the launch knobs.
+    /// and agent token (never the host token), the session offer tools while
+    /// suggested tasks are on (``AcpmuxEnvironment/offersSessionTools``), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         var variables = inherited.filter { !computerUse.contains($0.key) }.merging(environment.childEnvironment) { $1 }
         for key in AcpmuxEnvironment.computerUseKeys {
             if let value = environment.computerUse[key], !value.isEmpty { variables[key] = value }
         }
+        if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
         return variables
@@ -53,6 +55,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
     @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
+        // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
         try FileManager.default.createDirectory(at: environment.home, withIntermediateDirectories: true)
         let variables = spawnEnvironment(environment, inherited: ProcessInfo.processInfo.environment)

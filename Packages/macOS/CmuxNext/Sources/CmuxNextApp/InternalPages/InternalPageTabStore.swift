@@ -4,20 +4,15 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextIcons
+import CmuxNextSettingsWindow
 import CmuxNextTabs
 import Observation
 
-/// Which internal page tabs each pane lists, and their views
-/// (``InternalPage``). Where the pane's daemon holds page tabs
-/// (`page-tabs-v1`) a page opens as a store tab with a page source and
-/// moves, splits and closes like any other tab; else it is an app-only tab
-/// (`LocalPageTab`) this app session keeps. Observable for `tabsByPane`
-/// only: the control snapshot lists app-only page tabs and republishes
-/// when one opens or closes (bd cx-5xsi).
+/// Internal page tabs and their views; provider registration is observed.
 @Observable @MainActor
 final class InternalPageTabStore {
-    @ObservationIgnored private var providers: [InternalPageID: any InternalPageProvider] = [:]
-    private var tabsByPane: [String: [String]] = [:]
+    private var providers: [InternalPageID: any InternalPageProvider] = [:]
+    private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
@@ -78,7 +73,7 @@ final class InternalPageTabStore {
         } else {
             tabs.append(key)
         }
-        tabsByPane[paneKey] = tabs
+        tabsByPane[paneKey] = tabs.isEmpty ? nil : tabs
         windows[key] = window
         paneStores[paneKey] = store
         watch(store)
@@ -97,7 +92,7 @@ final class InternalPageTabStore {
 
     /// Every open tab of `page`, by the key its provider knows it by.
     func keys(of page: InternalPageID) -> [String] {
-        (tabsByPane.values.flatMap { $0 } + Set(storeKeys.values).sorted()).filter { LocalPageTab.page(of: $0) == page }
+        (tabsByPane.entries.flatMap(\.value) + Set(storeKeys.values).sorted()).filter { LocalPageTab.page(of: $0) == page }
     }
 
     /// The strip id of `pane`'s tab whose provider key is `key`: the key
@@ -108,21 +103,28 @@ final class InternalPageTabStore {
     }
 
     func stripItem(_ key: String) -> StripTabItem {
-        let provider = LocalPageTab.page(of: key).flatMap { providers[$0] }
-        return StripTabItem(id: StripTabID(key), title: provider?.title(for: key) ?? "", subtitle: nil,
+        let page = LocalPageTab.page(of: key), provider = page.flatMap { providers[$0] }
+        return StripTabItem(id: StripTabID(key), title: Self.tabTitle(provider, key: key, page: page), subtitle: nil,
                             icon: Self.tabIcon(provider), isBusy: false)
     }
 
-    /// A page tab's strip icon: the page's cmux icon, else its SF Symbol.
+    /// Fallback title while a restored provider is still registering.
+    private static func tabTitle(_ provider: (any InternalPageProvider)?, key: String, page: InternalPageID?) -> String {
+        if let title = provider?.title(for: key), !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
+        if let title = provider?.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return title }
+        guard let page, !page.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return Strings.untitledBrowser }
+        return switch page { case .settings: SettingsDeepLink.pageTitle; case .debugSettings: DebugSettingsModel.paneTitle; case .changelog: ChangelogPageStrings.title; default: page.rawValue }
+    }
+
     static func tabIcon(_ provider: (any InternalPageProvider)?) -> TabIcon {
-        guard let provider else { return .icon(.placeholder) }
+        guard let provider else { return .icon(.fileText) }
         return provider.icon.map(TabIcon.icon) ?? .symbol(provider.symbol)
     }
 
     /// The tab's view, made on first show.
     func view(for key: String) -> InternalPageView? {
         if let view = views[key] { return view }
-        guard tabsByPane.values.contains(where: { $0.contains(key) }), let page = LocalPageTab.page(of: key),
+        guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
         view.navigate = navigate
@@ -145,8 +147,9 @@ final class InternalPageTabStore {
 
     /// A store page tab's strip title and icon, from the page it shows.
     func storeTabItem(_ tab: TabModel, page: InternalPageID? = nil) -> (title: String, icon: TabIcon)? {
-        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
-        return (provider.title(for: storeKeys[tab.id] ?? ""), Self.tabIcon(provider))
+        guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
+        let provider = providers[page]
+        return (Self.tabTitle(provider, key: storeKeys[tab.id] ?? "", page: page), Self.tabIcon(provider))
     }
 
     /// The view of store page tab `tab` (its `page` source, or `page` for an
@@ -208,14 +211,15 @@ final class InternalPageTabStore {
         pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
                 let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
-                self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface)
+                // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
+                if !store.creations.wasCancelled(transaction) { self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
-                onCreated?(created.surface)
+                if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) }
             } catch {
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
-                self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window)
+                if !store.creations.wasCancelled(transaction) { self?.keepAsLocalTab(provisional.id, key: key, page: page, in: pane, store: store, window: window) }
                 store.rejectIntent(transaction)
             }
             return nil
@@ -280,8 +284,10 @@ final class InternalPageTabStore {
 
     /// The tab closed: drop its view and tell its provider.
     func close(_ key: String) {
-        for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
-        tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
+        for (pane, tabs) in tabsByPane.entries where tabs.contains(key) {
+            let rest = tabs.filter { $0 != key }
+            tabsByPane[pane] = rest.isEmpty ? nil : rest
+        }
         forget(key)
         forgetUnusedStores()
     }

@@ -441,6 +441,8 @@ export function newSessionSummary(
     title: "New chat",
     name: harness,
     harness,
+    // acpmux names the harness family, which decides what the chat forks (Edit, versions).
+    family: harness,
     model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,

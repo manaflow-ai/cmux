@@ -10,6 +10,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -78,7 +83,8 @@ fn hub(dir: &Path) -> Arc<Hub> {
     Hub::new(cfg, store)
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// The connection, its replies, the last request id, and the notifications it received.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Vec<Value>);
 
 /// The app's agent pane.
 fn client(hub: &Arc<Hub>) -> Client {
@@ -89,7 +95,7 @@ fn client_as(hub: &Arc<Hub>, origin: Origin) -> Client {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
-    Client(in_tx, out_rx, 0)
+    Client(in_tx, out_rx, 0, Vec::new())
 }
 
 impl Client {
@@ -107,7 +113,19 @@ impl Client {
                 assert!(v.get("error").is_none(), "{m} {v}");
                 return v["result"].clone();
             }
+            if v.get("id").is_none() {
+                self.3.push(v);
+            }
         }
+    }
+
+    /// Whether a `_acpmux/harnesses_changed` came, after one more round trip
+    /// (a notification sent before it has arrived by then).
+    async fn told_harnesses_changed(&mut self) -> bool {
+        self.call("_acpmux/status", json!({})).await;
+        let told = self.3.iter().any(|n| n["method"] == "_acpmux/harnesses_changed");
+        self.3.clear();
+        told
     }
 
     async fn new_chat(&mut self, harness: &str) -> String {
@@ -186,6 +204,41 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
     assert_eq!(take_calls(&calls), set("gpt-6-astra", "high"));
     app.new_chat("claude").await;
     assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Leo 2026-10-18: a New Tab prewarmed before a pick drew the old start effort (Medium) and the chat
+/// then started on the pick (Low). A saved pick changes `_acpmux/harnesses` `start`, so watchers
+/// are told to read it again; a pick that saves nothing new tells nobody.
+#[tokio::test]
+async fn a_saved_pick_is_announced_to_watchers_so_open_pages_read_the_new_start() {
+    let (dir, calls) = home("pick-notice");
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    app.call("_acpmux/watch", json!({"enabled": true})).await;
+    let claude = app.new_chat("claude").await;
+    take_calls(&calls);
+    app.3.clear();
+
+    app.call("session/set_model", json!({"sessionId": claude, "modelId": "claude-haiku-5-5"}))
+        .await;
+    assert!(app.told_harnesses_changed().await, "a saved model pick is announced");
+    app.call(
+        "session/set_config_option",
+        json!({"sessionId": claude, "configId": "effort", "value": "low"}),
+    )
+    .await;
+    assert!(app.told_harnesses_changed().await, "a saved effort pick is announced");
+    let start = &app.call("_acpmux/harnesses", json!({})).await["harnesses"]["claude"]["start"];
+    assert_eq!((&start["model"], &start["effort"]), (&json!("claude-haiku-5-5"), &json!("low")));
+
+    // The same effort again saves nothing new: no notice.
+    app.call(
+        "session/set_config_option",
+        json!({"sessionId": claude, "configId": "effort", "value": "low"}),
+    )
+    .await;
+    assert!(!app.told_harnesses_changed().await, "an unchanged pick is not announced");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

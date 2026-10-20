@@ -13,8 +13,8 @@
   --lg-mark: 20px;
   --lg-list: clamp(232px, 27vw, 296px);
   --lg-header: 44px;
-  /* The reading column: rows, day lines and the composer never grow past it. */
-  --lg-column: 840px;
+  /* The thread and run sheet's widest; a wide pane keeps the conversation beside it. */
+  --lg-sheet: 520px;
 }
 
 .lg-page {
@@ -165,6 +165,20 @@
   text-overflow: ellipsis;
   color: var(--page-text);
   font-weight: 500;
+}
+.lg-row-name.with-backend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.lg-row-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lg-row-name .hc-tag {
+  flex: none;
+  font-weight: 600;
 }
 .lg-row.unread .lg-row-name {
   font-weight: 650;
@@ -644,6 +658,43 @@
   line-height: 16px;
   color: var(--page-text-3);
 }
+/* A Chief's run streams (chief-live-v1): the end of its reply, then what it works on, one line
+   each; the whole row opens the run sheet. */
+.lg-typing.live {
+  height: auto;
+  min-height: 16px;
+}
+.lg-live {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.lg-live-text,
+.lg-live-activity {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-live-text {
+  color: var(--page-text-2);
+}
+.lg-live-text strong {
+  color: var(--page-text);
+  font-weight: 600;
+}
+.lg-live:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}
 .lg-page .hc-composer:not(.hc-edit) {
   margin: 0;
 }
@@ -668,6 +719,15 @@
 }
 
 /* ---------- Thread sheet: over the timeline, from the end edge ---------- */
+/* A wide pane keeps the conversation beside the sheet: the timeline, the typing line and the
+   composer end where the sheet starts (its widest, 520 px), so the sheet never covers the composer.
+   A narrower pane lets the sheet slide over them. */
+@container lg-main (min-width: 1100px) {
+  .lg-stage:has(> .lg-sheet) > :not(.lg-sheet) {
+    width: auto;
+    margin-inline-end: var(--lg-sheet);
+  }
+}
 .lg-sheet {
   position: absolute;
   inset-block: 0;
@@ -675,7 +735,7 @@
   z-index: var(--layer-raised, 2);
   display: flex;
   flex-direction: column;
-  width: min(100%, max(360px, 58%), 520px);
+  width: min(100%, max(360px, 58%), var(--lg-sheet));
   border-inline-start: 1px solid var(--lg-line);
   background: var(--lg-solid);
   box-shadow: var(--elevation-2);
@@ -959,16 +1019,9 @@
   color: var(--page-text-3);
 }
 
-/* ---------- The reading column ---------- */
-.lg-main .hc-timeline-row > * {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
-}
-.lg-main-compose > * {
-  max-width: var(--lg-column);
-}
+/* ---------- The conversation column: the pane's full width, the side padding only ---------- */
 .lg-main-compose,
 .lg-typing {
-  max-width: calc(var(--lg-column) + 2 * var(--lg-pad));
   width: 100%;
   box-sizing: border-box;
 }
@@ -1064,13 +1117,62 @@
 
 /* ---------- Agent runs: an inline disclosure under a Chief's reply (no frame; its steps on an
    indented rail), the run sheet over the timeline ---------- */
+.lg-goal-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px var(--lg-pad) 4px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--page-text-3) 24%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--page-text-3) 8%, transparent);
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lg-goal-strip.failed {
+  border-color: color-mix(in srgb, var(--hc-danger) 48%, transparent);
+  background: color-mix(in srgb, var(--hc-danger) 10%, transparent);
+}
+.lg-goal-strip.stalled {
+  border-color: color-mix(in srgb, var(--lg-warn) 42%, transparent);
+  background: color-mix(in srgb, var(--lg-warn) 9%, transparent);
+}
+.lg-goal-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+.lg-goal-state,
+.lg-goal-detail {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+}
+.lg-goal-title {
+  overflow: hidden;
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-goal-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-goal-open {
+  flex: none;
+  min-height: 26px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-goal-strip { transition: none; }
+}
 .lg-run {
   /* The label's column (after the status mark) and the rail's place (under the first glyph). */
   --lg-run-lead: 16px;
   --lg-run-rail: 3px;
   container: lg-run / inline-size;
   margin: 2px 0 0;
-  max-width: min(100%, 640px);
 }
 /* With the author's picture (16 px, then the mark): the rail under the picture's center. */
 .lg-run:has(> .lg-run-bar > .lg-run-toggle > .hc-avatar) {
@@ -1161,12 +1263,33 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A running run's reply as it streams (chief-live-v1): its end, in the label's column. */
+.lg-run-live {
+  margin: -2px 0 4px;
+  margin-inline-start: var(--lg-run-lead);
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+  overflow-wrap: anywhere;
+}
 /* The rail: under the first glyph's center, the steps in the label's column. */
 .lg-run-steps {
   margin-inline-start: var(--lg-run-rail);
   padding: 0 0 4px;
   padding-inline-start: calc(var(--lg-run-lead) - var(--lg-run-rail) - 1px);
   border-inline-start: 1px solid var(--lg-line);
+}
+/* The steps (the agent pane's tool rows) at the card's own type size, not the transcript's. */
+.lg-run-steps {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+}
+/* Nine rows before it scrolls, as in the transcript (nine 26 px rows there, 22 px here). */
+.lg-run-steps .cv-tool-run {
+  max-height: 198px;
+}
+.lg-run-steps .cv-tool {
+  min-height: 22px;
+  line-height: var(--text-detail--line-height);
 }
 .lg-run-more {
   margin: 6px 0 0;
@@ -1213,6 +1336,18 @@
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);
+}
+/* A thought in the run sheet: folded under "Thought". */
+.lg-run-block.thought {
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+}
+.lg-run-block.thought > summary {
+  cursor: default;
+}
+.lg-run-block.thought > p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
 }
 .lg-run-links,
 .lg-run-files {
@@ -1675,6 +1810,12 @@
   font-size: var(--text-caption);
   color: var(--page-text-3);
 }
+.lg-chief-backend {
+  color: var(--page-text);
+}
+.lg-form-note code {
+  font-family: ui-monospace, monospace;
+}
 .lg-form-error {
   font-size: var(--text-detail);
   color: var(--hc-danger);
@@ -1762,6 +1903,30 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+/* Placing a still in the Chief's circle (backgrounds plan phase 4). */
+.lg-picture-crop {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.lg-picture-crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 0 0 1px var(--lg-line);
+}
+.lg-picture-crop-view:active {
+  cursor: grabbing;
+}
+.lg-picture-crop-view img {
+  position: absolute;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
 }
 .lg-chief-names {
   display: flex;

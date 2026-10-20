@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 // External tab drags driven by the App TabDragSession.
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - External tab drag
     final class ExternalDrag {
         var proposal: SidebarTabDrop?
@@ -50,7 +50,7 @@ extension SidebarListView {
         }
         autoscroll.update(windowPoint: windowPoint)
         if let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) {
-            let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
+            let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             var proposal = DropResolver.resolveTabDrop(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
                                                          reordersTabRows: reordersTabRows)
             external.slotDeadline = nil
@@ -84,7 +84,7 @@ extension SidebarListView {
         guard drag == nil, !model.isFiltering else { return nil }
         let point = convert(windowPoint, from: nil)
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
-        let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
+        let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
         guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine,
                                                                  reordersTabRows: reordersTabRows),
               let row = displayed.row(for: key) else { return nil }

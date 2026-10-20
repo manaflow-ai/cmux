@@ -8,7 +8,6 @@ use cmux_tui_core::resource::{
     EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
     StreamItemEnvelope,
 };
-use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
@@ -28,7 +27,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         eprintln!("cmux: streams require --jsonl, --quiet, or human output");
         return 2;
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }
@@ -122,6 +121,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     }
     if notify_desktop::drop_unsupported(&mut reader, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
+        | list_order::apply(&mut plan, &mut request, &socket)
     {
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
@@ -139,6 +139,11 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     }) {
         if plan.stream && crate::shutdown_requested() {
             return 0;
+        }
+        if refused_at_connect(&mut reader, &error) {
+            // A refused connection carried no request: nothing applied.
+            eprintln!("{}", hints::session_busy());
+            return 3;
         }
         eprintln!("transport error: {error}");
         // Part of the request may have reached the daemon.
@@ -280,7 +285,11 @@ fn require_server_capability(
         .and_then(|_| reader.get_mut().write_all(b"\n"))
         .and_then(|_| reader.get_mut().flush())
         .map_err(|error| {
-            eprintln!("transport error while checking session capabilities: {error}");
+            if refused_at_connect(reader, &error) {
+                eprintln!("{}", hints::session_busy());
+            } else {
+                eprintln!("transport error while checking session capabilities: {error}");
+            }
             3
         })?;
     let response = read_envelope(reader, false)
@@ -481,6 +490,7 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
+                    let result = agent_roster::with_terminals(reader, plan, result);
                     return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -554,12 +564,50 @@ fn run_response(
                 eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
+            Some("refused") => {
+                eprintln!("{}", hints::session_busy());
+                return 3;
+            }
+            // A cmux.protocol/2 envelope of a type this command does not
+            // expect is not an older cmux: name the type.
+            Some(other) if value.get("protocol").and_then(Value::as_str) == Some(PROTOCOL) => {
+                eprintln!(
+                    "protocol error: {}",
+                    hints::unexpected_envelope(&sanitize_human_block(other))
+                );
+                return 3;
+            }
             _ => {
                 eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
     }
+}
+
+/// Whether a write that failed because the session closed the socket met
+/// the refusal line a session at its connection limit sends before closing
+/// (`type: "refused"`), so the error says "busy", not "broken pipe".
+fn refused_at_connect(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    error: &io::Error,
+) -> bool {
+    if !matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+    ) {
+        return false;
+    }
+    let _ = reader.get_mut().set_read_timeout(Some(Duration::from_millis(200)));
+    let mut line = Vec::new();
+    if reader.by_ref().take(4096).read_until(b'\n', &mut line).is_err() {
+        return false;
+    }
+    serde_json::from_slice::<Value>(&line)
+        .ok()
+        .is_some_and(|value| value.get("type").and_then(Value::as_str) == Some("refused"))
 }
 
 pub(super) fn read_envelope(
@@ -608,27 +656,30 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
-        _ => std::borrow::Cow::Borrowed(&result),
+        output => agent_roster::machine_view(plan, &result, output),
     };
     let code = print_success(&shown, global.output);
     if code == 0 { success_exit_code(plan, &result) } else { code }
 }
 
-/// `terminal <id> screen wait` reports a timeout as a normal result with
-/// `matched: false`. The result is still printed, but the exit status is 1
-/// (spec/commands.md), so a script can tell a timeout from a match.
+/// A printed result that exits 1: a `terminal <id> screen wait` timeout
+/// (spec/commands.md) or an `agent message unsend` whose outcome is `failed`.
 fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
-    let unmatched_wait = matches!(
-        &plan.operation,
-        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
-    ) && result.get("matched") == Some(&Value::Bool(false));
-    i32::from(unmatched_wait)
+    use cmux_tui_core::resource::ResourceOperation as Op;
+    i32::from(match &plan.operation {
+        WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
+        WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
+        _ => false,
+    })
 }
 
 /// What the human table shows for a result. `workspace list --order
 /// personal` adds an ORDER column (the row's place in the returned order),
 /// because INDEX stays the session order.
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    if let Some(roster) = agent_roster::human_view(plan, result) {
+        return roster;
+    }
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
@@ -658,7 +709,7 @@ fn is_closed_list(plan: &RequestPlan) -> bool {
     )
 }
 
-fn print_success(value: &Value, output: OutputMode) -> i32 {
+pub(super) fn print_success(value: &Value, output: OutputMode) -> i32 {
     let result = match output {
         OutputMode::Quiet => Ok(()),
         OutputMode::Json => write_json_line(value),
@@ -817,183 +868,19 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
     write_json_line(value)
 }
 
-fn write_human(value: &Value) -> io::Result<()> {
-    let mut stdout = io::stdout().lock();
-    stdout.write_all(human_text(value).as_bytes())?;
-    stdout.flush()
-}
-
-fn human_text(value: &Value) -> String {
-    let mut output = String::new();
-    append_human(value, &mut output);
-    output
-}
-
-fn append_human(value: &Value, output: &mut String) {
-    match value {
-        Value::Null => {}
-        Value::String(value) => {
-            let value = sanitize_human_block(value);
-            output.push_str(&value);
-            if !value.ends_with('\n') {
-                output.push('\n');
-            }
-        }
-        Value::Array(values) if values.iter().all(Value::is_object) => {
-            append_record_table(values, output);
-        }
-        Value::Array(values) => {
-            for value in values {
-                output.push_str(&human_cell(value));
-                output.push('\n');
-            }
-        }
-        Value::Object(object) => {
-            if object.len() == 1
-                && let Some(values) = object.values().next()
-                && values.is_array()
-            {
-                append_human(values, output);
-                return;
-            }
-            let mut rows = Vec::new();
-            flatten_human_object(None, object, &mut rows);
-            let width =
-                rows.iter().map(|(key, _)| usize::from(key.cell_width())).max().unwrap_or(0);
-            for (key, value) in rows {
-                output.push_str(&key);
-                output.push_str(&" ".repeat(width.saturating_sub(usize::from(key.cell_width()))));
-                output.push_str("  ");
-                output.push_str(&value);
-                output.push('\n');
-            }
-        }
-        value => {
-            output.push_str(&human_cell(value));
-            output.push('\n');
-        }
-    }
-}
-
-fn append_record_table(values: &[Value], output: &mut String) {
-    if values.is_empty() {
-        return;
-    }
-    let mut columns = values
-        .iter()
-        .filter_map(Value::as_object)
-        .flat_map(|object| object.keys().cloned())
-        .collect::<Vec<_>>();
-    columns.sort_by(|left, right| {
-        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
-    });
-    columns.dedup();
-
-    let rows = values
-        .iter()
-        .filter_map(Value::as_object)
-        .map(|object| {
-            columns
-                .iter()
-                .map(|column| object.get(column).map_or_else(|| "-".to_string(), human_cell))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let widths = columns
-        .iter()
-        .enumerate()
-        .map(|(index, column)| {
-            rows.iter()
-                .map(|row| usize::from(row[index].cell_width()))
-                .max()
-                .unwrap_or(0)
-                .max(usize::from(human_header(column).cell_width()))
-        })
-        .collect::<Vec<_>>();
-
-    append_table_row(
-        &columns.iter().map(|column| human_header(column)).collect::<Vec<_>>(),
-        &widths,
-        output,
-    );
-    for row in rows {
-        append_table_row(&row, &widths, output);
-    }
-}
-
-fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
-    for (index, cell) in cells.iter().enumerate() {
-        if index != 0 {
-            output.push_str("  ");
-        }
-        output.push_str(cell);
-        if index + 1 != cells.len() {
-            output.push_str(
-                &" ".repeat(widths[index].saturating_sub(usize::from(cell.cell_width()))),
-            );
-        }
-    }
-    output.push('\n');
-}
-
-fn flatten_human_object(
-    prefix: Option<&str>,
-    object: &serde_json::Map<String, Value>,
-    rows: &mut Vec<(String, String)>,
-) {
-    let mut fields = object.iter().collect::<Vec<_>>();
-    fields.sort_by(|(left, _), (right, _)| {
-        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
-    });
-    for (key, value) in fields {
-        let path = prefix.map_or_else(|| key.clone(), |prefix| format!("{prefix}.{key}"));
-        if let Value::Object(nested) = value {
-            flatten_human_object(Some(&path), nested, rows);
-        } else {
-            rows.push((sanitize_human_cell(&path), human_cell(value)));
-        }
-    }
-}
-
-fn human_cell(value: &Value) -> String {
-    match value {
-        Value::Null => "-".to_string(),
-        Value::String(value) => sanitize_human_cell(value),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        // serde_json escapes C0 controls but writes C1 controls and the
-        // Unicode separators raw, so the serialized form needs the same pass.
-        value => sanitize_human_cell(
-            &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
-        ),
-    }
-}
-
-fn human_header(key: &str) -> String {
-    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
-}
-
-fn human_key_rank(key: &str) -> usize {
-    match key {
-        "id" => 0,
-        "name" => 1,
-        "title" => 2,
-        "kind" => 3,
-        "state" => 4,
-        "lifecycle" | "order" => 5,
-        "index" => 6,
-        "focused" => 7,
-        "running" => 8,
-        _ => 9,
-    }
-}
-
+mod agent_roster;
 mod closed_view;
 mod hints;
+mod human;
+mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;
+pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
+#[cfg(test)]
+use human::human_text;
+use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief

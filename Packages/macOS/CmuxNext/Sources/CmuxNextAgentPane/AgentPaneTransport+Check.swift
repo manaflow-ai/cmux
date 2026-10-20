@@ -37,7 +37,7 @@ extension AgentPaneTransport {
 
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
     /// any, is to be spent), or the checked frame and its facts. No socket and no request ids, so the
-    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, AgentPanePolicyParityTests).
+    /// shared parity cases run it (cmux-agent-pane-policy `check_frame`, tests/cases/check.json).
     nonisolated enum Checked: Sendable {
         case refuse(AcpmuxPaneMethods.Decision, spend: String?)
         case frame(Facts, FrameBox)

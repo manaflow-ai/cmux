@@ -125,7 +125,7 @@ def end(app):
     acpmux_home = os.path.join(HOME_DIR, "acpmux")
     env = {k: v for k, v in os.environ.items() if not k.startswith("ACPMUX_")}
     env.update({"ACPMUX_HOME": acpmux_home})
-    subprocess.run([ACPMUX, "daemon", "shutdown"], env=env, capture_output=True, timeout=30)
+    subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env=env, capture_output=True, timeout=30)
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(5)

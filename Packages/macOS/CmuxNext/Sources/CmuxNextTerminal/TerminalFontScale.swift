@@ -36,6 +36,10 @@ public struct TerminalFontScale {
     /// The current font scale reported by Ghostty, nil at the configured size.
     public var current: Double? { view.bridge.takeUnretainedValue().fontScale }
 
+    /// True once the font size changed since the view was made, including a reset to the
+    /// configured size (`current` is nil again then).
+    public var changed: Bool { view.bridge.takeUnretainedValue().fontScaleChanged }
+
     /// The scale `points` is of the configured size; nil at the configured size.
     nonisolated static func scale(points: Double, adjusted: Bool, base: Double?) -> Double? {
         guard adjusted, let base, base > 0, points > 0 else { return nil }
@@ -58,6 +62,18 @@ public struct TerminalFontScale {
         view.bridge.takeUnretainedValue().onFontScaleChange = handler
     }
 
+    /// Gives `fresh`, a surface swapped in for this one (a reconnect replay), this view's font
+    /// scale, its changed flag and its observer (cx-1bauj): the zoom outlives the swap, and later
+    /// changes still reach the owner. The observer is moved after the scale applies, so carrying
+    /// the zoom over reports no change.
+    func carry(to fresh: TerminalSurfaceView) {
+        let old = view.bridge.takeUnretainedValue(), new = fresh.bridge.takeUnretainedValue()
+        if let scale = old.fontScale { TerminalFontScale(fresh).apply(scale) }
+        new.fontScale = old.fontScale
+        new.fontScaleChanged = old.fontScaleChanged
+        new.onFontScaleChange = old.onFontScaleChange
+    }
+
     /// Installs the font size callback on the view's current surface.
     func installCallback() {
         guard let surface = view.surface else { return }
@@ -76,6 +92,7 @@ nonisolated func ghosttyFontSizeAction(_ userdata: UnsafeMutableRawPointer?, _ a
         let scale = TerminalFontScale.scale(points: Double(current), adjusted: currentAdjusted,
                                             base: GhosttyRuntime.shared.configuredFontSize)
         bridge.fontScale = scale
+        bridge.fontScaleChanged = true
         bridge.onFontScaleChange?(scale)
     }
 }

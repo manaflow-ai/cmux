@@ -13,8 +13,8 @@ final class FolderHeaderRowView: SidebarRowView {
     }
 
     func configure(folder: String) {
-        name.stringValue = SidebarFolderTitle.title(folder)
-        name.font = SidebarStyle.headerFont
+        name.setString(SidebarFolderTitle.title(folder))
+        name.setFont(SidebarStyle.headerFont)
         themedToolTip = folder.isEmpty ? nil : folder
         setAccessibilityLabel(name.stringValue)
         needsLayout = true
@@ -30,6 +30,6 @@ final class FolderHeaderRowView: SidebarRowView {
     }
 
     override func updateLayer() {
-        performWithTheme { name.textColor = Palette.textSecondary }
+        performWithTheme { name.setColor(Palette.textSecondary) }
     }
 }

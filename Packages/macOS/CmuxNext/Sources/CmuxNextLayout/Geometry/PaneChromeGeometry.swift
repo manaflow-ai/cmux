@@ -22,6 +22,18 @@ extension LayoutStyle {
         max(dividerHitThickness, panePadding * 2 + dividerThickness)
     }
 
+    /// Thickness of the line a column or dock edge draws on hover and drag:
+    /// at least 2 pt, so the edge of a whole column reads as one.
+    public nonisolated var columnEdgeLineThickness: CGFloat {
+        Self.columnEdgeLineThickness(dividerThickness: dividerThickness)
+    }
+
+    /// ``columnEdgeLineThickness`` for a divider thickness: the one rule the
+    /// geometry (`DividerBand`) and `DividerHandleView` both draw by.
+    public nonisolated static func columnEdgeLineThickness(dividerThickness: CGFloat) -> CGFloat {
+        max(dividerThickness, 2)
+    }
+
     /// Width of a column edge's drag area centered on the column gap.
     public nonisolated var columnEdgeHitThickness: CGFloat {
         max(stripGap + panePadding * 2, dividerHitThickness)
@@ -36,6 +48,14 @@ extension LayoutStyle {
     /// Dividers and column edges show a line on hover and while dragged,
     /// except under `layout.paneSeparation` none (the cursor is the cue).
     public nonisolated var showsDividerFeedback: Bool { paneSeparation.drawsDividerFeedback }
+
+    /// Row stacks use the same gap as columns, but their resize handles are
+    /// also the only visual cue between otherwise edge-to-edge rows. Keep a
+    /// quiet separator at rest whenever lines are enabled; `none` remains a
+    /// deliberate opt-out while the hit area and resize cursor still work.
+    public nonisolated var showsRowSeparator: Bool {
+        drawsLines && paneSeparation != .none
+    }
 
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {

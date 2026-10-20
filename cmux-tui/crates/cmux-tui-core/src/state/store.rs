@@ -81,6 +81,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
          );",
     )?;
     super::tab_state_store::add_tab_icon_column(transaction)?;
+    super::tab_state_store::add_tab_marked_unread_column(transaction)?;
     super::browser_devices::add_tab_emulation_column(transaction)?;
     super::browser_devices::create_schema(transaction)?;
     crate::workspace_registry::presentation_store::add_group_icon_column(
@@ -99,6 +100,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::sidebar_doc_store::create_sidebar_doc_schema(transaction)?;
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
+    super::stash_store::create_stash_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::home_store::create_home_schema(transaction)?;
@@ -292,6 +294,37 @@ impl WorkspaceRegistry {
         prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(StateCommit { revision, result, replayed: false, personal_revision })
+    }
+
+    /// What [`Self::commit_state_mutation`] answers before it applies
+    /// anything: `Some` replay of the first result of a retry under the same
+    /// key, or its refusal of a key reused with other input or of a stale
+    /// `expected_revision`; `None` when it would apply. For a mutation that
+    /// acts outside the registry before its commit.
+    pub(crate) fn state_mutation_replay(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<Option<StateCommit>> {
+        let fingerprint = canonical_json(fingerprint)?;
+        let db = self.connection.get();
+        if let Some(replayed) = resource_patch_replay(&db, mutation, operation, &fingerprint)? {
+            return Ok(Some(replayed.into()));
+        }
+        if let Some(expected) = expected_revision {
+            let current: String = db.query_row(
+                "SELECT value FROM meta WHERE key = 'resource_revision'",
+                [],
+                |row| row.get(0),
+            )?;
+            let current: u64 = current.parse().context("resource revision is invalid")?;
+            if expected != current {
+                anyhow::bail!("resource revision conflict: expected {expected}, current {current}");
+            }
+        }
+        Ok(None)
     }
 
     /// Run a read against the registry connection.

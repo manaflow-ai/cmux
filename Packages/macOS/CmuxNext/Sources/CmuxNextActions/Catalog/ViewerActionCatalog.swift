@@ -35,6 +35,17 @@ nonisolated enum ViewerActionCatalog: ActionCatalogGroup {
                 cliName: "browser open-markdown-file", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // The Screenshots pane (cmux://screenshots): every screenshot and screen recording of the
+            // macOS folder, its preview folder and the screenshot apps found, newest first, to drag
+            // into any app. Selects the window's Screenshots tab when one is open.
+            ActionDescriptor(
+                id: "screenshots.open",
+                title: String(localized: "action.screenshots.open", defaultValue: "Screenshots", bundle: .module),
+                keywords: ["screenshots", "screen shot", "screen recording", "capture", "images", "videos", "cleanshot", "shottr", "drag"],
+                category: .browser, symbol: "photo.on.rectangle", surfaces: [.palette, .menu],
+                cliName: "screenshots open", mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
         ]
     }
 }

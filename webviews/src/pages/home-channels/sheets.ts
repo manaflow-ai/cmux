@@ -8,6 +8,8 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import { chief as chiefRecord } from "./daemonPeople";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
 import {
+  chiefBackend,
+  DEFAULT_CHIEF_BACKEND,
   HomeOps,
   type HomeCapabilities,
   type HomeChief,
@@ -49,18 +51,6 @@ const grantFields = (grant: HomeChiefGrantChange) => ({
 });
 
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
-
-/** A picture file the daemon takes, as base64, or why not. */
-export async function readPicture(
-  file: File,
-): Promise<{ mediaType: string; data: string } | { error: "type" | "size" }> {
-  if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) return { error: "type" };
-  if (file.size > 1024 * 1024) return { error: "size" };
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return { mediaType: file.type, data: btoa(binary) };
-}
 
 export class HomeSheets {
   private snapshot: SheetsSnapshot = {
@@ -248,13 +238,16 @@ export class HomeSheets {
   }
 
   /** Makes a Chief through the host (the person's click: create is never the page's alone) with
-   * this profile and, when given, a changed grant, in one request; then its picture and its direct
-   * message from the page. Resolves the Chief, or undefined when it was refused. */
+   * this profile and, when given, a changed grant and a starting engine other than the default, in
+   * one request; then its picture and its direct message from the page. Resolves the Chief, or
+   * undefined when it was refused. */
   async createChief(
     profile: HomeChiefProfile,
     grant: HomeChiefGrantChange | undefined,
     picture: { mediaType: string; data: string } | undefined,
+    harness?: string,
   ): Promise<HomeChief | undefined> {
+    const backend = chiefBackend(harness);
     if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
     try {
       const made = await this.host.call<{ value: Record<string, unknown> }>("cmux.chief.profile.create", {
@@ -264,6 +257,8 @@ export class HomeSheets {
         personality: profile.personality,
         instructions: profile.instructions,
         ...(grant ? grantFields(grant) : {}),
+        // The default engine is not named: the owner applies its own (as `cmux chief new`).
+        ...(backend === DEFAULT_CHIEF_BACKEND ? {} : { harness: backend }),
         idempotency_key: this.key("chief"),
       });
       const chief = chiefRecord(made.value);
@@ -289,12 +284,13 @@ export class HomeSheets {
   }
 
   /** Saves a Chief's profile: what changed of personality, instructions and the grant goes first,
-   * through the host (the person's click, one request); the name, role and picture from the page. */
+   * through the host (the person's click, one request); the name, role and picture from the page.
+   * `picture` null clears it: the default shows again. */
   async updateChief(
     before: HomeChief,
     profile: HomeChiefProfile,
     grant: HomeChiefGrantChange | undefined,
-    picture: { mediaType: string; data: string } | undefined,
+    picture: { mediaType: string; data: string } | null | undefined,
   ): Promise<boolean> {
     if (!this.client) return false;
     const taught: Record<string, unknown> = {};
@@ -318,10 +314,10 @@ export class HomeSheets {
           role: profile.role,
           idempotencyKey: this.key("profile"),
         });
-      if (picture)
+      if (picture !== undefined && (picture !== null || before.avatar))
         await this.client.call(HomeOps.chiefAvatarSet, {
           chief: before.id,
-          ...picture,
+          ...(picture ?? { clear: true }),
           idempotencyKey: this.key("picture"),
         });
       await this.loadChiefs();

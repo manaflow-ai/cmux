@@ -11,6 +11,8 @@
 //! reply. Values are absolute (a run's fields and each step are replaced by
 //! id), so a retried append writes the same rows.
 
+use std::collections::BTreeSet;
+
 use cmux_conversation::{Part, ParticipantKind, Reject, valid_attachment_part};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,11 @@ pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS conversation_run (
      ) WITHOUT ROWID;
      CREATE INDEX IF NOT EXISTS conversation_run_step_by_rev
        ON conversation_run_step(conversation, run, rev);";
+
+/// A running run written longer ago than this is stale (no work shows).
+pub(crate) const STALE_RUN_MS: u64 = 30 * 60_000;
+/// Runs started longer ago than this are not read for the Home rows.
+const RUNNING_WINDOW_MS: u64 = 24 * 60 * 60_000;
 
 /// Most steps one run keeps.
 pub(crate) const MAX_RUN_STEPS: u64 = 2000;
@@ -560,6 +567,35 @@ impl ConversationStore {
         Ok(Appended { run, steps: written })
     }
 
+    /// The authors of runs that run now, by conversation, for the Home rows
+    /// (`home-inbox`): status running, started in the last day and written in
+    /// the last [`STALE_RUN_MS`] (the Channels page's stale rule: a run its
+    /// brain stopped writing is not work).
+    pub(crate) fn running_run_authors(
+        &mut self,
+        now_ms: u64,
+    ) -> anyhow::Result<std::collections::HashMap<String, Vec<String>>> {
+        let since = to_i64(now_ms.saturating_sub(RUNNING_WINDOW_MS))?;
+        let mut statement = self.connection.prepare(
+            "SELECT run_json FROM conversation_run
+                 WHERE started_at >= ?1 AND json_extract(run_json, '$.status') = 'running'",
+        )?;
+        let mut authors: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for json in statement.query_map(params![since], |row| row.get::<_, String>(0))? {
+            let run: Run = serde_json::from_str(&json?)?;
+            if run.status == RunStatus::Running
+                && now_ms.saturating_sub(run.updated_at) <= STALE_RUN_MS
+            {
+                let list = authors.entry(run.conversation).or_default();
+                if !list.contains(&run.author) {
+                    list.push(run.author);
+                }
+            }
+        }
+        Ok(authors)
+    }
+
     /// The newest runs of a conversation (before `before_started_at`), or the
     /// runs whose `turn` is one of `turns`.
     pub(crate) fn runs(
@@ -726,6 +762,51 @@ fn prune_runs(connection: &Connection, conversation: &str) -> anyhow::Result<()>
         dropped += 1;
     }
     Ok(())
+}
+
+impl ConversationStore {
+    /// The run a live frame names (`chief-live-v1`): `actor`, an agent
+    /// participant, must be its author and the run still running.
+    pub(crate) fn live_run(
+        &self,
+        conversation: &str,
+        actor: &str,
+        run: &str,
+    ) -> anyhow::Result<()> {
+        let head = load_head(&self.connection, conversation)?
+            .ok_or_else(|| rejected(Reject::UnknownConversation))?;
+        let participant =
+            head.participant(actor).ok_or_else(|| rejected(Reject::NotParticipant))?;
+        if participant.kind != ParticipantKind::Agent {
+            return Err(refused("not_agent"));
+        }
+        let run =
+            load_run(&self.connection, conversation, run)?.ok_or_else(|| refused("unknown_run"))?;
+        if run.author != actor {
+            return Err(refused("not_run_author"));
+        }
+        if run.status != RunStatus::Running {
+            return Err(refused("run_not_running"));
+        }
+        Ok(())
+    }
+
+    /// Which of `runs` are running now (a live snapshot keeps only those).
+    pub(crate) fn running_of(
+        &self,
+        conversation: &str,
+        runs: &[String],
+    ) -> anyhow::Result<BTreeSet<String>> {
+        let mut running = BTreeSet::new();
+        for id in runs {
+            if load_run(&self.connection, conversation, id)?
+                .is_some_and(|run| run.status == RunStatus::Running)
+            {
+                running.insert(id.clone());
+            }
+        }
+        Ok(running)
+    }
 }
 
 fn load_run(connection: &Connection, conversation: &str, run: &str) -> anyhow::Result<Option<Run>> {
