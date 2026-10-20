@@ -23,6 +23,8 @@ extension SidebarViewComponents {
         var drawsLines: Bool
         var preferences: SidebarSectionsPreferences
         var suppressedApps: Set<String>
+        /// The document sections the list lists (`SidebarModel.listedDocSections`): the band above draws the others.
+        var listedDocSections: Set<String>
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -44,6 +46,7 @@ extension SidebarViewComponents {
             drawsLines = Borders.drawsLines
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
+            listedDocSections = model.listedDocSections
             metrics = .standard
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
@@ -69,6 +72,7 @@ extension SidebarViewComponents {
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
+            || lastState?.listedDocSections != state.listedDocSections
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences)
