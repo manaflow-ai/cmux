@@ -53,12 +53,16 @@ export function focusedArea(element: Element | null): string {
   return `${element.tagName.toLowerCase()}${id}${className}`;
 }
 
-/// Whether the page's keyboard is free for the composer: nothing in it has focus, and no text is
-/// selected (a selection in the transcript, kept while the pane was away, stays to be copied).
+/// Whether the page's keyboard is free for the composer: nothing in it has focus, and no text
+/// outside the composer is selected (a selection in the transcript, kept while the pane was away,
+/// stays to be copied).
 export function idleForComposer(doc: Document): boolean {
   if (!nothingFocused(doc)) return false;
   const selection = doc.getSelection();
-  return !selection || selection.isCollapsed;
+  if (!selection || selection.isCollapsed) return true;
+  const anchor = selection.anchorNode;
+  const element = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+  return element?.closest(".acpmux-composer-box") != null;
 }
 
 /// Installs the composer's claim on the keyboard. `focusComposer` focuses the prompt and

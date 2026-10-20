@@ -55,12 +55,19 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       const subs = new Map<string, number[]>();
       const seqs = new Map<number, number>();
       let nextSub = 1;
-      const postMessage = async (body: { t: string; id?: number; stream?: string }) => {
+      const postMessage = async (body: { t: string; id?: number; stream?: string; sub?: number }) => {
         if (body.t === "sub" && body.stream) {
           const sub = nextSub++;
           subs.set(body.stream, [...(subs.get(body.stream) ?? []), sub]);
           return { t: "ok", id: body.id, value: { sub } };
         }
+        // An ended subscription gets no more events: `emit` counts only live listeners.
+        if (body.t === "unsub")
+          for (const [stream, ids] of subs)
+            subs.set(
+              stream,
+              ids.filter((id) => id !== body.sub),
+            );
         if (body.t === "call") return { t: "ok", id: body.id, value: null };
         return null;
       };
