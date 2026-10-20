@@ -55,9 +55,15 @@ final class DividerHandleView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         switch kind {
-        case .split: setAccessibilityLabel(LayoutStrings.dividerAccessibility)
-        case .columnEdge: setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
-        case .rowEdge: setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
+        case .split(let split):
+            setAccessibilityLabel(LayoutStrings.dividerAccessibility)
+            setAccessibilityIdentifier("cmux.pane.divider.\(split.rawValue)")
+        case .columnEdge(let column):
+            setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
+            setAccessibilityIdentifier("cmux.pane.columnEdge.\(column.rawValue)")
+        case .rowEdge(let column, let row):
+            setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
+            setAccessibilityIdentifier("cmux.pane.rowEdge.\(column.rawValue).\(row.rawValue)")
         }
         applyColors()
     }

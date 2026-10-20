@@ -219,6 +219,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// Window notifications handled (`debug.layout_counters`): only shown terminals count.
     public static var windowStateUpdates: UInt64 = 0
+    /// Grid reports views made to their session (`debug.window_transition`).
+    public static var gridReports: UInt64 = 0
 
     private func windowStateChanged(_ name: Notification.Name) {
         Self.windowStateUpdates &+= 1
@@ -340,6 +342,7 @@ public final class TerminalSurfaceView: NSView {
         // draws at the next display pass, already reflowed.
         updateReflowPreview(reporting: report != nil)
         guard let report else { return }
+        Self.gridReports &+= 1
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }

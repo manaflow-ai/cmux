@@ -25,12 +25,15 @@ public final class MockExtensionBackend: BrowserExtensionBackend {
     public var refuses = false
     public private(set) var ranCommands: [BrowserExtensionCommand] = []
     public private(set) var openedOptions: [String] = []
+    /// Snapshots taken: each is a Chromium round trip in the real backend.
+    public private(set) var snapshots = 0
     var onChange: (() -> Void)?
 
     public init() {}
 
     public func snapshot() -> (extensions: [BrowserExtensionInfo], commands: [BrowserExtensionCommand])? {
-        (extensions, commands)
+        snapshots += 1
+        return (extensions, commands)
     }
 
     public func setEnabled(_ id: String, _ enabled: Bool) -> Bool { change(id) { $0.isEnabled = enabled } }

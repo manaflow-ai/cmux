@@ -68,6 +68,8 @@ public nonisolated struct KeyBindingDefaults {
     /// `when` that names it. (Home's Cmd-Shift-[ / ] went to the Chrome tab
     /// keys, Leo 2026-10-12: Home is a sidebar item too.)
     ///
+    /// Cmd-N on Home starts a New Message (``onHome``), as in Messages.
+    ///
     /// Cmd-K searches the agent chats everywhere but a terminal, as in ChatGPT and Claude
     /// desktop (Leo 2026-10-12, keyboard parity); a focused terminal keeps Clear (decision K1)
     /// and the code editor keeps its Cmd-K key sequences.
@@ -82,7 +84,16 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+        // Cmd-N on Home is Messages' New Message (Lawrence 2026-10-19); everywhere else it stays New Workspace.
+        KeyBinding(keys: [Shortcut("n", modifiers: [.command])], command: "home.newMessage", when: onHome),
     ]
+
+    /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
+    public static let onHome = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user

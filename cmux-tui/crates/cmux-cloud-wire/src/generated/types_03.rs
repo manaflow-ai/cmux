@@ -4,6 +4,40 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAuditEntry {
+    pub n: i64,
+    pub op: String,
+    pub actor: String,
+    pub at: i64,
+    pub category: TeamAuditEntryCategory,
+    pub summary: String,
+    pub detail: Value,
+    pub hash: String,
+}
+
+wire_enum! {
+    TeamAuditEntryCategory {
+        Admin = "admin",
+        Billing = "billing",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDomain {
+    pub domain: EmailDomain,
+    pub state: TeamDomainState,
+    pub record_name: String,
+    pub record_value: String,
+    pub requested_at: i64,
+    pub expires_at: i64,
+    pub verified_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_checked_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_failures: Option<i64>,
+}
+
 wire_enum! {
     TeamDomainState {
         Pending = "pending",

@@ -1,110 +1,58 @@
 import CmuxNextRemote
 import Foundation
 
-/// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings.
+/// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings. One accessor per line
+/// (the CmuxNextApp size cap, scripts/cmux-next/check-app-size.sh).
 enum RemoteStrings {
     // Remote-terminal tab placeholder (plans/cmux-next/data-model.md 1.4).
-    static func placeholderReconnecting(_ machine: String) -> String {
-        String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
-    }
+    static func placeholderReconnecting(_ machine: String) -> String { String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine) }
     /// The one-list sidebar's pending row of an SSH machine that is connecting (cx-gaq9).
-    static func sidebarConnecting(_ machine: String) -> String {
-        String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine)
-    }
-    static func placeholderOffline(_ machine: String) -> String {
-        String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
-    }
-    static func placeholderUnknown(_ machine: String) -> String {
-        String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine)
-    }
+    static func sidebarConnecting(_ machine: String) -> String { String(format: String(localized: "remote.sidebar.connecting", defaultValue: "Connecting to %@…", table: "Remote", bundle: .module), machine) }
+    static func placeholderOffline(_ machine: String) -> String { String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine) }
+    static func placeholderUnknown(_ machine: String) -> String { String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine) }
     // An agent chat tab whose session another Mac's acpmux runs.
-    static func agentTabElsewhere(_ machine: String) -> String {
-        String(format: String(localized: "remote.agentTab.elsewhere", defaultValue: "This chat runs on %@", table: "Remote", bundle: .module), machine)
-    }
-    static var agentTabElsewhereUnknown: String {
-        String(localized: "remote.agentTab.elsewhereUnknown", defaultValue: "This chat runs on another Mac", table: "Remote", bundle: .module)
-    }
-    static var placeholderConnect: String {
-        String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module)
-    }
-    static var placeholderNoSnapshot: String {
-        String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module)
-    }
-    static func terminalOn(_ machine: String) -> String {
-        String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine)
-    }
-    static var moveBrowserAcrossMachines: String {
-        String(localized: "remote.terminal.moveBrowser", defaultValue: "Browser tabs cannot move to a workspace on another machine yet.", table: "Remote", bundle: .module)
-    }
-    static var needsRemoteTerminalTabs: String {
-        String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module)
-    }
-    static var machineHasNoTerminal: String {
-        String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module)
-    }
-    static var noClient: String {
-        String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module)
-    }
-    static var noMachine: String {
-        String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module)
-    }
-    static func unknownMachine(_ name: String) -> String {
-        String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name)
-    }
+    static func agentTabElsewhere(_ machine: String) -> String { String(format: String(localized: "remote.agentTab.elsewhere", defaultValue: "This chat runs on %@", table: "Remote", bundle: .module), machine) }
+    static var agentTabElsewhereUnknown: String { String(localized: "remote.agentTab.elsewhereUnknown", defaultValue: "This chat runs on another Mac", table: "Remote", bundle: .module) }
+    static var placeholderConnect: String { String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module) }
+    static var placeholderNoSnapshot: String { String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module) }
+    static func terminalOn(_ machine: String) -> String { String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine) }
+    static var moveBrowserAcrossMachines: String { String(localized: "remote.terminal.moveBrowser", defaultValue: "Browser tabs cannot move to a workspace on another machine yet.", table: "Remote", bundle: .module) }
+    static var moveTabAcrossMachines: String { String(localized: "remote.terminal.moveOtherTab", defaultValue: "Only terminal tabs can move to a workspace on another machine.", table: "Remote", bundle: .module) }
+    static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
+    static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
+    static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
+    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module) }
+    static func unknownMachine(_ name: String) -> String { String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name) }
     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
         String(format: String(localized: "remote.failed.newWorkspace", defaultValue: "Couldn’t create a workspace on %1$@: %2$@",
                               table: "Remote", bundle: .module), name, String(describing: error))
     }
-    static func notConnected(_ name: String) -> String {
-        String(format: String(localized: "remote.failed.notConnected", defaultValue: "%@ is not connected yet.", table: "Remote", bundle: .module), name)
-    }
+    static func notConnected(_ name: String) -> String { String(format: String(localized: "remote.failed.notConnected", defaultValue: "%@ is not connected yet.", table: "Remote", bundle: .module), name) }
     static func invalidDestination(_ text: String, _ error: SSHDestinationError?) -> String {
         if error == .password {
             return String(localized: "remote.failed.password", defaultValue: "cmux never takes passwords. Use your SSH key or agent.", table: "Remote", bundle: .module)
         }
         return String(format: String(localized: "remote.failed.destination", defaultValue: "“%@” is not an SSH destination. Use user@host, a host from your SSH config, or host:port.", table: "Remote", bundle: .module), text)
     }
-    static func invalidSession(_ name: String) -> String {
-        String(format: String(localized: "remote.failed.session", defaultValue: "“%@” is not a session name. Use letters, digits, dots, dashes and underscores.", table: "Remote", bundle: .module), name)
-    }
-    static func invalidPath(_ path: String) -> String {
-        String(format: String(localized: "remote.failed.path", defaultValue: "“%@” is not a usable path. Use a plain path, optionally starting with ~/.", table: "Remote", bundle: .module), path)
-    }
-    static var noPinnedBuild: String {
-        String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module)
-    }
-    static func unsupportedPlatform(_ name: String) -> String {
-        String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name)
-    }
-    static var connectTitle: String {
-        String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module)
-    }
+    static func invalidSession(_ name: String) -> String { String(format: String(localized: "remote.failed.session", defaultValue: "“%@” is not a session name. Use letters, digits, dots, dashes and underscores.", table: "Remote", bundle: .module), name) }
+    static func invalidPath(_ path: String) -> String { String(format: String(localized: "remote.failed.path", defaultValue: "“%@” is not a usable path. Use a plain path, optionally starting with ~/.", table: "Remote", bundle: .module), path) }
+    static var noPinnedBuild: String { String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module) }
+    static func unsupportedPlatform(_ name: String) -> String { String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name) }
+    static var connectTitle: String { String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module) }
     static var connect: String { String(localized: "remote.button.connect", defaultValue: "Connect", table: "Remote", bundle: .module) }
-    static func connectFailedTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.connect.failedTitle", defaultValue: "Cannot Connect to %@", table: "Remote", bundle: .module), name)
-    }
+    static func connectFailedTitle(_ name: String) -> String { String(format: String(localized: "remote.connect.failedTitle", defaultValue: "Cannot Connect to %@", table: "Remote", bundle: .module), name) }
 
     // MARK: Install and forget prompts
 
-    static func installTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.install.title", defaultValue: "Install cmux-tui on %@?", table: "Remote", bundle: .module), name)
-    }
-    static func installBody(commit: String, path: String, destination: String) -> String {
-        String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination)
-    }
+    static func installTitle(_ name: String) -> String { String(format: String(localized: "remote.install.title", defaultValue: "Install cmux-tui on %@?", table: "Remote", bundle: .module), name) }
+    static func installBody(commit: String, path: String, destination: String) -> String { String(format: String(localized: "remote.install.body", defaultValue: "Downloads cmux-tui %1$@ from files.cmux.com, checks its SHA-256 checksum and installs it at %2$@ on %3$@, without sudo. A cmux-tui running there restarts on the new build; its terminals keep running.", table: "Remote", bundle: .module), commit, path, destination) }
     static var install: String { String(localized: "remote.button.install", defaultValue: "Install", table: "Remote", bundle: .module) }
     /// cx-3r9mt: an older cmux-tui on a machine that is not idle; the person starts the update.
-    static func updateTitle(_ name: String) -> String {
-        String(format: String(localized: "remote.update.title", defaultValue: "Update available on %@", table: "Remote", bundle: .module), name)
-    }
-    static func updateBody(commit: String, path: String, machine: String) -> String {
-        String(format: String(localized: "remote.update.body", defaultValue: "%1$@ runs an older cmux-tui. Agents or chats run there now, so cmux does not update it by itself. Update installs cmux-tui %2$@ at %3$@; terminals and agents keep running.", table: "Remote", bundle: .module), machine, commit, path)
-    }
+    static func updateTitle(_ name: String) -> String { String(format: String(localized: "remote.update.title", defaultValue: "Update available on %@", table: "Remote", bundle: .module), name) }
+    static func updateBody(commit: String, path: String, machine: String) -> String { String(format: String(localized: "remote.update.body", defaultValue: "%1$@ runs an older cmux-tui. Agents or chats run there now, so cmux does not update it by itself. Update installs cmux-tui %2$@ at %3$@; terminals and agents keep running.", table: "Remote", bundle: .module), machine, commit, path) }
     static var update: String { String(localized: "remote.button.update", defaultValue: "Update", table: "Remote", bundle: .module) }
     /// The toast after Forget Machine (its Undo brings the machine back).
-    static func forgotToast(_ name: String) -> String {
-        String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name)
-    }
+    static func forgotToast(_ name: String) -> String { String(format: String(localized: "remote.forgot.toast", defaultValue: "Forgot %@", table: "Remote", bundle: .module), name) }
 
     // MARK: Failures
 
@@ -133,9 +81,7 @@ enum RemoteStrings {
         }
     }
 
-    static func sshFailed(_ message: String) -> String {
-        String(format: String(localized: "remote.failed.ssh", defaultValue: "SSH failed: %@", table: "Remote", bundle: .module), message)
-    }
+    static func sshFailed(_ message: String) -> String { String(format: String(localized: "remote.failed.ssh", defaultValue: "SSH failed: %@", table: "Remote", bundle: .module), message) }
 
     // MARK: Status details (sidebar header tooltip, remote.machines)
 
@@ -201,9 +147,7 @@ enum RemoteStrings {
     }
 
     /// The refusal of Copy SSH Error for a machine without a failure.
-    static func noSSHError(_ machine: String) -> String {
-        String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine)
-    }
+    static func noSSHError(_ machine: String) -> String { String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine) }
 
     static func needText(_ need: InstallNeed, _ session: SSHMachineSession) -> String {
         switch need {
