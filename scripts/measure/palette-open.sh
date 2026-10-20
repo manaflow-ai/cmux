@@ -7,6 +7,9 @@
 # To time an older commit, cherry-pick the harness commit onto it (the script blob must match the reviewed one).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# A step's checkout has empty submodules: reload.sh needs Ghostty's headers (GhosttyKit itself comes
+# from the pinned cache) and ghostty-next for the bundled cmux-tui.
+git submodule update --init --depth 1 ghostty ghostty-next >/dev/null
 tag="palopen"
 out="$(mktemp -d)"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40

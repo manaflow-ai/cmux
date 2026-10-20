@@ -94,4 +94,37 @@ enum Strings {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
+
+    // MARK: Hover card history (u3320)
+
+    static var timelineHeader: String { String(localized: "sidebar.hoverCard.history", defaultValue: "History", bundle: .module) }
+
+    /// What one history line says: the prompt itself, or what the agent did.
+    static func timelineText(_ entry: SidebarTimelineEntry) -> String {
+        let agent = entry.agent
+        switch entry.kind {
+        case .prompt:
+            return entry.text ?? String(localized: "sidebar.timeline.promptSent", defaultValue: "Prompt sent", bundle: .module)
+        case .started:
+            return agent.map { String(format: String(localized: "sidebar.timeline.startedBy", defaultValue: "%@ started working", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.started", defaultValue: "Started working", bundle: .module)
+        case .waiting:
+            let base = agent.map { String(format: String(localized: "sidebar.timeline.waitingBy", defaultValue: "%@ is waiting for your input", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.waiting", defaultValue: "Waiting for your input", bundle: .module)
+            return entry.text.map { base + ": " + $0 } ?? base
+        case .finished:
+            return agent.map { String(format: String(localized: "sidebar.timeline.finishedBy", defaultValue: "%@ finished", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.finished", defaultValue: "Finished", bundle: .module)
+        case .failed:
+            return agent.map { String(format: String(localized: "sidebar.timeline.failedBy", defaultValue: "%@ stopped with an error", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.failed", defaultValue: "Stopped with an error", bundle: .module)
+        }
+    }
+
+    /// The card's stats line: how many prompts, and how long the agents worked.
+    static func timelineStats(prompts: Int, worked: String?) -> String {
+        let count = String(format: String(localized: "sidebar.hoverCard.statsPrompts", defaultValue: "Prompts: %d", bundle: .module), prompts)
+        guard let worked else { return count }
+        return count + " · " + String(format: String(localized: "sidebar.hoverCard.statsWorked", defaultValue: "Worked %@", bundle: .module), worked)
+    }
 }
