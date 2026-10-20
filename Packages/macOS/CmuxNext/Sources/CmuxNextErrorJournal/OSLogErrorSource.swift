@@ -1,5 +1,4 @@
 public import Foundation
-import OSLog
 
 /// This process's own unified-log errors and faults (`Logger.error`, `Logger.fault`, and the
 /// page console errors ``ConsoleErrorCapture`` logs). Reads `OSLogStore` scoped to the current
@@ -11,6 +10,7 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     public let id: String
     private let processID: Int32
     private let launchDate: Date
+    private let reader: any OSLogReading
 
     /// Makes the source for this process.
     /// - Parameters:
@@ -19,9 +19,15 @@ public struct OSLogErrorSource: ErrorHarvestSource {
     ///   - launchDate: Where the first harvest of this launch starts.
     public init(id: String = "oslog", processID: Int32 = ProcessInfo.processInfo.processIdentifier,
                 launchDate: Date = Date()) {
+        self.init(id: id, processID: processID, launchDate: launchDate, reader: OSLogStoreReader())
+    }
+
+    /// Makes the source on `reader` (tests pass a fake log store).
+    init(id: String = "oslog", processID: Int32, launchDate: Date, reader: any OSLogReading) {
         self.id = id
         self.processID = processID
         self.launchDate = launchDate
+        self.reader = reader
     }
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
@@ -32,15 +38,14 @@ public struct OSLogErrorSource: ErrorHarvestSource {
                 start = Date(timeIntervalSince1970: ms / 1000)
             }
         }
-        let store = try OSLogStore(scope: .currentProcessIdentifier)
-        let entries = try store.getEntries(at: store.position(date: start))
+        let entries = try reader.entries(since: start, matching: nil)
         var events: [ErrorEvent] = []
         var newest = start
-        for case let entry as OSLogEntryLog in entries where entry.date > start {
+        for entry in entries where entry.date > start {
             guard entry.level == .error || entry.level == .fault else { continue }
             newest = max(newest, entry.date)
             events.append(Self.event(subsystem: entry.subsystem, category: entry.category,
-                                     isFault: entry.level == .fault, message: entry.composedMessage, date: entry.date))
+                                     isFault: entry.level == .fault, message: entry.message, date: entry.date))
             if events.count >= 5000 { break }
         }
         let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
