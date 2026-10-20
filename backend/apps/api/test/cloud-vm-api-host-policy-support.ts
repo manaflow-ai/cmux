@@ -43,12 +43,12 @@ export const policyWorld = async () => {
     const hook = beforeRead; beforeRead = undefined; await hook?.()
     return Response.json(policy)
   })
-  const sessionOp = (op: string, params: unknown) => call("/v1/ops", team.creator.token, { op, params, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": team.team })
-  const credentials = async (install: string, pair: CryptoKeyPair) => {
-    const challenge = await call("/v1/auth/challenge", undefined, { user: team.creator.user, install, team: team.team })
+  const sessionOp = (op: string, params: unknown, token = team.creator.token) => call("/v1/ops", token, { op, params, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": team.team })
+  const credentials = async (install: string, pair: CryptoKeyPair, user = team.creator.user) => {
+    const challenge = await call("/v1/auth/challenge", undefined, { user, install, team: team.team })
     expect(challenge.status).toBe(200)
     const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${challenge.json.message_prefix}${challenge.json.nonce}`))
-    const issued = await call("/v1/auth/token", undefined, { user: team.creator.user, install, nonce: challenge.json.nonce, signature: b64u(signature) })
+    const issued = await call("/v1/auth/token", undefined, { user, install, nonce: challenge.json.nonce, signature: b64u(signature) })
     expect(issued.status).toBe(200)
     return { token: issued.json.access_token as string, grant: issued.json.grant as string }
   }
@@ -68,17 +68,17 @@ export const policyWorld = async () => {
   addPolicy(server.device, server.wg, server.point, server.pair)
   const confirmed = await call("/v1/ops", server.token, { op: "server.network.confirm", params: { host: server.host, mesh: MESH, device: server.device, proof: await proof(server) }, idempotency_key: crypto.randomUUID(), origin: "cli" })
   expect(confirmed.json.ok).toBe(true)
-  const addClient = async (index = 2) => {
-    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
+  const addClient = async (index = 2, owner: { user: string; token: string } = team.creator, existingPair?: CryptoKeyPair, existingWg?: string) => {
+    const pair = existingPair ?? await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])
     if (!("privateKey" in pair)) throw new Error("missing install key")
     const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey)
-    const registered = await sessionOp("install.register", { public_jwk: jwk, kind: "mac", name: "Policy client", device_name: "Client", platform: "macos" })
+    const registered = await sessionOp("install.register", { public_jwk: jwk, kind: "mac", name: "Policy client", device_name: "Client", platform: "macos" }, owner.token)
     expect(registered.json.ok).toBe(true)
-    const install = registered.json.value.id as string, auth = await credentials(install, pair)
+    const install = registered.json.value.id as string, auth = await credentials(install, pair, owner.user)
     const host = await call("/v1/ops", auth.token, { op: "host.enroll", params: { name: "Policy client", platform: "macos" }, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": team.team })
     expect(host.json.ok).toBe(true)
-    const client: Peer = { host: host.json.value.id, user: team.creator.user, install, ...auth, pair, device: "dev_" + String(index).repeat(26),
-      wg: btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), point: await pointOf(pair), daemon: false }
+    const client: Peer = { host: host.json.value.id, user: owner.user, install, ...auth, pair, device: "dev_" + String(index).repeat(26),
+      wg: existingWg ?? btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), point: await pointOf(pair), daemon: false }
     addPolicy(client.device, client.wg, client.point, client.pair)
     const bound = await call("/v1/ops", client.token, { op: "host.network.bind", params: { host: client.host, mesh: MESH, device: client.device, wg_public_key: client.wg, proof: await proof(client) }, idempotency_key: crypto.randomUUID(), origin: "cli" }, { "x-cmux-team": team.team })
     expect(bound.json.ok).toBe(true)

@@ -1,3 +1,4 @@
+import { hostNetworkPolicy } from "./host-network-policy.ts"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
@@ -76,6 +77,16 @@ export class TeamDO extends OwnerDO<TeamState> {
   async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
   async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
+    if (op === "host.network.policy") {
+      if (!this.isBound(entity)) return { ok: false, code: "auth.forbidden", message: "no active team network owner" }
+      const engine = this.bind(entity)
+      return hostNetworkPolicy({ team: entity, project: this.env.STACK_PROJECT_ID, origin: () => this.env.CLOUD_VM_API_ORIGIN,
+        state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows,
+        tenant: () => this.vmApiTenant(entity, "operate"), revision: () => String(engine.currentSeq), http: this.http, now: Date.now,
+        identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentity(user, install, grant, entity),
+        identities: (user, entries) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentities(user, entries, entity)
+      }, principal, params)
+    }
     if (op === "host.network.target") {
       if (!this.isBound(entity)) return { ok: false, code: "auth.forbidden", message: "no active team network owner" }
       const engine = this.bind(entity)

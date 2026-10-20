@@ -519,6 +519,24 @@ export class UserDO extends OwnerDO<UserState> {
       || !held || held.revoked_at !== null || (held.expires_at !== null && held.expires_at <= Date.now()) || !held.op_classes.includes("mutate-own") || !held.op_classes.includes(required)) return null
     return inst.public_jwk as JsonWebKey
   }
+  /** Internal identity projection only. The original grant must still admit this exact host kind. */
+  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string } | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (!state.user || !inst || !held || !["daemon", "mac", "ios", "cli"].includes(inst.kind)
+      || (inst.kind === "daemon" && inst.bound_team !== team)
+      || !held.op_classes.includes("read") || !held.op_classes.includes("mutate-own")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install) }
+  }
+
+  /** One bounded owner-turn snapshot for a team's peer projection; no token or private key. */
+  async networkIdentities(entity: string, entries: ReadonlyArray<{ install: string; grant: string }>, team: string) {
+    if (!Array.isArray(entries) || entries.length > 128 || entries.some((v) => !v || typeof v.install !== "string" || typeof v.grant !== "string" || v.install.length > 128 || v.grant.length > 128)) return []
+    return Promise.all(entries.map((v) => this.networkIdentity(entity, v.install, v.grant, team)))
+  }
+
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; authority_version: string; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
