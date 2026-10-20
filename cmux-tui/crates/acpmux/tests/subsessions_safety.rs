@@ -548,3 +548,31 @@ async fn outside_its_folder_an_asking_caller_needs_the_persons_own_trust() {
         f.ok(START, json!({"prompt": "echo x", "cwd": cwd})).await;
     }
 }
+
+#[tokio::test]
+async fn a_queued_message_is_checked_again_when_it_would_run() {
+    let s = Scratch::new("queued");
+    let own = s.dir("own");
+    let hub = hub_with(&s, json!({"webAskingModes": {"fake": ["normal", "strict"]}}), None);
+    let mut app = Client::new(&hub);
+    let top = app.new_session(&own, "fake-full").await;
+    let mut t = Client::as_session(&hub, &top).await;
+    let mid =
+        t.ok(START, json!({"prompt": "echo mid"})).await["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&mid).await;
+    // The child is busy; a message waits behind its turn.
+    let gate = s.root.join("gate");
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    t.ok(SEND, json!({"sessionId": mid, "text": format!("gate: {}", gate.display())})).await;
+    let queued = t.ok(SEND, json!({"sessionId": mid, "text": "echo queued"})).await;
+    assert_eq!(queued["queued"], true, "{queued}");
+    // The sender is moved back to asking before the message runs: the child
+    // in full access now asks less than it.
+    app.ok("session/set_mode", json!({"sessionId": top, "modeId": "normal"})).await;
+    tokio::task::spawn_blocking(move || std::fs::write(gate, "go")).await.unwrap().unwrap();
+    for _ in 0..100 {
+        let said = serde_json::to_string(&app.events(&mid).await).unwrap();
+        assert!(!said.contains("echo: echo queued"), "the queued message ran");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
