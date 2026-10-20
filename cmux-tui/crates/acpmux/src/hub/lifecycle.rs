@@ -592,7 +592,10 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
+        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
+            Ok(v) => v,
+            Err(e) => return Err(Self::explain_start_failure(session, e).await),
+        };
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))
@@ -622,6 +625,7 @@ impl Hub {
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
                 if let Err(e) = primed {
+                    let e = Self::explain_start_failure(session, e).await;
                     return Err(RpcError::internal(format!("claude did not start: {}", e.message)));
                 }
             }
@@ -690,9 +694,13 @@ impl Hub {
         };
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
-            let res = child
+            let res = match child
                 .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
-                .await?;
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => return Err(Self::explain_start_failure(session, e).await),
+            };
             let sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)

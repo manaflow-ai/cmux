@@ -1,6 +1,6 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
@@ -441,6 +441,24 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  /** Message request trust (home-routes.ts): the domain of this user's verified email, or null. Never the address itself. */
+  async homeVerifiedEmailDomain(entity: string): Promise<string | null> {
+    const u = this.existing()?.currentState.user
+    return u && u.id === entity && u.email_verified ? invites.emailDomain(u.email) : null
+  }
+  /**
+   * Same-domain reach (home-routes.ts dm.open by email, DESIGN 2.4): when this user's verified
+   * email has `senderDomain`, that domain is a company domain, and `trust_same_domain` is on,
+   * the reach fact for the sender (this user's name and `allow_requests_from`); else null.
+   */
+  async homeSameDomainReach(entity: string, senderDomain: string): Promise<{ display_name: string; allow_requests_from: homeConversation.AllowRequestsFrom } | null> {
+    const engine = this.existing()
+    const u = engine?.currentState.user
+    if (!engine || !u || u.id !== entity || u.email_verified !== true) return null
+    const settings = homeUser.homeSettingsOf(engine.currentState.home_settings)
+    if (!settings.trust_same_domain || !invites.requestTrusted(senderDomain, invites.emailDomain(u.email))) return null
+    return { display_name: u.display_name, allow_requests_from: settings.allow_requests_from }
+  }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
