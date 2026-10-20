@@ -87,6 +87,8 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
   });
   /// What the pane asked of acpmux, by method, in order.
   let asked: { method: string; params: Record<string, any> }[] = [];
+  /// While set, acpmux refuses the pane's permission answer (the ask was answered elsewhere).
+  let refuseDeny = false;
 
   function reply(method: string, params: Record<string, any> = {}): unknown {
     switch (method) {
@@ -149,7 +151,11 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           asked.push({ method: message.method, params: message.params ?? {} });
-          if (message.id !== undefined)
+          if (message.id !== undefined && refuseDeny && message.method === "_acpmux/permission_respond")
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "already answered" } }),
+            );
+          else if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: reply(message.method, message.params) }));
         },
       },
@@ -184,9 +190,32 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     await field.waitFor({ timeout: 5_000 });
     expect(answers()).toEqual([]);
     await field.fill("Run only the unit tests");
+    // Choosing the action again keeps what is typed.
+    await page.getByRole("button", { name: "No, tell Claude what to do differently" }).click();
+    expect(await field.inputValue()).toBe("Run only the unit tests");
     await field.press("Enter");
     await settle(page, 2);
     expect(answers()).toEqual(["respond reject_once", "prompt (steer) Run only the unit tests"]);
+    // The keyboard goes back to the composer, as a plain deny's does.
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest(".acpmux-composer")))).toBe(true);
+    await page.close();
+  });
+
+  test("a deny acpmux refuses keeps the field and what was typed", async () => {
+    const page = await open(CLAUDE);
+    refuseDeny = true;
+    try {
+      await page.getByRole("button", { name: "No, tell Claude what to do differently" }).click();
+      const field = page.getByRole("textbox", { name: "Tell the agent what to do instead" });
+      await field.fill("Use pnpm");
+      await field.press("Enter");
+      await settle(page, 1);
+      expect(answers()).toEqual(["respond reject_once"]);
+      await field.waitFor({ timeout: 5_000 });
+      expect(await field.inputValue()).toBe("Use pnpm");
+    } finally {
+      refuseDeny = false;
+    }
     await page.close();
   });
 
@@ -208,6 +237,10 @@ await requireBrowserLane("agent-pane-permission-deny-feedback.test.ts", async ()
     await page.getByRole("button", { name: "Cancel" }).click();
     await page.getByRole("button", { name: "Approve" }).waitFor({ timeout: 5_000 });
     expect(await page.getByRole("textbox", { name: "Tell the agent what to do instead" }).count()).toBe(0);
+    // The keyboard goes back to the action that opened the field.
+    expect(await page.evaluate(() => document.activeElement?.textContent)).toBe(
+      "Deny and tell the agent what to do instead",
+    );
     await page.waitForTimeout(200);
     expect(answers()).toEqual([]);
     await page.close();
