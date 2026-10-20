@@ -6,14 +6,11 @@
 //! existing streams on revocation/expiry and bind checked stamps to its supervised
 //! child before enabling serving. The daemon's default remains deny-all.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use base64::{
-    Engine as _,
-    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
-};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ring::signature;
 use serde::{Deserialize, Serialize};
 
@@ -23,9 +20,15 @@ use crate::stamp::LinkPeer;
 use crate::stream_lease::{LeaseControl, StreamLease};
 use crate::token::{Expected, TokenRefused, TokenVerifier, VerifiedToken};
 
+#[path = "native_policy.rs"]
+mod policy;
+
 #[path = "native_streams.rs"]
 mod streams;
 use streams::{reconcile_streams, stream_deadline, wake_streams};
+
+#[path = "receiver_owner.rs"]
+pub mod receiver;
 
 const MAX_TOKEN_BYTES: usize = 8192;
 const MAX_PEERS: usize = 128;
@@ -94,6 +97,7 @@ struct State {
     // Retained across policy/key replacement and revocation. Never evict a live jti.
     spent: BTreeMap<String, u64>,
     streams: Vec<StreamAuthority>,
+    receiver: Option<receiver::ReceiverState>,
 }
 
 /// Captured under the same lock as signature, current-policy and replay checks.
@@ -144,86 +148,6 @@ struct Claims {
     network: NativeBinding,
 }
 
-impl NativeBinding {
-    fn key(&self) -> Option<[u8; 32]> {
-        let bytes = STANDARD.decode(&self.wg_public_key).ok()?;
-        if STANDARD.encode(&bytes) != self.wg_public_key {
-            return None;
-        }
-        let key: [u8; 32] = bytes.try_into().ok()?;
-        key.iter().any(|b| *b != 0).then_some(key)
-    }
-
-    fn valid(&self) -> bool {
-        self.version == 1
-            && !self.tenant.is_empty()
-            && self.tenant.len() <= 128
-            && self.tenant.as_bytes()[0].is_ascii_alphanumeric()
-            && self.tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-            && native_id(&self.mesh, "mesh_")
-            && native_id(&self.device, "dev_")
-            && id(&self.host, "host_")
-            && id(&self.user, "user_")
-            && self.authority_version.len() == 64
-            && self
-                .authority_version
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            && self.acl_version <= MAX_SAFE_INTEGER
-            && self.key().is_some()
-    }
-}
-
-impl NativePolicy {
-    fn valid(&self, now: ReceiverTime) -> bool {
-        self.issuer.starts_with("cmux:cloud:")
-            && self.issuer.len() > "cmux:cloud:".len()
-            && self.issuer.len() <= 128
-            && self.issuer.bytes().all(|b| b.is_ascii_graphic())
-            && id(&self.host, "host_")
-            && id(&self.team, "team_")
-            && self.authority_version.len() == 64
-            && self
-                .authority_version
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-            && self.epoch > 0
-            && self.epoch <= MAX_SAFE_INTEGER
-            && self.checked_at_ms > 0
-            && self.checked_at_ms <= now.unix_ms
-            && self.expires_at_ms <= MAX_SAFE_INTEGER
-            && self.expires_at_ms > now.unix_ms
-            && self.expires_at_ms.checked_sub(self.checked_at_ms).is_some_and(|ms| ms <= 30_000)
-            && now.monotonic.checked_duration_since(self.request_started).is_some_and(|elapsed| {
-                elapsed < Duration::from_millis(self.expires_at_ms - self.checked_at_ms)
-            })
-            && self.peers.len() <= MAX_PEERS
-            && self.unique_peers()
-    }
-
-    fn unique_peers(&self) -> bool {
-        let mut installs = HashSet::new();
-        let mut hosts = HashSet::new();
-        let mut devices = HashSet::new();
-        let mut keys = HashSet::new();
-        let locator =
-            self.peers.first().map(|p| (&p.binding.tenant, &p.binding.mesh, p.binding.acl_version));
-        self.peers.iter().all(|p| {
-            id(&p.install, "inst_")
-                && p.binding.valid()
-                && Some((&p.binding.tenant, &p.binding.mesh, p.binding.acl_version)) == locator
-                && !p.services.is_empty()
-                && p.services.len() <= 2
-                && p.services.iter().all(|s| matches!(s, Service::Daemon | Service::Ssh))
-                && (p.services.len() != 2 || p.services[0] != p.services[1])
-                && installs.insert(&p.install)
-                && hosts.insert(&p.binding.host)
-                && devices.insert(&p.binding.device)
-                && keys.insert(&p.binding.wg_public_key)
-        })
-    }
-}
-
 impl NativeTokenVerifier {
     /// Construct a closed receiver with a bounded replay owner and an injected
     /// clock. No stream is accepted until `replace_authority` installs fresh policy.
@@ -243,6 +167,7 @@ impl NativeTokenVerifier {
                 clock_high_water: 0,
                 spent: BTreeMap::new(),
                 streams: Vec::new(),
+                receiver: None,
             }),
             clock: Arc::new(clock),
             replay_capacity,
@@ -271,6 +196,9 @@ impl NativeTokenVerifier {
     /// call `clear_authority` when a refresh fails or authority is invalidated.
     pub fn replace_authority(&self, policy: NativePolicy) -> Result<(), TokenRefused> {
         let (mut state, now) = self.current()?;
+        if state.receiver.is_some() {
+            return Err(TokenRefused::Invalid);
+        }
         if !policy.valid(now)
             || state.last_policy_check.is_some_and(|old| policy.checked_at_ms <= old)
         {
@@ -288,7 +216,7 @@ impl NativeTokenVerifier {
     /// and response-order fences.
     pub fn clear_authority(&self) {
         if let Ok(mut state) = self.state.lock() {
-            state.policy = None;
+            receiver::invalidate_state(&mut state);
             let wake = reconcile_streams(&mut state, None);
             drop(state);
             wake_streams(wake);
@@ -301,6 +229,9 @@ impl NativeTokenVerifier {
             return Err(TokenRefused::Invalid);
         }
         let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
+        if state.receiver.is_some() {
+            return Err(TokenRefused::Invalid);
+        }
         state.keys = keys;
         let now = self.sample(&mut state).ok();
         if now.is_none() {
@@ -317,10 +248,13 @@ impl NativeTokenVerifier {
     /// silently recover an old lease when the wall clock catches up.
     fn current(&self) -> Result<(std::sync::MutexGuard<'_, State>, ReceiverTime), TokenRefused> {
         let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
+        if state.receiver.as_ref().is_some_and(|r| !r.ready()) {
+            return Err(TokenRefused::NoVerifier);
+        }
         match self.sample(&mut state) {
             Ok(now) => Ok((state, now)),
             Err(error) => {
-                state.policy = None;
+                receiver::invalidate_state(&mut state);
                 let wake = reconcile_streams(&mut state, None);
                 drop(state);
                 wake_streams(wake);
@@ -330,7 +264,11 @@ impl NativeTokenVerifier {
     }
 
     fn sample(&self, state: &mut State) -> Result<ReceiverTime, TokenRefused> {
-        let now = (self.clock)().ok_or(TokenRefused::Invalid)?;
+        let raw = (self.clock)().ok_or(TokenRefused::Invalid)?;
+        let now = match &state.receiver {
+            Some(receiver) => receiver.sample(raw.monotonic).ok_or(TokenRefused::Invalid)?,
+            None => raw,
+        };
         if now.unix_ms < state.clock_high_water {
             return Err(TokenRefused::Invalid);
         }

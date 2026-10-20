@@ -24,6 +24,8 @@
 pub mod client;
 pub mod receiver;
 #[cfg(target_os = "linux")]
+pub mod receiver_agent;
+#[cfg(target_os = "linux")]
 mod receiver_files;
 #[cfg(target_os = "linux")]
 pub mod role;
@@ -40,3 +42,5 @@ mod receiver_client_tests;
 mod receiver_files_tests;
 #[cfg(test)]
 mod receiver_read_tests;
+#[cfg(test)]
+mod receiver_reply_tests;

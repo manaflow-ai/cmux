@@ -1127,6 +1127,7 @@ dependencies = [
  "cmux-server-core",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",

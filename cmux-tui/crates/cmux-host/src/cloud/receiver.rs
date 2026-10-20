@@ -19,7 +19,11 @@ use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverT
 use serde_json::{Value, json};
 
 use super::client::{CloudClient, Http};
-use super::wire::Bound;
+use super::wire::{Bound, Env};
+
+#[path = "receiver_reply.rs"]
+mod reply;
+pub use reply::ReceiverBinding;
 
 pub const POLICY_OP: &str = CloudVmNetworkPolicyOp::NAME;
 pub const REQUEST_BUDGET: Duration = Duration::from_secs(20);
@@ -55,10 +59,8 @@ impl ReceiverSnapshot {
             return None;
         }
         let elapsed = u64::try_from(now.duration_since(self.started).as_millis()).ok()?;
-        Some(ReceiverTime {
-            unix_ms: (self.policy.checked_at as u64).checked_add(elapsed)?,
-            monotonic: now,
-        })
+        let unix_ms = (self.policy.checked_at as u64).checked_add(elapsed)?;
+        Some(ReceiverTime { unix_ms, monotonic: now })
     }
 
     pub fn native_policy(&self) -> NativePolicy {
@@ -104,8 +106,9 @@ impl ReceiverSnapshot {
     }
 
     /// Public socket reply. A consumer must start its own monotonic deadline
-    /// before sending the socket request and subtract that entire round trip
-    /// from `remaining_ms`; response arrival must never extend this lease.
+    /// before sending the socket request. Cap `remaining_ms` by the policy
+    /// lifetime minus that entire round trip; do not subtract root work twice.
+    /// Response arrival must never extend the original request's deadline.
     pub fn public_reply(&self, now: Instant) -> Result<Value, String> {
         let time = self.time(now).ok_or(UNAVAILABLE)?;
         let keys: serde_json::Map<String, Value> = self.keys.keys.iter().map(|(kid, key)|
@@ -158,7 +161,9 @@ impl<H: Http> CloudClient<H> {
         {
             return Err(UNAVAILABLE.into());
         }
-        validate(&read.value, self.bound(), wg_public, &self.install_public_jwk())?;
+        let binding =
+            ReceiverBinding::from_original(self.bound(), wg_public, &self.install_public_jwk())?;
+        validate(&read.value, &binding)?;
         let (status, bytes) = self.request_until("/v1/cloud/keyset", None, None, deadline)?;
         // Reject duplicate JSON object keys, including duplicate key ids, before
         // the shared keyset parser can normalize them into a map.
@@ -175,7 +180,7 @@ impl<H: Http> CloudClient<H> {
     }
 }
 
-fn validate(p: &CloudVmNetworkPolicyView, b: &Bound, wg: &str, jwk: &Value) -> Result<(), String> {
+fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), String> {
     let bad = || UNAVAILABLE.to_owned();
     if p.machine != b.machine
         || p.host != b.host
@@ -183,8 +188,8 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &Bound, wg: &str, jwk: &Value) -> R
         || p.team != b.team
         || p.user != b.user
         || p.install != b.install
-        || p.wg_public_key != wg
-        || p.install_public_key != install_point(jwk).ok_or_else(bad)?
+        || p.wg_public_key != b.wg_public_key
+        || p.install_public_key != b.install_public_key
         || !id(&p.machine, "vm_", 20)
         || !id(&p.host, "host_", 20)
         || !id(&p.user, "user_", 20)
@@ -208,7 +213,8 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &Bound, wg: &str, jwk: &Value) -> R
         || p.ipv4.as_ref().is_some_and(|ip| ip.parse::<std::net::Ipv4Addr>().is_err())
         || !canonical_origin(&p.origin)
         || p.peers.len() > 128
-        || !public_key(wg, 32)
+        || !public_key(&p.wg_public_key, 32)
+        || !public_key(&p.install_public_key, 65)
     {
         return Err(bad());
     }
