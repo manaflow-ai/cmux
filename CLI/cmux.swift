@@ -46310,17 +46310,19 @@ struct CMUXTermMain {
         // file that reuses a closed standard number.
         _ = CLIStandardDescriptors.openAtLaunch
 #if os(macOS)
-        // The bundled CLI lives inside cmux.app. Mark it as a prohibited
-        // background process before any hook or socket work can reach AppKit,
-        // so macOS does not add helper launches to Dock recents.
-        let cliApplicationPolicy = CLIApplicationPolicy(application: .shared)
-        guard cliApplicationPolicy.apply() else {
-            let message = String(
-                localized: "cli.applicationPolicy.error",
-                defaultValue: "Failed to hide the bundled CLI from macOS application surfaces."
-            )
-            CMUXCLIOutput.writeStandardError(message + "\n")
-            exit(1)
+        if CLIExecutableLocator.enclosingAppBundle() != nil {
+            // The bundled CLI lives inside cmux.app. Mark it as a prohibited
+            // background process before any hook or socket work can reach AppKit,
+            // so macOS does not add helper launches to Dock recents.
+            let cliApplicationPolicy = CLIApplicationPolicy(application: .shared)
+            guard cliApplicationPolicy.apply() else {
+                let message = String(
+                    localized: "cli.applicationPolicy.error",
+                    defaultValue: "Failed to hide the bundled CLI from macOS application surfaces."
+                )
+                CMUXCLIOutput.writeStandardError(message + "\n")
+                exit(1)
+            }
         }
 #endif
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
