@@ -1,8 +1,8 @@
-import AppKit
+public import AppKit
 
 /// The window `QuickComposerController` shows the chat in:
 /// `QuickComposerPanel`, or a fake in tests.
-protocol QuickComposerWindow: AnyObject {
+public protocol QuickComposerWindow: AnyObject {
     var isVisible: Bool { get }
     var isKeyWindow: Bool { get }
     /// The panel lost the keys (a click in another window or app).
