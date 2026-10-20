@@ -145,9 +145,13 @@ cleanup() {
 }
 # Removes the lock only while it is still ours: a hook that ran past the
 # takeover age must not remove the lock its successor took.
+# An empty PID file is ours too: the hook was stopped between mkdir and
+# writing its PID.
 release_install_lock() {
-  if [ -n "$held_lock" ] && [ "$(cat "$held_lock/pid" 2>/dev/null || true)" = "$$" ]; then
-    rm -rf "$held_lock"
+  if [ -n "$held_lock" ]; then
+    case "$(cat "$held_lock/pid" 2>/dev/null || true)" in
+      "$$" | "") rm -rf "$held_lock" ;;
+    esac
   fi
   held_lock=""
 }
@@ -217,16 +221,25 @@ web_packages_stale() { # package-dir
 # Takes a per-worktree install lock (a directory holding the holder's PID).
 # A lock whose holder is gone, or one older than ten minutes, was left by a
 # killed hook and is taken over.
+# The stale lock is moved aside before mkdir: rename is atomic, so of two hooks
+# that both found it stale only one moves it, and a lock that turns out to be
+# live once moved (another hook took it meanwhile) is put back.
+lock_is_stale() { # lock-dir
+  holder="$(cat "$1/pid" 2>/dev/null || true)"
+  { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } \
+    || [ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null)" ]
+}
 take_install_lock() { # lock-dir
   if ! mkdir "$1" 2>/dev/null; then
-    holder="$(cat "$1/pid" 2>/dev/null || true)"
-    if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } \
-      || [ -n "$(find "$1" -maxdepth 0 -mmin +10 2>/dev/null)" ]; then
-      rm -rf "$1"
-      mkdir "$1" 2>/dev/null || return 1
-    else
+    lock_is_stale "$1" || return 1
+    mv "$1" "$1.stale.$$" 2>/dev/null || return 1
+    if ! lock_is_stale "$1.stale.$$"; then
+      [ -e "$1" ] || mv "$1.stale.$$" "$1" 2>/dev/null || true
+      rm -rf "$1.stale.$$"
       return 1
     fi
+    rm -rf "$1.stale.$$"
+    mkdir "$1" 2>/dev/null || return 1
   fi
   held_lock="$1"
   printf '%s\n' "$$" >"$1/pid"
