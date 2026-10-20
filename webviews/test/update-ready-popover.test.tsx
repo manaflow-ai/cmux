@@ -168,6 +168,8 @@ test("the popup and the card read notes published before the readable rules as t
     "Keep the Mac awake while agents work",
   ]);
   expect(host.querySelector(".wn-card-line")).toBeNull();
+});
+
 // Notes with screenshots (Leo 2026-10-19): a change's picture shows inline at the popover's width,
 // in the theme's scheme, and a click on it opens the notes, where it shows larger.
 test("a change's picture shows inline and a click on it opens the notes", async () => {
