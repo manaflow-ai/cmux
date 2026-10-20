@@ -8,7 +8,8 @@ import Testing
 /// review). Reading the floor or the shown opacity now registers the scope's backdrop revision.
 @MainActor
 struct WindowOpacityFloorObservationTests {
-    private final class Flag: @unchecked Sendable { var raised = false }
+    // Nonisolated: onChange runs outside the main actor (this target is main-actor by default).
+    private nonisolated final class Flag: @unchecked Sendable { var raised = false }
 
     private func observing(_ read: () -> Void, while change: () throws -> Void) rethrows -> Bool {
         let flag = Flag()
@@ -24,6 +25,14 @@ struct WindowOpacityFloorObservationTests {
         #expect(scope.windowOpacityFloor != nil)
         #expect(observing({ _ = scope.windowOpacityFloor }, while: { scope.setBackdropSelection(nil) }))
         #expect(scope.windowOpacityFloor == nil)
+    }
+
+    /// The floor never depends on the tint, so a tint drag (a workspace's Opacity) re-sends nothing:
+    /// Settings' host lists, which list the wallpaper folders, are not rebuilt on every tick.
+    @Test func aTintChangeLeavesTheFloorUnobserved() throws {
+        let scope = ThemeScope(level: .room)
+        scope.setBackdropSelection(try #require(BackdropSelection(id: "van-gogh-starry-night")))
+        #expect(!observing({ _ = scope.windowOpacityFloor }, while: { scope.pinBackdropTint(0.6) }))
     }
 
     /// A picture chosen on a parent (the app's All Workspaces pick) reaches its children's reads.
