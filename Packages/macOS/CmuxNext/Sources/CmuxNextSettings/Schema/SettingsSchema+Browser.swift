@@ -86,6 +86,17 @@ nonisolated enum BrowserSettingsSchema {
                 default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
             ),
             SettingDescriptor(
+                BrowserHibernationSetting.neighborRadiusPath, section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.keepNeighborTabsAwake", "Keep Neighbor Tabs Awake"),
+                help: SettingsText.keyed(
+                    "settings.browser.keepNeighborTabsAwake.help",
+                    "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+                ),
+                kind: .number(SettingNumber(0...3, step: 1, unit: .count)),
+                default: .number(Double(BrowserHibernationSetting.defaultNeighborRadius)),
+                keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
+            ),
+            SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]

@@ -30,7 +30,10 @@ export type PageCommandName =
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
-  | "editorAction";
+  | "editorAction"
+  // The markdown page's table column widths (pages/markdown/tables.ts).
+  | "resetTableWidths"
+  | "resetContextTableWidths";
 
 export interface PageCommand {
   command: PageCommandName;

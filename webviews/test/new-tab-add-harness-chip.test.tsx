@@ -144,7 +144,7 @@ test.serial("with no harness installed, the page has no No agent row and the chi
   expect(host.textContent).not.toContain("No agent to ask");
   expect(named("Integrate a harness")).toBeUndefined();
 
-  const chip = named("Add harness", host.querySelector(".nt-pickers")!);
+  const chip = named("Add harness", host.querySelector(".nt-composer")!);
   expect(chip).toBeDefined();
   expect(chip!.textContent?.trim()).toBe("Add harness");
   await act(async () => chip!.click());
@@ -153,7 +153,7 @@ test.serial("with no harness installed, the page has no No agent row and the chi
 
 test.serial("with harnesses installed, the picker's last item is Add harness…, by click and by keyboard", async () => {
   const opened = await page(noChat().catalog);
-  expect(named("Add harness", host.querySelector(".nt-pickers")!)).toBeUndefined();
+  expect(named("Add harness", host.querySelector(".nt-composer")!)).toBeUndefined();
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
   const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
   expect(menu).not.toBeNull();
