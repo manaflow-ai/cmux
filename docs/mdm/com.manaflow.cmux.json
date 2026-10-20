@@ -1442,6 +1442,12 @@
       "title" : "URLs to Always Open Externally",
       "type" : "array"
     },
+    "browser.verificationAutofill.enabled" : {
+      "default" : false,
+      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+      "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2070,6 +2076,16 @@
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
       "title" : "Channels",
       "type" : "boolean"
+    },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
     },
     "home.chiefPetEnabled" : {
       "default" : false,
