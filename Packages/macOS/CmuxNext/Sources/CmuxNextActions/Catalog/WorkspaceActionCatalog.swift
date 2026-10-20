@@ -237,7 +237,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "palette.toggleWorkspacePin",
                 title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
-                surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace pin-unpin",
+                surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
             ),
             ActionDescriptor(
@@ -326,6 +326,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.workspaceGroup.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module),
                 keywords: ["group", "create"], category: .workspace, symbol: "plus.square.dashed",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-workspace"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.newSubgroup",
+                title: String(localized: "action.workspaceGroup.newSubgroup", defaultValue: "New Subgroup", bundle: .module),
+                keywords: ["group", "nest", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-subgroup"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.rename",

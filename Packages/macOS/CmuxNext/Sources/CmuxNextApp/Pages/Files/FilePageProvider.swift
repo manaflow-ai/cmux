@@ -95,6 +95,11 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// Where the markdown page keeps table column widths between opens (nil: the page keeps
     /// none past the tab). ``FilePageProvider+TableWidths.swift``.
     let tableWidths: (any MarkdownTableWidthStoring)?
+    /// Where the markdown page's viewer comments live between opens (nil: none are kept).
+    /// ``FilePageProvider+Comments.swift``.
+    let comments: (any MarkdownTableWidthStoring)?
+    /// Sends the page a changed comment list (the service sets it: the `comments` page command).
+    var onCommentsChanged: ((JSONValue) -> Void)?
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -108,9 +113,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
+        self.comments = comments
         self.file = file.map(Self.canonical)
         if let file = self.file {
             shown.insert(file.path)
@@ -188,6 +194,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await listFiles(params)
         case kind.op("setTableWidths") where kind == .markdown:
             return try await setTableWidths(params)
+        case kind.op("deleteComment") where kind == .markdown:
+            return try await deleteComment(params)
         case kind.op("contextTable") where kind == .markdown:
             contextTable = params["table"]?.intValue.flatMap { $0 >= 0 ? $0 : nil }
             return .object([:])
@@ -322,6 +330,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             }
             // Read before the page's first layout, so a saved table never jumps from its natural width.
             if let widths = await savedTableWidths(file.url) { config["tableWidths"] = widths }
+            if let comments = await savedComments(file.url) { config["comments"] = comments }
         case .editor:
             config["size"] = JSONValue(file.size)
         }

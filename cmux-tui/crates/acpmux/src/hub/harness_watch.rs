@@ -25,9 +25,9 @@ use notify::Watcher as _;
 use crate::config::ProfileSources;
 
 /// A burst ends after this much quiet...
-const QUIET: Duration = Duration::from_millis(200);
+pub(super) const QUIET: Duration = Duration::from_millis(200);
 /// ...or after this long.
-const MAX_BURST: Duration = Duration::from_secs(2);
+pub(super) const MAX_BURST: Duration = Duration::from_secs(2);
 
 /// The hub's profile hot-reload state: the live watcher and the change feed
 /// that `_acpmux/watch` connections forward.
@@ -65,10 +65,14 @@ pub(crate) struct HarnessWatcher {
 }
 
 impl Hub {
-    /// Watches the harness profile sources of the loaded config. Call once,
+    /// Watches the harness profile sources of the loaded config, and the
+    /// settings file (`start_settings_watch`). Call once,
     /// inside the runtime, before any other config write. A config built in
-    /// code (no sources) watches nothing.
+    /// code (no sources) watches no profiles.
     pub fn start_harness_watch(self: &Arc<Self>) {
+        // The settings file too: a start-mode setting change reaches the
+        // watchers (`settings_watch.rs`).
+        self.start_settings_watch();
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             tracing::warn!("harness watch: no async runtime");
             return;

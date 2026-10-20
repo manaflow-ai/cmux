@@ -39,10 +39,15 @@ public final class CloudLinkLifecycle {
 
     /// A session began for `user`: another person's link never keeps
     /// running for this one, and ensures may run again.
-    public func sessionBegan(user: String?) async {
-        if let previous = linkUser, previous != user { await endLink(final: true) }
+    /// Returns whether it ended another user's link (Switch Account), so the
+    /// owner drops that account's work too.
+    @discardableResult
+    public func sessionBegan(user: String?) async -> Bool {
+        let switched = linkUser.map { $0 != user } ?? false
+        if switched { await endLink(final: true) }
         linkEnding = false
         linkUser = user
+        return switched
     }
 
     /// A sign-out starts: no ensure starts until the session's final

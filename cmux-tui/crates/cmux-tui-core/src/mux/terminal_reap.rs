@@ -192,6 +192,9 @@ impl Mux {
             if let Err(error) = registry.prune_terminal_keep() {
                 self.report_internal_diagnostic(format!("terminal keep prune failed: {error}"));
             }
+            if let Err(error) = registry.prune_terminal_resume_commands() {
+                self.report_internal_diagnostic(format!("resume command prune failed: {error}"));
+            }
             registry.kept_terminals()?
         };
         unplaced.retain(|terminal_id| !kept.contains(terminal_id));
@@ -345,7 +348,8 @@ impl Mux {
         // The workspace store records every kept tab before any terminal
         // ends, so no exit can remove one (invariant 3 of
         // plans/cmux-next/OWNERSHIP-PRINCIPLES.md).
-        let kept = if keep_layout { self.record_kept_tabs(&terminals)? } else { HashSet::new() };
+        let kept =
+            if keep_layout { self.record_kept_tabs(&terminals, false)? } else { HashSet::new() };
         let mut ended = Vec::new();
         let mut failures = Vec::new();
         let mut to_close = Vec::new();
@@ -435,7 +439,12 @@ impl Mux {
     /// host's fact: the foreground process's directory, else the OSC 7 or
     /// launch directory) and the terminal's title. Returns the host ids of
     /// those terminals.
-    fn record_kept_tabs(&self, terminals: &[RegistryTerminal]) -> anyhow::Result<HashSet<String>> {
+    /// `on_show`: parked (`park-tabs`), started when first shown.
+    fn record_kept_tabs(
+        &self,
+        terminals: &[RegistryTerminal],
+        on_show: bool,
+    ) -> anyhow::Result<HashSet<String>> {
         // Tab ids and process ids under the locks; directories after.
         let mut placed = Vec::new();
         {
@@ -472,11 +481,78 @@ impl Mux {
                 tab_id,
                 cwd: cwd.clone(),
                 title: title.clone(),
+                on_show,
             }));
             kept.insert(terminal_id);
         }
         self.commit_kept_tabs(&rows)?;
         Ok(kept)
+    }
+
+    /// `park-tabs` (`tab-park-v1`): ends the shells of the terminals the tabs
+    /// at `surfaces` show and keeps their tabs, recorded first, as
+    /// [`Self::end_all_terminals_keeping_layout`] does for every terminal.
+    /// Tabs that show no live terminal are skipped. Returns the surfaces whose
+    /// terminal was parked.
+    pub(crate) fn park_terminal_tabs(
+        &self,
+        surfaces: &[SurfaceId],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let by_content: Vec<(SurfaceId, TerminalPublicId)> = self.with_state(|state| {
+            surfaces
+                .iter()
+                .filter_map(|surface| match state.resource_indexes.content_ids.get(surface) {
+                    Some(ContentPublicId::Terminal(id)) => Some((*surface, id.clone())),
+                    _ => None,
+                })
+                .collect()
+        });
+        if by_content.is_empty() {
+            return Ok(Vec::new());
+        }
+        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        let mut chosen = Vec::new();
+        let mut parked_surfaces = Vec::new();
+        {
+            let registry = self.workspace_registry.lock().unwrap();
+            for terminal in terminals {
+                if !matches!(
+                    terminal.lifecycle,
+                    TerminalLifecycle::Running
+                        | TerminalLifecycle::Launching
+                        | TerminalLifecycle::Adopting
+                ) {
+                    continue;
+                }
+                let Some(public_id) = registry.terminal_resource_id(&terminal.terminal_id)? else {
+                    continue;
+                };
+                let mine: Vec<SurfaceId> = by_content
+                    .iter()
+                    .filter(|(_, id)| *id == public_id)
+                    .map(|(surface, _)| *surface)
+                    .collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                parked_surfaces.extend(mine);
+                chosen.push(terminal);
+            }
+        }
+        // Every tab is recorded before any shell is asked to exit, so no exit removes one.
+        let kept = self.record_kept_tabs(&chosen, true)?;
+        let mut failures = Vec::new();
+        for terminal in chosen.iter().filter(|terminal| kept.contains(&terminal.terminal_id)) {
+            if let Err(error) = self.end_terminal_keeping_tabs(terminal) {
+                failures.push(terminal.terminal_id.clone());
+                eprintln!("cmux-tui: could not park terminal {}: {error:#}", terminal.terminal_id);
+            }
+        }
+        if !failures.is_empty() {
+            // A terminal that still runs must not keep a record, or its later exit would keep its tab.
+            self.forget_kept_tabs_of(&failures)?;
+        }
+        Ok(parked_surfaces)
     }
 
     /// Removes the keep-layout records of the tabs of `terminal_ids`.
