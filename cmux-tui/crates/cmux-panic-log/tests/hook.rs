@@ -52,3 +52,20 @@ fn a_long_backtrace_is_cut_on_a_char_boundary() {
     let kept = line["backtrace"].as_str().unwrap();
     assert!(kept.len() <= cmux_panic_log::MAX_BACKTRACE_BYTES);
 }
+
+#[cfg(windows)]
+#[test]
+fn append_never_follows_a_prepositioned_file_link() {
+    use std::os::windows::fs::symlink_file;
+
+    let dir = std::env::temp_dir().join(format!("cmux-panic-log-link-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("target.jsonl");
+    let linked = dir.join("panics.jsonl");
+    std::fs::write(&target, "unchanged\n").unwrap();
+    symlink_file(&target, &linked).unwrap();
+    cmux_panic_log::append(&linked, &serde_json::json!({"message": "must not land"}));
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "unchanged\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}

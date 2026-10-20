@@ -58,7 +58,8 @@ enum HomeAttachmentPanel {
             let anyInput = CGEventType(rawValue: ~0) ?? .null
             let idle = NSApp.isActive ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
             // Never inside a tracking loop (a drag, a menu, a resize): those count as busy.
-            guard idle >= 1, RunLoop.current.currentMode == .default else {
+            // RunLoop.current is unavailable in async code; this closure runs on the main actor.
+            guard idle >= 1, RunLoop.main.currentMode == .default else {
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
                 return
             }

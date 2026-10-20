@@ -98,6 +98,18 @@ pub fn remote_start(
     Ok(modes.to_vec())
 }
 
+/// `remote_start` against one immutable configuration snapshot. The session
+/// owner uses this while resolving the exact profile it will spawn, so a
+/// request-layer preflight is never the authority boundary.
+pub(crate) fn remote_start_for_config(
+    cfg: &Config,
+    name: &str,
+    profile: &HarnessProfile,
+) -> Result<Vec<String>, String> {
+    let (table, _) = WebModeTable::build_refusing(&cfg.web_asking_modes, &refused_families(cfg));
+    remote_start(&table, name, profile)
+}
+
 /// Modes the reviewed sources name as NOT asking. A config.json
 /// (`webAskingModes`) entry naming one is ignored with a warning, so a local
 /// typo cannot open a permissive mode to the Web.

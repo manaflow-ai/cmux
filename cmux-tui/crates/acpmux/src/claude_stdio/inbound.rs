@@ -118,6 +118,12 @@ impl Translator {
                             *self.loop_model.lock().await = m.to_owned();
                         }
                     }
+                    // A tool call is named as its block starts (early_calls.rs).
+                    Some("content_block_start") => {
+                        if let Some(call) = self.announce_tool(&ev, &sid, parent).await {
+                            out.push(upd(call));
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -220,6 +226,12 @@ impl Translator {
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
                             self.edits.lock().await.insert(id.to_owned(), diffs.clone());
+                        }
+                        // Named early (early_calls.rs): the whole call is that call's update.
+                        if let Some(id) = c.get("id").and_then(Value::as_str)
+                            && self.take_announced(id).await
+                        {
+                            call["sessionUpdate"] = json!("tool_call_update");
                         }
                         out.push(upd(call));
                     }
@@ -500,6 +512,8 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A call named early whose whole call never came ends with its turn.
+                out.extend(self.end_announced().await);
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -629,7 +643,10 @@ impl Translator {
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
                 }
-                if let Some(update) = self.subagent_task(sub, line).await {
+                if let Some((update, ended)) = self.subagent_task(sub, line).await {
+                    if let Some(tool) = ended {
+                        out.extend(self.end_announced_of(&tool).await);
+                    }
                     out.push(upd(update));
                 }
             }
@@ -731,30 +748,30 @@ impl Translator {
     /// The background shells still running when Claude's stdout closed: they
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
-    /// lists it `lost`); the update itself is what clients show.
+    /// lists it `lost`); the update itself is what clients show. A call named
+    /// early whose input was still streaming ends `failed` with them.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
         shells.sort_by(|a, b| a.0.cmp(&b.0));
-        shells
-            .into_iter()
-            .map(|(tool, shell)| {
-                let update = background_task_update(&tool, &shell, "stopped");
-                Message::notification(
-                    method::SESSION_UPDATE,
-                    json!({"sessionId": shell.sid, "update": update,
+        let mut out = self.end_all_announced().await;
+        out.extend(shells.into_iter().map(|(tool, shell)| {
+            let update = background_task_update(&tool, &shell, "stopped");
+            Message::notification(
+                method::SESSION_UPDATE,
+                json!({"sessionId": shell.sid, "update": update,
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
-                )
-            })
-            .collect()
+            )
+        }));
+        out
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
     /// `subagent_progress` marking it background when it moved there, and its
-    /// `subagent_state_update` when it ended.
-    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+    /// `subagent_state_update` with its tool id when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
             Some(tool) => tool.to_owned(),
@@ -776,11 +793,14 @@ impl Translator {
             if !self.background_subagents.lock().await.insert(tool) {
                 return None;
             }
-            return Some(json!({
-                "sessionUpdate": "subagent_progress",
-                "subagentSessionId": child,
-                "background": true,
-            }));
+            return Some((
+                json!({
+                    "sessionUpdate": "subagent_progress",
+                    "subagentSessionId": child,
+                    "background": true,
+                }),
+                None,
+            ));
         }
         if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
             return None;
@@ -793,11 +813,14 @@ impl Translator {
             Some("stopped") => "cancelled",
             _ => "completed",
         };
-        Some(json!({
-            "sessionUpdate": "subagent_state_update",
-            "subagentSessionId": child,
-            "state": state,
-        }))
+        Some((
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child,
+                "state": state,
+            }),
+            Some(tool),
+        ))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
