@@ -22,6 +22,8 @@ public final class ResizeCoordinator {
     public static let shared = ResizeCoordinator()
     /// Frames a size waits for the echo of the grid before it.
     public static let echoWaitFrames = 30
+    /// Grids sent to the daemon (`debug.window_transition`).
+    public static var sent: UInt64 = 0
 
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 1)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
@@ -56,7 +58,9 @@ public final class ResizeCoordinator {
                 continue
             }
             waited[key] = nil
-            targets.removeValue(forKey: key)?.applySettled(size)
+            guard let target = targets.removeValue(forKey: key) else { continue }
+            Self.sent &+= 1
+            target.applySettled(size)
         }
         return !settle.isIdle
     }
