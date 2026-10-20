@@ -3374,82 +3374,26 @@ jobs:
         run: ./scripts/ci/signing-keychain.sh delete
 
 
-      - name: Verify bundled Mach-O load commands
-        run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
-
-
-      # Every Mach-O must map to its notices (bundle-map.json): fail here,
-      # before the notarization wait. notarize-nightly-dmg.sh checks the app
-      # and the mounted DMG again.
-      - name: Verify third-party notices cover every bundled binary
-        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
-
+      # The read-only checks of the signed app and its two packages run on a
+      # copy of it while Apple notarizes (signed-app-checks.sh): about 2.5 min
+      # that used to stand between Codesign apps and the first submission. The
+      # notarize step changes the app in place, so the copy is taken here.
       # This job holds signing secrets, so it runs no code from the bundle.
       # verify-signed-nightly runs every check that executes the app, the CLI,
       # the helpers or the sidecar, in a job without secrets, on this exact
       # signed app and on the final DMG (#21024). Notary tests and builds held
       # by NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload a signed app and publish nothing, so they skip that job.
-      - name: Package signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p signed-app-handoff
-          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf signed-app-handoff/cmux-signed-app.tar.gz "$(basename "$CHANNEL_APP_PATH")"
-          (cd signed-app-handoff && shasum -a 256 cmux-signed-app.tar.gz > cmux-signed-app.tar.gz.sha256)
-
-      - name: Upload signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff/*
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 3
-
-      # The bundle carries Rust, Zig, C++ and CEF binaries built outside Xcode,
-      # so the Xcode deployment target alone does not prove they load on the
-      # declared floor. Fail before notarization when any Mach-O needs a newer
-      # macOS than LSMinimumSystemVersion, strong-loads a system library the
-      # floor lacks, or a nested helper declares a newer floor. cmux-next pins
-      # the floor to macOS 14 (Lawrence 2026-10-16: "Make sure it works on
-      # Sequoia, macOS 14+"); raising it is a decision, not a build accident.
-      - name: Check every bundled Mach-O loads on the macOS floor
-        if: env.TRACK == 'nightly-next'
-        run: python3 scripts/ci/macho_minos.py scan "$CHANNEL_APP_PATH" --floor 14.0
-
-
-
-      # When Apple's queue is slow the wait below can hold the feed for hours,
-      # so teammates get the Developer ID-signed app from the run page now.
-      # It is not notarized: open it with right-click > Open, or run
-      # `xattr -dr com.apple.quarantine "<app>"` after unzipping. The
-      # repository is public, so notary tests and builds held by
-      # NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload an app. A failed zip or upload never blocks notarization.
-      - name: Zip the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
+      # upload a signed app and publish nothing, so they skip that job. The
+      # unnotarized zip is the Developer ID-signed app for teammates when
+      # Apple's queue is slow; the public repository never gets one from notary
+      # tests or paused builds, and a failed zip never blocks notarization.
+      - name: Start the signed-app checks (they run during notarization)
         env:
+          CHECK_MINOS: ${{ env.TRACK == 'nightly-next' }}
+          PACKAGE_HANDOFF: ${{ needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
+          PACKAGE_UNNOTARIZED_ZIP: ${{ needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           VARIANT: ${{ matrix.variant }}
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/signed-unnotarized"
-          mkdir -p "$out"
-          ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
-          ls -l "$out"
-
-
-      - name: Upload the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
-          path: ${{ runner.temp }}/signed-unnotarized/*.zip
-          if-no-files-found: error
-          retention-days: 7
+        run: ./scripts/ci/signed-app-checks.sh start "$CHANNEL_APP_PATH"
 
 
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
@@ -3515,6 +3459,37 @@ jobs:
             "$CHANNEL_APP_PATH" \
             "$NIGHTLY_DMG_RELEASE" \
             "$NIGHTLY_DMG_IMMUTABLE"
+
+
+      # Every Mach-O must load on the declared floor, map to its notices and
+      # pass the load-command check; the verify job's handoff comes from the
+      # same copy. A failure here fails the job, so nothing is published.
+      - name: Finish the signed-app checks
+        if: always()
+        timeout-minutes: 15
+        run: ./scripts/ci/signed-app-checks.sh finish
+
+
+      - name: Upload signed app for the verify job
+        if: always() && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signed-app-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+
+      - name: Upload the signed unnotarized app
+        if: always() && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
+          path: ${{ runner.temp }}/signed-unnotarized/*.zip
+          if-no-files-found: error
+          retention-days: 7
 
 
       - name: Package signed fast dogfood DMG
