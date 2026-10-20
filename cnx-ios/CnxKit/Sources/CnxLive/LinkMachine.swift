@@ -144,6 +144,12 @@ public struct LinkMachine: Sendable {
             case .connected: return [.quickProbe(generation: generation)]
             // The Mac just came back: dial now, not at the end of the backoff.
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
+            // A dial in flight sent its offer to a host that was down or
+            // restarting (a cnx-hostd kill: back on signaling in 1.6 s, the
+            // offer unanswered until the 25 s dial timeout). Presence frames
+            // come only when a Mac's socket connects, closes or is renamed, so
+            // this restarts a dial only when the host is newly reachable.
+            case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
             default: return []
             }
         case .retryDue(let gen):

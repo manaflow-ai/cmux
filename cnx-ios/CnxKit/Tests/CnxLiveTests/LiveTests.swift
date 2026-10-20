@@ -131,8 +131,9 @@ import Testing
         _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
         #expect(machine.handle(.macSignaled) == [.quickProbe(generation: 1)])
         #expect(machine.handle(.probeFailed(generation: 1, reason: "timeout")) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
-        // Not connected: a presence frame changes nothing.
-        #expect(machine.handle(.macSignaled) == [])
+        // A dial in flight when the host's socket connects again is restarted
+        // (its offer may have gone to the old socket): D2b.
+        #expect(machine.handle(.macSignaled) == [.dial(generation: 3, macID: "m1", transport: .webRTC)])
     }
 
     /// The link really died while presence says the Mac is offline: no dial
