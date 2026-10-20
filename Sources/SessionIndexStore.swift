@@ -1666,8 +1666,9 @@ final class SessionIndexStore: ObservableObject {
         }
         // Excluded sessions must not consume the requested window, so the
         // source offset cannot be used directly. Claude grows its window over
-        // one candidate snapshot. Other loaders take one bounded read from the
-        // newest session; that cost applies only to agents a rule can match.
+        // one candidate snapshot. Other loaders read a newest-first prefix
+        // that starts at twice the page and grows only while too few sessions
+        // pass the rules.
         if agent == .claude {
             return await loadClaudeEntries(
                 needle: needle,
@@ -1677,18 +1678,24 @@ final class SessionIndexStore: ObservableObject {
                 isIncluded: isIncluded
             )
         }
-        let sourcePage = await loadRawAgentEntries(
-            needle: needle,
-            agent: agent,
-            cwdFilter: cwdFilter,
-            offset: 0,
-            limit: max(safeOffset + safeLimit, searchMaxFiles),
-            errorBag: errorBag,
-            registry: registry,
-            ampSessionRepository: ampSessionRepository
+        return await CmuxGrowingWindowPager.prefixPage(
+            offset: safeOffset,
+            limit: safeLimit,
+            cap: searchMaxFiles,
+            read: { sourceLimit in
+                await loadRawAgentEntries(
+                    needle: needle,
+                    agent: agent,
+                    cwdFilter: cwdFilter,
+                    offset: 0,
+                    limit: sourceLimit,
+                    errorBag: errorBag,
+                    registry: registry,
+                    ampSessionRepository: ampSessionRepository
+                )
+            },
+            isIncluded: isIncluded
         )
-        if Task.isCancelled { return [] }
-        return Array(sourcePage.filter(isIncluded).dropFirst(safeOffset).prefix(safeLimit))
     }
 
 #if compiler(>=6.2)
@@ -1911,7 +1918,7 @@ final class SessionIndexStore: ObservableObject {
         // (offset+limit) matches afterwards. Cap at searchMaxFiles. A filtered
         // page keeps inspecting later windows of the same snapshot.
         let includes = isIncluded ?? { _ in true }
-        return await growingWindowPage(
+        return await CmuxGrowingWindowPager.snapshotPage(
             candidateCount: candidates.count,
             offset: offset,
             limit: limit,
@@ -2022,37 +2029,6 @@ final class SessionIndexStore: ObservableObject {
             },
             isIncluded: includes
         )
-    }
-
-    /// Pages a newest-first candidate snapshot. The first window is twice the
-    /// page; with `grows`, each later window doubles the inspected prefix and
-    /// parses only candidates not yet inspected, until `offset + limit`
-    /// sessions pass `isIncluded` or the snapshot (bounded by `cap`) is spent.
-    /// Excluded sessions therefore never consume the requested window, and the
-    /// snapshot is discovered once rather than once per window.
-    nonisolated static func growingWindowPage(
-        candidateCount: Int,
-        offset: Int,
-        limit: Int,
-        cap: Int,
-        grows: Bool,
-        parse: (Range<Int>) async -> [SessionEntry],
-        isIncluded: (SessionEntry) -> Bool
-    ) async -> [SessionEntry] {
-        let target = offset + limit
-        let maxWork = min(candidateCount, cap)
-        var inspected = 0
-        // `min(2x, maxWork)` written so the doubling cannot overflow.
-        var windowEnd = target > maxWork / 2 ? maxWork : target * 2
-        var matched: [SessionEntry] = []
-        while inspected < windowEnd {
-            matched.append(contentsOf: await parse(inspected..<windowEnd).filter(isIncluded))
-            inspected = windowEnd
-            if Task.isCancelled { return [] }
-            if !grows || matched.count >= target { break }
-            windowEnd = windowEnd > maxWork / 2 ? maxWork : windowEnd * 2
-        }
-        return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
 
     /// Returns Codex session entries paginated by mtime desc.
