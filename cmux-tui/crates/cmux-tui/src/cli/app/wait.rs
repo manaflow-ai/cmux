@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, request_with_retry};
+use super::{
+    GlobalArgs, OutputMode, SCREENSHOT_TIMEOUT, command_socket, request_with_retry, safe_to_resend,
+};
 
 /// Only the long waits (a screenshot's 35 s, a waiting run's 45 s) show
 /// notes; a 5 s control-plane read answers or fails before a note helps.
@@ -19,6 +21,8 @@ const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;
 /// No note for a wait shorter than this.
 const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);
 const NOTE_EVERY: Duration = Duration::from_secs(5);
+/// The waits before each new connection after the app dropped one.
+const RECONNECT_BACKOFF: [Duration; 2] = [Duration::from_millis(200), Duration::from_millis(800)];
 
 /// [`request_with_retry`] with progress notes while it waits; a transport
 /// failure is the `app.transport` error to print, typed by [`timed_out`]
@@ -35,7 +39,22 @@ pub(super) fn request(
     let what = waiting_for(method, params);
     let template = crate::localization::catalog().app_control.waiting_progress;
     let progress = Progress::start(&what, template, timeout.filter(|_| long), global.output);
-    let response = request_with_retry(stream, method, params, timeout);
+    let mut response = request_with_retry(stream, method, params, timeout);
+    // A dropped connection (the app restarted its control server, or closed
+    // it under load) is healed: a new connection, the same request. A keyed
+    // run carries its idempotency key, so the app replays or joins it.
+    for wait in RECONNECT_BACKOFF {
+        let Err(error) = &response else { break };
+        if timeout.is_some_and(|timeout| *error == timeout_message(timeout))
+            || !safe_to_resend(method, params)
+        {
+            break;
+        }
+        std::thread::sleep(wait);
+        let Ok(fresh) = super::connect_command(global) else { break };
+        *stream = fresh;
+        response = request_with_retry(stream, method, params, timeout);
+    }
     let waited = progress.finish();
     response.map_err(|error| match timeout {
         Some(timeout) if error == timeout_message(timeout) => {
