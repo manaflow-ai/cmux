@@ -119,6 +119,19 @@ class Notify(unittest.TestCase):
         self.assertEqual(run(moved), 0)
         self.assertEqual(moved.dispatched, [])
 
+    def test_a_tag_dispatch_runs_again_on_its_tag(self):
+        """A tag has no branch head to move: its marker is current, like the DEV daily's SHA.
+        Looking it up under refs/heads/ would fail and its tree jobs would never start."""
+        api = FakeApi([push_marker(origin="dispatch", branch="v1.2.3", ref_kind="tags")], branch_head=NEWER)
+        self.assertEqual(run(api), 1)
+        [body] = api.dispatched
+        self.assertEqual(body["ref"], "v1.2.3")
+        self.assertEqual(body["inputs"]["same_tree_origin"], "dispatch")
+        for bad in (push_marker(origin="dispatch", branch="lane/x", ref_kind="pull"),
+                    push_marker(origin="push", branch="v1", ref_kind="tags")):
+            with self.subTest(marker=bad):
+                self.assertEqual(run(FakeApi([bad])), 0)
+
     def test_a_superseded_push_is_not_dispatched(self):
         api = FakeApi([push_marker()], branch_head=NEWER)
         self.assertEqual(run(api), 0)

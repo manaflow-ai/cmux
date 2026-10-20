@@ -1461,6 +1461,9 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         # (push CI is the app build), and nothing else tests a working branch's tree.
         marker = next(step for step in self.jobs()["path_route"]["steps"] if step.get("id") == "marker")
         self.assertIn('origin="dispatch" if env["EVENT_NAME"] == "workflow_dispatch"', marker["run"])
+        # A tag dispatch's marker says so; the notifier never looks a tag up as a branch.
+        self.assertEqual(marker["env"]["REF_TYPE"], "${{ github.ref_type }}")
+        self.assertIn('ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads"', marker["run"])
         same_tree = self.context("workflow_dispatch", ref="refs/heads/topic", same_tree_sha="a" * 40,
                                  same_tree_state="ready", same_tree_tiers="daemon", same_tree_origin="dispatch")
         self.assertTrue(evaluate(self.jobs()["daemon-test"]["if"], same_tree))
