@@ -12,7 +12,7 @@ use tokio::process::Command;
 pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
 /// Recorded with every remote durable host. A changed or missing id means
 /// that host predates this process-authority boundary and is not adopted.
-pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v1";
+pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v2";
 /// `Command` exposes its env edits but not `env_clear`; this removal records
 /// that clear for the agent-host environment projection (`command_env`).
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";

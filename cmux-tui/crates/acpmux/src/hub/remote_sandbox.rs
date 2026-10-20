@@ -53,7 +53,7 @@ pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v3: remote allowlist, credential by profile env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v4: fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
@@ -196,7 +196,7 @@ async fn claude_credential(
         return Ok(None);
     }
     for &key in CREDENTIAL_ENV {
-        if let Some(value) = remote_login_credential(key) {
+        if let Some(value) = remote_login_value(key) {
             return Ok(Some((key, value)));
         }
     }
@@ -228,7 +228,7 @@ async fn claude_credential(
 /// A daemon started inside Claude/Chief carries that parent turn's token in
 /// its process environment. A remote child may use the person's imported
 /// login credential, never the parent agent's turn-scoped credential.
-fn remote_login_credential(key: &str) -> Option<String> {
+fn remote_login_value(key: &str) -> Option<String> {
     select_remote_login_credential(
         std::env::var_os("CLAUDECODE").is_some(),
         std::env::var(key).ok(),
@@ -728,7 +728,7 @@ impl Hub {
         let endpoint = endpoint(
             profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
             user_settings.as_deref(),
-            crate::chats::login_var("ANTHROPIC_BASE_URL").as_deref(),
+            remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
         );
         let result = async {
             let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
@@ -796,6 +796,14 @@ mod vm_host_tests {
                 None,
             ),
             None
+        );
+        assert_eq!(
+            super::select_remote_login_credential(
+                true,
+                Some("http://synthetic-parent.invalid".into()),
+                Some("http://synthetic-login.invalid".into()),
+            ),
+            Some("http://synthetic-login.invalid".into())
         );
     }
 
