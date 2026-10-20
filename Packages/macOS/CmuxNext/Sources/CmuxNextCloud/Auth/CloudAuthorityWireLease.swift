@@ -3,7 +3,7 @@ import CmuxInstallAuthCore
 
 /// One original install's short-lived credential for one owner wire, never operation authority.
 package struct CloudAuthorityWireLease: Sendable {
-    package enum Owner: String, Sendable { case user, team }
+    package enum Owner: String, Sendable, Hashable { case user, team }
     package enum Failure: Error, Equatable { case identity, expired, origin, frame, closed, handshake }
     let owner: Owner
     let user: String

@@ -4,6 +4,7 @@ import Foundation
 actor CloudAuthorityWireTestSocket: CloudAuthorityWireSocket {
     private let input = AsyncThrowingStream<Data, any Error>.makeStream()
     private let sent = AsyncStream<Data>.makeStream()
+    private let closing = AsyncStream<Void>.makeStream()
     private var closed = false
     private(set) var closes = 0
 
@@ -16,10 +17,16 @@ actor CloudAuthorityWireTestSocket: CloudAuthorityWireSocket {
     func close() {
         guard !closed else { return }
         closed = true; closes += 1
+        closing.continuation.yield(()); closing.continuation.finish()
         input.continuation.finish(); sent.continuation.finish()
     }
     func emit(_ text: String) { input.continuation.yield(Data(text.utf8)) }
     func emit(_ data: Data) { input.continuation.yield(data) }
     func eof() { input.continuation.finish(throwing: CloudAuthorityWireLease.Failure.closed) }
     func nextSent() async -> Data? { var iterator = sent.stream.makeAsyncIterator(); return await iterator.next() }
+    func waitUntilClosed() async {
+        if closed { return }
+        var iterator = closing.stream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
 }

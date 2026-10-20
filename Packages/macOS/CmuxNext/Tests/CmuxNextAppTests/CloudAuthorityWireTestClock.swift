@@ -13,6 +13,10 @@ actor CloudAuthorityWireTestClock {
         try Task.checkCancellation()
     }
     func nextTimer() async -> Duration? { var iterator = arrivals.stream.makeAsyncIterator(); return await iterator.next() }
+    func waitForTimer(_ duration: Duration) async throws {
+        while let next = await nextTimer() { if next == duration { return } }
+        throw CancellationError()
+    }
     func fire(_ duration: Duration) {
         for timer in timers where timer.0 == duration { timer.1.yield(()); timer.1.finish() }
     }
