@@ -44,24 +44,28 @@ subagent prompt. About 250 bytes a line; the default Chief makes about 10k lines
 
 - `kind`: `turn` | `compactor` | `subagent`. `agent`: the subagent id (`a241`) for `subagent`.
 - `model`: the event's model, else the last `request` model of the same turn or subagent.
-- `usd`: the unit's own cost. For a subagent the trace only has the cumulative value, so the line
-  keeps it as `usd_cum` and the reader derives the unit cost, per agent in time order: `usd_cum -
-  previous usd_cum`, or `usd_cum` when it went down (process restarted). Stateless, so a host
-  restart never double counts.
+- `usd`: the unit's own cost. For a subagent the trace only has the running total, so the writer
+  keeps it as `usd_cum` and writes `usd = usd_cum - previous usd_cum`, or `usd_cum` when it went
+  down (the process restarted). After a host restart the previous total is read back from the
+  ledger's last line for that agent, so a restart does not count a subagent from zero. Known gap:
+  a subagent process that restarted while the host was down and already passed its old total is
+  undercounted by that old total.
+- `session`: a subagent's acpmux session (from `subagent.start`), for its link.
 - `src`: `live` (written by the host) or `trace` (backfilled).
 
 **Writer.** `Trace::emit` hands each event to `usage::Ledger::observe` after writing the trace line.
-It keeps only two small maps (turn key → last model, subagent id → last model, both bounded at 256
-entries) and appends a line on `turn.end`, `node` and `subagent.answer`. No timer, no thread: idle
+It keeps only small maps (last request model per turn and subagent, subagent session and running
+cost, each bounded at 256 entries) and appends a line on `turn.end`, `node` and `subagent.answer`. No timer, no thread: idle
 CPU is zero. A Chief whose trace is off (`Trace::off`) writes no ledger either.
 
 **Retention.** Bounded by age and size: on the first line of a new month, month files older than
 `OPTCHAT_USAGE_KEEP_MONTHS` (default 13) are deleted, then the oldest months go until the directory
 is under 256 MB. Whole files only; nothing is rewritten.
 
-**Backfill.** The first read of a ledger with no `usage/backfill.json` converts the trace files
-older than the ledger's first live line into `src: trace` lines (same fold, same writer code), then
-writes `backfill.json` with what it read. An `O_EXCL` lock file keeps two readers from backfilling at
+**Backfill.** The first read of a ledger with no `usage/backfill.json` converts the trace events
+older than the ledger's first live line (`usage/live-since`) into `src: trace` lines (same fold,
+same writer), skipping months retention would delete, then writes `backfill.json` with the last
+converted time (`--force` continues from it). An `O_EXCL` lock file keeps two readers from backfilling at
 once. `optchat-chief usage backfill [--force]` runs it on demand. So the first open shows history
 back to the oldest kept trace (Oct 6 on this Mac).
 
@@ -95,9 +99,9 @@ else its `chief-id`, else "default". Buckets are in local time.
 ```
 
 Latency percentiles are over `turn` lines only (what a person waits on); token and dollar totals are
-over every kind. `top` links: a turn opens the Chief's chat at that turn's first message
-(`cmux://chief/<id>/message/<n>` from the turn key's message id); a subagent line links the
-subagent's chat by id; a compactor node has no page and shows its block (`5236+4`).
+over every kind. `top` links: a subagent line links its chat (`cmux://chief/<home id>/session/<session>`, the link
+Home already uses for subagents); a turn shows its key (no deep link to a Chief message exists
+yet); a compactor node shows its block (`5236+4`).
 
 ## 4. Entry points (one shared path)
 

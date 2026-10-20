@@ -15,6 +15,9 @@ optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the moni
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
+optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind] [--top N] [--json] [--mux-home DIR]... [--chiefs]
+                                                          tokens, cost, cache hit and turn time over time (the usage ledger)
+optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces into the usage ledger
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
