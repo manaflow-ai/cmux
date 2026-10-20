@@ -2609,12 +2609,35 @@ pre.cv-math-source {
   color: var(--cv-text-dim);
 }
 .cv-agent-pair__held li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   padding: 2px 0 2px 8px;
   border-left: 2px solid var(--agent-border);
   overflow-wrap: anywhere;
 }
+.cv-agent-pair__held li.cv-agent-pair__more {
+  border-left-color: transparent;
+}
 .cv-agent-pair__held li + li {
   margin-top: 4px;
+}
+/* The live region (<output>, role status): the held and dropped counts and a failed Resume. A box
+   of its own, not display: contents, which drops the role in WebKit. */
+.cv-agent-pair__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-agent-pair__status:empty {
+  display: none;
+}
+.cv-agent-pair[data-state="resumed"] .cv-agent-pair__dropped {
+  flex: none;
+  margin-left: 8px;
+  color: var(--cv-text-dim);
 }
 .cv-agent-pair__failed {
   color: var(--agent-danger);

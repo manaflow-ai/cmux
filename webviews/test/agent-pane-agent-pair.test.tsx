@@ -120,7 +120,7 @@ test("a re-pause after a failed release carries what is still held, live and on 
     released("p-9"),
     paused({ reason: "release_failed", promptId: "p-10", error: "the turn failed", count: undefined }),
   ];
-  const expected = [
+  const expected: ReturnType<typeof summary>[] = [
     { reason: "alternating", count: 10, held: [], released: 1, dropped: 0, resumed: true },
     { reason: "release_failed", count: 0, held: ["p-10", "p-11"], released: 0, dropped: 0, resumed: false },
   ];
@@ -240,7 +240,7 @@ test("the paused row names the peer and why, counts held messages, and announces
   root = createRoot(host);
   await act(async () => root!.render(<AgentPairNote pair={pausedPair()} onResume={async () => undefined} />));
   expect(host.textContent).toContain("Paused messages with Reviewer: the two agents went back and forth 10 times");
-  const status = host.querySelector("[role='status']")!;
+  const status = host.querySelector("output, [role='status']")!;
   expect(status.textContent).toContain(translate("agentPair.held", { n: 2 }));
   expect(buttonNamed(host, translate("agentPair.resume"))).toBeDefined();
 });
@@ -253,7 +253,7 @@ test("each reason has its own sentence", async () => {
     return host.querySelector(".cv-agent-pair__text")!.textContent;
   };
   expect(await text(pausedPair({ reason: "repeating", count: 4, peerName: "" }))).toBe(
-    "Paused messages with another agent: the same message was sent 4 times in a row",
+    "Paused messages with another agent: the same message was sent 4 times in a row without progress",
   );
   expect(await text(pausedPair({ reason: "cap", count: 21, windowSecs: 600 }))).toBe(
     "Paused messages with Reviewer: the two agents sent 21 messages in 10m without you",
@@ -327,7 +327,7 @@ test("a double click sends Resume once; a failed Resume says so and can be press
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   expect(calls).toBe(1);
-  expect(host.querySelector("[role='status']")!.textContent).toContain(translate("agentPair.resumeFailed"));
+  expect(host.querySelector("output, [role='status']")!.textContent).toContain(translate("agentPair.resumeFailed"));
   expect(resume().disabled).toBe(false);
   fail = false;
   await act(async () => {

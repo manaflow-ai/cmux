@@ -36,20 +36,29 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
+export type AcpmuxHeldMessage = { promptId: string; text: string };
+
 /// acpmux paused messages between this chat and another agent's (an `agent_pair_paused` record,
-/// conversation/agentPairs.ts): why, how many messages it holds, and whether it resumed since.
+/// conversation/agentPairs.ts): why, what it still holds, what it settled, and whether it resumed.
 export type AcpmuxAgentPair = {
   peer: string;
   peerName: string;
-  reason: "alternating" | "repeating";
+  /// Back and forth without progress, the same message again, more than the cap within
+  /// `windowSecs`, or a held message acpmux could not deliver after a resume.
+  reason: "alternating" | "repeating" | "cap" | "release_failed";
   count: number;
-  /// Messages to this chat held while paused (`agent_pair_held`).
-  held: number;
-  /// Their previews (acpmux keeps the first 200 characters), in the order they were held.
-  heldTexts: string[];
+  windowSecs?: number;
+  /// Why a release failed (`release_failed`).
+  error?: string;
+  /// Messages still held, once each, in the order acpmux held them; a re-pause takes over what an
+  /// earlier pause with the same peer still held.
+  held: AcpmuxHeldMessage[];
+  /// Held messages acpmux delivered (`agent_pair_released`).
+  released: number;
+  /// Held messages it gave up on (`agent_pair_dropped`).
+  dropped: number;
   resumed?: boolean;
-  /// How many held messages acpmux delivered when the pair resumed (`agent_pair_resumed`).
-  delivered?: number;
 };
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
