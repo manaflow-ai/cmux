@@ -622,6 +622,7 @@ extension TerminalController {
                 }
                 var payload: [String: Any]
                 var isCreatedReceipt = false
+                var routeIsFreshAttachResponse = false
                 let createdReceiptSession = await registry.createdTrustedCarrierSession(machineID: vmId) ?? "cloud"
                 if deviceFingerprint == nil,
                    let endpoint = await registry.takeCreatedTrustedCarrierEndpoint(machineID: vmId) {
@@ -667,6 +668,7 @@ extension TerminalController {
                         deviceFingerprint: deviceFingerprint,
                         clientCapabilities: clientCapabilities
                     )
+                    routeIsFreshAttachResponse = true
                     // Keep the server-advertised route beside the device
                     // identity so a later app or CLI process does not rebuild
                     // a provider-specific port from the machine address.
@@ -705,7 +707,13 @@ extension TerminalController {
                 // the app's own link (already started) is paying.
                 if !isCreatedReceipt {
                     let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
-                    payload["route"] = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                    payload["route"] = try await registry.resolvedPrivateRoute(
+                        machineID: vmId,
+                        through: ready,
+                        fallbackRoute: route,
+                        fallbackRouteIsFresh: routeIsFreshAttachResponse,
+                        addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String }
+                    )
                 }
                 return payload
             }

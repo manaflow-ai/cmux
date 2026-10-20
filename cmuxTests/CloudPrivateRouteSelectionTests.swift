@@ -164,6 +164,27 @@ struct CloudPrivateRouteSelectionTests {
         #expect(route == "ws://10.16.0.2:1337/v1/link")
     }
 
+    @Test("A cached external route is reconciled with a newer shared route")
+    func cachedFallbackRouteUsesLatestPersistedRoute() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
+        let links = CloudMachineLinkManager(paths: paths, clientURL: nil, hostThemeColors: { nil })
+        await links.setPrivateRoute("ws://10.16.0.2:7070/old/link", for: "vm-test")
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/new/link",
+            for: "vm-test"
+        )
+
+        let route = try await links.resolvedPrivateRoute(
+            machineID: "vm-test",
+            through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"]),
+            fallbackRoute: "ws://10.16.0.2:7070/old/link"
+        )
+        #expect(route == "ws://10.16.0.2:8080/new/link")
+    }
+
     @Test("Discovery reuses one snapshot for saved routes and legacy enrollments")
     func discoverySnapshotSeedsRoutesWithoutRereadingStore() async throws {
         let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")

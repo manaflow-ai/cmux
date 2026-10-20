@@ -19,6 +19,7 @@ extension CloudMachineLinkManager {
         machineID: String,
         through hub: CloudWireGuardHub.Ready,
         fallbackRoute: String? = nil,
+        fallbackRouteIsFresh: Bool = false,
         addresses freshAddresses: [String] = [],
         refreshIfNeeded: Bool = true,
         timeout: Duration? = nil
@@ -27,8 +28,10 @@ extension CloudMachineLinkManager {
         // Discovery can suspend after taking its batch snapshot. Reconcile the
         // current shared record at the actual dial, then keep one route across
         // any address-family probe suspension.
-        if fallbackRoute == nil { _ = refreshPersistedRoute(for: machineID) }
-        let selectedRoute = fallbackRoute ?? privateRoute(for: machineID)
+        if !fallbackRouteIsFresh { _ = refreshPersistedRoute(for: machineID) }
+        let selectedRoute = fallbackRouteIsFresh
+            ? (fallbackRoute ?? privateRoute(for: machineID))
+            : (privateRoute(for: machineID) ?? fallbackRoute)
         let deadline = timeout.map { ContinuousClock.now + $0 }
         let freshAddresses = freshAddresses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -50,6 +53,7 @@ extension CloudMachineLinkManager {
                 machineID: machineID,
                 through: refreshed,
                 fallbackRoute: fallbackRoute,
+                fallbackRouteIsFresh: fallbackRouteIsFresh,
                 addresses: freshAddresses,
                 refreshIfNeeded: false,
                 timeout: deadline.map { Self.remaining(until: $0) }
@@ -92,7 +96,8 @@ extension CloudMachineLinkManager {
             // The silent probe ran out the caller's budget, so the retry on the
             // new peer gets its own short one; a live hub answers in milliseconds.
             return try await resolvedPrivateRoute(
-                machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute, addresses: freshAddresses,
+                machineID: machineID, through: refreshed, fallbackRoute: fallbackRoute,
+                fallbackRouteIsFresh: fallbackRouteIsFresh, addresses: freshAddresses,
                 refreshIfNeeded: false, timeout: Self.unansweredRouteRetryBudget
             )
         }

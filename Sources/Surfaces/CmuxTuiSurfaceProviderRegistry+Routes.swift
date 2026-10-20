@@ -48,7 +48,13 @@ extension CmuxTuiSurfaceProviderRegistry {
         return await links.session(for: machineID)
     }
 
-    func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
+    func resolvedPrivateRoute(
+        machineID: String,
+        through hub: CloudWireGuardHub.Ready,
+        fallbackRoute: String,
+        fallbackRouteIsFresh: Bool = false,
+        addresses: [String]
+    ) async throws -> String {
         guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             throw CloudMachineLinkManager.ManagerError.retryLater(String(
                 localized: "cloud.feature.disabled",
@@ -56,7 +62,13 @@ extension CmuxTuiSurfaceProviderRegistry {
             ))
         }
         let epoch = accessEpoch
-        let route = try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
+        let route = try await links.resolvedPrivateRoute(
+            machineID: machineID,
+            through: hub,
+            fallbackRoute: fallbackRoute,
+            fallbackRouteIsFresh: fallbackRouteIsFresh,
+            addresses: addresses
+        )
         guard !isRetired, epoch == accessEpoch,
               !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
             throw CancellationError()
