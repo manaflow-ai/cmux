@@ -3393,7 +3393,13 @@ jobs:
           PACKAGE_HANDOFF: ${{ needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           PACKAGE_UNNOTARIZED_ZIP: ${{ needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           VARIANT: ${{ matrix.variant }}
-        run: ./scripts/ci/signed-app-checks.sh start "$CHANNEL_APP_PATH"
+        run: |
+          set -euo pipefail
+          # An unsigned resume of an older tree may predate this script; its
+          # checks are still the tree's own (the script runs ./scripts/...).
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" start "$CHANNEL_APP_PATH"
 
 
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
@@ -3465,13 +3471,18 @@ jobs:
       # pass the load-command check; the verify job's handoff comes from the
       # same copy. A failure here fails the job, so nothing is published.
       - name: Finish the signed-app checks
+        id: signed-app-checks
         if: always()
         timeout-minutes: 15
-        run: ./scripts/ci/signed-app-checks.sh finish
+        run: |
+          set -euo pipefail
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" finish
 
 
       - name: Upload signed app for the verify job
-        if: always() && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -3482,7 +3493,7 @@ jobs:
 
 
       - name: Upload the signed unnotarized app
-        if: always() && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3514,7 +3525,8 @@ jobs:
         id: prepare-notarization-recovery
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
-          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
+          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure') &&
+          steps.signed-app-checks.outcome == 'success'
         env:
           # The state file records the signing channel (cmux NEXT signs as `next`).
           SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}

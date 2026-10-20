@@ -6,8 +6,8 @@ or 40m per run and the feed does not move. Teammates still need the build, so
 build-sign-notarize-nightly uploads the Developer ID-signed app as a run
 artifact. Since 2026-10-20 the zip is made during Apple's wait, on the copy of
 the app taken right after signing (signed-app-checks.sh), and uploaded after
-the notarization step even when that step failed or handed the submission to
-a later run: the wait no longer holds about 2.5 min of checks. Diagnostic
+the notarization step, once the checks passed, even when that step failed or
+handed the submission to a later run: the wait no longer holds about 2.5 min of checks. Diagnostic
 notary builds and builds held by NIGHTLY_NEXT_NOTARY_PAUSED (the browser-data import)
 never upload an app: the repository is public. A failed upload never blocks
 notarization.
@@ -44,8 +44,10 @@ class SignedUnnotarizedArtifactTests(unittest.TestCase):
         self.assertLess(index(self.START), index("Notarize app ticket through final DMG"))
         self.assertLess(index("Notarize app ticket through final DMG"), index(self.FINISH))
         self.assertLess(index(self.FINISH), index(self.UPLOAD))
-        # A failed or pending notarization still uploads the zip.
-        self.assertTrue(steps()[index(self.UPLOAD)]["if"].startswith("always() && "))
+        # A failed or pending notarization still uploads the zip, but only an
+        # app that passed the checks: the repository is public.
+        self.assertTrue(steps()[index(self.UPLOAD)]["if"].startswith(
+            "!cancelled() && steps.signed-app-checks.outcome == 'success' && "))
 
     def test_artifact_name_retention_and_contents(self):
         upload = steps()[index(self.UPLOAD)]

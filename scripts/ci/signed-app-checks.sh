@@ -57,15 +57,17 @@ case "${1:-}" in
       fi
       echo "::endgroup::"
     }
+    # These run inside `if`, where set -e does not apply: every command
+    # returns on failure.
     package_handoff() {
-      mkdir -p signed-app-handoff
-      tar -C "$(dirname "$app")" -czf signed-app-handoff/cmux-signed-app.tar.gz "$(basename "$app")"
-      (cd signed-app-handoff && shasum -a 256 cmux-signed-app.tar.gz > cmux-signed-app.tar.gz.sha256)
+      mkdir -p signed-app-handoff || return 1
+      tar -C "$(dirname "$app")" -czf signed-app-handoff/cmux-signed-app.tar.gz "$(basename "$app")" || return 1
+      (cd signed-app-handoff && shasum -a 256 cmux-signed-app.tar.gz > cmux-signed-app.tar.gz.sha256) || return 1
     }
     package_zip() {
       local out="$RUNNER_TEMP/signed-unnotarized"
-      mkdir -p "$out"
-      ditto -c -k --sequesterRsrc --keepParent "$app" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
+      mkdir -p "$out" || return 1
+      ditto -c -k --sequesterRsrc --keepParent "$app" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip" || return 1
       ls -l "$out"
     }
     step "Verify bundled Mach-O load commands" ./scripts/verify-bundle-load-commands.sh "$app"
