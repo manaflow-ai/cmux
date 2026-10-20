@@ -326,11 +326,11 @@ test("Changes shows five pull requests and folds the rest behind Show more", asy
 
 test("a pull request the chat closed shows Closed until the App reads it again after the close", async () => {
   const container = installDom(true);
-  const url = "https://github.com/acme/atlas-web/pull/12";
+  const url = "https://github.com/acme/atlas-web/pull/13";
   const status = (state: string, at: number) => {
     setSystemTime(new Date(at));
     setHeaderState({
-      pullRequest: { url, number: 12, title: "Retry", state, checks: { state: "failing", passed: 3, total: 5 } },
+      pullRequest: { url, number: 13, title: "Retry", state, checks: { state: "failing", passed: 3, total: 5 } },
     });
   };
   // The App read it open before the chat closed it at 2000.
@@ -338,8 +338,8 @@ test("a pull request the chat closed shows Closed until the App reads it again a
   const closedChat = chat([
     activity(
       [
-        opened(12, "Retry"),
-        tool("gh pr close", "execute", "completed", { command: "gh pr close 12", output: "", exitCode: 0, endedAt: 2000 }),
+        opened(13, "Retry"),
+        tool("gh pr close", "execute", "completed", { command: "gh pr close 13", output: "", exitCode: 0, endedAt: 2000 }),
       ],
       2,
     ),

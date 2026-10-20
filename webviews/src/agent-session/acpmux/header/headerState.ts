@@ -43,6 +43,13 @@ export interface HeaderState {
   readonly version: number;
 }
 
+/// When the App first reported each pull request's current state (epoch ms), so a state the chat
+/// set itself (a close) can tell an older read from a newer one.
+const stateSince = new Map<string, { state: string; at: number }>();
+
+/// When the App first reported pull request `url` in the state it has now.
+export const pullRequestStateSince = (url: string): number | undefined => stateSince.get(url)?.at;
+
 let current: HeaderState = {
   pinned: false,
   sideTabs: false,
@@ -76,6 +83,8 @@ export function setHeaderState(value: unknown): void {
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
+  const pr = next.pullRequest;
+  if (pr && stateSince.get(pr.url)?.state !== pr.state) stateSince.set(pr.url, { state: pr.state, at: Date.now() });
   current = next;
   for (const listener of listeners) listener();
 }

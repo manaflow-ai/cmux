@@ -54,12 +54,9 @@ const pullRequests: NonNullable<Props["pullRequests"]> = [
   title,
   state: n === 22229 ? ("merged" as const) : ("open" as const),
 }));
+/// The App reads live status for the chat folder's pull request only (the header chip).
 const statuses: NonNullable<Props["statuses"]> = {
-  "https://github.com/manaflow-ai/cmux/pull/22240": { additions: 176, deletions: 52, checks: "pending" },
-  "https://github.com/manaflow-ai/cmux/pull/22231": { additions: 622, deletions: 304, checks: "failing" },
-  "https://github.com/manaflow-ai/cmux/pull/22229": { additions: 823, deletions: 127 },
-  "https://github.com/manaflow-ai/cmux/pull/22228": { checks: "failing" },
-  "https://github.com/manaflow-ai/cmux/pull/22227": { additions: 2161, deletions: 197, checks: "passing" },
+  "https://github.com/manaflow-ai/cmux/pull/22231": { checks: "failing" },
 };
 
 export default componentEntry<Props>({
@@ -103,7 +100,7 @@ export default componentEntry<Props>({
       },
     },
     changes: {
-      note: "A chat that opened six pull requests: newest first, line counts and checks where the App read them, a merged one, the sixth behind Show more.",
+      note: "A chat that opened six pull requests: newest first, checks failing on the one the App reads, a merged one, the sixth behind Show more.",
       props: {
         summary: { ...local.summary!, usage: { used: 94_000, size: 200_000 }, branch: "feat/rail-changes" },
         machineName: "Studio",
