@@ -7,4 +7,9 @@ import SwiftUI
 @MainActor
 final class SidebarRowContentContainerView: NSView {
     override var isFlipped: Bool { true }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        (superview as? SidebarWorkspaceRowTableCellView)?.menu(for: event)
+            ?? super.menu(for: event)
+    }
 }
