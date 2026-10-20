@@ -2050,6 +2050,16 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
@@ -2136,6 +2146,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
@@ -2465,7 +2481,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2784,6 +2800,12 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2794,6 +2816,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.promptSuggestions" : {
+      "default" : false,
+      "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+      "title" : "Suggest Follow-Up Tasks",
+      "type" : "boolean"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,

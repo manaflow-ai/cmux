@@ -5,6 +5,12 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.allowFullAccess`: Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).
+    public nonisolated static let allowFullAccessPath = ["sessions", "allowFullAccess"]
+    public nonisolated static let allowFullAccessDefault = true
+    /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). The Debug Settings toggle agent.suggestedTasks still turns it on. Off by default, as the tunable was.
+    public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
+    public nonisolated static let promptSuggestionsDefault = false
 }
 
 extension SessionSettings {
@@ -41,6 +47,26 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.allowFullAccessPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."),
+                kind: .toggle,
+                default: .bool(SessionSettings.allowFullAccessDefault),
+                keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
+            ),
+            SettingDescriptor(
+                SessionSettings.promptSuggestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.promptSuggestions", "Suggest Follow-Up Tasks"),
+                help: SettingsText.keyed("settings.sessions.promptSuggestions.help", "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."),
+                kind: .toggle,
+                default: .bool(SessionSettings.promptSuggestionsDefault),
+                keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
             ),
         ]
     }
