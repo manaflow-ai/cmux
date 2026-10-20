@@ -11,7 +11,7 @@ const world = async () => {
   const key = await h.addKey("team_alpha", ALL_SCOPES);
   const made = await h.request("/v1/meshes", bearer(key), { method: "POST", body: {} });
   expect(made.status).toBe(201);
-  const mesh = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }))(await made.json());
+  const mesh = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, ipv4Cidr: Schema.String }))(await made.json());
   const vm = h.addVm("team_alpha");
   const path = `/v1/meshes/${mesh.id}/vms/${vm.vmId}`;
   expect((await h.request(path, bearer(key), { method: "PUT" })).status).toBe(200);
@@ -20,8 +20,9 @@ const world = async () => {
   return { key, mesh, vm, path, vpc, upstream };
 };
 
-it.each([null, "10.128.0.28"])("reads the current owned member address without attaching again (%s)", async (ipv4) => {
+it.each([null, 28])("reads the current owned member address without attaching again (%s)", async (host) => {
   const f = await world();
+  const ipv4 = host === null ? null : `${f.mesh.ipv4Cidr.split(".").slice(0, 3).join(".")}.${host}`;
   f.upstream.vpcs = [{ vpc: f.vpc, vpcId: f.vpc, ipv4 }];
   const before = h.upstreamRequests.length;
   const read = await h.request(f.path, bearer(f.key));
@@ -50,8 +51,12 @@ it.each([
   expect(await read.json()).toMatchObject({ ipv4: null });
 });
 
-it.each(["10.129.0.9", "10.128.000.9", "10.128.0.0", "10.128.15.255"])("refuses a non-member address instead of caching it (%s)", async (ipv4) => {
+it.each(["outside", "leading-zero", "network", "broadcast"])("refuses a non-member address instead of caching it (%s)", async (kind) => {
   const f = await world();
+  const parts = f.mesh.ipv4Cidr.split(".");
+  const base = parts.slice(0, 3).join(".");
+  const ipv4 = kind === "outside" ? "11.128.0.9" : kind === "leading-zero" ? `${base}.09`
+    : kind === "network" ? `${base}.0` : `${parts[0]}.${parts[1]}.${Number(parts[2]) + 15}.255`;
   const prior = h.mesh.store.members.find((m) => m.vmId === f.vm.vmId)!.ipv4;
   f.upstream.vpcs = [{ vpc: f.vpc, ipv4 }];
   expect((await h.request(f.path, bearer(f.key))).status).toBe(503);
