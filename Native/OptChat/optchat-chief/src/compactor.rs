@@ -2236,6 +2236,7 @@ pub fn compactor_spec(
         chief: home_id(home),
         user_env: crate::session_dir::host_user_env(),
         fast: false,
+        peer: None,
     }
 }
 

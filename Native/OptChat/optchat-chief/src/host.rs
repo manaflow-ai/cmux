@@ -1077,6 +1077,7 @@ fn start(
                 let spec = crate::compactor::CompactorSpec {
                     effort: compactor_effort.clone().or(spec.effort.clone()),
                     fast: compactor_fast,
+                    peer: None,
                     ..spec
                 };
                 AcpmuxCompactor::new(port.clone(), spec, slots.clone())
