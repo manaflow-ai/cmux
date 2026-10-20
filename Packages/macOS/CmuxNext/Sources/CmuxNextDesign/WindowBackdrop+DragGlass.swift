@@ -11,11 +11,15 @@ public extension WindowBackdrop {
     /// the tabs sliding under it stay quiet, little enough that the art reads through.
     static let dragLiftCoverage = 0.6
 
-    /// The backdrop a drag preview drawn in `tokens` stands on: the window's, with the user's
-    /// Reduce Transparency setting.
-    @MainActor static func dragPreview(_ tokens: ThemeTokens,
+    /// The backdrop a drag preview drawn in `scope` stands on: the window's (the same art, tuning
+    /// and tint `WindowRootView` paints), with the user's Reduce Transparency setting. Read in
+    /// the scope the preview is lifted from: a workspace that pins its own background, or none,
+    /// differs from the app's.
+    @MainActor static func dragPreview(_ scope: ThemeScope,
                                        reduceTransparency: Bool = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency) -> WindowBackdrop {
-        current(tokens, reduceTransparency: reduceTransparency)
+        WindowBackdrop(scope.tokens, reduceTransparency: reduceTransparency, art: scope.backdropArt,
+                       selection: scope.backdropSelection, tuning: scope.appearanceTuning,
+                       tintOpacity: scope.backdropTintOpacity)
     }
 
     /// Whether drag previews over this backdrop draw on glass.

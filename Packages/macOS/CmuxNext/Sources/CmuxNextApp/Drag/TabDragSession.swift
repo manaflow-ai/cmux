@@ -45,7 +45,7 @@ final class TabDragSession: NSObject {
         let item = Item.tab(start.tabID.rawValue)
         let payload = TabDragPayload.tab(id: start.tabID.rawValue, sourceStripID: start.stripID)
         begin(item: item, payload: payload, frame: start.screenFrame, grabOffset: start.grabOffset, point: start.screenPoint,
-              image: start.snapshot?.cgImage, previewTab: start.tabID.rawValue, draggedCount: 1, pane: pane)
+              image: start.snapshot?.cgImage, onGlass: start.snapshotOnGlass, previewTab: start.tabID.rawValue, draggedCount: 1, pane: pane)
     }
 
     func beginGroup(_ start: TabGroupDragStart, from pane: PaneController) {
@@ -54,13 +54,14 @@ final class TabDragSession: NSObject {
                                               sourceStripID: start.stripID, width: start.screenFrame.width)
         let preview = pane.stripModel.selectedID.flatMap { start.tabIDs.contains($0) ? $0.rawValue : nil } ?? start.tabIDs.first?.rawValue
         begin(item: item, payload: payload, frame: start.screenFrame, grabOffset: start.grabOffset, point: start.screenPoint,
-              image: start.snapshot?.cgImage, previewTab: preview, draggedCount: start.tabIDs.count, pane: pane)
+              image: start.snapshot?.cgImage, onGlass: start.snapshotOnGlass, previewTab: preview, draggedCount: start.tabIDs.count, pane: pane)
     }
 
     /// `pane` is the source strip's pane (tab items); workspace items have
-    /// no pane and name their source `window`.
+    /// no pane and name their source `window`. `onGlass`: `image` was drawn for glass in the
+    /// source's scope (no card), which the ghost follows.
     func begin(item: Item, payload: TabDragPayload?, frame: CGRect, grabOffset: CGPoint, point: CGPoint, image: CGImage?,
-               previewTab: String?, draggedCount: Int, pane: PaneController?, window sourceWindow: WindowController? = nil) {
+               onGlass: Bool, previewTab: String?, draggedCount: Int, pane: PaneController?, window sourceWindow: WindowController? = nil) {
         if drag != nil { finish(commit: false) }
         finishLanding()
 
@@ -70,7 +71,8 @@ final class TabDragSession: NSObject {
         let content = pane?.view.bounds ?? window?.content?.layoutView.bounds ?? .zero
         let aspect = content.width > 0 ? (content.height - Metrics.tabStripHeight) / content.width : nil
         let scale = window?.window?.backingScaleFactor ?? 2
-        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale)
+        let ghost = TabDragGhostPanel(tabImage: image, tabSize: frame.size, grabOffset: grabOffset, aspect: aspect, scale: scale,
+                                      onGlass: onGlass)
         var motion = TabDragGhostMotion(rect: frame, cardness: 0, reduceMotion: !Motion.animatesMovement,
                                         rectSpring: Motion.spring(.track), morphSpring: Motion.spring(.appear))
         // The card unfolds once its content preview arrives (`loadThumbnail`).

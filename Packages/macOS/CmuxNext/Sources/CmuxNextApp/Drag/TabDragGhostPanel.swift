@@ -35,9 +35,9 @@ final class TabDragGhostPanel {
     /// cardness, and the glass edge, not a shadow, lifts it.
     let onGlass: Bool
 
-    /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`);
-    ///   by default whether the app's theme draws translucent windows.
-    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool = WindowBackdrop.dragPreview(ThemeScope.app.tokens).dragsOnGlass) {
+    /// - Parameter onGlass: The image was rendered without a card (`WindowBackdrop.dragCardFill`)
+    ///   in the scope it was lifted from, not the app's: a workspace can pin its own background.
+    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat, onGlass: Bool) {
         self.onGlass = onGlass
         self.tabSize = tabSize
         self.grabOffset = grabOffset

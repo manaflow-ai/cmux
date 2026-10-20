@@ -120,7 +120,7 @@ final class DragLiftView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            let backdrop = WindowBackdrop.dragPreview(themeTokens)
+            let backdrop = WindowBackdrop.dragPreview(themeScope)
             isGlass = backdrop.dragsOnGlass
             glass.isHidden = !isGlass
             glass.tintColor = Palette.glassTint

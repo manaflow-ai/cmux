@@ -16,6 +16,9 @@ public struct SidebarDragHandoff {
     public var screenPoint: CGPoint
     /// Snapshot of the lifted row, for the drag ghost.
     public var image: CGImage?
+    /// The lifted row is glass in its own scope (`DragLiftView.isGlass`), so `image` has no card
+    /// and the ghost stands it on glass.
+    public var imageOnGlass = false
 }
 
 extension SidebarViewComponents {
@@ -53,7 +56,7 @@ extension SidebarListViewComponents {
         let offer = SidebarDragHandoff(
             payload: drag.payload, workspaceIDs: members, rowScreenFrame: rowFrame,
             grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: lift, flipped: isFlipped),
-            screenPoint: screenPoint, image: drag.lift.snapshotImage()
+            screenPoint: screenPoint, image: drag.lift.snapshotImage(), imageOnGlass: drag.lift.isGlass
         )
         guard handoff(offer) else { return false }
         abandonDrag(drag)
