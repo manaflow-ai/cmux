@@ -18,7 +18,12 @@ enum AccountsHandlers {
             let provider = try provider(invocation)
             guard provider.reauthPlan != .none else { throw ActionFailure(message: AccountsAppStrings.nothingToSignIn) }
             guard services.windows.active?.focusedPane != nil else { throw ActionFailure(message: AccountsAppStrings.noWindow) }
-            if let refusal = services.accounts.model.reauthenticate(provider) { throw ActionFailure(message: refusal) }
+            let model = services.accounts.model
+            registry.track(Task { @MainActor in
+                // Detection first, so a busy row's refusal reaches the caller.
+                await model.settle()
+                return model.reauthenticate(provider).map { ActionWorkFailure($0) }
+            })
         })
         registry.bind("accounts.connect", run: { invocation in
             let provider = try provider(invocation)

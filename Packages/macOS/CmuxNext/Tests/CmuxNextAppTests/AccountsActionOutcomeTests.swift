@@ -69,6 +69,19 @@ import Testing
         #expect(!services.calls.contains("reauth:codex"))
     }
 
+    /// A login in a cmux tab never makes the app inactive, so its row stays
+    /// Re-authenticating; the next CLI action re-detects instead of refusing.
+    @Test func aRemoveAfterALoginInATabReDetectsAndRemoves() async throws {
+        let services = MockAccountsServices()
+        let model = await refreshed(services)
+        model.reauthenticate(.codex)
+        #expect(model.row(.codex).phase == .reauthenticating)
+        let account = try #require(await model.linkedAccount(id: linkedID))
+        let failure = await model.performRemove(account)
+        #expect(failure == nil)
+        #expect(services.calls.contains("remove:\(linkedID)"))
+    }
+
     @Test func aCodexConnectWithoutACodexSignInNamesCodexNotCmux() async {
         let services = MockAccountsServices()
         services.detections.removeAll { $0.provider == .codex }

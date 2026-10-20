@@ -72,9 +72,12 @@ public final class AccountsModel {
     }
 
     /// Waits for the running refresh, first starting one when no detection
-    /// has finished yet, so an action never meets rows that are still Checking….
+    /// has finished yet or a login started here may have ended, so an action
+    /// never meets rows that are still Checking… or Re-authenticating (a
+    /// login in a cmux tab never makes the app inactive).
     public func settle() async {
-        if !hasDetected, !isRefreshing { refresh() }
+        let loginMayHaveEnded = rows.contains { $0.phase == .reauthenticating }
+        if !hasDetected || loginMayHaveEnded, !isRefreshing { refresh() }
         while isRefreshing, let task = refreshTask {
             await task.value
             // A superseded refresh hands over to the newer one; the same task twice is done.
@@ -103,11 +106,13 @@ public final class AccountsModel {
         return startReauthentication(provider)
     }
 
+    /// A row already Re-authenticating opens the login again (its tab may be gone).
     @discardableResult
     private func startReauthentication(_ provider: AIProvider) -> String? {
-        guard row(provider).canReauthenticate else { return nil }
-        guard !row(provider).isBusy else { return AccountsStrings.errorBusy }
-        apply(.reauthStarted, to: provider)
+        let state = row(provider)
+        guard state.canReauthenticate else { return nil }
+        guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
+        if state.phase == .idle { apply(.reauthStarted, to: provider) }
         pendingReauth.insert(provider)
         services.reauthenticate(provider, plan: provider.reauthPlan)
         return nil
