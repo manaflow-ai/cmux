@@ -7,6 +7,7 @@ use std::net::Shutdown;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Instant;
 use zeroize::Zeroizing;
@@ -17,7 +18,7 @@ mod daemon;
 pub use daemon::{Daemon, NativePermit};
 
 const MAGIC: [u8; 4] = *b"CMR\x01";
-const NATIVE: [u8; 4] = *b"NVR1";
+const NATIVE: [u8; 4] = *b"NVR2";
 const MAX_NATIVE_PAYLOAD: usize = 16 * 1024;
 
 /// A local role incarnation, never serialized or derived from a caller claim.
@@ -32,10 +33,13 @@ pub struct NativeRequest {
 }
 
 struct Role {
+    ticket: Arc<()>,
     host: Arc<UnixStream>,
     recipient: Option<UnixStream>,
     payload: Option<Zeroizing<Vec<u8>>>,
     offset: usize,
+    ready: bool,
+    completed: Arc<AtomicBool>,
 }
 impl Role {
     fn close(&mut self) {
@@ -58,6 +62,7 @@ struct State {
     closing: Option<Role>,
     capability: Option<Capability>,
     native_payload: Option<Zeroizing<Vec<u8>>>,
+    native_ended: Option<Arc<()>>,
 }
 
 /// Root supervision owns daemon identity; the Cloud role owns its current
@@ -91,6 +96,13 @@ pub enum StopReceipt {
 pub enum Capability {
     LifetimeOnly,
     NativeReceiver,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeStatus {
+    Pending,
+    Ready,
+    Ended,
 }
 
 impl Host {
@@ -187,11 +199,76 @@ impl Host {
             || state.role.is_some()
             || state.closing.is_some()
             || state.native_payload.is_some()
+            || state.native_ended.is_some()
             || !state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &ticket.0))
         {
             return None;
         }
         Some(NativeRequest { ticket: ticket.clone(), control: state.control.as_ref()?.clone() })
+    }
+
+    pub fn native_request_current(&self, request: &NativeRequest) -> bool {
+        self.prepare_native(&request.ticket)
+            .is_some_and(|current| Arc::ptr_eq(&current.control, &request.control))
+    }
+
+    pub fn native_status(&self, ticket: &Ticket) -> Option<NativeStatus> {
+        let state = self.state.lock().ok()?;
+        if !state.wanted
+            || !state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &ticket.0))
+        {
+            return None;
+        }
+        Some(if state.native_ended.as_ref().is_some_and(|ended| Arc::ptr_eq(ended, &ticket.0)) {
+            NativeStatus::Ended
+        } else if state.role.as_ref().is_some_and(|role| role.ready) {
+            NativeStatus::Ready
+        } else {
+            NativeStatus::Pending
+        })
+    }
+
+    /// Only the still-current wanted role may advance after actual completion.
+    /// The worker retires its backend generation before requesting this ticket.
+    pub fn advance_native(&self, ticket: &Ticket) -> Option<Ticket> {
+        let mut state = self.state.lock().ok()?;
+        if !state.wanted
+            || state.role.is_some()
+            || state.closing.is_some()
+            || state.native_payload.is_some()
+            || !state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &ticket.0))
+            || !state.native_ended.as_ref().is_some_and(|ended| Arc::ptr_eq(ended, &ticket.0))
+        {
+            return None;
+        }
+        let next = Arc::new(());
+        state.ticket = Some(next.clone());
+        state.native_ended = None;
+        drop(state);
+        self.notify();
+        Some(Ticket(next))
+    }
+
+    pub fn retire_native(&self, ticket: &Ticket) -> bool {
+        let Ok(mut state) = self.state.lock() else { return false };
+        if !state.wanted
+            || !state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &ticket.0))
+        {
+            return false;
+        }
+        state.native_payload = None;
+        if let Some(mut role) = state.role.take() {
+            role.close();
+            if role.sent() {
+                state.closing = Some(role);
+            }
+        }
+        if state.closing.is_none() {
+            state.native_ended = Some(ticket.0.clone());
+        }
+        drop(state);
+        self.notify();
+        true
     }
 
     pub fn publish_native(&self, request: NativeRequest, payload: Zeroizing<Vec<u8>>) -> bool {
@@ -205,6 +282,7 @@ impl Host {
             || state.role.is_some()
             || state.closing.is_some()
             || state.native_payload.is_some()
+            || state.native_ended.is_some()
             || !state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &request.ticket.0))
             || !state.control.as_ref().is_some_and(|control| Arc::ptr_eq(control, &request.control))
         {
@@ -223,6 +301,7 @@ impl Host {
             state.ticket = None;
             state.wanted = false;
             state.native_payload = None;
+            state.native_ended = None;
             if let Some(mut role) = state.role.take() {
                 role.close();
                 if role.sent() {
@@ -336,8 +415,21 @@ impl Host {
             }
         }
         if let Some(role) = &state.closing {
-            match ack(&role.host) {
-                Ok(true) => state.closing = None,
+            let ticket = role.ticket.clone();
+            let completed = role.completed.clone();
+            match ack(&role.host, &completed) {
+                Ok(true) => {
+                    completed.store(true, Ordering::Release);
+                    state.closing = None;
+                    if state.wanted
+                        && state
+                            .ticket
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(current, &ticket))
+                    {
+                        state.native_ended = Some(ticket);
+                    }
+                }
                 Ok(false) => {}
                 Err(error) => return Err(error),
             }
@@ -346,9 +438,19 @@ impl Host {
             && let Some(role) = &state.role
         {
             let mut reader = &*role.host;
+            let ready = role.ready;
+            let ticket = role.ticket.clone();
             match reader.read(&mut byte) {
+                Ok(1) if byte == [2] && !ready => {
+                    state.role.as_mut().ok_or_else(refused)?.ready = true
+                }
+                Ok(1) if byte == [1] => {
+                    role.completed.store(true, Ordering::Release);
+                    state.role = None;
+                    state.native_ended = Some(ticket);
+                    return Ok(false);
+                }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                // Completion before root stop is not a stop receipt.
                 _ => return Err(refused()),
             }
         }
@@ -363,8 +465,16 @@ impl Host {
             let (host, recipient) = UnixStream::pair()?;
             host.set_nonblocking(true)?;
             let payload = state.native_payload.take();
-            state.role =
-                Some(Role { host: Arc::new(host), recipient: Some(recipient), payload, offset: 0 });
+            let ticket = state.ticket.clone().ok_or_else(refused)?;
+            state.role = Some(Role {
+                ticket,
+                host: Arc::new(host),
+                recipient: Some(recipient),
+                payload,
+                offset: 0,
+                ready: false,
+                completed: Arc::new(AtomicBool::new(false)),
+            });
         }
         if let (Some(control), Some(role)) = (&state.control, &state.role)
             && let Some(recipient) = &role.recipient
@@ -407,13 +517,41 @@ impl Host {
     /// Allowed to block only in the role's bounded park/shutdown path.
     pub fn quiesce(&self, deadline: Instant) -> io::Result<StopReceipt> {
         self.invalidate();
-        let role = self.state.lock().map_err(|_| refused())?.closing.take();
-        let Some(role) = role else { return Ok(StopReceipt::NoReceiver) };
-        let result = wait_ack(&role.host, deadline);
-        if result.is_err() {
-            self.state.lock().map_err(|_| refused())?.closing = Some(role);
+        self.finish_closing(None, deadline)
+    }
+
+    pub fn quiesce_native(&self, ticket: &Ticket, deadline: Instant) -> io::Result<StopReceipt> {
+        self.retire_native(ticket);
+        self.finish_closing(Some(ticket), deadline)
+    }
+
+    fn finish_closing(
+        &self,
+        ticket: Option<&Ticket>,
+        deadline: Instant,
+    ) -> io::Result<StopReceipt> {
+        let closing = {
+            let state = self.state.lock().map_err(|_| refused())?;
+            state
+                .closing
+                .as_ref()
+                .filter(|role| ticket.is_none_or(|ticket| Arc::ptr_eq(&role.ticket, &ticket.0)))
+                .map(|role| (role.host.clone(), role.completed.clone(), role.ticket.clone()))
+        };
+        let Some((stream, completed, ticket)) = closing else { return Ok(StopReceipt::NoReceiver) };
+        // Keep the closing barrier installed while waiting outside the lock.
+        // A new ticket cannot publish a frame before the actual drain receipt.
+        wait_ack(&stream, &completed, deadline)?;
+        let mut state = self.state.lock().map_err(|_| refused())?;
+        if state.closing.as_ref().is_some_and(|role| Arc::ptr_eq(&role.host, &stream)) {
+            state.closing = None;
+            if state.wanted
+                && state.ticket.as_ref().is_some_and(|current| Arc::ptr_eq(current, &ticket))
+            {
+                state.native_ended = Some(ticket);
+            }
         }
-        result.map(|()| StopReceipt::Acknowledged)
+        Ok(StopReceipt::Acknowledged)
     }
 
     fn notify(&self) {
@@ -425,20 +563,42 @@ fn refused() -> io::Error {
     io::Error::new(io::ErrorKind::PermissionDenied, "cloud.bootstrap.channel_refused")
 }
 
-fn ack(stream: &UnixStream) -> io::Result<bool> {
+fn ack(stream: &UnixStream, completed: &AtomicBool) -> io::Result<bool> {
+    if completed.load(Ordering::Acquire) {
+        return Ok(true);
+    }
     let mut reader = stream;
     let mut byte = [0];
-    match reader.read(&mut byte) {
-        Ok(1) if byte == [1] => Ok(true),
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(false),
-        _ => Err(refused()),
+    // READY may already be queued when root begins stopping. It is never a
+    // drain receipt; consume at most that one notification before the ack.
+    for _ in 0..2 {
+        match reader.read(&mut byte) {
+            Ok(1) if byte == [1] => {
+                completed.store(true, Ordering::Release);
+                return Ok(true);
+            }
+            Ok(1) if byte == [2] => {}
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+            _ if completed.load(Ordering::Acquire) => return Ok(true),
+            _ => return Err(refused()),
+        }
     }
+    Err(refused())
 }
 
-fn wait_ack(stream: &UnixStream, deadline: Instant) -> io::Result<()> {
+fn wait_ack(stream: &UnixStream, completed: &AtomicBool, deadline: Instant) -> io::Result<()> {
     loop {
-        if ack(stream)? {
+        if completed.load(Ordering::Acquire) {
             return Ok(());
+        }
+        match ack(stream, completed) {
+            Ok(true) => {
+                completed.store(true, Ordering::Release);
+                return Ok(());
+            }
+            Ok(false) => {}
+            Err(_) if completed.load(Ordering::Acquire) => return Ok(()),
+            Err(error) => return Err(error),
         }
         let left =
             deadline.checked_duration_since(Instant::now()).ok_or(io::ErrorKind::TimedOut)?;

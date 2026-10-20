@@ -1,12 +1,12 @@
 //! Hosted root producer reads the original files and reaches the actual child.
 //! HTTP answers are synthetic; install signatures, file fences and IPC are real.
-use super::{NOW, Server, setup_recorded};
+use super::{Lifecycle, NOW, Server, setup_tweaked};
 use crate::cloud::bootstrap_role::RoleBridge;
 use crate::cloud::client::CloudClient;
 use crate::cloud::wire::{AGENT_SOCKET, BOUND_FILE, INSTALL_KEY_FILE, STATE_DIR, WG_KEY_FILE};
 use crate::config::Paths;
 use std::fs;
-use std::io::{BufRead as _, BufReader, Read as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{PermissionsExt as _, chown};
 use std::os::unix::net::UnixListener;
@@ -29,7 +29,7 @@ fn hosted_root() {
     assert_eq!(unsafe { libc::geteuid() }, 0);
 }
 
-fn drive_until(host: &Host, condition: impl Fn(bool) -> bool) {
+fn drive_until(host: &Host, mut condition: impl FnMut(bool) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if condition(host.drive().unwrap()) {
@@ -46,6 +46,110 @@ fn drive_until(host: &Host, condition: impl Fn(bool) -> bool) {
             } > 0
         );
     }
+}
+
+#[test]
+#[ignore = "requires hosted Linux root; scripts/ci/verify-link-root-boundary.py"]
+fn receiver_root_privileged_original_producer_renews_generation_after_each_child_attempt() {
+    hosted_root();
+    for observe_ready in [false, true] {
+        let host = Arc::new(Host::new_native().unwrap());
+        let agent = Agent::start();
+        let daemon = Daemon::start(&host);
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::new(root.path());
+        let mut client = original_client(&paths, None);
+        let original = identity_bytes(&paths);
+        let mut role = RoleBridge::new(host.clone());
+        let mut worker = role.start().unwrap();
+        worker.enrolled();
+        worker.drive();
+        assert!(worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap());
+        drive_until(&host, |sent| sent);
+        let (mut reader, first_pid) = agent.reader(&daemon.child);
+        let first = client
+            .receiver_lifecycle(
+                cmux_cloud_wire::CloudVmReceiverLifecycleParamsPhase::Read,
+                None,
+                None,
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(first.phase, cmux_cloud_wire::CloudVmReceiverLifecycleResultPhase::Starting);
+        if observe_ready {
+            let reply = crate::cloud::receiver_files::reply(&paths, "instance-a", &mut client, NOW)
+                .unwrap();
+            reader.get_mut().write_all(format!("{reply}\n").as_bytes()).unwrap();
+            drive_until(&host, |_| {
+                worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap();
+                worker.is_ready()
+            });
+        }
+        // The pid was authenticated as this exact daemon's receiving child.
+        // SAFETY: signal only that retained fixture child's authenticated pid,
+        // including the attempt before READY; no unrelated process is used.
+        assert_eq!(unsafe { libc::kill(first_pid, libc::SIGKILL) }, 0);
+        drop(reader);
+        drive_until(&host, |_| {
+            worker.publish_original(&paths, "instance-a", &mut client, NOW).is_err()
+        });
+        assert!(!std::path::Path::new(&format!("/proc/{first_pid}/stat")).exists());
+        let stopped = client
+            .receiver_lifecycle(
+                cmux_cloud_wire::CloudVmReceiverLifecycleParamsPhase::Read,
+                None,
+                None,
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(stopped.phase, cmux_cloud_wire::CloudVmReceiverLifecycleResultPhase::Stopped);
+        assert_eq!(stopped.generation, first.generation);
+        assert!(worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap());
+        drive_until(&host, |sent| sent);
+        let (mut reader, second_pid) = agent.reader(&daemon.child);
+        assert_ne!(first_pid, second_pid);
+        let second = client
+            .receiver_lifecycle(
+                cmux_cloud_wire::CloudVmReceiverLifecycleParamsPhase::Read,
+                None,
+                None,
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(second.phase, cmux_cloud_wire::CloudVmReceiverLifecycleResultPhase::Starting);
+        assert_ne!(second.generation, first.generation);
+        let reply =
+            crate::cloud::receiver_files::reply(&paths, "instance-a", &mut client, NOW).unwrap();
+        reader.get_mut().write_all(format!("{reply}\n").as_bytes()).unwrap();
+        drive_until(&host, |_| {
+            worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap();
+            worker.is_ready()
+        });
+        let ready = client
+            .receiver_lifecycle(
+                cmux_cloud_wire::CloudVmReceiverLifecycleParamsPhase::Read,
+                None,
+                None,
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(ready.phase, cmux_cloud_wire::CloudVmReceiverLifecycleResultPhase::Ready);
+        assert_eq!(ready.generation, second.generation);
+        assert_eq!(
+            role.stop(Instant::now() + Duration::from_secs(8)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        worker.retire(&mut client, NOW).unwrap();
+        assert!(!std::path::Path::new(&format!("/proc/{second_pid}/stat")).exists());
+        assert!(daemon.child.try_wait().unwrap().is_none());
+        assert!(!cmux_link::entry_path::remote_entry_socket_path(&daemon.session).exists());
+        assert!(
+            identity_bytes(&paths) == original,
+            "restart rotated the original protected identity"
+        );
+        assert!(!worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap());
+    }
+    println!("ROOT_BOUNDARY_EXECUTED native_original_generation_restart");
 }
 
 struct Daemon {
@@ -156,7 +260,7 @@ impl Drop for Agent {
 }
 
 fn original_client(paths: &Paths, after: Option<Rc<dyn Fn()>>) -> CloudClient<Server> {
-    setup_recorded(
+    setup_tweaked(
         |_, _| {},
         |key, bound, wg| {
             for (name, value) in [
@@ -172,6 +276,7 @@ fn original_client(paths: &Paths, after: Option<Rc<dyn Fn()>>) -> CloudClient<Se
             fs::set_permissions(paths.at(STATE_DIR), fs::Permissions::from_mode(0o700)).unwrap();
         },
         after,
+        |server| { server.lifecycle = Some(Rc::new(std::cell::RefCell::new(Lifecycle { phase: "idle".into(), generation: "0".repeat(64), counter: 0 }))); },
     ).0
 }
 
@@ -194,7 +299,7 @@ fn receiver_root_privileged_original_producer_reaches_owned_child_without_export
     let mut client = original_client(&paths, None);
     let original = identity_bytes(&paths);
     let mut role = RoleBridge::new(host.clone());
-    let worker = role.start().unwrap();
+    let mut worker = role.start().unwrap();
     worker.enrolled();
     worker.drive();
     assert!(worker.publish_original(&paths, "instance-a", &mut client, NOW).unwrap());
@@ -212,6 +317,7 @@ fn receiver_root_privileged_original_producer_reaches_owned_child_without_export
     assert!(!entry.exists());
     assert_eq!(reader.read(&mut [0]).unwrap(), 0);
     assert!(daemon.child.try_wait().unwrap().is_none());
+    worker.retire(&mut client, NOW).unwrap();
     assert!(identity_bytes(&paths) == original, "producer rewrote original private identity");
     println!("ROOT_BOUNDARY_EXECUTED native_original_producer_chain");
 }
@@ -238,10 +344,11 @@ fn receiver_root_privileged_original_producer_cannot_deliver_after_stop_during_c
     );
     let original = identity_bytes(&paths);
     let mut role = RoleBridge::new(host.clone());
-    let worker = role.start().unwrap();
+    let mut worker = role.start().unwrap();
     worker.enrolled();
     worker.drive();
     assert!(worker.publish_original(&paths, "instance-a", &mut client, NOW).is_err());
+    worker.retire(&mut client, NOW).unwrap();
     assert!(!host.drive().unwrap(), "a canceled read published a new role");
     assert!(!cmux_link::entry_path::remote_entry_socket_path(&daemon.session).exists());
     assert!(daemon.child.try_wait().unwrap().is_none());

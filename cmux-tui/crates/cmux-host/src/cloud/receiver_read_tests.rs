@@ -56,6 +56,12 @@ struct Server {
     status: u16,
     deadlines: Deadlines,
     after_policy: Option<Rc<dyn Fn()>>,
+    lifecycle: Option<Rc<RefCell<Lifecycle>>>,
+}
+struct Lifecycle {
+    phase: String,
+    generation: String,
+    counter: u64,
 }
 impl Http for Server {
     fn post(&self, _: &str, _: &Value, _: Option<&str>) -> Result<(u16, Value), String> {
@@ -84,13 +90,57 @@ impl Http for Server {
             ));
             json!({ "user":USER,"install":INSTALL,"team":TEAM,"grant":GRANT,"token_type":"Bearer",
                 "access_token":"private-test-bearer","expires_at":NOW+600_000 })
+        } else if url.ends_with("/v1/ops") {
+            assert_eq!(bearer, Some("private-test-bearer"));
+            let request = body.unwrap();
+            assert_eq!(request["op"], "cloud.vm.receiver.lifecycle");
+            assert!(request.get("idempotency_key").is_none());
+            let params = &request["params"];
+            assert_eq!(params["machine"], MACHINE);
+            let mut state =
+                self.lifecycle.as_ref().expect("lifecycle fixture enabled").borrow_mut();
+            let phase = params["phase"].as_str().unwrap();
+            if phase != "read" {
+                assert_eq!(params["expected"], state.generation);
+            }
+            match phase {
+                "read" => {}
+                "begin" => {
+                    assert!(state.phase == "idle" || state.phase == "stopped");
+                    let nonce = params["attempt"].as_str().unwrap();
+                    assert_eq!(nonce.len(), 32);
+                    state.counter += 1;
+                    state.generation = format!("{:064x}", state.counter);
+                    state.phase = "starting".into();
+                }
+                "ready" => {
+                    assert!(state.phase == "starting" || state.phase == "ready");
+                    state.phase = "ready".into();
+                }
+                "end" => state.phase = "stopped".into(),
+                _ => panic!("unknown lifecycle phase"),
+            }
+            json!({"ok":true,"op":"cloud.vm.receiver.lifecycle","value":{"machine":MACHINE,"generation":state.generation,"phase":state.phase},
+                "transaction":"fixture-transaction","idempotency_key":"","replayed":false,"stream":"","sequence":0})
         } else if url.ends_with("/v1/read") {
             assert_eq!(bearer, Some("private-test-bearer"));
             assert_eq!(body.unwrap()["params"], json!({"machine":MACHINE}));
             if let Some(after) = &self.after_policy {
                 after();
             }
-            return Ok((self.status, self.policy.clone()));
+            let mut policy = self.policy.clone();
+            if let Some(state) = &self.lifecycle {
+                let state = state.borrow();
+                let mut value: Value = serde_json::from_slice(&policy).unwrap();
+                value["value"]["receiver_generation"] =
+                    if state.phase == "starting" || state.phase == "ready" {
+                        state.generation.clone().into()
+                    } else {
+                        Value::Null
+                    };
+                policy = serde_json::to_vec(&value).unwrap();
+            }
+            return Ok((self.status, policy));
         } else {
             assert!(url.ends_with("/v1/cloud/keyset"));
             assert!(body.is_none() && bearer.is_none());
@@ -160,6 +210,7 @@ fn setup_tweaked(
         status: 200,
         deadlines: deadlines.clone(),
         after_policy,
+        lifecycle: None,
     };
     tweak(&mut http);
     (CloudClient::new(http, bound, key), wg, deadlines)
