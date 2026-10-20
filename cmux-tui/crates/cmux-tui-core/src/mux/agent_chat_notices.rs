@@ -28,7 +28,7 @@
 //! Only this machine's chats notify: a session a peer reports (`peer`) is
 //! not followed, so a peer cannot post on, or read, a local chat's tab.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -203,7 +203,25 @@ fn follow(
             watching = true;
         } else if watching && message["method"] == "_acpmux/session_changed" {
             changed(&mux, &message["params"], chats);
+        } else if watching && message["method"] == "_acpmux/permission_pending" {
+            asked(&mux, &message["params"], chats);
         }
+    }
+}
+
+/// A new ask of a chat the watch follows: it comes right after the change that recorded it.
+fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
+    // A peer's session is not this machine's chat.
+    if !ask["peer"].is_null() {
+        return;
+    }
+    let Some(chat) = ask["sessionId"].as_str().and_then(|session| chats.get_mut(session)) else {
+        return;
+    };
+    if let Some(notice) = chat.asked(ask)
+        && !chat.muted
+    {
+        mux.post_agent_chat_notice(&chat.session, &notice);
     }
 }
 
@@ -225,6 +243,7 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
 fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
+    next.keep_asks(before);
     let waited = before.is_some_and(|chat| chat.indicator == "input");
     let read = before.is_some_and(|chat| chat.unread) && !next.unread;
     let muted = next.muted && !before.is_some_and(|chat| chat.muted);
@@ -256,8 +275,8 @@ struct Chat {
     notified_turn: Option<String>,
     last_message: String,
     last_seq: u64,
-    /// The permissions and questions it waits on (acpmux `pendingPermissions`).
-    pending: u64,
+    /// The asks of its current wait, by group (asks grouped on one card) or permission id.
+    asks: HashSet<String>,
 }
 
 struct Notice {
@@ -298,7 +317,39 @@ impl Chat {
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
             last_seq: summary["lastSeq"].as_u64().unwrap_or(0),
-            pending: summary["pendingPermissions"].as_u64().unwrap_or(0),
+            asks: HashSet::new(),
+        })
+    }
+
+    /// The asks of the wait it had before, while it still waits (`apply`).
+    fn keep_asks(&mut self, before: Option<&Chat>) {
+        if self.indicator == "input"
+            && let Some(before) = before.filter(|chat| chat.indicator == "input")
+        {
+            self.asks.clone_from(&before.asks);
+        }
+    }
+
+    /// A new ask acpmux says the chat waits on (`_acpmux/permission_pending`): "needs input"
+    /// again when it comes while the chat already waits on another. The ask that starts the
+    /// wait notifies through the wait itself (`notices`); asks grouped on one card count once;
+    /// an ask an acpmux restart re-issues (`permission_reissued`, which names no turn) was told
+    /// before.
+    fn asked(&mut self, ask: &Value) -> Option<Notice> {
+        if self.indicator != "input" || ask.get("turnId").is_none() {
+            return None;
+        }
+        let key = ask["groupId"].as_str().or_else(|| ask["permissionId"].as_str())?;
+        let first = self.asks.is_empty();
+        if !self.asks.insert(key.to_owned()) || first {
+            return None;
+        }
+        Some(Notice {
+            key: format!("input-{}", ask["seq"].as_u64().unwrap_or(self.last_seq)),
+            title: format!("{} needs input", self.name),
+            body: short(&self.last_message, MAX_BODY_CHARS),
+            level: NotificationLevel::Warning,
+            restated: false,
         })
     }
 
@@ -342,10 +393,7 @@ impl Chat {
             }
         }
         let was = before.map_or("", |chat| chat.indicator.as_str());
-        // A new ask while the chat already waits (a second permission, a subagent's question)
-        // notifies too; one answered while another still waits does not.
-        let asks_more = before.is_some_and(|chat| self.pending > chat.pending);
-        if self.indicator == "input" && (was != "input" || asks_more) {
+        if self.indicator == "input" && was != "input" {
             notices.push(Notice {
                 // The record it waits on: the same key while it still waits.
                 key: format!("input-{}", self.last_seq),
