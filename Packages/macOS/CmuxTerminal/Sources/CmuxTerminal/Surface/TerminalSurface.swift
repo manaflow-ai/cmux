@@ -112,6 +112,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     }
     var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
     let rendererPresentationState = TerminalRendererPresentationState()
+    var pendingRendererWakeRecoveryReason: String?
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.

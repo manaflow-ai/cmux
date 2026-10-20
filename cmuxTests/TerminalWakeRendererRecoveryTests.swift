@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -59,7 +60,7 @@ struct TerminalWakeRendererRecoveryTests {
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func observerCoalescesWakeSignalsAndSkipsHiddenSurfaces() async throws {
+    func observerRecoversOncePerWakeEpisodeAndSkipsHiddenSurfaces() async throws {
         let notificationCenter = NotificationCenter()
         let recoveries = AsyncStream<String>.makeStream()
         defer { recoveries.continuation.finish() }
@@ -69,7 +70,10 @@ struct TerminalWakeRendererRecoveryTests {
             recoveredReasons: recoveries.continuation
         )
         let hidden = RecoveryProbe(isRendererEffectivelyVisible: false)
-        let scheduler = TerminalWakeRendererRecoveryScheduler()
+        let deferredActionScheduler = MainActorDeferredActionScheduler()
+        let scheduler = TerminalWakeRendererRecoveryScheduler(
+            scheduler: deferredActionScheduler
+        )
         let observers = TerminalWakeRendererRecoveryObserver(
             scheduler: scheduler
         ).install(
@@ -92,8 +96,28 @@ struct TerminalWakeRendererRecoveryTests {
         )
 
         let recoveredReason = try #require(await recoveryIterator.next())
-        #expect(recoveredReason == "workspace.screensDidWake")
-        #expect(visible.reasons == ["workspace.screensDidWake"])
+        #expect(recoveredReason == "workspace.didWake")
+        while deferredActionScheduler.isScheduled {
+            await Task.yield()
+        }
+        #expect(visible.reasons == ["workspace.didWake"])
+        #expect(hidden.reasons.isEmpty)
+
+        notificationCenter.post(
+            name: NSWorkspace.screensDidSleepNotification,
+            object: nil
+        )
+        notificationCenter.post(
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+
+        let displayWakeReason = try #require(await recoveryIterator.next())
+        #expect(displayWakeReason == "workspace.screensDidWake")
+        #expect(visible.reasons == [
+            "workspace.didWake",
+            "workspace.screensDidWake"
+        ])
         #expect(hidden.reasons.isEmpty)
     }
 }

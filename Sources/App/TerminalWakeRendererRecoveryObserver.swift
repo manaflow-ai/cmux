@@ -1,7 +1,7 @@
 import AppKit
 
-/// Routes system and display wake notifications into one coalesced terminal
-/// renderer recovery pass.
+/// Routes sleep and wake notifications into one terminal renderer recovery
+/// pass per wake episode.
 @MainActor
 struct TerminalWakeRendererRecoveryObserver {
     private let scheduler: TerminalWakeRendererRecoveryScheduler
@@ -18,6 +18,24 @@ struct TerminalWakeRendererRecoveryObserver {
         in notificationCenter: NotificationCenter,
         surfaces: @escaping @MainActor () -> [any TerminalWakeRendererRecoverable]
     ) -> [NSObjectProtocol] {
+        let willSleep = notificationCenter.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [scheduler] _ in
+            MainActor.assumeIsolated {
+                scheduler.prepareForSleep()
+            }
+        }
+        let screensDidSleep = notificationCenter.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [scheduler] _ in
+            MainActor.assumeIsolated {
+                scheduler.prepareForSleep()
+            }
+        }
         let didWake = notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -42,6 +60,6 @@ struct TerminalWakeRendererRecoveryObserver {
                 )
             }
         }
-        return [didWake, screensDidWake]
+        return [willSleep, screensDidSleep, didWake, screensDidWake]
     }
 }

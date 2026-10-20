@@ -31,11 +31,27 @@ extension TerminalSurface {
     @MainActor
     public func recoverRendererAfterWake(reason: String) {
 #if os(macOS)
-        guard isRendererEffectivelyVisible,
-              isRendererPresentationReady,
-              let surface = liveSurfaceForGhosttyAccess(
-                reason: "renderer.wake.\(reason)"
-              ) else {
+        guard isRendererEffectivelyVisible, hasLiveSurface else {
+            pendingRendererWakeRecoveryReason = nil
+            return
+        }
+
+        guard isRendererPresentationReady else {
+            pendingRendererWakeRecoveryReason = reason
+            return
+        }
+
+        pendingRendererWakeRecoveryReason = nil
+        recoverRendererAfterWakeWhenReady(reason: reason)
+#endif
+    }
+
+#if os(macOS)
+    @MainActor
+    private func recoverRendererAfterWakeWhenReady(reason: String) {
+        guard let surface = liveSurfaceForGhosttyAccess(
+            reason: "renderer.wake.\(reason)"
+        ) else {
             return
         }
 
@@ -51,8 +67,8 @@ extension TerminalSurface {
             forceRefresh(reason: "renderer.wakeFallback.\(reason)")
             return
         }
-#endif
     }
+#endif
 
     /// Keep `desiredFocusState` in sync when the hosted view's responder chain
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
@@ -155,6 +171,7 @@ extension TerminalSurface {
                 ensureRendererPresented()
             }
         } else {
+            pendingRendererWakeRecoveryReason = nil
             rendererPresentationState.recoveryAttempted = false
             setOcclusion(false)
         }
@@ -196,6 +213,7 @@ extension TerminalSurface {
         let wasVisible = rendererPortalVisible
         rendererPortalVisible = visible
         if !visible {
+            pendingRendererWakeRecoveryReason = nil
             rendererPresentationState.inFlightToken = nil
             rendererPresentationState.recoveryAttempted = false
             if renderHealth != .shellExited {
@@ -242,6 +260,7 @@ extension TerminalSurface {
 
     @MainActor
     func rendererRuntimeSurfaceDidCreate(presentationReady: Bool) {
+        pendingRendererWakeRecoveryReason = nil
         rendererPresentationPhase = .awaitingFirstPresentation
         rendererPresentationState.inFlightToken = nil
         rendererPresentationState.recoveryAttempted = false
@@ -272,6 +291,12 @@ extension TerminalSurface {
     @MainActor
     public func rendererPresentationReadinessDidChange() {
         guard rendererPortalVisible, isRendererPresentationReady else { return }
+        if let reason = pendingRendererWakeRecoveryReason {
+            pendingRendererWakeRecoveryReason = nil
+            guard isRendererEffectivelyVisible else { return }
+            recoverRendererAfterWakeWhenReady(reason: reason)
+            return
+        }
         ensureRendererPresented(presentationReady: true)
     }
 
@@ -304,6 +329,7 @@ extension TerminalSurface {
         // latest-value request. The pinned core accepts it losslessly; retaining
         // the rejection path keeps compatibility shims retryable.
         if ghostty_surface_set_renderer_realized(surface, false) {
+            pendingRendererWakeRecoveryReason = nil
             rendererPresentationPhase = .released
             rendererPresentationState.inFlightToken = nil
             if renderHealth != .shellExited {
