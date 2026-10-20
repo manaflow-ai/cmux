@@ -18,9 +18,13 @@ export function setPromptSurfaces(on: boolean): void {
 export function deviceName(userAgent: string, touchPoints = 0): string {
   if (/iPhone/.test(userAgent)) return "iPhone";
   if (/iPad/.test(userAgent) || (/Macintosh/.test(userAgent) && touchPoints > 1)) return "iPad";
+  // l10n-allow: a device's product name, the same in every language.
   if (/Macintosh|Mac OS X/.test(userAgent)) return "Mac";
-  return "Web";
+  return FALLBACK_NAME;
 }
+
+/// Any other browser. l10n-allow: the platform's name, not prose; acpmux shows it as sent.
+const FALLBACK_NAME = "Web";
 
 /// The `_meta.acpmux` keys a prompt from this pane adds: none while preview features are off.
 /// The id lasts as long as the page, so each pane (each window) is its own surface.
@@ -28,7 +32,7 @@ export function promptSurfaceMeta(): { surface: PromptSurface } | Record<string,
   if (!labelled) return {};
   surface ??= {
     id: crypto.randomUUID(),
-    name: typeof navigator === "undefined" ? "Web" : deviceName(navigator.userAgent, navigator.maxTouchPoints),
+    name: typeof navigator === "undefined" ? FALLBACK_NAME : deviceName(navigator.userAgent, navigator.maxTouchPoints),
     kind: "app",
   };
   return { surface };
