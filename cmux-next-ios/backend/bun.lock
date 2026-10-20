@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "cnx-ios-api",
+      "name": "cmux-mobile-api",
       "dependencies": {
         "drizzle-orm": "0.45.3",
         "jose": "6.2.12",

@@ -470,6 +470,84 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmux-mobile-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "cmux-mobile-link",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-proto",
+ "futures-util",
+ "libc",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "cmux-mobile-link"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "cmux-mobile-link",
+ "cmux-rd-core",
+ "cmux-rd-proto",
+ "cmux-transport",
+ "cmux-wg",
+ "futures-util",
+ "getrandom 0.3.4",
+ "rcgen",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "socket2 0.6.5",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "webpki-roots 1.0.9",
+ "webrtc",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-mobile-link-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-mobile-host",
+ "cmux-mobile-link",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-ffi",
+ "cmux-rd-proto",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uniffi",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-rd-core"
 version = "0.1.0"
 dependencies = [
@@ -528,84 +606,6 @@ dependencies = [
  "smoltcp",
  "tokio",
  "tokio-util",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "cnx-ffi"
-version = "0.1.0"
-dependencies = [
- "cmux-rd-core",
- "cmux-rd-engine",
- "cmux-rd-ffi",
- "cmux-rd-proto",
- "cnx-hostd",
- "cnx-link",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "uniffi",
- "uuid",
-]
-
-[[package]]
-name = "cnx-hostd"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bytes",
- "cmux-rd-core",
- "cmux-rd-engine",
- "cmux-rd-proto",
- "cnx-link",
- "futures-util",
- "libc",
- "reqwest",
- "ring",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "cnx-link"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "cmux-rd-core",
- "cmux-rd-proto",
- "cmux-transport",
- "cmux-wg",
- "cnx-link",
- "futures-util",
- "getrandom 0.3.4",
- "rcgen",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "socket2 0.6.5",
- "thiserror 2.0.21",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "webpki-roots 1.0.9",
- "webrtc",
  "x25519-dalek",
  "zeroize",
 ]
