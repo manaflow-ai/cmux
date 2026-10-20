@@ -202,7 +202,7 @@ public final class MacScreenPages {
     /// input surface: no longer supported. The App decides what is one
     /// (`BrowserURLResolver.containsPairingLink`); the text is never loaded,
     /// searched or sent to an agent.
-    public static var pairingLinkRefusal: String {
+    nonisolated public static var pairingLinkRefusal: String {
         L.t("macScreen.pairingLinkRefused", "Pairing links are no longer supported. Use Settings › Devices.")
     }
 

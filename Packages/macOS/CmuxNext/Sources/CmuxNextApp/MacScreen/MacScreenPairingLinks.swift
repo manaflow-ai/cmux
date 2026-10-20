@@ -9,7 +9,7 @@ extension MacScreenPages {
     /// (Return and its modified opens), the New Tab page's opens and
     /// `newTab.submit` (CLI, MCP, palette). Such text is never loaded, searched or
     /// sent to an agent: the link carried a room secret.
-    static func pairingLinkRefusal(for text: String) -> String? {
+    nonisolated static func pairingLinkRefusal(for text: String) -> String? {
         let found = BrowserURLResolver.containsPairingLink(text)
             || text.removingPercentEncoding.map(BrowserURLResolver.containsPairingLink) == true
         return found ? pairingLinkRefusal : nil
