@@ -13,18 +13,36 @@ export class CloudSocketAuthority {
     private readonly sockets: () => ReadonlyArray<WebSocket>
   ) {}
 
-  async admit(team: string, user: string): Promise<string | null> {
+  /** Register synchronously inside the ticket, without an untracked gap after the checked owner read. */
+  async admit(team: string, user: string, accept: (version: string) => Response): Promise<Response | null> {
     const notice = this.begin(user, false)
     try {
       const version = await this.current(team, user).catch(() => null)
-      return this.checks.get(user)?.notice === notice ? version : null
+      return version !== null && this.checks.get(user)?.notice === notice ? accept(version) : null
     } finally { this.finish(user) }
   }
 
   async changed(team: string, user: string): Promise<void> {
+    await this.reconcile(team, user, [...this.sockets()])
+  }
+
+  /** Include existing subscribers and admissions whose owner reads are still pending. */
+  async changedAll(team: string): Promise<void> {
+    const groups = new Map<string, Array<WebSocket>>([...this.checks.keys()].map((user) => [user, []]))
+    for (const socket of this.sockets()) {
+      const user = (socket.deserializeAttachment() as Attachment | null)?.principal?.user
+      if (typeof user !== "string") continue
+      const sockets = groups.get(user) ?? []
+      sockets.push(socket); groups.set(user, sockets)
+    }
+    const results = await Promise.allSettled([...groups].map(([user, sockets]) => this.reconcile(team, user, sockets)))
+    const failed = results.filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    if (failed.length) throw new AggregateError(failed.map((result) => result.reason), "Cloud team authority unavailable")
+  }
+
+  private async reconcile(team: string, user: string, sockets: ReadonlyArray<WebSocket>): Promise<void> {
     const notice = this.begin(user, true)
-    // New connections may have observed newer membership while this RPC was held.
-    const sockets = [...this.sockets()]
+    // Only candidates captured before this RPC can close; newer independently admitted sockets are preserved.
     try {
       let version: string | null
       try { version = await this.current(team, user) }

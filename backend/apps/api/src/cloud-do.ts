@@ -5,7 +5,7 @@ import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { ReadResult } from "./owner-do.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { TEAM_MEMBER_LEFT_SOCKETS } from "./domains/team-members.ts"
-import { TEAM_MEMBER_AUTHORITY_CHANGED } from "./domains/team-authority.ts"
+import { TEAM_AUTHORITY_CHANGED, TEAM_MEMBER_AUTHORITY_CHANGED } from "./domains/team-authority.ts"
 import { CloudSocketAuthority } from "./cloud-socket-authority.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
@@ -54,12 +54,17 @@ export class CloudDO extends CloudIdle {
   /** Members whose departure this instance heard (user -> when), for a socket accepted while the notice was in flight. */
   private readonly leftAt = new Map<string, number>()
   private readonly membershipSockets = new CloudSocketAuthority(
-    (team, user) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).membership(team, user),
+    async (team, user) => {
+      const owner = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
+      if (team !== personalTeamIdFor(user)) return owner.membership(team, user)
+      const authority_version = await owner.personalScopeAuthority(team, user)
+      return authority_version ? { role: "owner", authority_version } : null
+    },
     () => this.ctx.getWebSockets()
   )
 
   /**
-   * Shared-team sockets retain the current membership incarnation. A notice during the
+   * Sockets retain the current membership/policy incarnation. A notice during the
    * admission RPC refuses that connection; delayed delivery compares live authority.
    */
   override async fetch(request: Request): Promise<Response> {
@@ -67,18 +72,25 @@ export class CloudDO extends CloudIdle {
     if (!entity || !principal || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
     if (!this.ctx.id.equals(this.env.CLOUD_DO.idFromName(entity))) return new Response("forbidden", { status: 403 })
     const p = JSON.parse(principal) as Principal
-    let authority: string | null = null
-    if (p?.user && p.team && p.team !== personalTeamIdFor(p.user)) {
+    if (p?.user && p.team) {
       if (p.team !== entity) return new Response("forbidden", { status: 403 })
-      const started = Date.now()
-      authority = await this.membershipSockets.admit(p.team, p.user)
-      if (authority === null || (this.leftAt.get(p.user) ?? -1) >= started) return new Response("forbidden", { status: 403 })
+      const started = Date.now(), user = p.user
+      return await this.membershipSockets.admit(p.team, user, (authority) => {
+        if ((this.leftAt.get(user) ?? -1) >= started) return new Response("forbidden", { status: 403 })
+        return this.acceptOwnerSocket(entity, { principal: p, subscribed: false, team_authority: authority })
+      }) ?? new Response("forbidden", { status: 403 })
     }
-    return this.acceptOwnerSocket(entity, { principal: p, subscribed: false, ...(authority ? { team_authority: authority } : {}) })
+    return this.acceptOwnerSocket(entity, { principal: p, subscribed: false })
   }
 
   /** The person's approval answers (G8, cloud-approvals.ts) run here; other items go to the engine. */
   override async systemDeliver(entity: string, source: string, items: ReadonlyArray<TargetItem>): Promise<DeliverResult> {
+    const policy = items.filter((i) => i.op === TEAM_AUTHORITY_CHANGED)
+    for (const item of policy) {
+      const params = item.params as { team?: unknown } | null
+      if (!this.ctx.id.equals(this.env.CLOUD_DO.idFromName(entity)) || source !== `team:${entity}` || params?.team !== entity) continue
+      await this.membershipSockets.changedAll(entity)
+    }
     const authority = items.filter((i) => i.op === TEAM_MEMBER_AUTHORITY_CHANGED)
     for (const item of authority) {
       const params = item.params as { team?: unknown; user?: unknown } | null
@@ -95,8 +107,8 @@ export class CloudDO extends CloudIdle {
       if (this.isBound(entity)) this.closeSockets((p) => p.user === user, "left the team")
     }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
-    const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS && i.op !== TEAM_MEMBER_AUTHORITY_CHANGED)
-    const done = [...authority.map((i) => i.id), ...left.map((i) => i.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])]
+    const rest = items.filter((i) => i.op !== "integration.approval.answered" && i.op !== TEAM_MEMBER_LEFT_SOCKETS && i.op !== TEAM_MEMBER_AUTHORITY_CHANGED && i.op !== TEAM_AUTHORITY_CHANGED)
+    const done = [...policy.map((i) => i.id), ...authority.map((i) => i.id), ...left.map((i) => i.id), ...(rest.length ? (await super.systemDeliver(entity, source, rest)).done : [])]
     if (answers.length) done.push(...(await deliverCloudAnswers(this.approvalHost(entity), source, answers, (p, f) => this.submitAs(entity, p, f), (e) => this.audit.record(e))).done)
     return { done }
   }

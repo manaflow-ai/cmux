@@ -85,6 +85,9 @@ jobs:
       - name: Policy changes retire idle Cloud sockets
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/cloud-policy-sockets.test.ts
+      - name: Cloud policy fanout and publication races
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/cloud-policy-socket-authority.test.ts test/cloud-policy-notices.test.ts
       - name: Cloud tenant and adapter behavior
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/team-vm-api test/cloud-vm-api

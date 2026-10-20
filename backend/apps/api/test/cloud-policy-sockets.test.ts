@@ -4,6 +4,8 @@ import { rolesTeam, STACK_MEMBER } from "./team-roles-support.ts"
 import { call } from "./team-stack-support.ts"
 import { closeTeamSocket, listenToOwnerWire } from "./team-role-socket-support.ts"
 import { deliverRoleNotices, openCloudSockets } from "./cloud-role-socket-support.ts"
+import { cloudStub } from "./cloud-role-socket-support.ts"
+import { inDO } from "./team-ssh-support.ts"
 
 const policyVersion = async (token: string, team: string): Promise<number> => {
   const reply = await call(token, "/v1/read", { op: "team.policy.get", params: {} }, team)
@@ -88,6 +90,34 @@ describe("Cloud wire policy authority", { timeout: 60_000 }, () => {
       expect(denied.body.ok).toBe(false)
       expect(denied.body.error?.code ?? denied.body.code).toBe("auth.forbidden")
       await deliverRoleNotices(team.team)
+      expect(await openCloudSockets(team.team, team.creator.user)).toBe(1)
+    } finally { closeTeamSocket(socket) }
+  })
+
+  it("a personal owner keeps its socket through unchanged policy bootstrap", async () => {
+    const team = await rolesTeam(), personal = personalTeamIdFor(team.creator.user)
+    const socket = await listenToOwnerWire(team.creator.token, personal, "cloud")
+    try {
+      expect(await policyVersion(team.creator.token, personal)).toBe(0)
+      await deliverRoleNotices(personal)
+      expect(await openCloudSockets(personal, team.creator.user)).toBe(1)
+    } finally { closeTeamSocket(socket) }
+  })
+
+  it("wrong-source, wrong-team and wrong-target notices cannot retire another team's socket", async () => {
+    const team = await rolesTeam(), other = await rolesTeam()
+    await deliverRoleNotices(team.team)
+    const socket = await listenToOwnerWire(team.creator.token, team.team, "cloud")
+    try {
+      for (const [target, source, payloadTeam] of [
+        [team.team, `team:${other.team}`, team.team], [team.team, `team:${team.team}`, other.team],
+        [other.team, `team:${other.team}`, other.team]
+      ]) {
+        const result = await inDO(cloudStub(team.team), async (instance) => instance.systemDeliver(target, source, [
+          { id: 88, op: "team.authority.changed", key: crypto.randomUUID(), params: { team: payloadTeam } }
+        ]))
+        expect(result.done).toEqual([88])
+      }
       expect(await openCloudSockets(team.team, team.creator.user)).toBe(1)
     } finally { closeTeamSocket(socket) }
   })

@@ -11,7 +11,7 @@ import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomai
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
-import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { currentPolicy, reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
 import { reduceRunsSynced, type RunSyncState } from "./team-run-sync.ts"
 import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
@@ -19,7 +19,7 @@ import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
-import { TABLE_MEMBER_AUTHORITY } from "./team-authority.ts"
+import { TABLE_MEMBER_AUTHORITY, teamAuthorityNotice } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -259,7 +259,9 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       }
       case "team.policy.integration_seed": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
-        return withAudit(reduceIntegrationSeed(state, params, ctx), state.team.id, ctx, op)
+        const result = withAudit(reduceIntegrationSeed(state, params, ctx), state.team.id, ctx, op)
+        if (!result.ok || currentPolicy(result.state).version === currentPolicy(state).version) return result
+        return { ...result, outbox: [...("outbox" in result ? result.outbox : []), teamAuthorityNotice(state.team.id, ctx.tx)] }
       }
       case "team.policy.integration_lock": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
@@ -365,7 +367,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
             rollback_of: head?.rollback_of,
             values: r.state.policy?.values
           })
-          return { ok: true, state: a.state, value: r.value, outbox: [a.outbox] }
+          return { ok: true, state: a.state, value: r.value, outbox: [a.outbox, teamAuthorityNotice(state.team.id, ctx.tx)] }
         }
         const r = op === "team.enrollment_token.create" ? reduceTokenCreate(state, params, ctx) : reduceTokenRevoke(state, params, ctx)
         return withAudit(r, state.team.id, ctx, op)
