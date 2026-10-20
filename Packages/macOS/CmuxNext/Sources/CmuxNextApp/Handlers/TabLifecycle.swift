@@ -5,6 +5,8 @@ import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import enum CmuxNextLayout.ChatColumnPlacement
+import enum CmuxNextLayout.NewChatPlacement
 
 /// New terminal tab, new browser tab, and close tab for a shown pane (the
 /// strip's optimistic path) or any daemon pane, so the CLI can act on a

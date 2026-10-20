@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import enum CmuxNextLayout.NewChatPlacement
 
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected. It inherits
