@@ -795,7 +795,7 @@
     },
     "appearance.experimentalControls" : {
       "default" : false,
-      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },

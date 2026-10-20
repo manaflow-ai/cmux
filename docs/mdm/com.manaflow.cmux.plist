@@ -1805,7 +1805,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Show the wallpaper grid and live appearance tuner while they are being integrated.</string>
+			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
 			<key>pfm_title</key>
