@@ -16,6 +16,7 @@ import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
 import { isAgentMotionOff } from "../shared/motion";
+import { entranceAllowed } from "../shared/pageReveal";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -917,7 +918,8 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
+  // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -1541,7 +1543,11 @@ export function VirtualTranscript({
       else arrived.push(row);
       knownRows.current.add(row.id);
     }
-    if (arrived.length <= LIVE_ROWS_PER_UPDATE) for (const row of arrived) enteringRows.current.add(row.id);
+    // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
+    // before its first frame back, came while the user was away: it draws in place. WebKit
+    // suspends a hidden page's animations, so its entrance would play on return (shared/pageReveal.ts).
+    if (arrived.length <= LIVE_ROWS_PER_UPDATE && entranceAllowed())
+      for (const row of arrived) enteringRows.current.add(row.id);
   }
   knownFor.current = rows;
   const onEntered = useCallback((id: string) => void enteringRows.current.delete(id), []);
