@@ -42,14 +42,14 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     /// Where a first show starts from its rest place: toward the target it describes.
     /// - Parameters:
     ///   - placement: Where the card sits relative to its target.
-    ///   - leading: For ``HoverCardPlacement/beside``: the card sits left of its target (a
+    ///   - leading: For ``HoverCardPlacement/beside`` and ``HoverCardPlacement/besideRow``: the card sits left of its target (a
     ///     sidebar on the right, or no room on the right), so it starts to the right.
     /// - Returns: The translation (points, y up) the entrance slide starts from.
     public func entryVector(for placement: HoverCardPlacement, leading: Bool = false) -> CGVector {
         switch placement {
         case .below: CGVector(dx: 0, dy: entryOffset)
         case .above: CGVector(dx: 0, dy: -entryOffset)
-        case .beside: CGVector(dx: leading ? entryOffset : -entryOffset, dy: 0)
+        case .beside, .besideRow: CGVector(dx: leading ? entryOffset : -entryOffset, dy: 0)
         }
     }
 
