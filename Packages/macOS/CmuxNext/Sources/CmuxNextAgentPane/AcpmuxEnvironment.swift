@@ -21,10 +21,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var daemonArguments: [String]
     /// Variables the daemon and the status client must agree on.
     public var childEnvironment: [String: String]
-    /// The Computer Use socket and agent token (`computerUseKeys`) for the
-    /// daemon this app spawns, so its agents reach the app's Computer Use
-    /// helper; empty while Computer Use is off. Only the spawn environment
-    /// carries them: the app never writes its own process environment.
+    /// Non-secret Computer Use launch configuration for this daemon. The v2
+    /// endpoint directory is allowed; legacy socket tokens are withheld.
     public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` (`1`): its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while the Debug
@@ -81,7 +79,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         #endif
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
-                       executableOverride: executableOverride)
+                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
+                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
     }
 
     /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
@@ -95,11 +94,14 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
-        executableOverride: URL?
+        executableOverride: URL?,
+        teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
+        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
             .first(where: { isExecutable($0.path) }) else { return nil }
+        if let teamIdentifier, !isTrustedExecutable(executable, teamIdentifier) { return nil }
         let root = testRoot(environment) ?? userHome.appendingPathComponent(".acpmux", isDirectory: true)
         let ownHome = build?.acpmuxHome(root: root) ?? root
         let home: URL
@@ -122,7 +124,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         }
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
-            daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment
+            daemonArguments: ownHome == root ? [] : ["--listen", "127.0.0.1:0"], childEnvironment: childEnvironment,
+            passesPersonKeyAtSpawn: teamIdentifier == nil
         )
     }
 
