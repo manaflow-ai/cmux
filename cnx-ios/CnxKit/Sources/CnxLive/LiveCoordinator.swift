@@ -1113,6 +1113,8 @@ public final class LiveCoordinator {
     /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
+        // Try Again on Chief's unavailable bar opens the channel again on this link.
+        session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = self.link.target?.name
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = self.link.target?.macID
@@ -1162,10 +1164,32 @@ public final class LiveCoordinator {
         } catch {
             // An older hostd without the `chief` service closes it as unknown.
             let reason = LinkController.reason(error)
-            offline(reason.contains("unknown_service") || reason.contains("no service chief")
-                ? String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
-                : String(localized: "Chief on this Mac: \(reason)"))
+            log.info("chief channel refused: \(reason, privacy: .public)")
+            offline(Self.chiefRefusal(reason, macName: self.link.target?.name))
         }
+    }
+
+    /// Try Again on Chief's unavailable bar: the Chief channel again, on the
+    /// link that is up now. Without one, the bar says so.
+    func retryChief() {
+        guard let link = servedLink else {
+            ChiefSession.shared.status = String(localized: "Your Mac isn't connected. Chief comes back when it is.")
+            return
+        }
+        Task { [weak self] in await self?.startChief(link) }
+    }
+
+    /// The bar's sentence for a refused `chief` channel. hostd's own text
+    /// ("cmux-tui session chief: No such file or directory") is for the log.
+    static func chiefRefusal(_ reason: String, macName: String?) -> String {
+        let mac = macName ?? String(localized: "your Mac")
+        if reason.contains("unknown_service") || reason.contains("no service chief") {
+            return String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
+        }
+        if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused") {
+            return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
+        }
+        return String(localized: "Chief on \(mac) didn't answer (\(reason)).")
     }
 
     private func apply(_ tree: DaemonTree) {

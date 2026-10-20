@@ -130,9 +130,110 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         // the Mac (chief-profile-changed) redraws it in place.
         headerAvatar = chiefInitials
         conversation.store.addObserver { [weak self] _ in
-            guard let self, self.isViewLoaded, self.chiefInitials != self.headerAvatar else { return }
+            guard let self, self.isViewLoaded else { return }
+            self.updateAvailability()
+            guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
+        }
+        installSendGate()
+        observeAvailability()
+    }
+
+    // MARK: Chief unavailable (full verify D2, D3)
+
+    /// The package's send action, kept while the gate holds the button.
+    private var packageSendActions: [UIAction] = []
+    private weak var sendButton: UIButton?
+
+    /// Before Chief ever connected, the package's send clears the composer
+    /// and then drops the message (its store has no sender yet). The send
+    /// button goes through this gate: once Chief takes sends it runs the
+    /// package's own action; until then the text stays in the composer and
+    /// the screen says why, with Try Again and Send When Chief Connects.
+    private func installSendGate() {
+        guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
+        else { return }
+        var actions: [UIAction] = []
+        button.enumerateEventHandlers { action, _, event, _ in
+            if event == .touchUpInside, let action { actions.append(action) }
+        }
+        guard !actions.isEmpty else { return }
+        sendButton = button
+        packageSendActions = actions
+        for action in actions { button.removeAction(action, for: .touchUpInside) }
+        button.addAction(UIAction { [weak self] _ in self?.sendTapped() }, for: .touchUpInside)
+        updateAvailability()
+    }
+
+    private func sendTapped() {
+        guard let button = sendButton else { return }
+        if session.acceptsSendsNow {
+            for action in packageSendActions { button.sendAction(action) }
+            return
+        }
+        holdUnsentMessage()
+    }
+
+    private var composerTextView: UITextView? {
+        conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
+    }
+
+    /// The message stays in the composer; the alert says why and offers to
+    /// try Chief again or to send it once Chief connects (the outbox).
+    private func holdUnsentMessage() {
+        guard presentedViewController == nil else { return }
+        let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        let alert = UIAlertController(
+            title: String(localized: "Message Not Sent"),
+            message: String(localized: "\(reason) Your message is still in the box."),
+            preferredStyle: .alert)
+        if session.canRetryConnecting {
+            alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
+                self?.session.retryConnecting()
+            })
+        }
+        if !text.isEmpty {
+            alert.addAction(UIAlertAction(title: String(localized: "Send When Chief Connects"), style: .default) { [weak self] _ in
+                self?.moveComposerToOutbox(text)
+            })
+        }
+        alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func moveComposerToOutbox(_ text: String) {
+        session.send(ConversationComposeMessage(text: text))
+        guard let field = composerTextView else { return }
+        field.text = ""
+        // The composer follows its field through the delegate (send button, height).
+        field.delegate?.textViewDidChange?(field)
+    }
+
+    /// Follows the session for the gate and the spinner.
+    private func observeAvailability() {
+        withObservationTracking {
+            _ = session.barItem
+            _ = session.isConnected
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.updateAvailability()
+                self?.observeAvailability()
+            }
+        }
+    }
+
+    /// The package's first-load spinner never ends while Chief is unavailable:
+    /// hidden while the bar says why. The effect long-press on Send would
+    /// also clear and drop: off until Chief takes sends.
+    private func updateAvailability() {
+        let unavailable: Bool
+        if case .unavailable? = session.barItem { unavailable = true } else { unavailable = false }
+        conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.initialLoading" }?.alpha = unavailable ? 0 : 1
+        let sends = session.acceptsSendsNow
+        for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
+            recognizer.isEnabled = sends
         }
     }
 
