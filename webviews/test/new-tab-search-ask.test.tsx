@@ -200,3 +200,34 @@ test("after Down and a click on the switch, Tab switches again", async () => {
   expect(pressed()).toEqual(["ask"]);
   expect(selected()).toBe("Ask Claude Code");
 });
+
+// Lawrence 2026-10-20 (screenshot 00852d5e0136): "move tab to switch outside above the box". The
+// "Tab to switch" hint and the Search | Ask switch sit in a row just above the box, at its right
+// edge; the box holds only the field, the mic and Send. Tab still switches from the field, and a
+// press on the switch keeps the caret in the field.
+test("the Search | Ask switch and its hint sit above the box, not in it", async () => {
+  const field = await render([]);
+  const mode = host.querySelector<HTMLElement>(".nt-mode")!;
+  const box = host.querySelector<HTMLElement>(".nt-box")!;
+  expect(mode).toBeTruthy();
+  expect(box.contains(mode)).toBe(false);
+  expect(box.textContent).not.toContain("Tab to switch");
+  const above = mode.closest<HTMLElement>(".nt-above")!;
+  expect(above).toBeTruthy();
+  // The row comes before the box in the composer, so it draws above it.
+  expect(above.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(above.parentElement).toBe(box.parentElement);
+
+  field.focus();
+  await type(field, "ff");
+  const search = host.querySelector<HTMLButtonElement>('.nt-mode [data-mode="search"]')!;
+  const press = new window.MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true });
+  await act(async () => void search.dispatchEvent(press));
+  expect(press.defaultPrevented).toBe(true);
+  await act(async () => search.click());
+  expect(pressed()).toEqual(["search"]);
+  expect(window.document.activeElement).toBe(field);
+  await key(field, "Tab");
+  expect(pressed()).toEqual(["ask"]);
+  expect(window.document.activeElement).toBe(field);
+});
