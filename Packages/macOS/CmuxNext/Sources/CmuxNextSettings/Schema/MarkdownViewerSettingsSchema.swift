@@ -70,6 +70,14 @@ nonisolated enum MarkdownViewerSettingsSchema {
                                          "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."),
                 .number(SettingNumber(codeScaleRange, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)),
                 .number(codeScaleFallback), ["code", "font", "size", "monospace", "scale"]),
+            SettingDescriptor(
+                ["markdown", "code", "family"], section: .appearance, group: group,
+                title: SettingsText.keyed("settings.markdown.codeFont", "Code Font"),
+                help: SettingsText.keyed("settings.markdown.codeFont.help",
+                                         "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."),
+                kind: .fontFamily, default: nil,
+                keywords: ["markdown", "viewer", "reading", "code", "font", "family", "monospace"]
+            ),
             // A fixed code block size in pixels; `code.scale` is the row. Kept so cmux.json files that
             // set it still validate and the viewer can clear it when the user picks a code size.
             SettingDescriptor(

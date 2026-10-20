@@ -29,7 +29,7 @@ extension WindowController {
     }
 
     /// Strips under the traffic lights recompute their inset.
-    private func relayoutTopRowStrips() {
+    func relayoutTopRowStrips() {
         for pane in content?.panes.values.map({ $0 }) ?? [] {
             pane.view.stripView.updateWindowControlsAvoidance()
             pane.view.stripView.layoutSubtreeIfNeeded()

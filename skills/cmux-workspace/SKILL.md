@@ -114,7 +114,7 @@ cmux workspace status list --json          # entries, progress, last log line
 cmux workspace ws_… status list            # another workspace
 ```
 
-Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status inProgress`. For attention, use `cmux notify --title "Build" --body "done"`.
+Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status working`. For attention, use `cmux notify --title "Build" --body "done"`.
 
 ## Contributor reloads
 
