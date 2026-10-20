@@ -1769,7 +1769,7 @@ jobs:
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
-          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
           git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
@@ -1914,7 +1914,7 @@ jobs:
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
-            cnx-ios/rust -> target/cnx-hostd-app
+            cmux-next-ios/rust -> target/cmux-mobile-host-app
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
@@ -1973,20 +1973,20 @@ jobs:
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
           echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
-      # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which
-      # Settings > Mobile runs: the Release build's "Bundle cnx-hostd" phase
+      # The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which
+      # Settings > Mobile runs: the Release build's "Bundle cmux-mobile-host" phase
       # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
       # with the app's Developer ID, hardened runtime and the helper
       # entitlements before notarization, like every Mach-O there.
-      - name: Build the cnx iPhone host (cmux-next)
+      - name: Build the mobile iPhone host (cmux-next)
         if: needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
-          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
-          CMUX_NEXT_CNX_HOSTD_ARCHS="$archs" scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
-          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
-          echo "CMUX_NEXT_REQUIRE_CNX_HOSTD=1" >> "$GITHUB_ENV"
+          hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
+          CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_MOBILE_HOST_BIN=$hostd_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_MOBILE_HOST=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2270,7 +2270,7 @@ jobs:
         if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cnx-ios/rust/target)
+          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cmux-next-ios/rust/target)
           kib=0
           for d in "${dirs[@]}"; do
             [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
@@ -2889,7 +2889,7 @@ jobs:
           done
           # The cmux-next nightly carries the OptChat Chief with the app's slices.
           if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            for helper in optchat-chief cnx-hostd; do
+            for helper in optchat-chief cmux-mobile-host; do
               binary="$APP/Contents/Resources/bin/$helper"
               [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
               archs="$(lipo -archs "$binary")"
