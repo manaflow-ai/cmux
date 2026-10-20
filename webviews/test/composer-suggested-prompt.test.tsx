@@ -185,6 +185,14 @@ test("a chat that knows its branch takes no PR from another branch", async () =>
   expect(shown()).toBe("Do anything");
   await render(started([prChat({ branch: "main" })]));
   expect(shown()).toStartWith("Continue PR #123");
+  // A chat working in this working tree on another branch it last recorded still collides.
+  await render(
+    started([
+      prChat({ branch: "main" }),
+      prChat({ sessionId: "busy", branch: "old", indicator: "working", pullRequest: undefined }),
+    ]),
+  );
+  expect(shown()).toBe("Do anything");
 });
 
 test("a chat with turns gets no suggestion", async () => {
@@ -273,6 +281,9 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
     expect(shown()).toStartWith("Continue PR #77");
     await render(fresh([noPr({ sessionId: "finished", indicator: "done" })]));
     expect(shown()).toStartWith("Continue PR #77");
+    // A chat working on the folder's PR from another folder (a clone) has it too.
+    await render(fresh([prChat({ sessionId: "clone", cwd: "/elsewhere", indicator: "working" }, { number: 77 })]));
+    expect(shown()).toBe("Do anything");
   } finally {
     await header(null);
   }
