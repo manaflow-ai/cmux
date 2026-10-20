@@ -109,9 +109,15 @@ fn workspace_list_reports_the_workspace_the_app_window_shows() {
 fn focused_stays_the_daemons_when_the_app_shows_another_sessions_workspace() {
     let mut reply =
         json!({"value": [{"id": "ws_a", "focused": true}, {"id": "ws_b", "focused": false}]});
-    assert!(!overlay_focused(&mut reply, "ws_elsewhere"));
+    assert!(!overlay_focused(&mut reply, &AppWorkspaces::showing("ws_elsewhere")));
     assert_eq!(reply["value"][0]["focused"], true);
-    assert!(overlay_focused(&mut reply, "ws_b"));
+    let other_session = AppWorkspaces {
+        shown: "ws_elsewhere".into(),
+        known: ["ws_elsewhere".to_owned()].into_iter().collect(),
+    };
+    assert!(!overlay_focused(&mut reply, &other_session));
+    assert_eq!(reply["value"][0]["focused"], true);
+    assert!(overlay_focused(&mut reply, &AppWorkspaces::showing("ws_b")));
     assert_eq!(reply["value"][0]["focused"], false);
     assert_eq!(reply["value"][1]["focused"], true);
 }

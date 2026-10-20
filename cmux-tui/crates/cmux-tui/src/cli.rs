@@ -33,6 +33,7 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
+mod capability_cache;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]

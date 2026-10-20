@@ -106,8 +106,12 @@ USAGE
   cmux tab <selector> zoom <0.25..5>|reset|in|out
   cmux tab <selector> update --zoom <0.25..5>|--clear-zoom
   cmux tab <selector> update --icon <value>|--clear-icon
-  cmux tab create terminal [--correlation-key <value>] [OPTIONS]
-  cmux tab create browser --url <value> [--correlation-key <value>] [OPTIONS]
+  cmux tab create terminal [--cwd <path>] [--name <value>] [--cols <n> --rows <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>]
+  cmux tab create browser --url <value> [--name <value>] [--width-px <n> --height-px <n>]
+    [--workspace <selector>] [--screen <selector>] [--pane <selector>]
+    [--correlation-key <value>]
   cmux tab <selector> terminal|browser ...
   cmux tab group list [--pane <pane_…>]
   cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
