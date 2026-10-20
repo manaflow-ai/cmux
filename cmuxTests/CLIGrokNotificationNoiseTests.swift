@@ -65,7 +65,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let session = try XCTUnwrap((store["sessions"] as? [String: Any])?[context.sessionId] as? [String: Any])
         XCTAssertEqual(session["runtimeStatus"] as? String, "running")
-        XCTAssertNil(session["lastNotificationStatus"])
+        // A display-only fallback must preserve the stored marker while the
+        // new prompt owns lifecycle transitions.
+        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let newRequestStart = context.state.snapshot().count
         let newRequest = grokPermissionPromptPayload(context,

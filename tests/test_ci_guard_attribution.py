@@ -321,8 +321,87 @@ class Comments(unittest.TestCase):
         self.assertIn("### `Validate fork runner routing`", body)
         self.assertIn("passes on `abc`", ga.render_pr_comment({"state": "green", "sha": "abc", "run_url": "u"}))
 
+    def test_a_green_fast_guard_comment_does_not_read_as_green_ci(self) -> None:
+        # #17074: "`CI fast guards` passes" was the only bot comment while its app-host tests were red.
+        body = ga.render_pr_comment({"state": "green", "sha": "abc", "run_url": "u"})
+        self.assertIn("covers only the fast guards, not CI", body)
+        self.assertIn("`ci-status`", body)
+
 
 class Robustness(unittest.TestCase):
+    def test_jobs_paginate_the_exact_workflow_attempt(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        calls = []
+        first_page = [{"id": index, "name": "other"} for index in range(100)]
+
+        def get(path):
+            calls.append(path)
+            if path.endswith("page=1"):
+                return {"jobs": first_page}
+            self.assertTrue(path.endswith("page=2"))
+            return {"jobs": [{"id": 42, "name": ga.FAST_WORKFLOW}]}
+
+        gh.get = get  # type: ignore[method-assign]
+        self.assertEqual(gh.jobs(9, run_attempt=3)[-1]["id"], 42)
+        self.assertEqual(calls, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=1",
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/3/jobs?per_page=100&page=2",
+        ])
+
+    def test_guard_conclusion_overrides_an_unrelated_ci_failure(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        gh.guard_job = lambda run: {"id": 42, "name": ga.FAST_WORKFLOW, "conclusion": "success"}  # type: ignore[method-assign]
+        gh.comments = lambda number: [{"id": 1, "body": ga.PR_MARKER}]  # type: ignore[method-assign]
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "failure",
+            "pull_requests": [{"number": 7, "base": {"repo": {
+                "url": "https://api.github.com/repos/manaflow-ai/cmux",
+            }} }],
+        }
+        selected = ga.authoritative_guard_run(gh, run)
+        self.assertEqual(selected["conclusion"], "success")
+        self.assertEqual(ga.analyze_pr(gh, selected, ROOT, "")["state"], "green")
+
+    def test_cancelled_or_skipped_guard_has_no_verdict(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        run = {
+            "id": 9,
+            "run_attempt": 2,
+            "name": "CI",
+            "path": ".github/workflows/ci.yml",
+            "event": "pull_request",
+            "conclusion": "cancelled",
+        }
+        for conclusion in ("cancelled", "skipped"):
+            with self.subTest(conclusion=conclusion):
+                gh.guard_job = lambda run, conclusion=conclusion: {  # type: ignore[method-assign]
+                    "id": 42, "name": ga.FAST_WORKFLOW, "conclusion": conclusion,
+                }
+                self.assertIsNone(ga.authoritative_guard_run(gh, run))
+
+    def test_fast_guard_log_selection_excludes_unrelated_failed_jobs(self) -> None:
+        gh = ga.GitHub("manaflow-ai/cmux", "token")
+        paths = []
+        gh.get = lambda path: (paths.append(path) or {  # type: ignore[method-assign]
+            "jobs": [
+                {"id": 1, "name": ga.FAST_WORKFLOW, "conclusion": "failure"},
+                {"id": 2, "name": "Fast static checks", "conclusion": "failure"},
+            ]
+        })
+        gh.request = lambda method, path, text=False: f"log:{path}"  # type: ignore[method-assign]
+        self.assertEqual(
+            gh.failed_log(9, run_attempt=4, job_name=ga.FAST_WORKFLOW),
+            "log:repos/manaflow-ai/cmux/actions/jobs/1/logs",
+        )
+        self.assertEqual(paths, [
+            "repos/manaflow-ai/cmux/actions/runs/9/attempts/4/jobs?per_page=100&page=1",
+        ])
+
     def test_an_older_checkout_the_runner_cannot_plan_counts_as_unknown(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             runner = Path(temp) / "runner"
@@ -420,15 +499,25 @@ class Reporting(unittest.TestCase):
         body = ga.render_issue(self.red_report(), {"S": {"culprit": {"pr": 14724}}}, {})
         self.assertEqual(ga.issue_data({"body": body})["steps"]["S"]["culprit"]["pr"], 14724)
 
-    def test_a_pr_comment_is_one_comment_updated_in_place(self) -> None:
+    def test_a_pr_report_is_the_guards_line_of_the_status_comment(self) -> None:
         report = {"branch": "pr", "state": "red", "pr": 7, "sha": "abc", "run_url": "u", "steps": []}
         writer = ga.Writer(None, True)
         ga.report_pr(writer, FakeGitHub(), "manaflow-ai/cmux", report)
         self.assertEqual(writer.log[0].splitlines()[0], "--- would POST repos/manaflow-ai/cmux/issues/7/comments")
+        self.assertTrue(writer.log[0].splitlines()[1].startswith(ga.pr_status.MARKER))
         writer = ga.Writer(None, True)
-        gh = FakeGitHub(comments={7: [{"id": 3, "body": ga.PR_MARKER + "\nold"}]})
+        status = ga.pr_status.render({"bead": "Bead: `cx-abc1`", "guards": ga.PR_MARKER + "\nold"})
+        gh = FakeGitHub(comments={7: [{"id": 3, "body": status, "user": {"login": ga.pr_status.BOT}}]})
         ga.report_pr(writer, gh, "manaflow-ai/cmux", {**report, "state": "green"})
         self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/3")
+        sections = ga.pr_status.parse(writer.log[0].split("\n", 1)[1])
+        self.assertEqual(sections["bead"], "Bead: `cx-abc1`")
+        self.assertIn("passes on `abc`", sections["guards"])
+        # A guards comment from before the status comment is edited into one, not left beside it.
+        writer = ga.Writer(None, True)
+        gh = FakeGitHub(comments={7: [{"id": 4, "body": ga.PR_MARKER + "\nold", "user": {"login": ga.pr_status.BOT}}]})
+        ga.report_pr(writer, gh, "manaflow-ai/cmux", {**report, "state": "green"})
+        self.assertEqual(writer.log[0].splitlines()[0], "--- would PATCH repos/manaflow-ai/cmux/issues/comments/4")
         writer = ga.Writer(None, True)
         ga.report_pr(writer, FakeGitHub(), "manaflow-ai/cmux", {**report, "state": "green"})
         self.assertEqual(writer.log, [])  # never red here: nothing to say
@@ -453,7 +542,10 @@ class WorkflowTrust(unittest.TestCase):
 
     def test_follows_both_guard_workflows(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(sorted(on["workflow_run"]["workflows"]), sorted([ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]))
+        self.assertEqual(
+            sorted(on["workflow_run"]["workflows"]),
+            sorted(["CI", ga.FAST_WORKFLOW, ga.VARS_WORKFLOW]),
+        )
         self.assertEqual(on["workflow_run"]["types"], ["completed"])
 
     def test_only_report_writes_and_nothing_checks_out_the_pr(self) -> None:

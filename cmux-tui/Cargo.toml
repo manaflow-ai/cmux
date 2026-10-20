@@ -169,8 +169,13 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit makes the shipped macOS arm64 cmux-tui about a
+# quarter smaller (45.4 -> 34.3 MB before stripping) for ~1m45s of release build.
+# Every release waits for this client: #19506's one lost-runner publish did not
+# recur in three release-path publishes on the same 6-vCPU macOS runner.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

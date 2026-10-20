@@ -65,11 +65,23 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             listPage: { lists += 1; return VMListPage(vms: [], limits: nil) }
         )
         registry.start(catalog: catalog)
-        await registry.recordCreatedMachine(created, scope: registry.creationScope)
+        let endpoint = VMCmuxRemoteEndpoint(
+            route: "ws://10.16.0.9:1337/v1/link",
+            token: "receipt-token",
+            expiresAtUnix: 1_800_000_000,
+            session: "cloud",
+            trustedCarrier: true,
+            networkAddresses: .init(ipv4: "10.16.0.9", ipv6: nil)
+        )
+        await registry.recordCreatedMachine(created, attach: endpoint, scope: registry.creationScope)
 
         #expect(registry.provider(machineID: created.id) != nil)
-        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == "ws://10.16.0.9:1337/v1/link")
-        #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil,
+        let consumed = await registry.takeCreatedTrustedCarrierEndpoint(machineID: created.id)
+        #expect(consumed?.route == endpoint.route)
+        #expect(consumed?.token == endpoint.token)
+        #expect(consumed?.expiresAtUnix == endpoint.expiresAtUnix)
+        #expect(consumed?.session == endpoint.session)
+        #expect(await registry.takeCreatedTrustedCarrierEndpoint(machineID: created.id) == nil,
                 "The receipt answers one attach; later opens use the saved device path")
         #expect(lists == 0, "Neither registration nor the attach answer re-read the fleet")
         #expect(paths.deviceFingerprint(for: created.id) == CloudTuiClientPaths.carrierDeviceMarker,
@@ -227,6 +239,86 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(registry.provider(machineID: "old-team-vm") == nil)
         #expect(catalog.machines[.cloud("old-team-vm")] == nil)
         await registry.accessDidEnd()
+    }
+
+    @Test("Team readiness does not wait for machine details or repeat fleet discovery")
+    func teamReadinessDoesNotWaitForMachineDetails() async {
+        let catalog = SurfaceCatalog()
+        let detailsStarted = CloudLinkFirstValue<Bool>()
+        let releaseDetails = CloudLinkFirstValue<Bool>()
+        let ready = CloudLinkFirstValue<Bool>()
+        var lists = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [machine("new-team-vm")], limits: nil)
+            },
+            activeTeamID: { "new-team" },
+            refreshProvider: { _, _ in
+                detailsStarted.resolve(true)
+                _ = await releaseDetails.result
+                return true
+            }
+        )
+        registry.start(catalog: catalog)
+        let switching = Task {
+            await registry.teamScopeDidChange()
+            ready.resolve(true)
+        }
+        #expect(await boundedResult(detailsStarted))
+        let readyWhileDetailsBlocked = await boundedResult(ready)
+        let visible = registry.provider(machineID: "new-team-vm")?.ownerTeamID
+        releaseDetails.resolve(true)
+        await switching.value
+        #expect(readyWhileDetailsBlocked, "The team list must become usable while a machine's details are still stalled")
+        #expect(visible == "new-team")
+        #expect(lists == 1, "Background details reuse the discovered providers")
+        await registry.accessDidEnd()
+    }
+
+    @Test("A later team switch and sign-out cancel background detail work")
+    func teamSwitchCancelsBackgroundDetails() async {
+        let catalog = SurfaceCatalog()
+        let firstStarted = CloudLinkFirstValue<Bool>()
+        let secondStarted = CloudLinkFirstValue<Bool>()
+        let firstCancelled = CloudLinkFirstValue<Bool>()
+        let secondCancelled = CloudLinkFirstValue<Bool>()
+        let release = CloudLinkFirstValue<Bool>()
+        let firstReady = CloudLinkFirstValue<Bool>()
+        let secondReady = CloudLinkFirstValue<Bool>()
+        var team = "team-a"
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [machine(team)], limits: nil) },
+            activeTeamID: { team },
+            refreshProvider: { provider, _ in
+                let first = provider.ownerTeamID == "team-a"
+                (first ? firstStarted : secondStarted).resolve(true)
+                _ = await release.result
+                (first ? firstCancelled : secondCancelled).resolve(Task.isCancelled)
+                return true
+            }
+        )
+        registry.start(catalog: catalog)
+        let first = Task { await registry.teamScopeDidChange(); firstReady.resolve(true) }
+        #expect(await boundedResult(firstStarted))
+        #expect(await boundedResult(firstReady))
+        team = "team-b"
+        let second = Task { await registry.teamScopeDidChange(); secondReady.resolve(true) }
+        #expect(await boundedResult(secondStarted))
+        #expect(await boundedResult(secondReady))
+        #expect(await boundedResult(firstCancelled))
+        #expect(registry.provider(machineID: "team-a") == nil)
+        #expect(registry.provider(machineID: "team-b")?.ownerTeamID == "team-b")
+        await registry.accessDidEnd()
+        #expect(await boundedResult(secondCancelled))
+        release.resolve(true)
+        await first.value
+        await second.value
+        #expect(catalog.snapshot.machines.isEmpty)
     }
 
     @Test("A saved machine can resolve its private route before the first background list")

@@ -8,8 +8,9 @@ export const SELECT_ACCOUNT_PROMPT = "select_account";
 
 /**
  * Every signed-in arrival confirms the account when true. Off: only an
- * explicit `prompt=select_account` (the app's Switch Account) shows the
- * chooser, and other signed-in arrivals continue as before.
+ * explicit `prompt=select_account` (the app's Switch Account) or a sign-in
+ * for the Mac app shows the chooser, and other signed-in arrivals continue
+ * as before.
  */
 export const CHOOSE_ACCOUNT_ON_EVERY_SIGNED_IN_ARRIVAL = false;
 
@@ -26,6 +27,10 @@ export function signInEntry(input: {
   returningFromOAuth: boolean;
   /** Sign-in (not sign-up) with remembered accounts to list. */
   hasRememberedAccounts?: boolean;
+  /** Signed in on this page just now, not when it opened. */
+  signedInHere?: boolean;
+  /** The sign-in hands its session back to the Mac app. */
+  forApp?: boolean;
   chooseOnEverySignedInArrival?: boolean;
   chooseWhenSignedOut?: boolean;
 }): SignInEntry {
@@ -38,16 +43,41 @@ export function signInEntry(input: {
   // (prompt included). That landing must continue, or every OAuth login
   // stalls on a chooser for the account it just signed in to.
   if (input.returningFromOAuth) return "continue";
+  // The account was just picked here; asking again would only flash the
+  // chooser while the sign-in redirects.
+  if (input.signedInHere) return "continue";
   if (input.prompt === SELECT_ACCOUNT_PROMPT) return "choose-account";
+  // The app's sign-out leaves this browser signed in, so an app sign-in
+  // confirms the account instead of handing the same one straight back.
+  if (input.forApp) return "choose-account";
   if (input.chooseOnEverySignedInArrival ?? CHOOSE_ACCOUNT_ON_EVERY_SIGNED_IN_ARRIVAL) return "choose-account";
   return "continue";
+}
+
+/**
+ * A sign-in started by the Mac app: its return target is after-sign-in with
+ * the app's callback and that attempt's `cmux_auth_state`. Read from the
+ * return target, not `prompt`, so it survives a detour (a failed OAuth, the
+ * error page's "back to sign in"). The pricing webview's sign-in has no
+ * attempt state and after-sign-in confirms that one itself.
+ */
+export function signInIsForApp(returnTo: string | null): boolean {
+  if (!returnTo) return false;
+  try {
+    const target = new URL(returnTo, "https://cmux.com");
+    if (target.pathname !== "/handler/after-sign-in") return false;
+    const appCallback = target.searchParams.get("native_app_return_to");
+    return appCallback !== null && new URL(appCallback).searchParams.has("cmux_auth_state");
+  } catch {
+    return false;
+  }
 }
 
 // MARK: OAuth return marker
 
 /**
- * Set on this page's own URL just before leaving for an OAuth provider. The
- * provider's callback returns to that exact URL, so the landing can tell
+ * Added to this page's URL as the place an OAuth provider returns to (see
+ * `oauthReturnTo`), so the landing can tell
  * "finishing the login started here" from "arrived already signed in".
  * It lives in the query, not in storage, so the server render and the
  * browser make the same decision. A hand-made link with it only skips the
@@ -59,17 +89,18 @@ export function isReturningFromOAuth(params: { get(name: string): string | null 
   return params.get(CONTINUE_PARAM) === "1";
 }
 
-/** The current URL with the OAuth return marker added. */
-export function withContinueMarker(href: string): string {
+/**
+ * Where an OAuth trip returns: this page with the marker. It goes with the
+ * request instead of into this page's URL, so going back from the provider
+ * lands on the page as it was, not on one that reads as a finished sign-in.
+ * A page with no return target keeps the provider's default return, as
+ * before.
+ */
+export function oauthReturnTo(href: string): string | undefined {
   const url = new URL(href);
+  if (!url.searchParams.has("after_auth_return_to")) return undefined;
   url.searchParams.set(CONTINUE_PARAM, "1");
-  return url.toString();
-}
-
-/** The current URL without the marker (an OAuth start that failed). */
-export function withoutContinueMarker(href: string): string {
-  const url = new URL(href);
-  url.searchParams.delete(CONTINUE_PARAM);
+  url.hash = "";
   return url.toString();
 }
 

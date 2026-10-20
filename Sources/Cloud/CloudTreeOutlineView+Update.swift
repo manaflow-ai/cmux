@@ -1,6 +1,11 @@
 import CmuxSurfaceCatalogModel
 import Foundation
 
+struct CloudTreeFocusedWorkspaceSelection: Equatable {
+    let workspaceID: UUID
+    let nodeID: String?
+}
+
 extension CloudTreeOutlineView {
     /// A terminal rename needs a stable daemon tab placement. A terminal row
     /// with only a legacy workspace hint is not enough, because the same
@@ -37,9 +42,59 @@ extension CloudTreeOutlineView {
 }
 
 extension CloudTreeOutlineView.Coordinator {
-    /// The representable and native tests enter through the same update boundary.
+    /// Returns the remote workspace row that projects the window's focused
+    /// local workspace. The Cloud tree selection is native outline state, so
+    /// it must be reconciled from the window selection whenever a newly
+    /// created machine or workspace appears in a catalog refresh.
+    static func selectedCloudWorkspaceNodeID(
+        in nodes: [CloudTreeNode], focusedWorkspaceID: UUID?
+    ) -> String? {
+        guard let focusedWorkspaceID else { return nil }
+        return CloudTreeNodeBuilder.flattened(nodes).first { node in
+            guard case .workspace(_, _, _, _, let openIn) = node.kind else { return false }
+            return openIn == focusedWorkspaceID
+        }?.id
+    }
+
+    /// Applies a catalog snapshot and reconciles native selection with focus.
     func update(inputs: CloudTreeBuildInputs, now: Date = .now) {
         guard let nodes = nodeCache.nodes(ifChanged: inputs, now: now) else { return }
-        apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes, fleetListIsCurrent: inputs.cloudFleetListIsCurrent))
+        let focusedWorkspaceID = inputs.localWorkspaces.first(where: \.isSelected)?.id
+        let resolvedNodeID = Self.selectedCloudWorkspaceNodeID(
+            in: nodes, focusedWorkspaceID: focusedWorkspaceID
+        )
+        let focusedSelection = focusedWorkspaceID.map {
+            CloudTreeFocusedWorkspaceSelection(workspaceID: $0, nodeID: resolvedNodeID)
+        }
+        let focusedSelectionChanged = focusedSelection != lastFocusedCloudWorkspace
+        if focusedSelectionChanged {
+            lastFocusedCloudWorkspace = focusedSelection
+            selectedNodeID = resolvedNodeID
+        }
+        apply(nodes: CloudTreeCreateActionBuilder.add(to: nodes))
+        guard focusedSelectionChanged else { return }
+        if let resolvedNodeID {
+            selectFocusedCloudWorkspaceRow(resolvedNodeID)
+        } else if let outlineView {
+            withProgrammaticUpdate { outlineView.deselectAll(nil) }
+        }
     }
+
+    /// Selects the focused workspace row, expanding ancestors and scrolling it into view.
+    func selectFocusedCloudWorkspaceRow(_ nodeID: String) {
+        guard let outlineView,
+              let path = CloudTreeNode.path(to: nodeID, in: nodes),
+              let node = path.last else { return }
+        for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
+            expansionStore.setExpanded(true, node: ancestor)
+            outlineView.expandItem(ancestor)
+        }
+        let row = outlineView.row(forItem: node)
+        guard row >= 0, outlineView.selectedRow != row else { return }
+        withProgrammaticUpdate {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        scrollRowFullyIntoView(row, in: outlineView)
+    }
+
 }

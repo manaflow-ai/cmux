@@ -14,13 +14,11 @@ struct CloudTreeBuildInputs: Equatable {
     var includeLocalMachine = CloudTreeNodeBuilder.includesLocalMachine
     var source: CloudTreeMachineSource = .cloud
     var devicesSection: CloudTreeDevicesSection = .init()
+    var coderouter = CloudTreeCoderouterSection()
     var showsCloudVPNWarning = false
     var canCreateCloudMachine = false
-    /// Whether the last fleet read succeeded and this Mac is online. The listed
-    /// machines can outlive a failed read, but a resolved New Workspace re-reads
-    /// the fleet, so a failing read leaves it no destination.
-    var cloudFleetListIsCurrent = true
     var cloudMachinesUsage: CloudMachinesUsage? = nil
+    var cloudMachinesRefresh: CloudTreeSectionRefresh? = nil
     var localeIdentifier: String = Locale.current.identifier
 
     func nodes(now: Date = .now, resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()) -> [CloudTreeNode] {
@@ -32,9 +30,11 @@ struct CloudTreeBuildInputs: Equatable {
             pinnedMachineIDs: pinnedMachineIDs.union(machines.filter(\.isPinned).map(\.id)),
             includeLocalMachine: includeLocalMachine,
             source: source, devicesSection: devicesSection,
+            coderouter: coderouter,
             showsCloudVPNWarning: showsCloudVPNWarning,
             canCreateCloudMachine: canCreateCloudMachine,
             cloudMachinesUsage: cloudMachinesUsage,
+            cloudMachinesRefresh: cloudMachinesRefresh,
             now: now, resourceNodeBuilder: resourceNodeBuilder
         )
     }

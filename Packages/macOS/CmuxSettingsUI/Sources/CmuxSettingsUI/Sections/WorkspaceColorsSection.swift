@@ -17,6 +17,9 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var subtleSelection: DefaultsValueModel<Bool>
+    @State private var brightenInDarkMode: DefaultsValueModel<Bool>
+    @State private var unselectedFillOpacity: DefaultsValueModel<Double>
+    @State private var activeFillOpacityDragValue: Double?
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
@@ -58,6 +61,8 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _subtleSelection = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.subtleSelection))
+        _brightenInDarkMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.brightenInDarkMode))
+        _unselectedFillOpacity = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.unselectedFillOpacity))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
@@ -77,11 +82,17 @@ public struct WorkspaceColorsSection: View {
         }
     }
 
+    private var displayedFillOpacity: Double {
+        min(max(activeFillOpacityDragValue ?? unselectedFillOpacity.current, 0), 1)
+    }
+
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             indicator,
             selectionHex,
             subtleSelection,
+            brightenInDarkMode,
+            unselectedFillOpacity,
             badgeHex,
             paneFlashHex,
             paletteModel,
@@ -118,6 +129,49 @@ public struct WorkspaceColorsSection: View {
                     .controlSize(.small)
                     // Solid Fill always paints a solid selection.
                     .disabled(indicator.current == .solidFill)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.brightenInDarkMode"),
+                String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"),
+                subtitle: String(localized: "settings.workspaceColors.brightenInDarkMode.subtitle", defaultValue: "Lighten workspace colors in dark mode so they stay readable on a dark sidebar. Turn off to show colors exactly as chosen. Applies to Solid Fill; the Left Rail indicator always uses a lightened rail.")
+            ) {
+                Toggle("", isOn: Binding(get: { brightenInDarkMode.current }, set: { brightenInDarkMode.set($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    // Left Rail draws no colored fill and always lightens its rail.
+                    .disabled(indicator.current == .leftRail)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.unselectedFillOpacity"),
+                String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"),
+                subtitle: String(localized: "settings.workspaceColors.unselectedFillOpacity.subtitle", defaultValue: "How strongly a workspace color fills rows that are not selected. The maximum shows the full color. Applies to Solid Fill."),
+                controlWidth: 200
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { displayedFillOpacity }, set: { activeFillOpacityDragValue = $0 }),
+                        in: 0...1,
+                        step: 0.05
+                    ) { editing in
+                        guard !editing, let value = activeFillOpacityDragValue else { return }
+                        activeFillOpacityDragValue = nil
+                        unselectedFillOpacity.set(value)
+                    }
+                    .frame(width: 140)
+                    .accessibilityIdentifier("SettingsWorkspaceColorsUnselectedFillOpacitySlider")
+
+                    Text(displayedFillOpacity, format: .percent.precision(.fractionLength(0)))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                // Left Rail draws no colored fill.
+                .disabled(indicator.current == .leftRail)
             }
             SettingsCardDivider()
 

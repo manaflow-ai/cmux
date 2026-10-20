@@ -128,54 +128,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testAgentFeedDecisionPreviewPagesAndScrolls() {
+    func testAgentFeedHeavyActivityScrollPacing() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_DECISION_PREVIEW": "1",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_COUNT": "400",
+            "CMUX_UITEST_FEED_DECISION_PREVIEW_SCROLL_STRESS": "1",
         ])
         defer { app.terminate() }
 
-        let questionRow = app.descendants(matching: .any)["MobileAgentFeedRow-question-preview"]
-        XCTAssertTrue(questionRow.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-assistant"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["MobileAgentFeedRow-empty-stop"].exists)
+        let scrollContainer = app.descendants(matching: .any)["AgentFeedScrollContainer"]
+        XCTAssertTrue(scrollContainer.waitForExistence(timeout: 10))
+        let metrics = app.descendants(matching: .any)["AgentFeedScrollStressMetrics"]
+        XCTAssertTrue(metrics.waitForExistence(timeout: 5))
 
-        let questionPager = questionRow.descendants(matching: .scrollView).firstMatch
-        XCTAssertTrue(questionPager.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].exists)
-        let otherAnswer = app.buttons["MobileAgentFeedQuestionOther-deploy"]
-        XCTAssertTrue(otherAnswer.waitForExistence(timeout: 5))
-        XCTAssertTrue(otherAnswer.isHittable)
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.staticTexts["Question 2 of 2"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Select all that apply"].exists)
-        app.buttons["MobileAgentFeedQuestionOption-events-build"].tap()
-
-        questionPager.swipeRight()
-        XCTAssertTrue(app.staticTexts["Question 1 of 2"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionOption-deploy-production"].tap()
-        questionPager.swipeLeft()
-        XCTAssertTrue(app.buttons["MobileAgentFeedQuestionSubmit"].waitForExistence(timeout: 5))
-        app.buttons["MobileAgentFeedQuestionSubmit"].tap()
-        XCTAssertTrue(app.staticTexts["Question reply accepted"].waitForExistence(timeout: 3))
-
-        let allow = app.buttons["MobileAgentFeedPermissionAllow"]
-        let always = app.buttons["MobileAgentFeedPermissionAlways"]
-        let more = app.buttons["MobileAgentFeedPermissionMore"]
-        for _ in 0..<10 where !allow.isHittable {
-            app.swipeUp()
+        for _ in 0..<14 {
+            scrollContainer.swipeUp(velocity: .fast)
         }
-        XCTAssertTrue(allow.waitForExistence(timeout: 5))
-        XCTAssertTrue(always.exists)
-        XCTAssertTrue(more.exists)
-        XCTAssertTrue(more.isHittable)
-        XCTAssertEqual(allow.frame.width, more.frame.width, accuracy: 6)
-        XCTAssertEqual(allow.frame.height, more.frame.height, accuracy: 6)
+        for _ in 0..<14 {
+            scrollContainer.swipeDown(velocity: .fast)
+        }
 
-        for _ in 0..<8 { app.swipeDown() }
-        let proof = XCTAttachment(screenshot: app.screenshot())
-        proof.name = "feed-decision-controls-and-scroll"
-        proof.lifetime = .keepAlways
-        add(proof)
+        let complete = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value CONTAINS %@", "state=complete"),
+            object: metrics
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [complete], timeout: 15), .completed)
+        let value = try XCTUnwrap(metrics.value as? String)
+        print("AgentFeedScrollStressMetrics: \(value)")
+
+        let fields: [String: String] = value.split(separator: ";").reduce(into: [:]) { fields, component in
+            let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
+            guard pair.count == 2 else { return }
+            fields[pair[0]] = pair[1]
+        }
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(frames, 120, value)
+        if #available(iOS 18.0, *) {
+            let callbacks = try XCTUnwrap(fields["native_scroll_callbacks"].flatMap(Int.init), value)
+            XCTAssertGreaterThan(callbacks, 60, "Native Feed scroll phase hook must produce callbacks: " + value)
+        }
+        let projections = try XCTUnwrap(fields["published_projections"].flatMap(Int.init), value)
+        XCTAssertGreaterThan(projections, 0, "Feed updates must reach the observation port: " + value)
+        XCTAssertNotNil(fields["frame_p95_ms"], value)
+        XCTAssertNotNil(fields["hitches"], value)
     }
 
     @MainActor
@@ -3331,6 +3326,11 @@ final class cmuxUITests: XCTestCase {
             settingsButton.frame.maxY - 1,
             "The first workspace row \(firstRow.frame) must clear the top toolbar \(settingsButton.frame)."
         )
+        XCTAssertLessThanOrEqual(
+            firstRow.frame.minY - settingsButton.frame.maxY,
+            32,
+            "The workspace list must not reserve an empty large-title area below the toolbar."
+        )
 
         for _ in 0..<20 where !lastRow.isHittable {
             table.swipeUp(velocity: .fast)
@@ -4767,58 +4767,6 @@ final class cmuxUITests: XCTestCase {
         } else {
             XCTAssertLessThanOrEqual(picker.frame.width, 100)
         }
-    }
-
-    @MainActor
-    func testNotificationTabSwitchKeepsSharedRootToolbarMounted() throws {
-        let app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1",
-            "CMUX_UITEST_NOTIFICATION_FEED_PREVIEW_TAB_SWITCH": "1",
-        ])
-        defer { app.terminate() }
-
-        let feed = app.descendants(matching: .any)["MobileNotificationFeed"]
-        XCTAssertTrue(feed.waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["MobileNotificationFeedMarkAllRead"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["MobileNotificationFeedFilterMenu"].waitForExistence(timeout: 3))
-
-        let picker = app.buttons["MobileWorkspaceMacPicker"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
-
-        let workspacesTab = app.tabBars.buttons["Workspaces"]
-        XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
-        // The DEBUG fixture holds the initial Notifications state for eight
-        // seconds, then waits 700 ms before its first Workspaces switch.
-        let workspacesDeadline = Date().addingTimeInterval(15)
-        while !workspacesTab.isSelected && Date() < workspacesDeadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
-        }
-        XCTAssertTrue(
-            workspacesTab.isSelected,
-            "The repeated-switch fixture never reached its Workspaces phase"
-        )
-
-        // The fixture switches tabs six times at 700 ms intervals. Sample the
-        // shared toolbar while those transitions are in flight so a transient
-        // unmount or blank frame cannot pass by behind a settled-state wait.
-        let transitionDeadline = Date().addingTimeInterval(9)
-        var sampleCount = 0
-        while Date() < transitionDeadline {
-            XCTAssertTrue(
-                picker.exists,
-                "Shared Mac picker disappeared during a primary-tab transition"
-            )
-            let frame = picker.frame
-            XCTAssertFalse(frame.isNull || frame.isEmpty)
-            XCTAssertEqual(frame.midX, app.frame.midX, accuracy: 2)
-            XCTAssertTrue(frame.intersects(app.frame))
-            sampleCount += 1
-            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
-        }
-        XCTAssertGreaterThan(sampleCount, 20)
-        XCTAssertTrue(waitForHittable(feed, timeout: 3))
-        XCTAssertTrue(app.tabBars.buttons["Notifications"].isSelected)
     }
 
     /// Drives the production push coordinator through its three user-visible

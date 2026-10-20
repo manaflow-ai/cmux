@@ -16,6 +16,13 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test("SSH hosts accept stale replay daemons while Cloud remains strict")
+    func staleReplayPolicyIsScopedToCloudMachines() {
+        let stale = [CloudTuiManualIOCommand.viewAttachmentLeaseCapability]
+        #expect(!CloudTuiManualMirrorSession.shouldRejectStaleReplay(machineID: "ssh:fixture", capabilities: stale))
+        #expect(CloudTuiManualMirrorSession.shouldRejectStaleReplay(machineID: "vm_fixture", capabilities: stale))
+    }
+
     @Test
     func closingFixtureIsIdempotent() throws {
         let fixture = try CloudManualMirrorSocketFixture()

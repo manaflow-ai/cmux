@@ -22,6 +22,8 @@ from cmux_cua_onboarding_fixture import run_admission_contract
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE_TOOLS = {"get_window_state", "click", "scroll", "zoom"}
+# The app ships the cmux-cua engine once, as its Computer Use helper's executable.
+HELPER_EXECUTABLE = "Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
 
 
 def candidate_binaries() -> list[Path]:
@@ -37,12 +39,12 @@ def candidate_binaries() -> list[Path]:
     candidates.extend(
         [
             ROOT / "Resources" / "bin" / "cmux-cua",
-            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua",
+            ROOT / "build-universal" / "Build" / "Products" / "Release" / "cmux.app" / "Contents" / HELPER_EXECUTABLE,
         ]
     )
     derived_data = os.environ.get("CMUX_DERIVED_DATA_PATH")
     if derived_data:
-        candidates.extend(Path(derived_data).glob("Build/Products/*/*.app/Contents/Resources/bin/cmux-cua"))
+        candidates.extend(Path(derived_data).glob(f"Build/Products/*/*.app/Contents/{HELPER_EXECUTABLE}"))
     return candidates
 
 

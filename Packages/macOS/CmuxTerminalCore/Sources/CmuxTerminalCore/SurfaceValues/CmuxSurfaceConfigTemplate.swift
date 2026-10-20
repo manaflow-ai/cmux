@@ -57,6 +57,21 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
     /// Creates an empty template (runtime defaults for every field).
     public init() {}
 
+    /// Returns the inherited display/runtime configuration without replaying
+    /// the source surface's one-shot startup payload.
+    ///
+    /// A control-created tab must start an ordinary shell unless its caller
+    /// supplied an explicit command or input. Replaying `command` or
+    /// `initialInput` from an agent surface can start a short-lived process as
+    /// soon as the tab is created, before the caller's first queued send.
+    public func withoutStartupWork() -> Self {
+        var copy = self
+        copy.command = nil
+        copy.initialInput = nil
+        copy.waitAfterCommand = false
+        return copy
+    }
+
     /// Sets the template font size and records whether it is a surface-local override.
     ///
     /// Values outside the persistable base-font range clear the font-size

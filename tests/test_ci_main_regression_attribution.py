@@ -419,6 +419,33 @@ class RankingTests(unittest.TestCase):
         })
         self.assertEqual([(p.number, p.unverified) for p in prs], [(2, False), (1, True)])
 
+    def test_merged_prs_reads_who_merged_each(self):
+        node = {**pr_node(1, "m1"), "mergedBy": {"login": "austinywang"}}
+        prs, _ = MODULE.merged_prs(["m1"], {"m1": [node]})
+        self.assertEqual((prs[0].author, prs[0].merger), ("someone", "austinywang"))
+
+    def test_the_issue_section_pings_each_suspects_merger_once(self):
+        # Main red for most of 10-05: the suspects heard on their PRs, the people who merged them did not.
+        a, b = pr(1, edited={"S"}), pr(2, edited={"S", "T"})
+        a.merger, b.merger = "alice", "alice"
+        lone = pr(3, edited={"U"})
+        lone.merger = "bob"
+        failures = {"S/x()": ["j"], "T/y()": ["j"], "U/z()": ["j"]}
+        attributions = {test: MODULE.suspects_for(test, [a, b, lone]) for test in failures}
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=run(id=1, head_sha=PREV, conclusion="success"), failures=failures,
+            attributions=attributions, prs=[a, b, lone], direct=[],
+        )
+        (line,) = [line for line in text.splitlines() if line.startswith("Merged the suspects: ")]
+        self.assertTrue(line.startswith("Merged the suspects: @alice (#1, #2), @bob (#3)."))
+        self.assertEqual(text.count("@alice"), 1)
+        # A test tied between more suspects than MAX_PINGED_SUSPECTS is a guess: it pings nobody.
+        many = [pr(n, edited={"S"}) for n in range(10, 10 + MODULE.MAX_PINGED_SUSPECTS + 1)]
+        for each in many:
+            each.merger = f"m{each.number}"
+        tied = {"S/x()": MODULE.suspects_for("S/x()", many)}
+        self.assertEqual(MODULE.merger_pings({"S/x()": ["j"]}, tied), "")
+
     def test_no_signal_blames_nobody(self):
         self.assertEqual(MODULE.suspects_for("Suite/t()", [pr(1), pr(2)])[0], [])
         self.assertEqual(MODULE.suspects_for("Suite/t()", [])[0], [])

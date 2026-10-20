@@ -2,12 +2,13 @@
 
 import { Button } from "@base-ui-components/react/button";
 import { Field } from "@base-ui-components/react/field";
+import { Tabs } from "@base-ui-components/react/tabs";
 import { useHexclaveApp, useUser, type CurrentUser } from "@hexclave/next";
 import { KnownErrors } from "@hexclave/shared";
 import { getPasswordError } from "@hexclave/shared/dist/helpers/password";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type FormEvent, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type FormEvent, type ReactNode } from "react";
 import { forgetSession, saveCurrentSession, signedInAccounts, switchSession, tokenSignIn } from "./account-sessions-client";
 import {
   ACCOUNT_HISTORY_KEY,
@@ -18,6 +19,7 @@ import {
   handlerHref,
   isReturningFromOAuth,
   oauthLoginHint,
+  oauthReturnTo,
   otherAccounts,
   parseAccountHistory,
   parsePendingOAuth,
@@ -26,9 +28,8 @@ import {
   rememberedSignInProvider,
   serializePendingOAuth,
   signInEntry,
+  signInIsForApp,
   signUpPendingHref,
-  withContinueMarker,
-  withoutContinueMarker,
   type RememberedAccount,
 } from "./sign-in-entry";
 import { SignInSpinner } from "./sign-in-spinner";
@@ -40,12 +41,12 @@ export type CmuxSignInMessages = {
   signUpSubtitle: string;
   continueWithProvider: string;
   signInWithPasskey: string;
-  or: string;
+  orContinueWith: string;
   emailLabel: string;
   emailPlaceholder: string;
   continueWithEmail: string;
-  usePasswordInstead: string;
-  useEmailCodeInstead: string;
+  emailCodeTab: string;
+  emailPasswordTab: string;
   passwordLabel: string;
   repeatPasswordLabel: string;
   signInButton: string;
@@ -107,6 +108,14 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
   // stays: the entry would otherwise turn to "continue" and redirect a
   // second time, ahead of the switch's own account check.
   const [switching, setSwitching] = useState(false);
+  const [openedSignedIn] = useState(() => user !== null);
+  // Back from a provider can restore this page from the browser's cache just
+  // as it was left: mid sign-in, a spinner waiting on a page that's gone. The
+  // trip was abandoned, so its marker goes and the screens start over.
+  const restores = useBackForwardRestores(() => {
+    writePendingOAuth(null);
+    setSwitching(false);
+  });
   const remembered = otherAccounts(useAccountHistory(), user?.id ?? "");
   const entry = signInEntry({
     hasUser: user !== null,
@@ -114,6 +123,8 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
     prompt: params.get("prompt"),
     returningFromOAuth: isReturningFromOAuth(params),
     hasRememberedAccounts: mode === "sign-in" && remembered.length > 0,
+    signedInHere: user !== null && !openedSignedIn,
+    forApp: signInIsForApp(returnTo),
   });
 
   // Always in this slot (null when signed out), so the screen next to it
@@ -125,6 +136,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
       <>
         {remember}
         <ChooseAccount
+          key={restores}
           messages={messages}
           current={accountRowFor(user)}
           onContinue={() => app.redirectToAfterSignIn({ replace: true })}
@@ -138,7 +150,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
     return (
       <>
         {remember}
-        <AutomaticRedirect mode={mode} onboarding={entry === "onboarding"} messages={messages} />
+        <AutomaticRedirect key={restores} mode={mode} onboarding={entry === "onboarding"} messages={messages} />
       </>
     );
   }
@@ -148,6 +160,7 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
     <>
       {remember}
       <SignInForm
+        key={restores}
         mode={inlineSignIn ? "sign-in" : mode}
         messages={messages}
         returnTo={returnTo}
@@ -155,6 +168,26 @@ export function CmuxSignIn({ mode, messages }: { mode: Mode; messages: CmuxSignI
       />
     </>
   );
+}
+
+/**
+ * Counts restores from the back/forward cache, after running `onRestore`.
+ * Keying the screens on it remounts them, so no button stays busy; what
+ * this page holds (the form "use another account" opened) stays.
+ */
+function useBackForwardRestores(onRestore: () => void): number {
+  const [restores, setRestores] = useState(0);
+  const restored = useEffectEvent(onRestore);
+  useEffect(() => {
+    function onPageShow(event: PageTransitionEvent) {
+      if (!event.persisted) return;
+      restored();
+      setRestores((count) => count + 1);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+  return restores;
 }
 
 function accountRowFor(user: CurrentUser | null): AccountRow | null {
@@ -185,11 +218,35 @@ type InlineSignIn = {
 // MARK: Layout
 
 function Page({ children }: { children: ReactNode }) {
+  const contentRef = useCenteredOnce();
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4 py-12 text-foreground">
-      <div className="w-full max-w-[340px]">{children}</div>
+      <div ref={contentRef} className="w-full max-w-[340px]">{children}</div>
     </main>
   );
+}
+
+/**
+ * Centers the screen at the height it opened with, then holds it there: what
+ * a screen adds later (the password field, an error, the code step) grows
+ * downward instead of re-centering everything above it. A window resize
+ * centers it again.
+ */
+function useCenteredOnce() {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const content = ref.current;
+    if (!content) return;
+    function hold() {
+      if (!content) return;
+      content.style.height = "";
+      content.style.height = `${content.offsetHeight}px`;
+    }
+    hold();
+    window.addEventListener("resize", hold);
+    return () => window.removeEventListener("resize", hold);
+  }, []);
+  return ref;
 }
 
 function Heading({ id, title, subtitle }: { id?: string; title: string; subtitle?: string }) {
@@ -358,10 +415,16 @@ function ChooseAccount({ messages, current, onContinue, onSignInHere, onSwitchin
       return;
     }
     writePendingOAuth(serializePendingOAuth(account.id));
-    startOAuth(app, provider, oauthLoginHint(provider, account.email)).catch(() => {
-      writePendingOAuth(null);
-      fail();
-    });
+    startOAuth(app, provider, oauthLoginHint(provider, account.email)).then(
+      () => {
+        writePendingOAuth(null);
+        setPending(null);
+      },
+      () => {
+        writePendingOAuth(null);
+        fail();
+      },
+    );
   }
 
   const listRef = useRef<HTMLUListElement>(null);
@@ -592,7 +655,7 @@ function SignInForm({ mode, messages, returnTo, prefillEmail = null, lastUsedMet
         ))}
         {passkeyAvailable && <PasskeyButton messages={messages} />}
         {inIframe && hasOAuth && <p className="text-xs text-muted">{messages.embeddedDisabled}</p>}
-        {hasEmail && (hasOAuth || passkeyAvailable) && <OrDivider text={messages.or} />}
+        {hasEmail && (hasOAuth || passkeyAvailable) && <OrDivider text={messages.orContinueWith} />}
         {hasEmail && (
           <EmailMethods
             mode={mode}
@@ -643,7 +706,7 @@ function FormHeader({ mode, messages, notice, onBack }: {
 
 function OrDivider({ text }: { text: string }) {
   return (
-    <div className="my-2 flex items-center gap-2.5 font-mono text-[11px] text-muted">
+    <div className="my-2 flex items-center gap-2.5 text-xs text-muted">
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
       {text}
       <span aria-hidden="true" className="h-px flex-1 bg-border" />
@@ -813,10 +876,13 @@ function OAuthProviderButton({ provider, disabled, messages, lastUsedOverride, l
         onClick={() => {
           setBusy(true);
           setError(null);
-          startOAuth(app, provider, loginHint).catch(() => {
-            setBusy(false);
-            setError(messages.errorGeneric);
-          });
+          startOAuth(app, provider, loginHint).then(
+            () => setBusy(false),
+            () => {
+              setBusy(false);
+              setError(messages.errorGeneric);
+            },
+          );
         }}
       >
         <ProviderIcon provider={provider} />
@@ -840,12 +906,13 @@ function startOAuth(app: ReturnType<typeof useHexclaveApp>, provider: string, lo
   } catch {
     // The "last used" hint is a convenience only.
   }
-  // The provider returns to this exact URL; the marker makes that landing
+  // The provider returns to this page with a marker that makes the landing
   // continue instead of asking which account to use.
-  window.history.replaceState(window.history.state, "", withContinueMarker(window.location.href));
-  return app.signInWithOAuth(provider, loginHint ? { loginHint } : undefined).catch((caught: unknown) => {
+  const returnTo = oauthReturnTo(window.location.href);
+  // Leaving never resolves, so resolving means the page stayed (a cancelled
+  // bot check) and the caller resets.
+  return app.signInWithOAuth(provider, { returnTo, loginHint: loginHint ?? undefined }).catch((caught: unknown) => {
     console.error("[cmux sign-in] OAuth start failed", caught);
-    window.history.replaceState(window.history.state, "", withoutContinueMarker(window.location.href));
     throw caught;
   });
 }
@@ -904,28 +971,32 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
     (startWithPassword && credentialEnabled) || !magicLinkEnabled ? "password" : "code",
   );
   const [email, setEmail] = useState(prefillEmail ?? "");
-  const canSwitch = magicLinkEnabled && credentialEnabled;
 
+  const form = (shown: "code" | "password") =>
+    shown === "code" ? (
+      <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
+    ) : mode === "sign-in" ? (
+      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
+    ) : (
+      <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
+    );
+  if (!(magicLinkEnabled && credentialEnabled)) return form(method);
+
+  // Both enabled: the hosted screen's segmented control, the code first.
   return (
-    <div className="grid gap-2">
-      {method === "code" ? (
-        <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
-      ) : mode === "sign-in" ? (
-        <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
-      ) : (
-        <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
-      )}
-      {canSwitch && (
-        <Button
-          className={`justify-self-start text-sm ${linkClass}`}
-          onClick={() => setMethod(method === "code" ? "password" : "code")}
-        >
-          {method === "code" ? messages.usePasswordInstead : messages.useEmailCodeInstead}
-        </Button>
-      )}
-    </div>
+    <Tabs.Root value={method} onValueChange={(value) => setMethod(value === "password" ? "password" : "code")} className="grid gap-2">
+      <Tabs.List className="grid grid-cols-2 border border-border p-0.5">
+        <Tabs.Tab value="code" className={segmentClass}>{messages.emailCodeTab}</Tabs.Tab>
+        <Tabs.Tab value="password" className={segmentClass}>{messages.emailPasswordTab}</Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="code" className="grid gap-2">{method === "code" && form("code")}</Tabs.Panel>
+      <Tabs.Panel value="password" className="grid gap-2">{method === "password" && form("password")}</Tabs.Panel>
+    </Tabs.Root>
   );
 }
+
+const segmentClass =
+  "h-[30px] cursor-pointer px-2 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground data-[active]:bg-foreground/[0.08] data-[active]:text-foreground";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());

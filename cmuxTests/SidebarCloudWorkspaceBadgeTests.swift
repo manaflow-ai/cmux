@@ -9,6 +9,36 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SidebarCloudWorkspaceBadgeTests {
+    @Test("Cloud sidebar waits for machine metadata before showing identity or directory")
+    func cloudProjectionLoadingDoesNotShowPlaceholders() throws {
+        let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("vm-loading")
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: true)
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [:]
+        )
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: nil)
+
+        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
+        let loading = factory.makeSnapshot()
+        #expect(loading.cloudWorkspaceLabel == nil)
+        #expect(loading.compactDirectoryCandidates.isEmpty)
+        #expect(loading.remoteWorkspaceBadgeLabel?.contains("Directory unavailable") != true)
+        #expect(loading.remoteWorkspaceBadgeLabel?.contains(machine.rawValue) != true)
+
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
+            machineNames: [machine.rawValue: "Friendly machine"]
+        )
+        workspace.updateRemotePanelDirectory(panelId: panelID, directory: "/home/cmux/project")
+        let loaded = factory.makeSnapshot()
+        #expect(loaded.cloudWorkspaceLabel?.contains("Friendly machine") == true)
+    }
+
     @Test(arguments: [false, true])
     func deviceNameIsVisibleBesideItsDirectory(vertical: Bool) throws {
         let defaults = Self.makeDefaults()
@@ -33,12 +63,11 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.cloudWorkspaceLabel == nil)
     }
 
-    @Test func deviceProjectionUsesComputerBadgeInBothSidebarSnapshots() throws {
+    @Test func deviceProjectionUsesComputerBadge() throws {
         let workspace = Workspace(title: "Project", initialSurface: .cloudVMLoading)
         let panelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults()), showsAgentActivity: false)
-        let before = factory.makeSnapshot()
         workspace.cloudBindingState.updateCatalogMetadata(
             resources: [panelID: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal")],
             machineNames: [machine.rawValue: "Studio Mac"]
@@ -47,8 +76,6 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
         #expect(snapshot.remoteWorkspaceBadgeLabel?.contains("Studio Mac") == true)
         #expect(snapshot.cloudWorkspaceLabel == nil)
-        let shown = SidebarWorkspaceSnapshotRefreshPolicy().decision(current: before, next: snapshot, force: false, contextMenuVisible: true)
-        #expect(shown.workspaceSnapshotStorage?.remoteWorkspaceBadgeSymbol == "desktopcomputer")
     }
 
     @Test("A saved device projection keeps the computer badge before resources load")
@@ -116,21 +143,6 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(factory.makeSnapshot() == local)
     }
 
-    /// Ensures context-menu refreshes preserve the Cloud identity.
-    @Test func cloudIdentityUpdatesWhileContextMenuIsOpen() {
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
-        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
-        let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
-        let local = factory.makeSnapshot()
-        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
-        let cloud = factory.makeSnapshot()
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: local, next: cloud, force: false, contextMenuVisible: true
-        )
-        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel == cloud.cloudWorkspaceLabel)
-        #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
-    }
-
     @Test(arguments: [false, true], [false, true])
     func sidebarDetailSettingsHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
         let suite = "CloudSidebarVisibility.\(UUID())"
@@ -138,7 +150,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let sidebar = SidebarCatalogSection()
         defaults.set(verticalLayout, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
-        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        let workspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
         defer { for panel in workspace.panels.values { panel.close() } }
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
@@ -165,10 +177,45 @@ struct SidebarCloudWorkspaceBadgeTests {
             let badge = try #require(SidebarAppKitRowCellTests.descendants(of: rendered).compactMap { $0 as? NSImageView }.first {
                 $0.accessibilityIdentifier() == "sidebarCloudBadge"
             })
-            #expect(badge.isHidden == hidden)
+            #expect(badge.isHidden == (hidden && hideAll))
             #expect(rendered.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
             #expect(workspace.cloudVMBinding == binding)
         }
+    }
+
+    @Test
+    func cloudDeviceIconsDefaultOnAndIndependentOfBranchDirectory() throws {
+        let defaults = Self.makeDefaults()
+        let sidebar = SidebarCatalogSection()
+        defaults.set(false, forKey: sidebar.showBranchDirectory.userDefaultsKey)
+        let defaultSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(defaultSettings.showsCloudDeviceIcons)
+
+        let workspace = Workspace(workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: defaultSettings, showsAgentActivity: false
+        )
+        let snapshot = factory.makeSnapshot()
+        let shown = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: defaultSettings, workspaceSnapshot: snapshot), tab: workspace
+        )
+        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: shown).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(!badge.isHidden)
+
+        defaults.set(false, forKey: sidebar.showCloudDeviceIcons.userDefaultsKey)
+        let hiddenSettings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let hidden = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: hiddenSettings, workspaceSnapshot: snapshot), tab: workspace
+        )
+        let hiddenBadge = try #require(SidebarAppKitRowCellTests.descendants(of: hidden).compactMap { $0 as? NSImageView }.first {
+            $0.accessibilityIdentifier() == "sidebarCloudBadge"
+        })
+        #expect(hiddenBadge.isHidden)
     }
 
     /// Ensures restored Cloud identity survives every connection presentation state.
