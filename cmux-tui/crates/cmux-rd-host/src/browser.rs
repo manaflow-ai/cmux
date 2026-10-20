@@ -90,8 +90,18 @@ impl BrowserSupervisor {
     /// Starts the browser now and supervises it on a thread. Fails if the first spawn fails
     /// (a missing binary is a configuration error, not a crash to retry).
     pub fn start(cmd: BrowserCommand, backoff: Backoff) -> io::Result<Self> {
-        let _ = (cmd, backoff, supervise as fn(BrowserCommand, Backoff, Child, &Shared));
-        Err(io::Error::other("cloud browser supervisor: not implemented yet"))
+        let shared = Arc::new(Shared {
+            stop: AtomicBool::new(false),
+            pid: AtomicU32::new(0),
+            starts: AtomicU32::new(0),
+            wake: (Mutex::new(()), Condvar::new()),
+        });
+        let first = spawn(&cmd, &shared)?;
+        let s = Arc::clone(&shared);
+        let thread = thread::Builder::new()
+            .name("cmux-rd-browser".into())
+            .spawn(move || supervise(cmd, backoff, first, &s))?;
+        Ok(Self { shared, thread: Some(thread) })
     }
 
     /// How many times the browser was started (1 after `start`, +1 per restart).
