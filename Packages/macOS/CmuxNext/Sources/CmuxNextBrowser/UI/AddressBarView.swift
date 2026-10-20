@@ -286,6 +286,13 @@ public final class AddressBarView: NSView {
         let shown = armed != nil
         guard focusModeBadgeWanted != shown else { return }
         focusModeBadgeWanted = shown
+        // Reduce Motion or the motion setting: the badge appears and goes at once (no animator
+        // proxy, whose zero-length group can leave the old alpha until the next commit).
+        guard Motion.animatesFades, Motion.canAnimate(in: focusModeBadgeView) else {
+            focusModeBadgeView.alphaValue = shown ? 1 : 0
+            focusModeBadgeView.isHidden = !shown
+            return updateBadgeSpace()
+        }
         if !shown {
             Motion.animate(.fadeOut, in: focusModeBadgeView, { focusModeBadgeView.animator().alphaValue = 0 }) { [weak self] in
                 // Shown again while fading out: stay visible.
