@@ -51,8 +51,8 @@ public nonisolated enum TabTunables {
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }
     public static let badgeSize = points("badgeSize", "Badge size", help: "Diameter of the unread / status dot.") { Metrics.space3 }
-    public static let closeMinContentsWidth = points("closeMinContentsWidth", "Close button threshold", help: "Contents width from which a hovered inactive tab shows its x (Chromium: 68).",
-                                                     range: 0...200) { 4 * Metrics.space6 + Metrics.space2 }
+    public static let closeMinContentsWidth = points("closeMinContentsWidth", "Close button threshold", help: "Contents width from which a hovered inactive tab shows its x (Helium: 56; Chromium: 68).",
+                                                     range: 0...200) { 3 * Metrics.space6 + Metrics.space4 }
     public static let titleMinVisibleWidth = points("titleMinVisibleWidth", "Shortest title", help: "Narrowest title fragment worth showing after the icon.") { Metrics.space5 }
     public static let scrollFadeWidth = points("scrollFadeWidth", "Strip scroll fade", help: "Length of the fade on a scrolled strip edge (also the drag autoscroll zone).") { Metrics.space6 + Metrics.space4 }
     public static let groupChipPadding = points("groupChipPadding", "Group chip padding", help: "Horizontal padding inside a tab group chip.") { Metrics.space3 }
@@ -68,12 +68,13 @@ public nonisolated enum TabTunables {
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
-    // @intent Leo 2026-10-19: the tab bar's trailing room (plus, "…", Search Tabs) read as an empty gap
-    // while its controls hid at rest; they show muted and brighten on hover. 0 hides them at rest again.
+    // @intent Lawrence 2026-10-20 ("the plus and dropdown and 3 dots [must] not appear unless hovered in
+    // tabbar area") over Leo 2026-10-19 (muted at rest): hidden at rest, shown on tab bar hover. A value
+    // above 0 shows them muted at rest again.
     public static let restingControlOpacity = Tunable<CGFloat>.number(
         "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
-        help: "Opacity of the tab bar's plus, Search Tabs and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
-        default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
+        help: "Opacity of the tab bar's plus and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
+        default: 0, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover

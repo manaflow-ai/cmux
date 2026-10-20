@@ -190,6 +190,13 @@ public final class SettingsController {
         try await setSetting(at: BrowserHibernationSetting.configPath, to: BrowserHibernationSetting(mode: mode).configValue, by: .currentRun())
     }
 
+    /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
+    /// the default (1) removes the key.
+    public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
+        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
+    }
+
     /// Writes `ui.animationSpeed` through `setSetting`.
     public func setAnimationSpeed(_ speed: MotionSpeed) async throws {
         try await setSetting(at: AnimationSpeedSetting.configPath, to: .string(speed.rawValue), by: .currentRun())

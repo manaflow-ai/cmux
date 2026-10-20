@@ -260,6 +260,10 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
+    /// Background processes agents left running (dev servers, watchers):
+    /// list, show (everything one printed, live with --follow), kill.
+    #[command(subcommand, alias = "ps")]
+    Process(crate::cli::process::ProcessCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -433,6 +437,7 @@ pub enum HarnessCmd {
         folder: Option<PathBuf>,
     },
     /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
         id: Option<String>,
@@ -442,9 +447,24 @@ pub enum HarnessCmd {
         /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
         #[arg(long, default_value = "acp")]
         protocol: String,
-        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider.
+        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider, or your
+        /// own model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
         #[arg(long)]
         example: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the endpoint's base URL (https; http only
+        /// to localhost or 127.0.0.1).
+        #[arg(long)]
+        base_url: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the model id the endpoint serves.
+        #[arg(long)]
+        model: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
+        /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
+        #[arg(long)]
+        keychain_item: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
+        #[arg(long)]
+        name: Option<String>,
         /// Replace an existing file.
         #[arg(long)]
         force: bool,

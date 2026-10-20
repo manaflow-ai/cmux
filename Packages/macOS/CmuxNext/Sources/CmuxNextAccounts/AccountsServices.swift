@@ -14,6 +14,11 @@ public protocol AccountsServices: AnyObject {
     var isSignedInToCmux: Bool { get }
     /// Starts the hosted cmux sign-in.
     func signInToCmux()
+    /// cmux's account and the sign-in in progress; observable reads.
+    var cmuxAccount: CmuxAccountState { get }
+    /// Runs one gesture of cmux's row (sign in, cancel, open in the browser,
+    /// switch account, sign out).
+    func runCmuxAccount(_ action: CmuxAccountAction)
 
     /// The team's CodeRouter accounts this user may see.
     func linkedAccounts() async throws -> [LinkedAccount]
@@ -35,4 +40,9 @@ public protocol AccountsServices: AnyObject {
     /// Saves a pasted key to cmux's Keychain item (never cmux.json).
     func saveKey(_ key: String, for provider: AIProvider) throws
     func deleteSavedKey(for provider: AIProvider) throws
+}
+
+extension AccountsServices {
+    public var isSignedInToCmux: Bool { cmuxAccount.signedIn }
+    public func signInToCmux() { runCmuxAccount(.signIn) }
 }

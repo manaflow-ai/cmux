@@ -48,9 +48,10 @@ describe("createVm", () => {
     const creates = t.upstream.callsTo("POST", /^\/v5\/vms$/);
     expect(creates).toHaveLength(1);
     expect(creates[0]?.json).toEqual({
+      slug: `cmux-vm-local-${id.replace("_", "-")}`,
       displayName: `cmux-vm-local ${TENANT_A} ${id}`,
       idleTimeoutSeconds: 300,
-      metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local" },
+      metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local", cmux_actor: expect.stringMatching(/^key:/), cmux_create: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
       firewall: { rules: [] },
     });
     const upstreamId = [...t.upstream.vms.keys()][0] ?? "missing";
@@ -199,13 +200,13 @@ describe("idempotency keys on create", () => {
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(2);
   });
 
-  it("lets a failed create be retried with the same key", async () => {
+  it("retries a confirmed capacity rejection with the same key", async () => {
     const t = await harness();
     const key = await t.addKey(TENANT_A, ["vm:write"]);
     const headers = { "idempotency-key": "create-3" };
-    t.upstream.fail("create", 503);
+    t.upstream.fail("create", 429);
 
-    expect((await createVm(t, key, {}, headers)).status).toBe(503);
+    expect((await createVm(t, key, {}, headers)).status).toBe(429);
     expect((await createVm(t, key, {}, headers)).status).toBe(201);
   });
 });

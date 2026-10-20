@@ -57,6 +57,9 @@ public final class SidebarView: NSView {
     /// footer has none (SIDEBAR-FOOTER-MINIMAL).
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
+    /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
+    /// a press hands it to ``onSearch`` as the palette's anchor. `sidebar.showSearchButton` hides it.
+    let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
     var isChromeRevealed = false
     /// The pointer over the sidebar now (cx-3wu5).
@@ -96,6 +99,7 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
@@ -169,6 +173,17 @@ public final class SidebarView: NSView {
         }
     }
 
+    /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
+    /// `search`) anchored to the given view. Nil leaves the button doing nothing.
+    public var onSearch: ((NSView) -> Void)?
+    /// The Search button while it is on screen (shown, in a window, not inside a collapsed
+    /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
+    public var searchAnchor: NSView? {
+        let button = searchButton
+        guard button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty else { return nil }
+        return button
+    }
+
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
     /// registry actions. Nil opens nothing.
@@ -187,6 +202,8 @@ public final class SidebarView: NSView {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
+            // A row's more button is wired from the provider: live rows take the new one.
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
             profileBar.contextMenuProvider = newValue
             for region in bandRegions { region.contextMenuProvider = newValue }
         }
@@ -224,6 +241,12 @@ public final class SidebarView: NSView {
 
         addSubview(footer)
         footer.addSubview(profileBar)
+        searchButton.setAccessibilityIdentifier("cmux.sidebar.search")
+        searchButton.onPress = { [weak self] in
+            guard let self else { return }
+            self.onSearch?(self.searchButton)
+        }
+        addSubview(searchButton)
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
     }
