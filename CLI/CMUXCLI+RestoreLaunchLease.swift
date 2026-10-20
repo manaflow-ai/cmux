@@ -10,9 +10,12 @@ extension CMUXCLI {
         client: SocketClient,
         workingDirectory: String
     ) throws -> AgentRestoreLaunchLease? {
+        // The lease is about duplicate launches of one persisted conversation,
+        // not about Codex's transport.  Subrouter/remote-provider restores
+        // still start the same local Codex session and must be serialized
+        // across independent cmux processes before hooks become visible.
         guard record.kind == "codex", record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
-              let sessionID = record.checkpointID,
-              !CodexRestoreAccount().usesRemoteProvider(arguments: invocation.arguments) else { return nil }
+              let sessionID = record.checkpointID else { return nil }
         let home = CodexRestoreAccount().home(
             environment: invocation.environment, workingDirectory: workingDirectory,
             fallbackHome: NSHomeDirectory()
