@@ -328,12 +328,12 @@ class TV:
             sim.shot(os.path.basename(d) + "-stream-end")
             hits, flicks = [], 0
             for flicks in range(45):  # slow pulls, about a screen each
-                hits = sim.ocr_find(f"{tag}-1 tok", timeout=0.8)
+                hits = sim.ocr_find(f"{tag}-200 tok", timeout=0.8)
                 if hits:
                     break
                 sim.drag(201, 180, 201, 700, duration=0.5, hold=0.3)
                 time.sleep(0.5)
-            res["scrollback_reached_first_line"] = bool(hits)
+            res["scrollback_reached_line_200"] = bool(hits)
             res["scrollback_flicks"] = flicks
             sim.shot(os.path.basename(d) + "-scrollback")
             # Back to the bottom.
