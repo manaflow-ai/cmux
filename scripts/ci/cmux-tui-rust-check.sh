@@ -14,6 +14,10 @@
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
+# screen: clippy and tests of cmux-screen (its own workspace: the WebRTC screen host and
+# cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
+# .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
+# step: the imported host code predates a cmux-screen rustfmt config.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -36,10 +40,26 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
+fi
+# CMUX_RUST_TEST_SHARD=i/n (cmux-ci run --shards N) runs the i-th of n nextest
+# partitions (--partition count:i/n) of the workspace tests; fmt, clippy and the
+# doc tests run only in shard 1, so the n steps together run each check once.
+shard="${CMUX_RUST_TEST_SHARD:-}"
+shard_i=1
+if [[ -n "$shard" ]]; then
+  if [[ ! "$shard" =~ ^([1-9][0-9]?)/([1-9][0-9]?)$ ]] || (( BASH_REMATCH[1] > BASH_REMATCH[2] )); then
+    echo "error: CMUX_RUST_TEST_SHARD must be i/n with 1 <= i <= n <= 99" >&2
+    exit 2
+  fi
+  shard_i="${BASH_REMATCH[1]}"
+  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
+  [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
+  echo "gate-notice: shard $shard (nextest --partition count:$shard)"
 fi
 umask 022
 root="$(pwd -P)"
@@ -530,6 +550,7 @@ workspace_tests() {
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
   local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
+  [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
   [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
   mkdir -p "$(dirname "$test_log")"
@@ -579,6 +600,64 @@ doc_tests() {
   reap_leaked "before doc tests"
   env "$run_marker" cargo "${args[@]}"
 }
+# A warm target (a fleet warm slot, an rbx lane's /w/target) keeps every
+# artifact of every commit it built: cargo never deletes one. On aws-m4pro-9
+# (2026-10-17) debug/deps held 491,261 files (a fresh build: about 26,800), and
+# every test process spent about 14 s in SecCodeCopySelf (cmux_link's
+# own-code check), which scans the executable's folder: tests of 0.2 s took
+# 14-55 s and a shard ran 3569 s with 44 time-outs. prune_target keeps in
+# deps/ only the units this commit's build uses (cargo reports every artifact,
+# fresh or rebuilt, with --message-format=json) and deletes the rest. Build
+# again with the same flags, so cargo only reports: no unit is rebuilt.
+prune_target() {
+  local deps="$CARGO_TARGET_DIR/debug/deps" list
+  [[ -d "$deps" ]] || return 0
+  list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
+  if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
+    || { [[ "$mode" == all ]] && ! cargo clippy --workspace --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
+    rm -f "$list"
+    echo "prune: skipped (cargo did not list the build's artifacts)"
+    return 0
+  fi
+  python3 - "$deps" "$list" <<'PY' || echo "prune: failed (the target is kept)"
+import json, os, shutil, sys
+deps, listing = sys.argv[1], sys.argv[2]
+def stem(name):
+    # libfoo-0123abcd.rlib, foo-0123abcd.d, foo-0123abcd (a test binary), foo-0123abcd.dSYM
+    name = name.split(".", 1)[0]
+    return name[3:] if name.startswith("lib") else name
+keep = set()
+for line in open(listing, encoding="utf-8", errors="replace"):
+    try:
+        m = json.loads(line)
+    except ValueError:
+        continue
+    if m.get("reason") != "compiler-artifact":
+        continue
+    for f in (m.get("filenames") or []) + ([m["executable"]] if m.get("executable") else []):
+        if os.path.dirname(f) == deps:
+            keep.add(stem(os.path.basename(f)))
+names = os.listdir(deps)
+if len(keep) < 100:
+    print(f"prune: skipped ({len(keep)} units listed, {len(names)} files in deps)")
+    sys.exit(0)
+gone = 0
+for n in names:
+    if stem(n) in keep:
+        continue
+    p = os.path.join(deps, n)
+    if os.path.isdir(p) and not os.path.islink(p):
+        shutil.rmtree(p, ignore_errors=True)
+    else:
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+    gone += 1
+print(f"prune: debug/deps kept {len(names) - gone} files of {len(keep)} units, deleted {gone} stale files")
+PY
+  rm -f "$list"
+}
 crate_table() {
   [[ -f "$junit_full" ]] || { echo "(no JUnit file: per-crate table unavailable)"; return 0; }
   command -v python3 >/dev/null || { echo "(no python3: per-crate table unavailable)"; return 0; }
@@ -586,7 +665,7 @@ crate_table() {
 }
 finish() {
   echo
-  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
+  echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}${shard:+, shard $shard}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
   printf '%-28s %-22s %s\n' step result seconds
   local row
   for row in "${step_rows[@]}"; do
@@ -633,6 +712,48 @@ if [[ "$mode" == rd-host ]]; then
   step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
   finish
 fi
+# Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
+# with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
+# release, checksummed, in the step's own .build. Go's module and build caches
+# also stay in .build, and toolchain downloads go only through the default
+# proxy with the checksum database on: nothing is installed on the host.
+ensure_screen_go() {
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
+  export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
+  local arch sum dir="$root/.build/go-1.27.1" tmp
+  if ! command -v go >/dev/null 2>&1; then
+    case "$(uname -m)" in
+      arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
+    esac
+    if [[ ! -x "$dir/go/bin/go" ]]; then
+      # Extract beside the target and rename, so a cut-off extract never looks complete.
+      tmp="$dir.partial"
+      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
+      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
+      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
+    fi
+    export PATH="$dir/go/bin:$PATH"
+  fi
+  # libtailscale's go.mod selects Go 1.27.1; GOTOOLCHAIN=auto switches to it inside that folder.
+  go version || return 3
+}
+if [[ "$mode" == screen ]]; then
+  if [[ ! -f "$root/cmux-screen/Cargo.toml" ]]; then
+    echo "error: screen mode: no cmux-screen workspace at this commit" >&2
+    exit 2
+  fi
+  export CARGO_TARGET_DIR="$root/.build/cmux-screen-target"
+  cd "$root/cmux-screen"
+  warm_target_guard
+  step "screen go" ensure_screen_go
+  step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
+  step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
+  step "screen release build" cargo build --locked --release -p cmux-screen-host -p cmux-tailnet
+  finish
+fi
 copy_testhost() {
   mkdir -p "$root/.build/artifacts"
   cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-testhost" "$root/.build/artifacts/cmux-remote-browser-testhost" || return 1
@@ -649,20 +770,22 @@ if [[ "$mode" == rb-testhost ]]; then
   step "rb-testhost artifact" copy_testhost
   finish
 fi
-if [[ "$mode" == fmt || "$mode" == all ]]; then
+if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
 fi
-if [[ "$mode" == clippy || "$mode" == all ]]; then
+if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step clippy cargo clippy --workspace --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
   step "base-red list" load_base_red
   step "cargo-nextest" ensure_nextest
   step "workspace tests" workspace_tests
-  if [[ -z "$filter" ]]; then
+  if [[ -z "$filter" && "$shard_i" == 1 ]]; then
     step "doc tests" doc_tests
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
   reap_leaked "at the end of the step"
+  # Only after a build that cargo finished: a failed build lists no artifacts.
+  step "prune target" prune_target
 fi
 finish

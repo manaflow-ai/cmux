@@ -155,9 +155,14 @@ public protocol HomeSource: Sendable {
     /// The talk steps of a running run as its rows hold them (id, text), for reply
     /// segments the owner's live buffer already freed (a mid-run join). nil: no read.
     func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]?
+
+    /// The owner's answer for a message permalink (`conversation-link-resolve`): its seq, thread root and
+    /// the path from that root down to it. nil: this owner has no resolver (the message is looked up in pages).
+    func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget?
 }
 
 extension HomeSource {
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? { nil }
     /// Sources that keep no per-transcript state ignore it.
     public func close(_ conversation: ConversationID) {}
 

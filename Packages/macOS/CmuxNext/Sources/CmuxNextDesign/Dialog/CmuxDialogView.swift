@@ -190,7 +190,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
@@ -230,7 +230,7 @@ public final class CmuxDialogView: NSView {
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining
     /// a window and on every theme change), never the scope it was built in.
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> NSTextField {
+    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
         let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width

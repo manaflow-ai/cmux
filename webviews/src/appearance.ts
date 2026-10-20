@@ -1,3 +1,4 @@
+import { applyDiffTints } from "./diffWeight";
 import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
@@ -159,6 +160,7 @@ export function setDiffChangeColors(colors: DiffChangeColors | undefined) {
   const next = colors ?? "theme";
   if (next === changeColors) return;
   changeColors = next;
+  applyDiffTints(document.documentElement.style, changeColors);
   applyDiffViewerAppearance(appliedAppearance);
 }
 

@@ -99,6 +99,12 @@ public struct RemoteInstaller: Sendable {
                           label: "restart cmux-tui", deadline: .seconds(60))
     }
 
+    /// Gives the machine's install lock back (cx-3r9mt); a failure leaves it to expire.
+    public func releaseLock(_ plan: RemoteInstallPlan, on host: SSHHost, environment: [String: String]) async {
+        _ = try? await ssh(host, script: RemoteInstallPlan.releaseLockScript(remoteBinary: plan.remoteBinary, token: plan.lockToken),
+                           environment: environment, label: "install unlock", deadline: .seconds(30))
+    }
+
     private func ssh(_ host: SSHHost, script: String, environment: [String: String], label: String,
                      deadline: Duration = .seconds(1800)) async throws -> SSHProcessResult {
         let result = try await SSHProcessRunner.run(commandLine.script(host), input: .data(Data(script.utf8)), environment: environment,

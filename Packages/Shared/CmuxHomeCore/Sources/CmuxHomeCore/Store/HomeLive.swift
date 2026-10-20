@@ -83,12 +83,15 @@ public struct HomeLiveRunSnapshot: Hashable, Sendable {
         /// The last frame the text includes.
         public var seq: UInt64
         public var text: String
+        /// A row's place in the run (the owner's `Step.seq`); nil for a live step.
+        public var place: UInt64?
 
-        public init(step: String, isTalk: Bool, seq: UInt64, text: String) {
+        public init(step: String, isTalk: Bool, seq: UInt64, text: String, place: UInt64? = nil) {
             self.step = step
             self.isTalk = isTalk
             self.seq = seq
             self.text = text
+            self.place = place
         }
     }
 

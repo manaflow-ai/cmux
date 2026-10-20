@@ -3,7 +3,8 @@
 // stand-in acpmux daemon whose one chat has a turn running, and which answers prompts as acpmux
 // does: a plain prompt waits behind the turn (`queued`), a steer goes into it (`user_message`).
 //
-// - Enter queues: the queue row shows the prompt and the composer is free for the next one.
+// - Enter queues: the queue row shows the prompt and the composer is free for the next one. The
+//   prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
 // - Esc on an empty composer stops the turn.
@@ -115,13 +116,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       kind: meta.steer ? "user_message" : "queued",
       msg,
     };
-    ws.send(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method: "_acpmux/event",
-        params: event,
-      }),
-    );
+    const deliver = () => ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+    // acpmux's `queued` record can come a beat after the send (130 ms on cosmic-gray, 2026-10-13).
+    if (text === "queued a beat late") setTimeout(deliver, 400);
+    else deliver();
     // acpmux checks a queued prompt again when its turn comes (`check_dispatch`) and may refuse it.
     if (text === "refused at its turn")
       setTimeout(() => {
@@ -218,20 +216,48 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("first follow-up");
+      // The prompt stays in the composer until the host takes it (Composer.tsx), which can land
+      // a moment after its queue row draws.
+      const emptied = () =>
+        page.waitForFunction(
+          () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+        );
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-queued", { hasText: "first follow-up" }).waitFor();
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
+      await emptied();
       await page.keyboard.type("second follow-up");
       await page.keyboard.press("Enter");
       await page.locator(".acpmux-queued", { hasText: "second follow-up" }).waitFor();
+      await emptied();
       expect({
         rows: await page.locator(".acpmux-queued").count(),
         composer: (await composerText(page)).trim(),
         steers: prompts.filter((p) => p._meta?.acpmux?.steer).length,
         sent: prompts.length,
       }).toEqual({ rows: 2, composer: "", steers: 0, sent: 2 });
+      await page.close();
+    });
+
+    test("a prompt sent behind the turn never draws as a transcript bubble before its queue row", async () => {
+      const page = await openChat();
+      // Every bubble the transcript draws with the prompt's text, frame by frame.
+      await page.evaluate(() => {
+        const seen: string[] = [];
+        (window as unknown as { bubbles: string[] }).bubbles = seen;
+        const look = () => {
+          for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]"))
+            if (row.innerText.includes("queued a beat late")) seen.push(row.dataset.rowId ?? "");
+          requestAnimationFrame(look);
+        };
+        look();
+      });
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("queued a beat late");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).waitFor();
+      await page.waitForTimeout(600);
+      expect(await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).count()).toBe(1);
+      expect(await page.evaluate(() => (window as unknown as { bubbles: string[] }).bubbles)).toEqual([]);
       await page.close();
     });
 

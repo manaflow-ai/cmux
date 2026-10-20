@@ -13,8 +13,9 @@ public nonisolated enum HoverCardEvent: Hashable, Sendable {
     /// `aiming`: the pointer moved toward the shown card (or onto it, where
     /// it hits no target), along the safe triangle (`CGRect.isAimedAt`).
     /// `bridging`: no target, but the pointer is between a source's targets
-    /// (a gap in a tab strip, a tab with no card): a `hides` card stays for
-    /// its reshow window, so the next target swaps it in without a hide.
+    /// (a gap in a tab strip, a tab with no card) or on the shown card: a
+    /// `hides` card stays for its reshow window (on the card, while the
+    /// pointer rests there), so the next target swaps it in without a hide.
     case hit(HoverTarget?, moved: Bool, aiming: Bool = false, bridging: Bool = false)
     /// Whether the pointer rests on the shown card now (sent before each
     /// deadline: the card ignores the mouse, so no source sees it there).

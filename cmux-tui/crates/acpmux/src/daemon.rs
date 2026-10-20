@@ -69,6 +69,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .iter()
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
+    // State holds tokens, prompts and tool output. Older builds created the
+    // home with the process umask; narrow it before reading any of them.
+    crate::config::private_state_dir(&home())?;
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -84,7 +87,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             Config::path().display()
         );
     }
-    std::fs::create_dir_all(home())?;
     // launchd starts us in /. The daemon's own folder is its cwd, never the
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
@@ -216,7 +218,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tracing::warn!("could not save the moved web listener: {e}");
         }
     }
-    let hub = Hub::new(config, store);
+    let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let hub = Hub::new_with_mailbox(config, store, mailbox);
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -545,7 +548,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
 /// ptrace it or read its memory through /proc, and the kernel owns its
 /// /proc files. Also logs yama's ptrace_scope, the host's other ptrace rule.
 #[cfg(target_os = "linux")]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     // SAFETY: PR_SET_DUMPABLE takes an integer and changes only this
     // process's dumpable flag.
     if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
@@ -567,7 +570,7 @@ fn not_dumpable() -> std::io::Result<()> {
 /// which refuses a debugger without the get-task-allow entitlement, and
 /// ignores the key descriptor (it enrolls the signed app instead).
 #[cfg(all(unix, not(target_os = "linux")))]
-fn not_dumpable() -> std::io::Result<()> {
+pub(crate) fn not_dumpable() -> std::io::Result<()> {
     Ok(())
 }
 
@@ -795,26 +798,16 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
-    std::fs::create_dir_all(home())?;
+    crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
-    let mut fds = [0i32; 2];
-    // SAFETY: fds has room for the two descriptors pipe writes.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error()).context("pipe for acpmux daemon readiness");
-    }
-    let (read_fd, write_fd) = (fds[0], fds[1]);
-    // SAFETY: both descriptors were just created and are owned here.
-    let (reader, writer) =
-        unsafe { (std::fs::File::from_raw_fd(read_fd), std::fs::File::from_raw_fd(write_fd)) };
-    // Neither end leaks into other children; pre_exec reopens the write end
-    // for the daemon only.
-    unsafe {
-        libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-    }
+    // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
+    // a child another thread forks meanwhile never inherits either end, and
+    // pre_exec reopens the write end for the daemon only.
+    let (reader, writer) = std::io::pipe().context("pipe for acpmux daemon readiness")?;
+    let reader = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+    let write_fd = std::os::fd::AsRawFd::as_raw_fd(&writer);
     // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
     let pair = match &key {
         Some(_) => {
@@ -827,6 +820,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
+    // The daemon serves every session: its starter's turn values are not its own.
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
@@ -919,6 +916,10 @@ async fn notify_loop(hub: Arc<Hub>) {
             ),
         };
         let mut c = tokio::process::Command::new("sh");
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            c.env_remove(k);
+        }
         crate::login_env::apply_tokio(&mut c);
         c.arg("-c")
             .arg(&cmd)

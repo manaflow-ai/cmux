@@ -289,6 +289,38 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["column", "center", "scroll", "overflow", "layout"], category: .settings,
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
             ),
+            // Tab Overflow (`tabs.overflow`, cx-kp9b4): crowded strips shrink their tabs (the default) or
+            // keep them wide and scroll. Settings changes with no object; no default shortcut.
+            ActionDescriptor(
+                id: "tabs.overflow.scroll",
+                title: String(localized: "action.tabs.overflow.scroll", defaultValue: "Tabs: Use Scrolling Tabs", bundle: .module),
+                keywords: ["tab", "tabs", "scroll", "scrolling", "overflow", "wide", "width", "many", "strip"], category: .settings,
+                symbol: "arrow.left.and.right.square", surfaces: [.palette], cliName: "settings use-scrolling-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "tabs.overflow.shrink",
+                title: String(localized: "action.tabs.overflow.shrink", defaultValue: "Tabs: Use Shrinking Tabs", bundle: .module),
+                keywords: ["tab", "tabs", "shrink", "shrinking", "overflow", "narrow", "width", "fit", "strip"], category: .settings,
+                symbol: "arrow.right.and.line.vertical.and.arrow.left", surfaces: [.palette], cliName: "settings use-shrinking-tabs",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Links (`browser.openLinksInCmuxBrowser`, cx-ir3z4): where a clicked link opens, from every
+            // surface. Settings changes with no object; no default shortcut.
+            ActionDescriptor(
+                id: "links.openInCmuxBrowser",
+                title: String(localized: "action.links.openInCmuxBrowser", defaultValue: "Links: Open in cmux Browser", bundle: .module),
+                keywords: ["link", "links", "url", "browser", "embedded", "click", "terminal", "chat"], category: .settings,
+                symbol: "globe", surfaces: [.palette], cliName: "settings open-links-in-cmux-browser",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "links.openInDefaultBrowser",
+                title: String(localized: "action.links.openInDefaultBrowser", defaultValue: "Links: Open in Default Browser", bundle: .module),
+                keywords: ["link", "links", "url", "browser", "default", "external", "system", "safari", "chrome"], category: .settings,
+                symbol: "arrow.up.forward.app", surfaces: [.palette], cliName: "settings open-links-in-default-browser",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "focusRing.toggle",
                 title: String(localized: "action.focusRing.toggle", defaultValue: "Toggle Focus Ring", bundle: .module),
