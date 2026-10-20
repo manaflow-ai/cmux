@@ -51,7 +51,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 23 | TextBox composer (4) | `focusTextBoxInput`, `palette.terminalToggleTextBoxInput`, `cycleTextBoxSubmitAction`, `attachTextBoxFile` | needs the TextBox composer | Handlers/TerminalHandlers.swift | L | todo |
 | 24 | Right sidebar (6) | `toggleRightSidebar`, `focusRightSidebar`, `switchRightSidebarToSessions`, `switchRightSidebarToFeed`, `switchRightSidebarToDock`, `switchRightSidebarToMachines` | needs app capability `right-sidebar` | Handlers/SidebarHandlers.swift | L | todo |
 | 25 | Session vault (6) | `palette.openVaultPane`, `vaultFocusSession`, `vaultOpenSession`, `vaultResumeInNewWorkspace`, `vaultCopyResumeCommand`, `vaultOpenPullRequest` | needs the Vault panel / `session-vault` | Handlers/PaneHandlers+Verbs.swift, Handlers/SidebarHandlers.swift | L | todo |
-| 26 | Open Terminal as Chat | `palette.openTerminalChatView` | Agent chat views are not ported | Handlers/AgentHandlers.swift | L | todo |
+| 26 | Open Terminal as Chat | `palette.openTerminalChatView` | Agent chat views are not ported | Handlers/AgentHandlers.swift | L | done 0e035c2a1c5 |
 | 27 | Claude/Codex Teams (2) | `palette.launchClaudeTeams`, `palette.launchCodexTeams` | Teams launcher is not ported | Handlers/AgentHandlers.swift | M | todo |
 | 28 | React Grab | `toggleReactGrab` | React Grab injection is not ported | Handlers/BrowserHandlers.swift | M | done 2bdb267f752 |
 | 29 | VS Code inline (3) | `palette.openFolderInVSCodeInline`, `palette.vscodeServeWebStop`, `palette.vscodeServeWebRestart` | inline VS Code server is not ported | Handlers/WorkspaceHandlers.swift, Handlers/BrowserHandlers.swift | L | todo |
