@@ -61,6 +61,7 @@ import Testing
         let summary = ConversationSummary(id: id, title: "Chief", participants: people, lastSeq: Seq(messages),
                                           createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
         var core = ProjectionCore(me: me)
+        core.replies = .streaming // the stream bubbles (HomeReplyDisplay)
         let (conv, w) = core.install(id, items: items, summary: summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil

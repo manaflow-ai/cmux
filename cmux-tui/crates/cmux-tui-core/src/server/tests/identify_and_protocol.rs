@@ -73,6 +73,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             None,
             &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
             Default::default(),
+            true,
         )
         .unwrap();
     assert!(!created.replayed);
