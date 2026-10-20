@@ -1111,18 +1111,16 @@ impl Brain {
             }
             _ => None,
         };
-        let text = match (outcome.reply, outcome.error) {
-            _ if superseded => String::new(),
-            (reply, _) if owner_stopped && outcome.cancelled => match reply {
-                Some(reply) => format!("{reply}\n\n(turn stopped)"),
-                None => "(turn stopped)".to_owned(),
-            },
-            (None, Some(error)) if outcome.refused => format!("(turn {error})"),
-            (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
-            (Some(reply), None) => reply,
-            (None, Some(error)) => format!("({failed}: {error})"),
-            (None, None) => String::new(),
-        };
+        if owner_stopped && outcome.cancelled {
+            (self.log)(&format!("turn {key} stopped by the owner: nothing posted"));
+        }
+        let text = ended_turn_text(
+            outcome.reply,
+            outcome.error,
+            superseded || owner_stopped && outcome.cancelled,
+            outcome.refused,
+            &failed,
+        );
         // A Chief that reads every message stays quiet with NO_REPLY (membership).
         let text = if self.settings.membership.acts_on_its_own()
             && crate::membership::is_no_reply(&text)
@@ -1389,5 +1387,55 @@ impl Brain {
             }
         }
         answers
+    }
+}
+
+/// What an ended turn posts to the conversation (and so to every bridge,
+/// iMessage included). A quiet turn posts nothing: one superseded by a
+/// newer message (the next turn answers both) and one the owner stopped
+/// with chief.stop. The owner pressed stop and already knows; a
+/// "(turn stopped)" message only adds noise (Lawrence 2026-10-19).
+fn ended_turn_text(
+    reply: Option<String>,
+    error: Option<String>,
+    quiet: bool,
+    refused: bool,
+    failed: &str,
+) -> String {
+    match (reply, error) {
+        _ if quiet => String::new(),
+        (None, Some(error)) if refused => format!("(turn {error})"),
+        (Some(reply), Some(error)) => format!("{reply}\n\n({failed}: {error})"),
+        (Some(reply), None) => reply,
+        (None, Some(error)) => format!("({failed}: {error})"),
+        (None, None) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod ended_turn_text_tests {
+    use super::ended_turn_text;
+
+    #[test]
+    fn owner_stopped_turn_posts_nothing() {
+        for reply in [None, Some("Let me check.".to_owned())] {
+            let text = ended_turn_text(reply, Some("cancelled".into()), true, false, "turn failed");
+            assert_eq!(text, "");
+            assert!(!text.contains("turn stopped"));
+        }
+    }
+
+    #[test]
+    fn failures_and_replies_still_post() {
+        assert_eq!(ended_turn_text(Some("hi".into()), None, false, false, "turn failed"), "hi");
+        assert_eq!(
+            ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
+            "(turn failed: boom)"
+        );
+        assert_eq!(
+            ended_turn_text(Some("a".into()), Some("boom".into()), false, false, "turn failed"),
+            "a\n\n(turn failed: boom)"
+        );
+        assert_eq!(ended_turn_text(None, Some("refused".into()), false, true, "x"), "(turn refused)");
     }
 }
