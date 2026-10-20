@@ -36434,6 +36434,364 @@
         "$defs": {}
       }
     },
+    "grant.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HomeGrantableRole"
+            }
+          },
+          "expires_in_hours": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "max_uses": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "rev": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "change": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "json"
+                }
+              },
+              "grant_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "code": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "secret": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "link": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "home.not_configured",
+        "idempotency.conflict",
+        "invalid_invite",
+        "invalid_role",
+        "invite_limit",
+        "kind_forbids",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "read_only",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat link",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "role": {
+            "$ref": "#/$defs/HomeGrantableRole"
+          },
+          "expires_in_hours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 720
+          },
+          "max_uses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          }
+        },
+        "required": [
+          "conversation"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "HomeGrantableRole": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member",
+              "read_only"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rev": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "change": {},
+          "grant_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rev",
+          "change",
+          "grant_id",
+          "code",
+          "secret"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "grant.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "grant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^grt_[0-9A-Z]{26}$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_invite",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat link revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "home"
+      },
+      "docs": "Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "grant_id": {
+            "type": "string",
+            "pattern": "^grt_[0-9A-Z]{26}$"
+          }
+        },
+        "required": [
+          "conversation",
+          "grant_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
     "home.requests.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -42587,6 +42945,8 @@
         "archived",
         "auth.forbidden",
         "auth.unauthenticated",
+        "banned",
+        "duplicate_participant",
         "forbidden",
         "idempotency.conflict",
         "invite_expired",
@@ -42620,7 +42980,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.",
+      "docs": "Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",

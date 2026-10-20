@@ -2,6 +2,7 @@ import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from 
 import { removeParticipant, setRole, setSettings, transferOwnership, unban } from "./cloud.ts"
 import { checkGrant, checkWriter, grantableRole } from "./roles.ts"
 import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
+import { createGrant, revokeGrant } from "./grants.ts"
 import { acceptInvite, acceptVerifiedInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
 import { answerQuestion, checkQuestionEdit } from "./question.ts"
@@ -39,7 +40,7 @@ export const targetMessageId = (op: Op): string | undefined =>
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set", "participants.set_role", "ownership.transfer", "participants.unban", "grant.create", "grant.revoke"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -268,6 +269,10 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       return transferOwnership(head, next, request, actor, op)
     case "participants.unban":
       return unban(head, next, request, actor, op)
+    case "grant.create":
+      return createGrant(head, next, request, actor, op)
+    case "grant.revoke":
+      return revokeGrant(head, next, request, actor, op)
     default:
       return fail("unsupported_op")
   }

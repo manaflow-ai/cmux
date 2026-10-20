@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { connect, drain, head, human, inboxEntry, joinTeam, op, read, send, signIn, text } from "./setup/home-people.ts"
+import { connect, drain, head, human, inboxEntry, joinTeam, op, read, send, signIn, text, worker } from "./setup/home-people.ts"
 
 /**
  * Group roles and revocation end to end through the public routes
@@ -69,8 +69,44 @@ describe("Home group roles and a revoked member, end to end", { timeout: 60_000 
   })
 })
 
+describe("Home group links, end to end", { timeout: 60_000 }, () => {
+  it("a read-only link lets a stranger in, the preview names its maker, revoking closes it", async () => {
+    const ann = await signIn("links-ann", "Ann Lee")
+    const ben = await signIn("links-ben", "Ben Ross")
+    const zed = await signIn("links-zed", "Zed Moss")
+    const yan = await signIn("links-yan", "Yan Choi")
+    await joinTeam(ann, ben)
+    const created = await op(ann.token, "conversation.create", { title: "Club", participants: [human(ann), human(ben)] })
+    const group = created.value.conversation.id as string
+
+    // Zed shares no team with anyone here: only a link gets him in.
+    expect((await op(ann.token, "participants.add", { conversation: group, participant: human(zed) })).error?.code).toBe("not_reachable")
+    const made = await op(ann.token, "grant.create", { conversation: group, role: "read_only", max_uses: 5 })
+    expect(made.error).toBeUndefined()
+    const { code, secret, grant_id } = made.value as { code: string; secret: string; grant_id: string }
+    expect(secret).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/)
+    // A member cannot make a link above its own role.
+    expect((await op(ben.token, "grant.create", { conversation: group, role: "admin" })).error?.code).toBe("forbidden")
+
+    const preview = await worker.fetch("https://api.test/v1/invites/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, secret }) })
+    expect(await preview.json()).toMatchObject({ state: "ok", inviter: "Ann", kind: "group", title: "Club" })
+
+    expect((await op(zed.token, "invite.accept", { code, secret })).error).toBeUndefined()
+    expect((await head(zed, group)).participants.find((p) => p.id === zed.user)?.role).toBe("read_only")
+    expect((await op(zed.token, "message.send", { conversation: group, client_msg_id: "z1", parts: [text("hi")] }, "z1")).error?.code).toBe("read_only")
+    expect((await inboxEntry(zed, group))?.title).toBe("Club")
+
+    // Revoked: the link and its preview stop at once.
+    expect((await op(ben.token, "grant.revoke", { conversation: group, grant_id })).error?.code).toBe("forbidden")
+    expect((await op(ann.token, "grant.revoke", { conversation: group, grant_id })).error).toBeUndefined()
+    expect((await op(yan.token, "invite.accept", { code, secret })).error?.code).toBe("unknown_invite")
+    const after = await worker.fetch("https://api.test/v1/invites/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, secret }) })
+    // A closed link reads as expired, like a closed invite.
+    expect((await after.json()).state).toBe("expired")
+  })
+})
+
 const fetchSocketStatus = async (conversation: string, token: string) => {
-  const { worker } = await import("./setup/home-people.ts")
   const res = await worker.fetch(`https://api.test/v1/wire/conv/${conversation}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   if (res.status !== 101) return res.status
   // An upgrade that is accepted must refuse the subscription.

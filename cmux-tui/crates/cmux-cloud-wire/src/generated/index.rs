@@ -82,6 +82,8 @@ pub mod op_names {
     pub const FIREWALL_GET: &str = "firewall.get";
     pub const FIREWALL_LIST: &str = "firewall.list";
     pub const GITHUB_ISSUE_COMMENT: &str = "github.issue.comment";
+    pub const GRANT_CREATE: &str = "grant.create";
+    pub const GRANT_REVOKE: &str = "grant.revoke";
     pub const HOME_REQUESTS_LIST: &str = "home.requests.list";
     pub const HOME_SEARCH: &str = "home.search";
     pub const HOME_SETTINGS_SET: &str = "home.settings.set";
@@ -280,6 +282,8 @@ pub mod op_names {
         FIREWALL_GET,
         FIREWALL_LIST,
         GITHUB_ISSUE_COMMENT,
+        GRANT_CREATE,
+        GRANT_REVOKE,
         HOME_REQUESTS_LIST,
         HOME_SEARCH,
         HOME_SETTINGS_SET,
@@ -481,6 +485,8 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "firewall.get" => visitor.visit::<FirewallGetOp>(),
         "firewall.list" => visitor.visit::<FirewallListOp>(),
         "github.issue.comment" => visitor.visit::<GithubIssueCommentOp>(),
+        "grant.create" => visitor.visit::<GrantCreateOp>(),
+        "grant.revoke" => visitor.visit::<GrantRevokeOp>(),
         "home.requests.list" => visitor.visit::<HomeRequestsListOp>(),
         "home.search" => visitor.visit::<HomeSearchOp>(),
         "home.settings.set" => visitor.visit::<HomeSettingsSetOp>(),

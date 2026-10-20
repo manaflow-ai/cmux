@@ -4,6 +4,113 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
+    IntegrationApprovalGetOp {
+        name: "integration.approval.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session],
+        params: IntegrationApprovalGetParams,
+        result: IntegrationApprovalGetResult,
+        error: IntegrationApprovalGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetParams {
+    pub request: String,
+}
+
+wire_enum! {
+    IntegrationApprovalGetResultState {
+        Pending = "pending",
+        Done = "done",
+        Denied = "denied",
+        Expired = "expired",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalGetResult {
+    pub request: String,
+    pub op: String,
+    pub connection: String,
+    pub target: String,
+    pub summary: String,
+    pub params: Value,
+    pub digest: String,
+    pub state: IntegrationApprovalGetResultState,
+    pub created_at: WireNumber,
+    pub expires_at: WireNumber,
+}
+
+wire_errors! {
+    /// The error codes integration.approval.get declares.
+    IntegrationApprovalGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it).
+    IntegrationCompleteOp {
+        name: "integration.complete",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationCompleteParams,
+        result: Connection,
+        error: IntegrationCompleteError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteParams {
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_action: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes integration.complete declares.
+    IntegrationCompleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationNotConfigured = "integration.not_configured",
+        IntegrationStateInvalid = "integration.state_invalid",
+        MutationIndeterminate = "mutation.indeterminate",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.
+    IntegrationConnectOp {
+        name: "integration.connect",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationConnectParams,
+        result: IntegrationConnectResult,
+        error: IntegrationConnectError,
+    }
+}
+
 wire_enum! {
     IntegrationConnectParamsSharing {
         Private = "private",
@@ -190,7 +297,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.
+    /// Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.
     InviteAcceptOp {
         name: "invite.accept",
         class: Mutation,
@@ -216,6 +323,8 @@ wire_errors! {
         Archived = "archived",
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
+        Banned = "banned",
+        DuplicateParticipant = "duplicate_participant",
         Forbidden = "forbidden",
         IdempotencyConflict = "idempotency.conflict",
         InviteExpired = "invite_expired",
@@ -786,113 +895,4 @@ wire_op! {
 pub struct MessageRetractParams {
     pub conversation: ConversationId,
     pub message_id: MessageId,
-}
-
-wire_errors! {
-    /// The error codes message.retract declares.
-    MessageRetractError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotAuthor = "not_author",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.
-    MessageSendOp {
-        name: "message.send",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: MessageSendParams,
-        result: HomeConversationCommit,
-        error: MessageSendError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MessageSendParams {
-    pub conversation: ConversationId,
-    pub client_msg_id: ClientToken,
-    pub parts: Vec<HomePart>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reply_to: Option<HomePartRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thread_root: Option<MessageId>,
-}
-
-wire_errors! {
-    /// The error codes message.send declares.
-    MessageSendError {
-        AddressCannotAct = "address_cannot_act",
-        AgentBudget = "agent_budget",
-        AgentRate = "agent_rate",
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        IdempotencyConflict2 = "idempotency_conflict",
-        InvalidClientMsgId = "invalid_client_msg_id",
-        InvalidParts = "invalid_parts",
-        InvalidThreadRoot = "invalid_thread_root",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
-    MuxAckOp {
-        name: "mux.ack",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:MuxDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: MuxAckParams,
-        result: MuxAckResult,
-        error: MuxAckError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckParams {
-    pub agent: AgentId,
-    pub conversation: ConversationId,
-    pub seq: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckResult {
-    pub cursor: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cleared: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes mux.ack declares.
-    MuxAckError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

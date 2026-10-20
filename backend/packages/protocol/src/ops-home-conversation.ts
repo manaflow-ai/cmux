@@ -281,6 +281,48 @@ export const ParticipantsUnban = def({
   mcp: { expose: "opt_in", group: "home" }
 })
 
+export const GrantCreate = def({
+  name: "grant.create",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    role: Schema.optionalKey(GrantableRole),
+    expires_in_hours: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(720))),
+    max_uses: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(1000)))
+  }),
+  result: Schema.Struct({
+    rev: Seq,
+    change: Schema.Unknown,
+    grant_id: Schema.String,
+    code: Schema.String,
+    secret: Schema.String,
+    link: Schema.optionalKey(Schema.String)
+  }),
+  errors: [...conversationErrors, "read_only", "invalid_role", "invite_limit", "invalid_invite", "kind_forbids", "home.not_configured"],
+  docs: "Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.",
+  cli: cli("link"),
+  mcp: { expose: "never", group: "home" }
+})
+
+export const GrantRevoke = def({
+  name: "grant.revoke",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(Schema.isPattern(/^grt_[0-9A-Z]{26}$/)) }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_invite"],
+  docs: "Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.",
+  cli: cli("link revoke"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
 export const InviteCreate = def({
   name: "invite.create",
   owner: "cloud:ConversationDO",
@@ -332,8 +374,8 @@ export const InviteAccept = def({
     secret: Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
   }),
   result: commit,
-  errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired"],
-  docs: "Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.",
+  errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired", "banned", "duplicate_participant"],
+  docs: "Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.",
   cli: { path: "chat accept", visible: false },
   mcp: { expose: "never", group: "home" }
 })
@@ -560,6 +602,8 @@ export const homeConversationOps = [
   ParticipantsSetRole,
   OwnershipTransfer,
   ParticipantsUnban,
+  GrantCreate,
+  GrantRevoke,
   InviteCreate,
   InviteRevoke,
   InviteAccept,

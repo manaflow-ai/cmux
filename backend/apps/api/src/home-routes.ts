@@ -280,6 +280,32 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       if (!(await conversationStub(env, conversation).mayInvite(conversation, principal))) return reject(key, "forbidden", "not a participant of this conversation")
       return createInvite(env, principal, conversation, rest, frame)
     }
+    case "grant.create": {
+      const { conversation, role, expires_in_hours, max_uses } = params as { conversation?: unknown; role?: unknown; expires_in_hours?: unknown; max_uses?: unknown }
+      if (typeof conversation !== "string" || !CONVERSATION_ID.test(conversation)) return reject(key, "validation.invalid", "grant.create needs a conversation id")
+      if (!env.HOME_ADDRESS_KEY) return reject(key, "home.not_configured", "Home links are not configured on this deployment")
+      // Retry-stable: the id from (conversation, actor, key); the secret an HMAC of the id, unguessable without the key.
+      const grant = `grt_${digest26(`grant\u0000${conversation}\u0000${actorOf(principal)}\u0000${key}`)}`
+      const secret = invites.crockford(createHmac("sha256", env.HOME_ADDRESS_KEY).update(`grant-secret\u0000${grant}`).digest(), invites.SECRET_CHARS)
+      const owned = {
+        grant_id: grant,
+        token_hash: invites.hashInviteSecret(invites.hashInviteSecret(secret)),
+        ...(role === undefined ? {} : { role }),
+        ...(expires_in_hours === undefined ? {} : { expires_in_hours }),
+        ...(max_uses === undefined ? {} : { max_uses })
+      }
+      const res = await conversationStub(env, conversation).submit(conversation, principal, { ...frame, params: owned })
+      // Only the maker's own answer carries the link (the secret is in its fragment); events never do.
+      // An environment without an accept origin (development, tests) gets the code and secret only.
+      let link: string | undefined
+      try {
+        link = invites.inviteLink(env.ENVIRONMENT, conversation, secret, env.HOME_INVITE_ORIGIN)
+      } catch {
+        link = undefined
+      }
+      const shared = { grant_id: grant, code: invites.linkCode(conversation), secret, ...(link ? { link } : {}) }
+      return { frames: res.frames.map((f) => (f.t === "result" ? { ...f, value: { ...(f.value as object), ...shared } } : f)) }
+    }
     case "conversation.import": {
       // First call: the id is derived from the signed-in user and the source (never a client field).
       const source = params.source as { host?: unknown; local_id?: unknown } | null | undefined

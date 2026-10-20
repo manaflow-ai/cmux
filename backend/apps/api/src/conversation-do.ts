@@ -20,7 +20,7 @@ type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
 const MEMBERSHIP_ENDING_OPS = new Set(["participants.remove", "invite.accept", "invite.accept_verified", "invite.revoke", "conversation.sweep", "conversation.import.commit"])
-const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
+const WORKER_DERIVED_OPS = new Set(["grant.create", "conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
 
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
@@ -417,7 +417,7 @@ export class ConversationDO extends OwnerDO<Head> {
     const tokenHash = invites.hashInviteSecret(invites.hashInviteSecret(secret))
     const ref = this.boundEngine!.rows.get<{ invite_id: string }>(conversation.TABLE_INVHASH, tokenHash)?.row
     const invite = ref ? this.boundEngine!.rows.get<conversation.Invite>(conversation.TABLE_INV, ref.invite_id)?.row : undefined
-    if (!invite) return { state: "invalid" }
+    if (!invite) return this.grantPreview(state, tokenHash)
     if (!isOpen(invite) || Date.parse(invite.expires_at) <= Date.now()) return { state: "expired" }
     const inviter = this.recordById(state, invite.invited_by)
     return {
@@ -426,6 +426,16 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /** A link grant's preview (home-core grants.ts): who made it, while it is open and unexpired. */
+  private grantPreview(state: NonNullable<Head>, tokenHash: string): InvitePreviewResult {
+    const ref = this.boundEngine!.rows.get<{ grant_id: string }>(conversation.TABLE_GRANTHASH, tokenHash)?.row
+    if (!ref) return { state: "invalid" }
+    const grant = (state.grants ?? []).find((g) => g.id === ref.grant_id)
+    if (!grant || Date.parse(grant.expires_at) <= Date.now()) return { state: "expired" }
+    const maker = this.recordById(state, grant.issuer)
+    return { state: "ok", inviter: firstName(maker?.display_name) ?? "Someone", kind: "group", ...(state.title ? { title: state.title } : {}) }
   }
 
   /**

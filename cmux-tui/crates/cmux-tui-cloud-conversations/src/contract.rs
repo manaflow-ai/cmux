@@ -17,6 +17,8 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "participants.set_role",
     "participants.unban",
     "ownership.transfer",
+    "grant.create",
+    "grant.revoke",
     "message.send",
     "message.edit",
     "message.retract",

@@ -211,9 +211,19 @@ Choices made while building, where they differ from the sections above:
   {role}`). Grants are attenuated: at most your own role, admin only from the owner; you change or
   remove only people strictly below you. A read-only member reads, moves its cursor and leaves.
   Bans are private `ban` rows; a banned person cannot be added or accept an invite.
-- **Not built in Stage A:** bearer link grants (`grant.*`; a111's per-address invite links remain
-  the way in), guest role, policy flags (`members_can_invite`, `members_can_rename`), admin
-  retract of others' messages, per-chat message rate gate, `@everyone`. They stay in Stage B.
+- **Link grants as built** (`home-core conversation/grants.ts`): `grant.create {role?,
+  expires_in_hours? (≤ 720, default 168), max_uses? (≤ 1000, default 20)}` answers the maker
+  alone with `<origin>/i/g<26>#<secret>`, the invite link format, so the same accept page and
+  `invite.accept` redeem it; the head keeps open grants (≤ 50, no hashes), the private
+  `granthash` row maps sha256(sha256(secret)) to the grant, closed grants become `grant` rows.
+  A redeem adds the caller as the maker would (`added_by` = maker), with the link's role checked
+  against the maker's rights at that moment; no reach rule (the link is the capability).
+  `grant.revoke` by the maker or a manager above it. Removing, demoting or the leaving of the
+  maker closes the links it can no longer grant, in the same commit. One link per use count;
+  bans refuse redeem. The `/v1/invites/preview` card names the maker.
+- **Not built in Stage A:** `team:` audience grants, guest role, policy flags
+  (`members_can_invite`, `members_can_rename`), admin retract of others' messages, per-chat
+  message rate gate, `@everyone`, live inbox rows for large groups. They stay in Stage B.
 
 - **Stage A (this branch, shipped to staging then production):** roles (owner, admin, member,
   read_only; guest = member without invite on the chat), the rights matrix in home-core,
