@@ -2133,6 +2133,7 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         SUBROUTER_SESSION_KEY_ENV.to_owned(),
         codex_cache_key(home, "compact"),
     );
+    env.insert(SUBROUTER_SESSION_HEADER_ENV.to_owned(), "1".to_owned());
     for key in [
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
@@ -2246,6 +2247,12 @@ pub use crate::codex_home::*;
 /// fresh per-turn Claude Code processes of one Chief share its prompt cache.
 /// Earlier `sr` builds ignore it.
 pub const SUBROUTER_SESSION_KEY_ENV: &str = "SUBROUTER_SESSION_KEY";
+
+/// `1`: acpmux sends [`SUBROUTER_SESSION_KEY_ENV`] as the
+/// `X-Subrouter-Session` header itself (acpmux `subrouter_session.rs`), so
+/// routes whose launcher ignores the key (`sr2 claude`) stay sticky too.
+/// Turns and compactor nodes opt in; subagents (one long session each) do not.
+pub const SUBROUTER_SESSION_HEADER_ENV: &str = "SUBROUTER_SESSION_HEADER";
 
 /// Which model builds the compactor's nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -62,6 +62,36 @@ pub fn live_limit(value: Option<&str>) -> Option<usize> {
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|n| *n > 0)
 }
+/// A cap on subagents at work at once, with where it came from. There is
+/// none by default: a cap is opt-in, from [`MAX_LIVE_ENV`] or `control cap`
+/// (2026-10-20 the user: "we need to remove 40 agent limit by default").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LiveCap {
+    /// Set at run time with `control cap N` (saved as `live_cap`).
+    Control(usize),
+    /// Set by [`MAX_LIVE_ENV`] when the host started.
+    Env(usize),
+}
+
+impl LiveCap {
+    /// How many subagents may work at once.
+    pub fn n(self) -> usize {
+        match self {
+            LiveCap::Control(n) | LiveCap::Env(n) => n,
+        }
+    }
+
+    /// Where the cap came from and how to lift it, for a queued line: the
+    /// user asked why agents waited, and the old line named the env even
+    /// for a `control cap`.
+    pub fn source(self) -> String {
+        match self {
+            LiveCap::Control(n) => format!("set with `control cap {n}`"),
+            LiveCap::Env(n) => format!("set by {MAX_LIVE_ENV}={n}"),
+        }
+    }
+}
+
 /// Longest `spawn` waits for the view to settle (section 6), as a turn does
 /// (a user turn never waits more than SETTLE_BOUND, 1 s, on compaction):
 /// then the subagent gets the view with the lines still building as the
@@ -91,8 +121,8 @@ pub struct SpawnPlan {
     pub ids: Vec<String>,
     /// The ids over the cap (`live_limit`): they wait for a free slot.
     pub queued: Vec<String>,
-    /// The cap in force, when there is one.
-    pub limit: Option<usize>,
+    /// The cap in force, when there is one, with where it came from.
+    pub limit: Option<LiveCap>,
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
@@ -1016,9 +1046,18 @@ impl Orchestrator for Spawner {
                             launch: launch.clone(),
                         },
                     );
-                let at_work = plan.limit.map_or_else(String::new, |n| format!("{n} "));
+                let cap = plan.limit.map_or_else(
+                    || "a cap".to_owned(),
+                    |cap| {
+                        format!(
+                            "{} subagents are at work, the cap {}",
+                            cap.n(),
+                            cap.source()
+                        )
+                    },
+                );
                 lines.push(format!(
-                    "- {id}: queued ({at_work}subagents are at work, the most this Chief runs at once ({MAX_LIVE_ENV}); it starts when one finishes)"
+                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one)"
                 ));
                 continue;
             }

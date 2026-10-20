@@ -31,7 +31,7 @@ concurrency:
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
+    runs-on: ubuntu-24.04 # nightly path never waits on Blacksmith
     timeout-minutes: 15
     permissions:
       # actions: read finds the Release compile; actions: write dispatches
@@ -43,13 +43,22 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
-          fetch-depth: 40
+          fetch-depth: 150
 
       - name: Request nightly-next promotion on main
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha="$(git rev-parse HEAD)"
-          echo "Asking for the newest buildable commit at or before $sha"
-          scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY"
+          # The tip's cmux-tui tree is often still publishing, so walk back
+          # first-parent commits until one has a published, daemon-tested tree; the script
+          # then picks the newest green Release compile with that tree.
+          for sha in $(git rev-list --first-parent -n 120 HEAD); do
+            git checkout -q --detach "$sha"
+            out="$(scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY" 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+            printf '%s\n' "$out"
+            # Stop once a promotion is requested or nightly-next already has
+            # it; pass over commits with no published or daemon-tested tree.
+            ! grep -qE '^requested nightly-next promotion|already on nightly-next' <<<"$out" || exit 0
+          done
+          echo "::warning::none of the 120 newest feat-cmux-next commits has a published cmux-tui tree"
