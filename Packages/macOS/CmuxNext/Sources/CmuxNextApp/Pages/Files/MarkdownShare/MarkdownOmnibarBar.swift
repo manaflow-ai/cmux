@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 
 /// What the Markdown omnibar asks of its tab's owner (``FilePageService``).
 struct MarkdownOmnibarActions {
@@ -153,7 +154,7 @@ final class MarkdownOmnibarBar: NSView {
             Task { if let link = await actions.liveLink(file) { actions.openInBrowser(link) } }
         })
         menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.revealInFinder) {
-            NSWorkspace.shared.activateFileViewerSelecting([file])
+            NSWorkspace.shared.revealInBackground([file])
         })
         menu.addItem(.separator())
         let later = NSMenuItem(title: MarkdownShareStrings.liveShareLater, action: nil, keyEquivalent: "")

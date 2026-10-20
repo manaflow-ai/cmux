@@ -52,6 +52,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -178,6 +179,10 @@ on:
       - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_cmux_next_pr_autofix_settings.py
+      - scripts/cmux-next/check-generator-inputs.sh
+      - tests/test_ci_generator_input_freshness.sh
+      - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_update_dev_daily.py
@@ -254,6 +259,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -714,6 +720,11 @@ jobs:
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # A same-repository PR with its own merge tree waits (read-only, the
+          # script's 90s default) for the artifacts run main's
+          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
+          # workflow skips forks, so a fork PR looks once.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -1287,6 +1298,7 @@ jobs:
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
+            bash scripts/cmux-next/tests/check-switch-fetches.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
@@ -1296,6 +1308,7 @@ jobs:
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
             bash scripts/cmux-next/tests/pr-autofix.test.sh
+            bash tests/test_ci_generator_input_freshness.sh
             bash scripts/cmux-next/tests/generated-ownership.test.sh
             bash scripts/ci/tests/cmux-tui-rust-check.test.sh
             bash scripts/ci/tests/cmux-tui-base-red.test.sh
@@ -1419,6 +1432,7 @@ jobs:
           python3 tests/test_next_batch.py
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
+          python3 tests/test_cmux_next_pr_autofix_settings.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
