@@ -37,7 +37,7 @@ public struct OnDeviceSpeechTranscriber: VoiceTranscribing {
         // and an error; a synchronous compare-and-set (CLAUDE.md lock carve-out).
         let resumed = OSAllocatedUnfairLock(initialState: false)
         let text: String = try await withCheckedThrowingContinuation { continuation in
-            recognizer.recognitionTask(with: request) { result, error in
+            _ = recognizer.recognitionTask(with: request) { result, error in
                 if let result, result.isFinal {
                     guard resumed.withLock({ done in defer { done = true }; return !done }) else { return }
                     continuation.resume(returning: result.bestTranscription.formattedString)

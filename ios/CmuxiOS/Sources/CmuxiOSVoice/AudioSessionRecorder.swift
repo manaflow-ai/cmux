@@ -23,7 +23,7 @@ public final class AudioSessionRecorder: VoiceRecording {
     /// Starts recording into `url`.
     /// - Throws: When the session cannot activate or the recorder cannot start.
     public func start(writingTo url: URL) async throws {
-        try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetooth])
+        try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try session.setActive(true)
         let settings: [String: Any] = [
             AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
@@ -50,16 +50,18 @@ public final class AudioSessionRecorder: VoiceRecording {
     }
 
     /// Yields once each time another audio user interrupts the session.
-    public func interruptions() -> AsyncStream<Void> {
+    public nonisolated func interruptions() -> AsyncStream<Void> {
         AsyncStream { continuation in
-            let task = Task { @MainActor in
-                for await note in NotificationCenter.default.notifications(named: AVAudioSession.interruptionNotification) {
-                    let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-                    if raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began { continuation.yield() }
-                }
-                continuation.finish()
+            // NSKeyValueObservation-style token API at the seam (Notification is not
+            // Sendable, so no async sequence); only the Void signal leaves it.
+            nonisolated(unsafe) let token = NotificationCenter.default.addObserver(
+                forName: AVAudioSession.interruptionNotification, object: nil, queue: nil
+            ) { note in
+                let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
+                if raw.flatMap(AVAudioSession.InterruptionType.init(rawValue:)) == .began { continuation.yield() }
             }
-            continuation.onTermination = { _ in task.cancel() }
+            // The token is only handed back to NotificationCenter, which is thread-safe.
+            continuation.onTermination = { _ in NotificationCenter.default.removeObserver(token) }
         }
     }
 }
