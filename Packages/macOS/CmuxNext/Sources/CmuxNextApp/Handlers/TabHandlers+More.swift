@@ -100,8 +100,22 @@ extension TabHandlers {
             entry.chrome.perform(.reload)
         })
         registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
-        registry.bind("toggleTabAudioMute", invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
+        bindAudio(registry, ctx)
         registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
+    }
+
+    /// The mute actions (`BrowserTabAudio`): the strip's and the sidebar row's speakers run the toggles.
+    private static func bindAudio(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind(BrowserTabAudio.toggleActionID, invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
+        ActionTargetTitles.set(BrowserTabAudio.toggleActionID, in: registry) { [weak registry] invocation in
+            registry.flatMap { BrowserTabAudio.targetTitle($0, ctx.services.cache, invocation) }
+        }
+        registry.bind("tab.muteAudio", invoke: { BrowserTabAudio.setMuted(true, ctx, $0) })
+        registry.bind("tab.unmuteAudio", invoke: { BrowserTabAudio.setMuted(false, ctx, $0) })
+        registry.bind("tab.muteOtherAudio", invoke: { BrowserTabAudio.muteOthers(ctx, $0) })
+        registry.bind(BrowserTabAudio.workspaceToggleActionID, run: { invocation in
+            try BrowserTabAudio.toggleWorkspace(try ctx.workspace(invocation).model, cache: ctx.services.cache)
+        })
     }
 
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {

@@ -45,6 +45,20 @@ extension SidebarLayoutDocument {
         return .sectionAdd(Self.pinnedSection(items: [item]), index: index)
     }
 
+    /// The ops that pin (or unpin) every ref in `refs`, each planned against the document the
+    /// earlier ones leave, so they apply in order as one change (Pin on a selection). Refs
+    /// already in the asked state add no op.
+    public func pinOps(_ refs: [(ref: LayoutItemRef, label: String?)], pinned: Bool) -> [SidebarLayoutOp] {
+        var document = self, ops: [SidebarLayoutOp] = []
+        for (ref, label) in refs {
+            guard let op = pinned ? document.pinOp(ref, label: label) : document.unpinOp(ref),
+                  case let .success(next) = SidebarLayoutReducer.reduce(document, op) else { continue }
+            ops.append(op)
+            document = next
+        }
+        return ops
+    }
+
     /// Unpins `ref` (its tile only; a top row of the same ref stays). Nil
     /// when it is not pinned.
     public func unpinOp(_ ref: LayoutItemRef) -> SidebarLayoutOp? {
