@@ -38,6 +38,9 @@ import Testing
         return tab
     }
 
+    /// A bubble shows only in a window on a screen; a CI worker with no display has none.
+    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
+
     /// Why a bubble did not show (printed when a test needs it).
     static func environment(_ window: NSWindow) -> String {
         "screens=\(NSScreen.screens.map(\.frame)) active=\(NSApp?.isActive ?? false) window=\(window.frame) visible=\(window.isVisible)"
@@ -69,7 +72,8 @@ import Testing
         return (0..<runs).map { _ in clock.measure(body) }.min() ?? .zero
     }
 
-    @Test func fortyExtensionsOpenWithinAFrame() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
+    func fortyExtensionsOpenWithinAFrame() throws {
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
@@ -92,7 +96,8 @@ import Testing
         #expect(Self.milliseconds(first) < 50, "the first open took \(Self.milliseconds(first)) ms")
     }
 
-    @Test func aReopenDecodesNoIconAgain() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
+    func aReopenDecodesNoIconAgain() throws {
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
@@ -107,7 +112,8 @@ import Testing
         controller.close()
     }
 
-    @Test func hoveringARowRedrawsWithinAFrame() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
+    func hoveringARowRedrawsWithinAFrame() throws {
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
@@ -133,7 +139,8 @@ import Testing
         controller.close()
     }
 
-    @Test func openingDoesNotWaitForChromium() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await Self.hasDisplay() })
+    func openingDoesNotWaitForChromium() throws {
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
