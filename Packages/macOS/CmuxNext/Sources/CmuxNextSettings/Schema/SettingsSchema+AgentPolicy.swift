@@ -154,8 +154,6 @@ extension SettingsSchema {
         "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.nowPlaying.enabled", "tabs.newTabNowPlaying", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.groupBy",
-        // The Screenshots pane only lists more folders; nothing leaves the Mac.
-        "screenshots.findTools", "screenshots.folders",
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
