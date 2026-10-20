@@ -113,7 +113,7 @@ import Testing
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
-        let supervisor = CnxHostSupervisor()
+        let supervisor = CnxHostSupervisor(executableTrust: { _ in true })
         let states = supervisor.states
         await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "h.e.s" },
                                      acpmux: { nil }, log: directory.appendingPathComponent("log")))
@@ -175,7 +175,7 @@ import Testing
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         let hosts = FakeBrowserHosts()
-        let supervisor = CnxHostSupervisor()
+        let supervisor = CnxHostSupervisor(executableTrust: { _ in true })
         let states = supervisor.states
         await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "h.e.s" },
                                      acpmux: { nil }, log: nil, browserHosts: hosts))
@@ -188,7 +188,7 @@ import Testing
     }
 
     @Test func missingHostdIsUnavailable() async {
-        let supervisor = CnxHostSupervisor()
+        let supervisor = CnxHostSupervisor(executableTrust: { _ in true })
         await supervisor.start(.init(launch: Self.launch(executable: URL(fileURLWithPath: "/nonexistent/cnx-hostd")),
                                      accessToken: { _ in "t" }, acpmux: { nil }, log: nil))
         if case .unavailable = await supervisor.current.phase {} else { Issue.record("expected unavailable") }
@@ -269,7 +269,7 @@ import Testing
         exit 78
         """.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
-        let supervisor = CnxHostSupervisor()
+        let supervisor = CnxHostSupervisor(executableTrust: { _ in true })
         let states = supervisor.states
         await supervisor.start(.init(launch: Self.launch(executable: script), accessToken: { _ in "t" }, acpmux: { nil }, log: nil))
         for await state in states where state.phase == .removed { break }

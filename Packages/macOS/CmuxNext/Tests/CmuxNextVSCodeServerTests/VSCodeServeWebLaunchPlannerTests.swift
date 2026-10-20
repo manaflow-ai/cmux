@@ -26,7 +26,7 @@ import Testing
             ],
             isExecutable: { $0 == "\(Self.cache)/bbb/bin/code-server" || $0 == "\(Self.cache)/aaa/bin/code-server" || $0.hasSuffix("code-tunnel") },
             data: { $0.path == "\(Self.cache)/lru.json" ? Data(#"["../evil","bbb","aaa"]"#.utf8) : nil },
-            contents: { _ in [] }, modificationDate: { _ in nil }
+            contents: { _ in [] }, modificationDate: { _ in nil }, executableTrust: { _ in true }
         )
         let launch = try #require(planner.launch(vscode: Self.vscode, connectionTokenFile: Self.token))
         #expect(launch.executableURL.path == "\(Self.cache)/bbb/bin/code-server")
@@ -67,21 +67,22 @@ import Testing
             isExecutable: { $0.hasSuffix("bin/code-server") },
             data: { $0.path.hasSuffix("Contents/Resources/app/product.json") ? Data(#"{"dataFolderName":".vscode-insiders"}"#.utf8) : nil },
             contents: { $0.path == insiders ? [URL(fileURLWithPath: "\(insiders)/old"), URL(fileURLWithPath: "\(insiders)/new")] : [] },
-            modificationDate: { $0.path.contains("/new/") ? Date(timeIntervalSince1970: 200) : Date(timeIntervalSince1970: 100) }
+            modificationDate: { $0.path.contains("/new/") ? Date(timeIntervalSince1970: 200) : Date(timeIntervalSince1970: 100) },
+            executableTrust: { _ in true }
         )
         let launch = try #require(planner.launch(vscode: Self.vscode, connectionTokenFile: Self.token))
         #expect(launch.executableURL.path == "\(insiders)/new/bin/code-server")
     }
 
-    @Test func noCacheFallsBackToTheBundledCLIAndNoCLIMeansNoServer() throws {
+    @Test func noTrustedCacheRefusesTheBundledCLIAndNoCLIMeansNoServer() {
         let bundled = VSCodeServeWebLaunchPlanner(homeDirectory: Self.home, environment: [:], isExecutable: { $0.hasSuffix("code-tunnel") },
-                                                  data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil })
-        #expect(bundled.canServe(vscode: Self.vscode))
-        let launch = try #require(bundled.launch(vscode: Self.vscode, connectionTokenFile: Self.token))
-        #expect(launch.arguments.first == "serve-web")
-        #expect(launch.environment["ELECTRON_RUN_AS_NODE"] == "1")
+                                                  data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil },
+                                                  executableTrust: { _ in true })
+        #expect(!bundled.canServe(vscode: Self.vscode))
+        #expect(bundled.launch(vscode: Self.vscode, connectionTokenFile: Self.token) == nil)
         let none = VSCodeServeWebLaunchPlanner(homeDirectory: Self.home, environment: [:], isExecutable: { _ in false },
-                                               data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil })
+                                               data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil },
+                                               executableTrust: { _ in true })
         #expect(!none.canServe(vscode: Self.vscode))
         #expect(none.launch(vscode: Self.vscode, connectionTokenFile: Self.token) == nil)
     }

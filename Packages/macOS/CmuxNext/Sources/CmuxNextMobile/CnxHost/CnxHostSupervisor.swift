@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextHelperSecurity
 import CmuxNextWakeups
 import os
 
@@ -54,6 +55,7 @@ public actor CnxHostSupervisor {
     private var devicesLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
+    private let executableTrust: @Sendable (URL) -> Bool
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cnx-host")
     private var state = CnxHostState()
     private var run: Task<Void, Never>?
@@ -86,11 +88,18 @@ public actor CnxHostSupervisor {
     /// When the current run came online (nil until then).
     private var onlineSince: Date?
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(
+        clock: any Clock<Duration> = ContinuousClock(),
+        now: @escaping @Sendable () -> Date = { Date() },
+        executableTrust: @escaping @Sendable (URL) -> Bool = {
+            HelperExecutableTrust(reference: .runningProcess).accepts($0)
+        }
+    ) {
         (states, continuation) = AsyncStream.makeStream(of: CnxHostState.self, bufferingPolicy: .bufferingNewest(1))
         (pairing, pairingContinuation) = AsyncStream.makeStream(of: CnxHostEvent.self, bufferingPolicy: .bufferingNewest(32))
         self.clock = clock
         self.now = now
+        self.executableTrust = executableTrust
     }
 
     /// The current state.
@@ -103,7 +112,8 @@ public actor CnxHostSupervisor {
         let mine = generation
         await halt()
         guard generation == mine else { return }
-        guard FileManager.default.isExecutableFile(atPath: inputs.launch.executable.path) else {
+        guard FileManager.default.isExecutableFile(atPath: inputs.launch.executable.path),
+              executableTrust(inputs.launch.executable) else {
             publish { $0.reset(to: .unavailable("cnx-hostd is not in this build")) }
             return
         }
@@ -178,7 +188,7 @@ public actor CnxHostSupervisor {
     private func runOnce(_ inputs: Inputs) async -> String {
         onlineSince = nil
         publish { $0.reset(to: .connecting) }
-        let child = CnxHostProcess()
+        let child = CnxHostProcess(executableTrust: executableTrust)
         do {
             try child.start(inputs.launch, environment: inputs.launch.environment(inherited: inputs.inherited), log: inputs.log)
         } catch {
