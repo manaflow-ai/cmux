@@ -92,7 +92,7 @@ public struct AgentExternalLauncherRegistry: Equatable, Sendable {
         var paths: [String] = []
         let home = (homeDirectory as NSString).standardizingPath
         paths.append(
-            ((home as NSString).appendingPathComponent(".config/cmux") as NSString)
+            ((home as NSString).appendingPathComponent(".config/lawmux") as NSString)
                 .appendingPathComponent("cmux.json")
         )
         if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),

@@ -239,7 +239,7 @@ extension DockSplitStore {
             return URL(fileURLWithPath: testPath)
         }
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".config/cmux/dock.json", isDirectory: false)
+            .appendingPathComponent(".config/lawmux/dock.json", isDirectory: false)
     }
 
     nonisolated private static func existingDirectory(_ rawPath: String) -> String? {

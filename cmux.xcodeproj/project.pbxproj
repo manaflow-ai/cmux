@@ -19546,6 +19546,7 @@
 					"-framework",
 					Carbon,
 				);
+				LAWMUX_DISPLAY_NAME = "$(PRODUCT_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
 				OTHER_SWIFT_FLAGS = (
@@ -19598,9 +19599,10 @@
 					"-framework",
 					Carbon,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
+				LAWMUX_DISPLAY_NAME = lawmux;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lawrenceturnerw.lawmux;
 				PRODUCT_NAME = cmux;
-				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
+				SPARKLE_PUBLIC_KEY = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -19703,7 +19705,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.65.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.docktileplugin;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lawrenceturnerw.lawmux.docktileplugin;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
@@ -19808,7 +19810,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.65.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.tunnel;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lawrenceturnerw.lawmux.tunnel;
 				PRODUCT_MODULE_NAME = cmuxTunnel;
 				PRODUCT_NAME = cmuxTunnel;
 				PROVISIONING_PROFILE_SPECIFIER = "";

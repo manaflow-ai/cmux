@@ -11,7 +11,7 @@ import Foundation
 /// `~/.config/cmux/skills/` so the prompt's file reference resolves for any
 /// agent, with no network access.
 enum CloudAgentSkillLauncher {
-    static let installedSkillRelativePath = ".config/cmux/skills/cmux-cloud.md"
+    static let installedSkillRelativePath = ".config/lawmux/skills/cmux-cloud.md"
 
     /// The bundled skill markdown (`Resources/en.lproj/cloud-agent-skill.md`).
     static func skillMarkdown(bundle: Bundle = .main) -> String? {

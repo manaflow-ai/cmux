@@ -6,7 +6,7 @@ struct AboutLicenseContent {
 
     init(
         bundle: Bundle,
-        repositoryURL: URL = URL(string: "https://github.com/manaflow-ai/cmux")!
+        repositoryURL: URL = URL(string: "https://github.com/LawrenceTurnerW/lawmux")!
     ) {
         self.bundle = bundle
         self.repositoryURL = repositoryURL
@@ -71,7 +71,7 @@ struct AboutLicenseContent {
         bundleIdentifier: String?,
         commit: String?
     ) -> URL {
-        if bundleIdentifier == "com.cmuxterm.app", let version = normalized(version) {
+        if bundleIdentifier == "com.lawrenceturnerw.lawmux", let version = normalized(version) {
             return repositoryURL
                 .appendingPathComponent("tree", isDirectory: true)
                 .appendingPathComponent("v\(version)")

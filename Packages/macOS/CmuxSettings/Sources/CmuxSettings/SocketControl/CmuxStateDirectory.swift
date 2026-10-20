@@ -30,7 +30,7 @@ public import Foundation
 public enum CmuxStateDirectory {
     /// The directory name segment under `~/.local/state` (and the legacy name
     /// under `~/Library/Application Support`).
-    public static let directoryName = "cmux"
+    public static let directoryName = "lawmux"
 
     /// The cmux state directory: `<home>/.local/state/cmux`.
     ///

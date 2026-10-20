@@ -10713,6 +10713,7 @@ struct CMUXCLI {
             return true
         }
         return value == "com.cmuxterm.app" || value.hasPrefix("com.cmuxterm.app.")
+            || value == "com.lawrenceturnerw.lawmux"
     }
 
     /// Sends a session transfer request (`session.import` / `session.export`)
@@ -23905,7 +23906,7 @@ struct CMUXCLI {
             }
             let previewName = "sidebar-preview-\(UUID().uuidString.prefix(8).lowercased())"
             let directory = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
+                .appendingPathComponent(".config/lawmux/sidebars", isDirectory: true)
             do {
                 let path = try CustomSidebarTemplateInstaller().install(
                     name: previewName,
@@ -23951,7 +23952,7 @@ struct CMUXCLI {
                 throw CLIError(message: String(localized: "cli.sidebar.new.missingTemplate", defaultValue: "sidebar new requires --from <template>"))
             }
             let directory = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".config/cmux/sidebars", isDirectory: true)
+                .appendingPathComponent(".config/lawmux/sidebars", isDirectory: true)
             do {
                 let path = try CustomSidebarTemplateInstaller().install(
                     name: name,

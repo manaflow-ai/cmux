@@ -34,7 +34,7 @@ enum SidebarWorkspaceGroupConfigOpener {
     ) -> URL {
         let configURL = home
             .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("lawmux", isDirectory: true)
             .appendingPathComponent("cmux.json", isDirectory: false)
         if !FileManager.default.fileExists(atPath: configURL.path) {
             try? FileManager.default.createDirectory(

@@ -27,7 +27,7 @@ public struct CmuxConfigLocation: Sendable, Hashable {
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         // `URL.appending(path:)` is the modern Foundation API (macOS 13+);
         // returns a non-optional URL without the legacy `isDirectory` flag.
-        self.userConfigFile = home.appending(path: ".config/cmux/cmux.json")
-        self.legacyFallbackFile = home.appending(path: ".config/cmux/settings.json")
+        self.userConfigFile = home.appending(path: ".config/lawmux/cmux.json")
+        self.legacyFallbackFile = home.appending(path: ".config/lawmux/settings.json")
     }
 }

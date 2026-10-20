@@ -8,8 +8,8 @@ import PostHog
 final class PostHogAnalytics: @unchecked Sendable {
     static let shared = PostHogAnalytics()
 
-    // The PostHog project API key is intentionally embedded in the app (it's a public key).
-    private let apiKey = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP"
+    // lawmux: analytics disabled. An empty key makes isEnabled() return false in Release builds.
+    private let apiKey = ""
 
     // PostHog Cloud US default (matches other cmux properties).
     private let host = "https://us.i.posthog.com"
