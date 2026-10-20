@@ -4302,7 +4302,10 @@ jobs:
   # and tries again, twice; publish-nightly needs this job to succeed.
   attest-nightly-ssh-daemon:
     needs: [decide, build-nightly-app]
-    if: "!cancelled() && needs.build-nightly-app.result == 'success' && inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.build_only != 'true'"
+    # An unsigned resume (nightly_next_unsigned_run) re-uploads the source
+    # run's assets under the same name; they are attested again here, so a
+    # resumed or source run whose attestation failed never publishes them unattested.
+    if: "!cancelled() && needs.build-nightly-app.result == 'success' && needs.decide.outputs.build_only != 'true'"
     permissions:
       contents: read
       actions: read

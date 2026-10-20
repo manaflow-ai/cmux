@@ -37,6 +37,12 @@ class SshDaemonAttestation(unittest.TestCase):
         self.assertEqual(job['runs-on'], 'ubuntu-24.04')
         self.assertIn('build-nightly-app', job['needs'])
         self.assertIn("needs.build-nightly-app.result == 'success'", job['if'])
+        # An unsigned resume re-uploads the source run's assets under the same
+        # name and publishes them, so it attests them too (publish requires it).
+        self.assertNotIn('nightly_next_unsigned_run', job['if'])
+        retain = [step for step in JOBS['build-nightly-app']['steps']
+                  if step.get('name') == 'Retain resumed cmux-nightly-remote-daemon']
+        self.assertEqual([step['with']['name'] for step in retain], ['cmux-nightly-remote-daemon'])
         self.assertEqual(job['permissions'].get('attestations'), 'write')
         self.assertEqual(job['permissions'].get('id-token'), 'write')
         steps = job['steps']
