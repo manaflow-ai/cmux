@@ -225,6 +225,52 @@ fn pinned_column_refuses_moves_in_and_the_pinned_tab_moving_out_or_back() {
     assert_eq!(wire.tabs(panes[0])[0], home);
 }
 
+/// The Home Chief pane (home-chief-pane.md): every other close or reshape that would take its
+/// pane or its tab away is refused too, through the resource API the CLI and MCP use.
+#[test]
+fn pinned_column_survives_pane_close_screen_close_and_a_split() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let pane = json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    refused(&resource(&wire.mux, "pane.close", pane.clone(), Some("close-home-pane")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "pane.close kept Home");
+
+    let mut split = pane;
+    split["direction"] = json!("down");
+    let response = resource(&wire.mux, "pane.split", split, Some("split-home"));
+    assert!(
+        response.get("error").is_some_and(|e| !e.is_null()),
+        "a split in Home was taken: {response}"
+    );
+    let dock_panes = wire.mux.with_state(|state| {
+        state.workspaces[0].screens[0].layout_columns[0].root.pane_ids_vec().len()
+    });
+    assert_eq!(dock_panes, 1, "no pane joined the pinned column");
+
+    // A second screen keeps the workspace open (closing its last screen closes the workspace,
+    // which is not a removal; the store's home workspace refuses that itself, `home_not_closable`).
+    let workspace_id = wire.mux.with_state(|state| state.workspaces[0].id);
+    wire.mux
+        .new_screen_with_spec(
+            Some(workspace_id),
+            crate::TerminalSpawnOptions::new(None, Vec::new()),
+            None,
+            crate::ScreenSpec::default(),
+        )
+        .unwrap();
+    let (workspace, screen) = wire.mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    });
+    let close = json!({"machine": "current", "session": "current", "workspace": workspace, "screen": screen});
+    let response = resource(&wire.mux, "screen.close", close, Some("close-home-screen"));
+    assert!(
+        response.get("error").is_some_and(|e| !e.is_null()),
+        "Home's screen closed: {response}"
+    );
+    assert_eq!(wire.tabs(panes[0]), vec![home], "screen.close kept Home");
+}
+
 #[test]
 fn column_update_pins_one_way_and_allow_tabs_needs_a_pin() {
     let (wire, _) = Wire::home();

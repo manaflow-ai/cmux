@@ -24,6 +24,9 @@ extension ScreenContentView {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 headers: headers, footers: footers, style: context.style,
                                                 previous: previous) else { return nil }
+        // A pinned dock that takes no other tab (the Home Chief pane) takes no drop at all: a join
+        // or a split there would only be refused (`dock-column-pinned`), so nothing promises one.
+        if case let .pane(pane, _) = hit, layout.column(containing: pane)?.dock?.takesTabs == false { return nil }
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
