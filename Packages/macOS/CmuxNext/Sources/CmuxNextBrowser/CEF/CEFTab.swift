@@ -50,6 +50,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
+    /// The page's Developer Tools modes (cache off, throttling, overlays,
+    /// emulated media) that cmux's DevTools session set (`WebDevToolsToggles`).
+    @ObservationIgnored public var devToolsModes = WebDevToolsToggles()
 
     var machine = BrowserTabStateMachine()
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`, idle power).
