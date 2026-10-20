@@ -53,7 +53,8 @@ struct SidebarSelectionRevealsTopTests {
         #expect(!order.revealsTop(for: .workspace(ids[1])))
     }
 
-    @Test func wrappingToTheFirstWorkspaceScrollsToOffsetZero() throws {
+    /// A 40-row sidebar in a 240 x 320 window, `ids[39]` focused and scrolled into view.
+    private static func makeScrolledSidebar() throws -> (SidebarModel, SidebarView, NSWindow, [WorkspaceID]) {
         let start = Self.sections(Array(1...40))
         let ids = try #require(start.first?.workspaces.map(\.id))
         let model = SidebarModel(sections: start, activeWorkspaceID: ids[39])
@@ -63,15 +64,24 @@ struct SidebarSelectionRevealsTopTests {
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView?.addSubview(sidebar)
-        defer { window.orderOut(nil) }
         sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        return (model, sidebar, window, ids)
+    }
+
+    private static func scrollToRow(_ list: SidebarListView, _ id: WorkspaceID) throws {
+        let row = try #require(list.displayed.row(for: .workspace(id)))
+        list.scrollClip(to: row.y, animated: false)
+    }
+
+    @Test func wrappingToTheFirstWorkspaceScrollsToOffsetZero() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
+        let (model, sidebar, window, ids) = try Self.makeScrolledSidebar()
+        defer { window.orderOut(nil) }
         let list = sidebar.list
-        list.reload(animated: false)
         let clip = try #require(list.enclosingScrollView?.contentView)
-        let last = try #require(list.displayed.row(for: .workspace(ids[39])))
-        list.scrollClip(to: last.y, animated: false)
+        try Self.scrollToRow(list, ids[39])
         try #require(clip.bounds.minY > 50, "the sidebar did not scroll down")
 
         // The first workspace is in front of every row: offset 0, not just the row's own reveal.
@@ -79,5 +89,29 @@ struct SidebarSelectionRevealsTopTests {
         model.activeWorkspaceID = ids[0]
         if !list.patchSelection(from: old, oldSelection: oldSelection) { list.reload(animated: false) }
         #expect(abs(clip.bounds.minY) < 0.5, "the sidebar stayed at \(clip.bounds.minY)")
+    }
+
+    /// A selection a drag held back is taken by the reload the drag made: a later reload that
+    /// changes no selection (a row closed elsewhere) keeps the user's scroll, not a late jump to the top.
+    @Test func aSelectionTakenDuringADragDoesNotJumpALaterReload() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let (model, sidebar, window, ids) = try Self.makeScrolledSidebar()
+        defer { window.orderOut(nil) }
+        let list = sidebar.list
+        let clip = try #require(list.enclosingScrollView?.contentView)
+
+        list.external = SidebarListView.ExternalDrag(windowPoint: .zero, sourceMachine: nil)
+        let old = model.selectedItem, oldSelection = model.selection
+        model.activeWorkspaceID = ids[0]
+        try #require(!list.patchSelection(from: old, oldSelection: oldSelection), "a drag let the selection patch")
+        list.reload(animated: false)
+        list.external = nil
+
+        try Self.scrollToRow(list, ids[20])
+        let offset = clip.bounds.minY
+        try #require(offset > 50, "the sidebar did not scroll down")
+        list.reload(animated: false)
+        #expect(abs(clip.bounds.minY - offset) < 0.5, "the reload moved the sidebar from \(offset) to \(clip.bounds.minY)")
     }
 }
