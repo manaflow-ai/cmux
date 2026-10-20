@@ -622,9 +622,25 @@ pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
     vm_host && !macos
 }
 
+/// Whether a new session with no asked policy runs approve-all: only on a
+/// `vmHost` machine that is not a Mac, and only for the owner's peer daemon
+/// (`Origin::Peer`, proven by the peer token over ssh); a Web client never.
+pub fn vm_host_peer_approves(vm_host: bool, macos: bool, from_peer: bool) -> bool {
+    let _ = (vm_host, macos, from_peer);
+    false
+}
+
 #[cfg(test)]
 mod vm_host_tests {
-    use super::vm_host_unsandboxed;
+    use super::{vm_host_peer_approves, vm_host_unsandboxed};
+
+    #[test]
+    fn only_the_owner_peer_on_a_vm_host_gets_approve_all() {
+        assert!(vm_host_peer_approves(true, false, true));
+        assert!(!vm_host_peer_approves(true, false, false), "a Web client still asks");
+        assert!(!vm_host_peer_approves(true, true, true), "never on a Mac");
+        assert!(!vm_host_peer_approves(false, false, true), "off by default");
+    }
 
     #[test]
     fn only_a_vm_host_off_macos_runs_remote_claude_unsandboxed() {
