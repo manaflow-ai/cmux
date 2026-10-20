@@ -160,7 +160,8 @@ impl HostConfig {
         } else if let Some(refresh_token) = env_or_file("CMUX_MOBILE_REFRESH_TOKEN")? {
             TokenSource::Refresh {
                 refresh_token,
-                project_id: env("CMUX_MOBILE_STACK_PROJECT_ID").unwrap_or_else(|| DEFAULT_STACK_PROJECT.into()),
+                project_id: env("CMUX_MOBILE_STACK_PROJECT_ID")
+                    .unwrap_or_else(|| DEFAULT_STACK_PROJECT.into()),
                 publishable_key: env("CMUX_MOBILE_STACK_PUBLISHABLE_KEY"),
                 api: env("CMUX_MOBILE_STACK_API").unwrap_or_else(|| DEFAULT_STACK_API.into()),
             }
@@ -219,7 +220,9 @@ impl HostConfig {
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(
-                    &env("CMUX_MOBILE_TUI_SOCKET_DIR").map(PathBuf::from).unwrap_or_else(default_tui_socket_dir),
+                    &env("CMUX_MOBILE_TUI_SOCKET_DIR")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(default_tui_socket_dir),
                 )),
                 tui_socket_dir: env("CMUX_MOBILE_TUI_SOCKET_DIR")
                     .map(PathBuf::from)

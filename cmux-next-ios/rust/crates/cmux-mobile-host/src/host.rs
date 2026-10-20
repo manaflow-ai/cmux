@@ -490,7 +490,8 @@ mod tests {
             "HTTP error: 401 Unauthorized".into(),
         ));
         assert!(unauthorized(&upgrade));
-        let server = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 502, body: String::new() });
+        let server =
+            anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 502, body: String::new() });
         assert!(!unauthorized(&server));
         assert!(!unauthorized(&anyhow::Error::new(cmux_mobile_link::api::ApiError::Http("dns".into()))));
         assert!(!unauthorized(&anyhow::anyhow!("the app sent no access token")));

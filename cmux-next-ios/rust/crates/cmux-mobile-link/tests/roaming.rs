@@ -169,7 +169,10 @@ async fn stream_across(
         Change::Signaling => {
             server.kick(&phone_id);
             let mut closed = phone.events();
-            while !matches!(closed.recv().await, Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(_))) {}
+            while !matches!(
+                closed.recv().await,
+                Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(_))
+            ) {}
             let fresh =
                 SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
             assert!(wireguard::rehome(&fresh) >= 1);

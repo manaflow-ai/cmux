@@ -228,7 +228,8 @@ async fn connect_with(
     kind: TransportKind,
     options: &DialOptions,
 ) -> Result<Connected, DialError> {
-    cmux_mobile_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, options, LinkConfig::default()).await
+    cmux_mobile_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, options, LinkConfig::default())
+        .await
 }
 
 /// Everything the channel delivers until it closes, and the close code.

@@ -151,7 +151,8 @@ pub(crate) async fn add_receiver(pc: &RTCPeerConnection) -> Result<Arc<ReceiveCa
 pub(crate) async fn add_sender(
     pc: &RTCPeerConnection,
 ) -> Result<(Arc<TrackLocalStaticRTP>, Arc<RTCRtpSender>), MediaError> {
-    let track = Arc::new(TrackLocalStaticRTP::new(h264(), "browser".to_owned(), "cmux-mobile-video".to_owned()));
+    let track =
+        Arc::new(TrackLocalStaticRTP::new(h264(), "browser".to_owned(), "cmux-mobile-video".to_owned()));
     let transceiver = pc
         .add_transceiver_from_track(
             Arc::clone(&track) as Arc<dyn webrtc::track::track_local::TrackLocal + Send + Sync>,

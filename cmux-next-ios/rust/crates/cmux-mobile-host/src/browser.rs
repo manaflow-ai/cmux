@@ -34,13 +34,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
+use cmux_mobile_link::ChannelEvent;
+use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use cmux_rd_proto::control::{Control, SecretHex};
 use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer,
     encode_stream_frame,
 };
-use cmux_mobile_link::ChannelEvent;
-use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};

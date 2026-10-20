@@ -17,7 +17,9 @@ stdout, logs go to stderr, and the process exits when stdin ends.";
 async fn main() -> Result<()> {
     // stdout is the control stream when supervised, so logs always go to stderr.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_env("CMUX_MOBILE_LOG").unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_env("CMUX_MOBILE_LOG").unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_writer(std::io::stderr)
         .init();
     match std::env::args().nth(1).as_deref() {
@@ -28,7 +30,9 @@ async fn main() -> Result<()> {
         Some("--print-device-id") => {
             let id = match std::env::var("CMUX_MOBILE_DEVICE_ID") {
                 Ok(id) if !id.trim().is_empty() => id,
-                _ => cmux_mobile_host::config::persistent_device_id(&cmux_mobile_host::config::default_state_dir())?,
+                _ => cmux_mobile_host::config::persistent_device_id(
+                    &cmux_mobile_host::config::default_state_dir(),
+                )?,
             };
             println!("{id}");
             return Ok(());

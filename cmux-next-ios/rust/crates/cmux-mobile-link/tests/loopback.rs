@@ -125,7 +125,10 @@ async fn dialing_another_users_mac_is_refused() {
         .await
         .err()
         .expect("refused");
-    assert!(matches!(error, cmux_mobile_link::DialError::Refused { ref code, .. } if code == "not_owner"), "{error}");
+    assert!(
+        matches!(error, cmux_mobile_link::DialError::Refused { ref code, .. } if code == "not_owner"),
+        "{error}"
+    );
 }
 
 /// What [`exercise_turn`] saw.
@@ -617,7 +620,8 @@ async fn a_second_socket_for_a_device_replaces_the_first() {
     let _second = SignalingClient::connect(&server.base_url, "user:alice", "team", &device).await.unwrap();
     let reason = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if let Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(reason)) = events.recv().await {
+            if let Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(reason)) = events.recv().await
+            {
                 return reason;
             }
         }
@@ -639,7 +643,9 @@ async fn a_socket_the_backend_closed_refuses_to_queue() {
     let mut events = client.events();
     server.kick(&device);
     tokio::time::timeout(Duration::from_secs(5), async {
-        while !matches!(events.recv().await, Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(_))) {}
+        while !matches!(events.recv().await, Ok(cmux_mobile_link::signaling::SignalingEvent::Disconnected(_)))
+        {
+        }
     })
     .await
     .expect("the socket closes");

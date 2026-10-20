@@ -11,7 +11,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let dir = std::path::PathBuf::from(args.next().context("usage: cmux-mobile-stub-tui <socket dir> [session]")?);
+    let dir =
+        std::path::PathBuf::from(args.next().context("usage: cmux-mobile-stub-tui <socket dir> [session]")?);
     let session = args.next().unwrap_or_else(|| "main".into());
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{session}.sock"));

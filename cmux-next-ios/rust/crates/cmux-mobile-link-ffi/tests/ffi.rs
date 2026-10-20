@@ -3,10 +3,12 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cmux_mobile_link_ffi::{ChannelMessage, ConnectRequest, LinkEvent, LinkObserver, LinkPath, Transport, connect_inner};
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::testing::{FakeOptions, FakeSignaling};
 use cmux_mobile_link::{ChannelEvent, DialOptions, LinkConfig, SignalingClient};
+use cmux_mobile_link_ffi::{
+    ChannelMessage, ConnectRequest, LinkEvent, LinkObserver, LinkPath, Transport, connect_inner,
+};
 
 #[derive(Default)]
 struct Recorder(Mutex<Vec<LinkEvent>>);
@@ -186,7 +188,9 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
     )
     .await;
     match result {
-        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => assert!(message.contains("TURN"), "{message}"),
+        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
+            assert!(message.contains("TURN"), "{message}")
+        }
         Err(other) => panic!("unexpected error {other:?}"),
         Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
     }
@@ -219,7 +223,9 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
     )
     .await;
     match result {
-        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => assert!(message.contains("TURN"), "{message}"),
+        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
+            assert!(message.contains("TURN"), "{message}")
+        }
         Err(other) => panic!("unexpected error {other:?}"),
         Ok(_) => panic!("relay-only WebRTC connected without TURN"),
     }
@@ -255,8 +261,13 @@ async fn prewarm_and_redial_reuse_the_socket_and_ice_servers() {
     let mac_id = uuid::Uuid::new_v4().to_string();
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
     let device = uuid::Uuid::new_v4().to_string();
-    let warmed =
-        cmux_mobile_link_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device.clone()).await;
+    let warmed = cmux_mobile_link_ffi::prewarm(
+        server.base_url.clone(),
+        "user:alice".into(),
+        "team".into(),
+        device.clone(),
+    )
+    .await;
     assert!(names(&warmed).contains(&"signaling_open"), "{warmed:?}");
     assert!(names(&warmed).contains(&"ice_servers_fetched"), "{warmed:?}");
 
@@ -284,7 +295,9 @@ async fn prewarm_and_redial_reuse_the_socket_and_ice_servers() {
     assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"warm".to_vec() });
 
     // A second prewarm finds the socket alive.
-    let again = cmux_mobile_link_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device).await;
+    let again =
+        cmux_mobile_link_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device)
+            .await;
     assert!(names(&again).contains(&"signaling_alive"), "{again:?}");
     assert!(names(&again).contains(&"ice_servers_cached"), "{again:?}");
     second.close();
@@ -320,7 +333,12 @@ async fn a_dial_during_prewarm_joins_its_socket() {
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
     let device = uuid::Uuid::new_v4().to_string();
     let (warmed, handle) = tokio::join!(
-        cmux_mobile_link_ffi::prewarm(server.base_url.clone(), "user:alice".into(), "team".into(), device.clone()),
+        cmux_mobile_link_ffi::prewarm(
+            server.base_url.clone(),
+            "user:alice".into(),
+            "team".into(),
+            device.clone()
+        ),
         connect_inner(request(&server, &device, &mac_id), None),
     );
     let handle = handle.expect("connect");

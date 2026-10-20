@@ -805,12 +805,18 @@ async fn daemon_folders(config: &ServiceConfig) -> Result<Vec<PathBuf>, Refusal>
 
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
-    daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-upload\"}\n", "cmux-mobile-upload").await
+    daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-upload\"}\n", "cmux-mobile-upload")
+        .await
 }
 
 /// The daemon at `path`'s `list-personal` reply: the person's sidebar order and groups (at most 5 s).
 async fn list_personal(path: &Path) -> Result<Value, Refusal> {
-    daemon_query(path, b"{\"cmd\":\"list-personal\",\"id\":\"cmux-mobile-personal\"}\n", "cmux-mobile-personal").await
+    daemon_query(
+        path,
+        b"{\"cmd\":\"list-personal\",\"id\":\"cmux-mobile-personal\"}\n",
+        "cmux-mobile-personal",
+    )
+    .await
 }
 
 /// The verdict for a line the policy let through, once the Mac's own state
@@ -1261,7 +1267,11 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("README.md"), "r").unwrap();
         let home = tempfile::tempdir().unwrap();
-        let roots = shared_file_roots(&[], vec![project.path().to_path_buf(), home.path().to_path_buf()], home.path());
+        let roots = shared_file_roots(
+            &[],
+            vec![project.path().to_path_buf(), home.path().to_path_buf()],
+            home.path(),
+        );
         assert!(confine(&roots, &project.path().join("README.md")).is_ok());
         assert_eq!(roots.len(), 1, "home is never a root: {roots:?}");
         // A home that doesn't resolve shares no workspace folder at all.

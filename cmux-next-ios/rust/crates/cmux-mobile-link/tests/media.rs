@@ -111,7 +111,10 @@ struct Streamed {
 
 /// Streams `n` frames at 60 fps (a keyframe every 60) and returns the
 /// frames the phone decoded, with the Mac's last state.
-async fn stream(pair: &Pair, n: u64) -> (Vec<cmux_mobile_link::media::ReceivedFrame>, cmux_mobile_link::media::SenderState) {
+async fn stream(
+    pair: &Pair,
+    n: u64,
+) -> (Vec<cmux_mobile_link::media::ReceivedFrame>, cmux_mobile_link::media::SenderState) {
     let run = stream_with(pair, n, Source { periodic: Some(60), ..Source::default() }).await;
     (run.frames, run.state)
 }

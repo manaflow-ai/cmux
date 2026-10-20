@@ -279,9 +279,14 @@ async fn main() -> Result<()> {
         block_udp: args.block_udp,
         ..DialOptions::default()
     };
-    let connected =
-        cmux_mobile_link::dial::connect(&signaling, &args.mac, args.transport, &options, LinkConfig::default())
-            .await?;
+    let connected = cmux_mobile_link::dial::connect(
+        &signaling,
+        &args.mac,
+        args.transport,
+        &options,
+        LinkConfig::default(),
+    )
+    .await?;
     let link = connected.link.clone();
     let screens = Arc::new(Screens::default());
 

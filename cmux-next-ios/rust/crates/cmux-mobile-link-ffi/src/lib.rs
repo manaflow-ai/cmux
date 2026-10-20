@@ -252,7 +252,9 @@ impl LinkHandle {
                 .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?
         };
         if !args.is_object() {
-            return Err(CmuxMobileError::InvalidArgument { message: "args_json must be a JSON object".into() });
+            return Err(CmuxMobileError::InvalidArgument {
+                message: "args_json must be a JSON object".into(),
+            });
         }
         let link = self.link.clone();
         let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
@@ -307,7 +309,9 @@ impl LinkHandle {
         let args: serde_json::Value = serde_json::from_str(&args_json)
             .map_err(|e| CmuxMobileError::InvalidArgument { message: format!("args_json: {e}") })?;
         if !args.is_object() {
-            return Err(CmuxMobileError::InvalidArgument { message: "args_json must be a JSON object".into() });
+            return Err(CmuxMobileError::InvalidArgument {
+                message: "args_json must be a JSON object".into(),
+            });
         }
         let mut args = args;
         let link = self.link.clone();
@@ -318,7 +322,9 @@ impl LinkHandle {
             // ignores the field and streams on the channel, which the viewer
             // reads either way.
             let lane = match link.media() {
-                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => Some(lane),
+                Some(cmux_mobile_link::media::MediaLane::In(lane)) if args.get("video").is_none() => {
+                    Some(lane)
+                }
                 _ => None,
             };
             // This tab's frames carry `video_tag` (media/tag.rs): the lane
@@ -601,7 +607,8 @@ pub async fn connect_with_options(
         relay_only: options.relay_only,
         block_udp: options.block_udp,
         video_lane: !options.no_video_lane,
-        webrtc_media: !options.no_webrtc_media && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
+        webrtc_media: !options.no_webrtc_media
+            && std::env::var_os("CMUX_MOBILE_DEV_NO_WEBRTC_MEDIA").is_none(),
     };
     on_runtime(connect_inner(request, observer)).await
 }

@@ -318,10 +318,13 @@ mod tests {
         }
         fn recv_rtp(
             &self,
-        ) -> futures_util::future::BoxFuture<'_, Option<cmux_mobile_link::media::rtp::packet::Packet>> {
+        ) -> futures_util::future::BoxFuture<'_, Option<cmux_mobile_link::media::rtp::packet::Packet>>
+        {
             Box::pin(std::future::pending())
         }
-        fn recv_rtcp(&self) -> futures_util::future::BoxFuture<'_, Option<cmux_mobile_link::media::RtcpPackets>> {
+        fn recv_rtcp(
+            &self,
+        ) -> futures_util::future::BoxFuture<'_, Option<cmux_mobile_link::media::RtcpPackets>> {
             Box::pin(std::future::pending())
         }
     }
