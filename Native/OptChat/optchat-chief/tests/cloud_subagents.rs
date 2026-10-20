@@ -153,3 +153,32 @@ fn the_cloud_folder_names_the_repo_of_a_mac_path() {
     );
     assert_eq!(cloud_repo(None), None);
 }
+
+#[test]
+fn a_peer_session_names_its_peer_and_sends_only_an_asking_policy() {
+    use optchat_chief::acpmux::{SessionSpec, session_meta};
+    let mut spec = SessionSpec {
+        name: "optchat-sub-h0me-a1".into(),
+        cwd: PathBuf::from("/home/agent/work"),
+        harness: "claude".into(),
+        policy: "approve-all".into(),
+        model: None,
+        effort: None,
+        preset: None,
+        tags: Default::default(),
+        env: Default::default(),
+        fast: false,
+        peer: Some("cloud1".into()),
+    };
+    let meta = session_meta(&spec, None);
+    assert_eq!(meta["peer"], "cloud1");
+    assert!(meta.get("policy").is_none(), "the VM's default applies: {meta}");
+    assert!(meta.get("preset").is_none());
+    spec.policy = "ask".into();
+    assert_eq!(session_meta(&spec, None)["policy"], "ask", "the spawn floor still asks");
+    spec.peer = None;
+    spec.policy = "approve-all".into();
+    let local = session_meta(&spec, Some("optchat-sub-h0me"));
+    assert_eq!(local["policy"], "approve-all");
+    assert!(local.get("peer").is_none());
+}

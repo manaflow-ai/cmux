@@ -799,13 +799,15 @@ pub fn events(client: &RpcClient, session: &str, after: u64) -> Result<Vec<Acpmu
 /// codex-acp's config option for the fast (priority) service tier.
 pub const FAST_MODE_OPTION: &str = "fast-mode";
 
-/// `session/new` with acpmux's name, harness, policy, model and preset.
-pub fn new_session(
-    client: &RpcClient,
-    spec: &SessionSpec,
-    preset: Option<&str>,
-) -> Result<String, String> {
-    let mut meta = json!({"name": spec.name, "harness": spec.harness, "policy": spec.policy});
+/// `session/new`'s `_meta.acpmux`: name, harness, policy, model, effort,
+/// preset, env and peer. On a peer (a cloud VM) a policy that does not ask is
+/// left out: a peer refuses one from a remote connection, and the VM's own
+/// default (its config.json) applies; `ask` (the spawn floor) is still sent.
+pub fn session_meta(spec: &SessionSpec, preset: Option<&str>) -> Value {
+    let mut meta = json!({"name": spec.name, "harness": spec.harness});
+    if spec.peer.is_none() || matches!(spec.policy.as_str(), "ask" | "deny-all") {
+        meta["policy"] = json!(spec.policy);
+    }
     if let Some(model) = &spec.model {
         meta["model"] = json!(model);
     }
@@ -821,6 +823,16 @@ pub fn new_session(
     if let Some(peer) = &spec.peer {
         meta["peer"] = json!(peer);
     }
+    meta
+}
+
+/// `session/new` with acpmux's name, harness, policy, model and preset.
+pub fn new_session(
+    client: &RpcClient,
+    spec: &SessionSpec,
+    preset: Option<&str>,
+) -> Result<String, String> {
+    let mut meta = session_meta(spec, preset);
     let request = |meta: &Value| {
         client.request(
             "session/new",
