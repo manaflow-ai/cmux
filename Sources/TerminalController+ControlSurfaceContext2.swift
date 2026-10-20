@@ -421,7 +421,58 @@ extension TerminalController {
            let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
             return invalid
         }
+        let hasProfileParam = inputs.profileRaw != nil
+            || inputs.hasInvalidProfileParam
+            || inputs.hasMultipleProfileParams
+        let preferredBrowserProfileID: UUID?
+        if panelType != .browser, hasProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileRequiresBrowserPane.description,
+                candidates: []
+            )
+        } else if inputs.hasMultipleProfileParams {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.multipleProfileSelectors.description,
+                candidates: []
+            )
+        } else if panelType == .browser, inputs.hasInvalidProfileParam {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.invalidProfileSelector.description,
+                candidates: []
+            )
+        } else if panelType == .browser, let selector = inputs.profileRaw {
+            switch BrowserProfileStore.shared.resolveProfileSelection(selector) {
+            case .matched(let profile):
+                preferredBrowserProfileID = profile.id
+            case .notFound:
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.profileNotFound(selector).description,
+                    candidates: []
+                )
+            case .ambiguous(let profiles):
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.ambiguousProfile(selector, profiles).description,
+                    candidates: profiles.map {
+                        ControlPaneBrowserProfileCandidate(id: $0.id, displayName: $0.displayName)
+                    }
+                )
+            }
+        } else {
+            preferredBrowserProfileID = nil
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
+            if let selector = inputs.profileRaw {
+                return .invalidBrowserProfile(
+                    selector: selector,
+                    message: BrowserProfileAutomationError.browserDisabled.description,
+                    candidates: []
+                )
+            }
             return .browserDisabled(surfaceBrowserDisabledOutcome(
                 rawURL: inputs.urlRaw,
                 url: url,
@@ -435,6 +486,7 @@ extension TerminalController {
                 tabManager: tabManager,
                 panelType: panelType,
                 url: url,
+                preferredProfileID: preferredBrowserProfileID,
                 inputs: inputs
             )
         }
@@ -444,6 +496,13 @@ extension TerminalController {
             tabManager: tabManager
         ) else {
             return .workspaceNotFound
+        }
+        if panelType == .browser, preferredBrowserProfileID != nil, ws.isRemoteWorkspace {
+            return .invalidBrowserProfile(
+                selector: inputs.profileRaw ?? "",
+                message: BrowserProfileAutomationError.profileUnavailableInRemoteWorkspace.description,
+                candidates: []
+            )
         }
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
@@ -480,6 +539,7 @@ extension TerminalController {
                 inPane: paneId,
                 url: url,
                 focus: focus,
+                preferredProfileID: preferredBrowserProfileID,
                 creationPolicy: browserCreationPolicy,
                 bypassRemoteProxy: useLocalContext
             )?.id
