@@ -77,7 +77,7 @@ impl Default for ChiefSettings {
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
-            cloud_auto_pause_idle_secs: 600,
+            cloud_auto_pause_idle_secs: 60,
         }
     }
 }
@@ -112,7 +112,9 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
-            cloud_auto_pause_idle_secs: 600,
+            cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
+                .as_u64()
+                .unwrap_or(60),
         }
     }
 
@@ -123,6 +125,7 @@ impl ChiefSettings {
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
+        value["cloud"] = json!({"autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs});
         value
     }
 
@@ -144,6 +147,18 @@ impl ChiefSettings {
         file.sync_all()?;
         std::fs::rename(&tmp, path)
     }
+}
+
+/// A `cloud.autoPauseIdleSeconds` value: whole seconds, 0 to 86400.
+pub fn parse_idle_secs(value: &str) -> Result<u64, String> {
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n <= 86_400)
+        .ok_or_else(|| {
+            format!("{CLOUD_AUTO_PAUSE_IDLE_SECONDS}: whole seconds 0..86400, not {value:?}")
+        })
 }
 
 /// A cache TTL setting value: `5m` or `1h`.

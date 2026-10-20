@@ -416,7 +416,7 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
 
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["one".into()], None)).unwrap();
-    h.brain.step(Input::SubTick);
+    h.brain.step(Input::CloudTick);
     let busy = vms.calls.lock().unwrap().clone();
     assert!(
         !busy.iter().any(|c| c.starts_with("pause")),
@@ -427,8 +427,8 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         id: "a1".into(),
         error: "ended".into(),
     });
-    h.brain.step(Input::SubTick);
-    h.brain.step(Input::SubTick);
+    h.brain.step(Input::CloudTick);
+    h.brain.step(Input::CloudTick);
     let until = Instant::now() + Duration::from_secs(5);
     while !vms
         .calls

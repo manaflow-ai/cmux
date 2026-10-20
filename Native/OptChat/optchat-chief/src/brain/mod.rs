@@ -797,7 +797,7 @@ impl Brain {
             workspaces: None,
             sub_starter: None,
             cloud_vms: None,
-            cloud_idle: std::time::Duration::from_secs(600),
+            cloud_idle: std::time::Duration::from_secs(chief.cloud_auto_pause_idle_secs),
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
             max_live: None,
@@ -928,8 +928,18 @@ impl Brain {
         vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
         idle: std::time::Duration,
     ) {
+        // A host that runs cloud subagents checks its VMs every few seconds.
+        if vms.is_some() && self.cloud_vms.is_none() {
+            control::start_cloud_ticker(self.tx.clone());
+        }
         self.cloud_vms = vms;
         self.cloud_idle = idle;
+    }
+
+    /// `cloud.autoPauseIdleSeconds`: how long a cloud VM idles before it
+    /// pauses.
+    pub fn cloud_auto_pause_idle(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.chief.cloud_auto_pause_idle_secs)
     }
 
     /// The clock the subagent watch reads (ms since the epoch).
@@ -1145,10 +1155,10 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::CloudTick | Input::CloudPauseFailed { .. } => {}
+            Input::CloudTick => self.cloud_tick(),
+            Input::CloudPauseFailed { peer } => self.cloud_pause_failed(&peer),
             Input::SubTick => {
                 self.sub_tick();
-                self.cloud_tick();
             }
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
@@ -1168,6 +1178,8 @@ impl Brain {
             }
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
+                // The Chief goes away: its idle cloud VMs pause now.
+                self.cloud_shutdown();
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
             }
             Input::HandoffWhenIdle => {
@@ -1340,6 +1352,17 @@ impl Brain {
             CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
+        if key == crate::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+            let secs = crate::chief_settings::parse_idle_secs(value)?;
+            let mut next = self.chief;
+            next.cloud_auto_pause_idle_secs = secs;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            self.cloud_idle = std::time::Duration::from_secs(secs);
+            (self.log)(&format!("setting {key} = {secs}"));
+            return Ok(format!("{key} = {secs}"));
+        }
         if key == SHOW_AFTER_REPORT {
             let on = parse_bool(value)?;
             let mut next = self.chief;
