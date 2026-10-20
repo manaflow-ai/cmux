@@ -35,6 +35,9 @@ extension SidebarBridge {
     /// show there at once, as after a drag, until the store holds the move:
     /// a new workspace is never drawn at its daemon slot first (cx-f6i7).
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+        // On the sidebar document a group is its item (`itm_g_<id>`): the document takes the move, as it takes a
+        // drag, with no undo step of its own (the placement belongs to the create or drop that asked for it).
+        if SidebarDocWiring.handle(.reorder(ids, to: position), bridge: self, undoable: false) { return }
         let edit = rows.add(.reorder(ids, to: position))
         if usesPersonalOrganization {
             placePersonal(ids, at: position, in: sections, edit: edit)
