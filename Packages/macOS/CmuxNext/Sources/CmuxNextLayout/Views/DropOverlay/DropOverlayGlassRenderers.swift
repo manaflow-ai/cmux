@@ -9,7 +9,7 @@ final class GlassFillRenderer: DropOverlayRenderer {
     let style: DropOverlayStyle
     let view = DropOverlayRenderers.container()
     let surface: OverlaySurfaceView
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
 
     init(style: DropOverlayStyle, material: OverlayMaterial?) {
         self.style = style
@@ -92,7 +92,7 @@ final class InsetCardRenderer: DropOverlayRenderer {
     private let tint = DropOverlayRenderers.shape()
     private let card: OverlaySurfaceView
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var zone: DropOverlayZone?
 
     init(material: OverlayMaterial?) {

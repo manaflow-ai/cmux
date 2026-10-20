@@ -25,12 +25,20 @@
       "row": {"kind": "chief", "name": "Chief", "unread": 1, "pinned": false, "muted": false}
     },
     {
-      "name": "untitled direct message is named by its peer until the page knows the peer",
+      "name": "untitled direct message has no name until its people are read: never its peer's id",
       "entry": {"conversation": "conv_0000000000000000000000CASE4", "rev": 1, "kind": "dm", "title": "",
         "dm_peer": "user_00000000000000000peer", "last_seq": 1, "last_at": "2026-10-12T00:00:00.000Z", "preview": "",
         "removed": false, "unread": 0, "mentions": 0, "counts_rev": 1, "pinned": false, "muted": false, "archived": false,
         "archived_seq": 0, "marked_unread": false},
-      "row": {"kind": "direct", "name": "user_00000000000000000peer", "unread": 0, "pinned": false, "muted": false}
+      "row": {"kind": "direct", "name": "", "unread": 0, "pinned": false, "muted": false}
+    },
+    {
+      "name": "a DM with an invited email address never shows the address id",
+      "entry": {"conversation": "conv_dm_000000000000000000000CASE9", "rev": 1, "kind": "dm", "title": "",
+        "dm_peer": "addr_ABREQ2MXXDJ3CH86MMYYKA0FPC", "last_seq": 2, "last_at": "2026-10-12T00:00:00.000Z", "preview": "",
+        "removed": false, "unread": 0, "mentions": 0, "counts_rev": 1, "pinned": false, "muted": false, "archived": false,
+        "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "direct", "name": "", "unread": 0, "pinned": false, "muted": false}
     },
     {
       "name": "muted until unmuted",

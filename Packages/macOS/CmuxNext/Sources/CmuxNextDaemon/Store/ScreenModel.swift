@@ -88,4 +88,5 @@ public final class ScreenModel: Identifiable {
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
+
 }

@@ -23,9 +23,14 @@ fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
             mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
         },
         Command::RenameWorkspace {
-            workspace: None,
-            key: Some(key.into()),
-            name: "renamed".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: None,
+                key: Some(key.into()),
+                name: "renamed".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
         },
         Command::MoveWorkspace {
@@ -136,9 +141,14 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
         &mux,
         client,
         Command::RenameWorkspace {
-            workspace: None,
-            key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
-            name: "legacy-rename".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                name: "legacy-rename".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest { expected_revision: Some(revision), ..Default::default() },
         },
         &writer,
@@ -186,9 +196,14 @@ fn provider_managed_mux_is_locked_before_authority_handshake() {
         &mux,
         ordinary,
         Command::RenameWorkspace {
-            workspace: Some(workspace.workspace),
-            key: Some(workspace.key),
-            name: "won the race".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: Some(workspace.workspace),
+                key: Some(workspace.key),
+                name: "won the race".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest::default(),
         },
         &writer,
@@ -230,9 +245,14 @@ fn provider_managed_workspaces_reject_ordinary_server_mutations() {
     for (command, expected_error) in [
         (
             Command::RenameWorkspace {
-                workspace: Some(workspace.workspace),
-                key: Some(workspace.key.clone()),
-                name: "raw rename".into(),
+                request: cmd_workspaces::WorkspaceRenameRequest {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    name: "raw rename".into(),
+                    source: None,
+                    expected_name_revision: None,
+                    release: false,
+                },
                 mutation: MutationRequest::default(),
             },
             "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls",
@@ -357,7 +377,7 @@ fn identify_advertises_additive_capabilities() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false },
+        Command::Identify { machine_metadata: false, revisions: false },
         &test_writer(),
     )
     .unwrap();

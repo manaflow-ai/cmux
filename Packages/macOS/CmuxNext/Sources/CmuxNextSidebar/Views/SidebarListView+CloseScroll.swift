@@ -3,11 +3,11 @@ import CmuxNextDesign
 /// Sidebar scroll after a close, create or selection change
 /// (plans/cmux-next/close-focus.md): `ListViewport.settle` decides the
 /// offset; this file only reads geometry and applies it.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// Applies `layout` keeping what the user sees (the anchor stays put,
     /// rows and offset shift together so nothing jumps), then reveals the
-    /// active workspace when it changed, or when the user's own move pushed it
-    /// out of view (never for a change from others); the reveal
+    /// active workspace when it changed, moved, or was pushed out of view, by
+    /// anyone (sidebar-focused-visible: the focused row is always in view); the reveal
     /// animates with `Motion` (instant under Reduce Motion, and to a new row,
     /// Cmd-N's, cx-evo3q) and is the only scroll this change makes.
     func applyKeepingViewport(_ layout: SidebarLayout, animated: Bool) {
@@ -16,6 +16,7 @@ extension SidebarListView {
         revealedActive = active
         // Read on every reload, so a user's move is used by the structural set that shows it, and only by that one.
         let userMoved = model.takeUserMove()
+        let revealsTop = takeTopReveal(in: layout)
         guard drag == nil, external == nil, let clip = enclosingScrollView?.contentView,
               case let height = clip.bounds.height, height > 0 else {
             // No viewport yet (init): the first reload with one reveals.
@@ -52,6 +53,7 @@ extension SidebarListView {
         apply(layout, animated: animated)
         let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
                                   padding: SidebarLayout.revealPadding, userMoved: userMoved)
+        if revealsTop { scrollToTop(); return }
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && active.map { before.item($0) == nil } != true) }
     }
     func scrollClip(to y: CGFloat, animated: Bool) {

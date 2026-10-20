@@ -31,6 +31,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "if_empty");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "report_closed_ids");
+    try expectExplicitNullRejected(protocol.CloudHostReplicaClearRequest, "purge");
     try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationHistoryResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationInboxOpResult, "pin_position");
@@ -53,6 +54,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ForgetSessionRequest, "force");
     try expectExplicitNullRejected(protocol.HistorySearchRequest, "kinds");
     try expectExplicitNullRejected(protocol.IdentifyRequest, "machine_metadata");
+    try expectExplicitNullRejected(protocol.IdentifyRequest, "revisions");
     try expectExplicitNullRejected(protocol.ImportBookmarksRequest, "replace");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "groups");
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
@@ -68,6 +70,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
+    try expectExplicitNullRejected(protocol.RenameWorkspaceRequest, "release");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SendResult, "queued");
@@ -86,6 +89,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CloudConversationLiveEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudConversationRunChangedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationTypingEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
     try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
     try expectExplicitNullRejected(protocol.CloudMuxResyncedEvent, "account");
@@ -212,6 +216,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.IdentifyResult, "machine_platform");
     try expectExplicitNullRejected(protocol.IdentifyResult, "session_id");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
+    try expectExplicitNullRejected(protocol.LayoutSplit, "split_id");
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
@@ -252,6 +257,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.VtStateResult, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.VtStateResult, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.Workspace, "key");
+    try expectExplicitNullRejected(protocol.Workspace, "name_revision");
+    try expectExplicitNullRejected(protocol.Workspace, "name_source");
     try expectExplicitNullRejected(protocol.Workspace, "short_id");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "changed");
     try expectExplicitNullRejected(protocol.WorkspaceMutationResult, "closed_ids");

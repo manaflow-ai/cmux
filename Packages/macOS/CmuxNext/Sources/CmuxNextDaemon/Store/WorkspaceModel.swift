@@ -10,6 +10,8 @@ public final class WorkspaceModel: Identifiable {
     /// Durable resource id (`ws_…`) on registry daemons.
     public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String
+    public internal(set) var nameSource: WorkspaceNameSource
+    public internal(set) var nameRevision: UInt64
     public internal(set) var screens: [ScreenModel]
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
@@ -41,6 +43,12 @@ public final class WorkspaceModel: Identifiable {
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
+    /// A stand-in Cmd-N shows before the daemon has the workspace (``ProvisionalWorkspace``):
+    /// its handle names no daemon workspace, so no command may target it yet.
+    public var isProvisional: Bool { ProvisionalWorkspace.isProvisional(handle) }
+    /// Its id in the store's list check: a stand-in's takeover by the daemon's workspace is a list change.
+    var listID: String { isProvisional ? id + "~" : id }
+
     /// Custom title when set, else the name.
     public var displayName: String {
         if let title, !title.isEmpty { return title }
@@ -64,6 +72,8 @@ public final class WorkspaceModel: Identifiable {
         handle = s.id
         resourceID = s.resourceID
         name = s.name
+        nameSource = s.nameSource
+        nameRevision = s.nameRevision
         screens = s.screens.map(ScreenModel.init)
         screenGroups = s.screenGroups
         group = s.group
@@ -86,6 +96,8 @@ public final class WorkspaceModel: Identifiable {
         if resourceID != s.resourceID { resourceID = s.resourceID }
         if handle != s.id { handle = s.id }
         if name != s.name { name = s.name }
+        if nameSource != s.nameSource { nameSource = s.nameSource }
+        if nameRevision != s.nameRevision { nameRevision = s.nameRevision }
         if group != s.group { group = s.group }
         if color != s.color { color = s.color }
         if icon != s.icon { icon = s.icon }

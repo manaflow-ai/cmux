@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
+import CmuxNextDaemonRecovery
+import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
@@ -35,8 +37,9 @@ final class AppsService {
     /// The App Store tabs (internal page), one store model per tab over the
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
-    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client] in
+    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
         let model = AppStoreModel(client: client)
+        model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
         return model
     }
@@ -69,13 +72,12 @@ final class AppsService {
     /// through the supervisor's verified-app provider channel.
     func attach(router: ControlRouter) {
         controlRouter = router
-        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in
-            try await router.appControl(method, params)
-        }
+        let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in try await router.appControl(method, params) }
         let inventory = AgentCLICapabilityHandler { [weak machines = services.machines] in
             machines?.agentInventoryRoutes() ?? []
         }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: control), inventory]))
+        let actionControl: @Sendable (String, [String: JSONValue], String) async throws(AppHostCapabilityError) -> JSONValue = { method, params, app throws(AppHostCapabilityError) in try await router.appControl(method, params, callerApp: app) }
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()

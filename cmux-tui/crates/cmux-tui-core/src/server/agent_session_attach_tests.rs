@@ -8,18 +8,15 @@
 //! with a bound session, carry no command-bearing or session params, prompts
 //! are one text block, and permission answers name only a request acpmux
 //! announced on the attachment.
-
+use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
+use super::*;
+use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
-
-use serde_json::{Value, json};
-
-use super::agent_session_attach::{AGENT_SESSION_ATTACH_CAPABILITY, MAX_ATTACHMENTS_PER_CLIENT};
-use super::*;
 
 pub(super) const WAIT: Duration = Duration::from_secs(5);
 pub(super) const SESSION: &str = "acp_session_1";
@@ -427,6 +424,8 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
     assert_eq!(reply["ok"], json!(false), "{reply}");
     assert_eq!(reply["error_code"], json!(code), "{reply}");
 }
+
+include!("agent_session_observe_tests.rs");
 
 // MARK: Capability and trust
 

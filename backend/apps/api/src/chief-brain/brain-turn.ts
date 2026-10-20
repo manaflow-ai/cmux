@@ -2,13 +2,17 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context"
 import { ackWake, chiefPrincipal, postReply, readConversation, typing } from "./brain-io.ts"
 import { flushMarks, lastTalk, markPending, runError, type Run, type Step, upsertStep } from "./brain-runs.ts"
 import { writeConfig } from "./brain-store.ts"
+import { marksHeader, ttlMs, turnPlan } from "./cache-prefix.ts"
 import { AUTH_FAILED, claudeAuthFor } from "./claude-auth.ts"
 import { prunePiEntries } from "./pi-prune.ts"
 import { RETRY_MS } from "./memory.ts"
 import { creditsCanStart, creditsNotice, turnFailedNotice, isClaude, isMetered, liveOf, pickTurnModel } from "./models.ts"
 import { clipReply, formatMessage, isNoReply, replyTarget } from "./brain-text.ts"
 import { turnThread } from "./brain-spawn.ts"
-import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
+import { ccRoute } from "../chief-brain-cc/vm.ts"
+import { ccTurn } from "../chief-brain-cc/turn.ts"
+import { OPUS } from "../model-gateway/routes.ts"
+import { type ChiefBrainDO, POST_RETRY_MS, MAX_POST_TRIES, HOST, msOr, SETTLE_MS, TURN_MS, handsContinueText, type Admission } from "./brain-do.ts"
 
 /**
  * The turn loop of a ChiefBrainDO (brain-do.ts): a wake queues messages, the drain admits and opens one
@@ -30,14 +34,17 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
   reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
-  if (!a.ok) return { skipped: a.reason }
+  if (!a.ok) return skip(b, w, a.reason)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
-  if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
-  if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
-  b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
-  b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
+  // (Not on the Claude Code route, chief-brain-cc/: its turns use none of them.)
+  if (!ccRoute(b.doEnv, w.owner)) {
+    if (isMetered(a.config.model)) b.doCtx.waitUntil(b.turns(w.owner).warm().catch(() => undefined))
+    if (isClaude(a.config.model)) b.doCtx.waitUntil(claudeAuthFor(b.doEnv, b.holder).catch(() => undefined))
+    b.doCtx.waitUntil(b.harness.pi().catch(() => undefined))
+    b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
+  }
   const view = await reading
-  if ("refused" in view) return { skipped: view.refused }
+  if ("refused" in view) return skip(b, w, view.refused)
   // A conversation this brain never read starts at the wake: older history is not answered.
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
@@ -62,6 +69,23 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   if (queued > 0 && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { queued }
+}
+
+/**
+ * A skipped wake: when no brain answers the woken message (archived Chief, owner or conversation
+ * unreachable or refused), the Chief's typing goes off now, so a client that shows "Thinking…" from
+ * the send ends it. (A turn refused later, for the daily limit or credits, is drain's.) Not when
+ * another brain may answer (this brain is off: a server-placed Chief's brain is off here) or the
+ * object serves another Chief.
+ */
+const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+  // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
+  const busy =
+    (b.turnLive && b.turnConversation === w.conversation) ||
+    b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
+  if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
+  return { skipped: reason }
 }
 
 /**
@@ -157,17 +181,36 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
       // Not answered (off, archived, placed, over the limit): the wakes are acked so the queue stays bounded.
       b.sql.exec(`UPDATE cb_inbox SET state = 'skipped' WHERE state = 'queued' AND conversation = ?`, woken.conversation)
       console.warn(JSON.stringify({ msg: "chief_brain.turn_refused", reason: a.reason }))
+      // The notice may post nothing (one per hour, or it failed): the typing goes off either way.
       if (a.reason === "credits_exhausted") await creditsNotice(b.doEnv, cfg, woken.conversation)
+      if (cfg.agent && !OTHER_BRAIN.has(a.reason)) await typing(b.doEnv, woken.conversation, cfg.agent, false)
       if (cfg.agent && cfg.owner && rows.length > 0) await ackWake(b.doEnv, cfg.agent, chiefPrincipal(cfg.agent, cfg.owner), woken.conversation, Math.max(...rows.map((r) => r.seq))).catch(() => undefined)
       continue
     }
-    await (markPending(b.sql, "admitted"), (b.memory.foldDue() ? b.compactor.settle(AbortSignal.timeout(SETTLE_MS)) : Promise.resolve(true)).finally(() => markPending(b.sql, "settled")))
-    if (rows.length > 0) b.openTurn(woken.conversation, rows)
+    // The reference client's Memory.settle(mem, from): every message before the new ones summarized, so the
+    // view shows them all as lines and the input holds only the new messages; bounded (SETTLE_MS), after
+    // which the turn runs on the last rendered view plus the unsummarized messages whole.
+    // A failing or rate-limited compactor costs no wait (the turn goes at once on the last view plus the whole messages).
+    markPending(b.sql, "admitted")
+    const healthy = !b.compactor.off() && b.compactor.failures().length === 0 && b.compactor.cooling() === 0
+    const settleMs = msOr(b.doEnv.CHIEF_BRAIN_SETTLE_MS, SETTLE_MS)
+    const fresh = healthy && settleMs > 0 ? await b.compactor.settleTo(b.memory.len(), AbortSignal.timeout(settleMs)) : b.memory.first() >= b.memory.len()
+    markPending(b.sql, "settled")
+    // Messages that came during the wait ride along (the same conversation's queue, read again).
+    const all = b.sql
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .toArray()
+    if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
+    if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
   }
 }
 
-/** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>): void {
+/**
+ * Logs the new messages, then builds the input (Memory.turnInput: a fresh view and the new messages, or the last view
+ * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
+ * resubmits the same bytes).
+ */
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -177,7 +220,11 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
       b.memory.append("user", r.text)
       b.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, id, r.n)
     }
-    input = JSON.stringify(b.memory.turnInput(rows.length))
+    // pi-ai drops a whitespace-only text block, which would shift the mark indices.
+    const blocks = b.memory.turnInput(rows.length, fresh).filter((t) => t.trim().length > 0)
+    input = JSON.stringify(blocks)
+    // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
+    writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
       `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
       id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), b.config().model, Date.now(), input
@@ -198,78 +245,97 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   let ok = false
   let reason: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
+  // The Claude Code route (chief-brain-cc/): the turn runs as Claude Code in its own VM; everything else here is the same.
+  const cc = !child && ccRoute(b.doEnv, b.config().owner)
   try {
-    if (!row.submitted) {
-      const blocks = JSON.parse(row.input ?? "[]") as Array<string>
-      // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
-      const owner = b.config().owner ?? ""
-      // Step marks (Run.timing *_at): the paid-turn count, the route's auth, pi open; the count and pi open run at the same time.
-      const mark = (m: string) => void b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, m, Date.now())
-      // Only pi itself opens beside the check; its root context is made once the model is known.
-      const piOpen = b.harness.pi()
-      piOpen.catch(() => undefined)
-      const picked = await pickTurnModel(row.model, b.doEnv.CHIEF_BRAIN_FALLBACK_MODEL, (m) => b.turns(owner).claudeTurn(owner, m).then((v) => (mark("count"), v !== "ok" || !isClaude(m) ? v : claudeAuthFor(b.doEnv, b.holder).then(() => (mark("auth"), "ok"), () => "auth_failed"))).catch(() => "holder_unreachable"))
-      mark("paid")
-      if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
-      if (picked.model === null || picked.model !== row.model) [b.announce(id, [upsertStep(b.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
-      const model = b.models.model(row.model)
-      const root = await (await piOpen).root(BACKGROUND_CONTEXT)
-      mark("pi")
-      await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: b.models.thinking(row.model) }, BACKGROUND_CONTEXT)
-      // A fresh context every turn: the model sees the view, the new messages and its own tool loop.
-      // The previous turns' pi entries are never read again (each turn starts a fresh context): pruned when allowed.
-      if (b.doEnv.CHIEF_BRAIN_PRUNE_PI === "1") {
-        const p = prunePiEntries(b.sql)
-        if (p.deleted > 0 || p.skipped.length > 0) console.log(JSON.stringify({ msg: "chief_brain.pi_pruned", run: id, deleted: p.deleted, skipped: p.skipped.slice(0, 3) }))
+    if (cc) {
+      const model = isClaude(row.model) ? row.model : OPUS
+      if (model !== row.model) b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, model, id)
+      // The owner's daily paid-turn cap counts these turns too (once, at the first start).
+      if (!row.submitted) {
+        const owner = b.config().owner ?? ""
+        const counted = await b.turns(owner).claudeTurn(owner, model).catch(() => "holder_unreachable")
+        if (counted !== "ok") throw new Error(`paid model refused (${counted})`)
       }
-      await b.harness.session().reset()
-      b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
-      // The tool set is fixed here for the whole turn (from the last check); the next check runs off the hot path
-      // and takes effect at the next turn boundary.
-      b.startTurnHands()
-      b.doCtx.waitUntil(b.refreshHands().catch(() => undefined))
-      mark("submit")
-      await b.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
-    }
-    // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).
-    const left = child ? Math.max(1_000, Number(b.sql.exec<{ s: number }>(`SELECT started AS s FROM cb_turn WHERE id = ?`, id).one().s) + TURN_MS - Date.now()) : TURN_MS
-    const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), left)))
-    b.turnLive = true
-    // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
-    for (const s of b.steerOps(id)) [b.steered.push(s.op), await b.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
-    let result = await Promise.race([b.harness.wait(id), limit])
-    // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
-    for (let i = 0; i < b.steered.length && result !== "timeout"; i++) {
-      const joined = await Promise.race([b.harness.wait(b.steered[i]!), limit])
-      if (joined === "timeout" || joined.status !== "done") result = joined
-    }
-    // The turn made or found the Chief's first hand: one continuation in the same run, with the full tools (the
-    // tools list changes only between pi turns; the finished turn's thinking is dropped from the continuation's
-    // requests by stripStaleThinking, since the route checks every replayed block). At most one per run.
-    const cont = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont:${id}`).toArray()[0]?.value
-    const steeredBefore = b.steered.length
-    if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {
-      if (cont === "pending") writeConfig(b.sql, { [`hands_cont:${id}`]: "submitted" })
-      b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, 'continuation', ?) ON CONFLICT DO NOTHING`, id, Date.now())
-      b.startTurnHands()
-      // pi takes a repeated operation id once, so a resumed turn submits again safely.
-      const info = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont_info:${id}`).toArray()[0]?.value
-      await b.harness.submit([{ type: "text" as const, text: handsContinueText(info, b.doEnv.HAND_SANDBOX_WORKDIR || "/root/proj") }], { operationId: `${id}:hands` })
-      result = await Promise.race([b.harness.wait(`${id}:hands`), limit])
-      // Messages that joined during the continuation: wait for them too.
-      for (let i = steeredBefore; i < b.steered.length && result !== "timeout"; i++) {
+      const r = await ccTurn(b, id, JSON.parse(row.input ?? "[]") as Array<string>, model, row.submitted === 1)
+      ok = r.ok
+      reason = r.reason
+    } else {
+      if (!row.submitted) {
+        const blocks = JSON.parse(row.input ?? "[]") as Array<string>
+        // A paid model: an allowed owner, the route serves it, under the deployment's cap, with the route's sign-in; else the fallback, which passes the same gate when it is paid; else no turn.
+        const owner = b.config().owner ?? ""
+        // Step marks (Run.timing *_at): the paid-turn count, the route's auth, pi open; the count and pi open run at the same time.
+        const mark = (m: string) => void b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`, id, m, Date.now())
+        // Only pi itself opens beside the check; its root context is made once the model is known.
+        const piOpen = b.harness.pi()
+        piOpen.catch(() => undefined)
+        const picked = await pickTurnModel(row.model, b.doEnv.CHIEF_BRAIN_FALLBACK_MODEL, (m) => b.turns(owner).claudeTurn(owner, m).then((v) => (mark("count"), v !== "ok" || !isClaude(m) ? v : claudeAuthFor(b.doEnv, b.holder).then(() => (mark("auth"), "ok"), () => "auth_failed"))).catch(() => "holder_unreachable"))
+        mark("paid")
+        if (picked.reason) console.warn(picked.reason.includes("auth_failed") ? AUTH_FAILED : JSON.stringify({ msg: "chief_brain.paid_model_refused", reason: picked.reason }))
+        if (picked.model === null || picked.model !== row.model) [b.announce(id, [upsertStep(b.sql, id, { id: "note:model", kind: "note", text: picked.model === null ? `No model ran: ${picked.reason}` : `${picked.reason}; this turn runs on ${picked.model}` }, Date.now())]), picked.model === null ? (() => { throw new Error(`paid model refused (${picked.reason})`) })() : [(row.model = picked.model), b.sql.exec(`UPDATE cb_turn SET model = ? WHERE id = ?`, row.model, id)]]
+        const model = b.models.model(row.model)
+        const root = await (await piOpen).root(BACKGROUND_CONTEXT)
+        mark("pi")
+        await root.configure({ model: { provider: model.provider, modelId: model.id }, thinkingLevel: b.models.thinking(row.model) }, BACKGROUND_CONTEXT)
+        // A fresh context every turn: the model sees the view, the new messages and its own tool loop.
+        // The previous turns' pi entries are never read again (each turn starts a fresh context): pruned when allowed.
+        if (b.doEnv.CHIEF_BRAIN_PRUNE_PI === "1") {
+          const p = prunePiEntries(b.sql)
+          if (p.deleted > 0 || p.skipped.length > 0) console.log(JSON.stringify({ msg: "chief_brain.pi_pruned", run: id, deleted: p.deleted, skipped: p.skipped.slice(0, 3) }))
+        }
+        await b.harness.session().reset()
+        b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
+        // The tool set is fixed here for the whole turn (from the last check); the next check runs off the hot path
+        // and takes effect at the next turn boundary.
+        b.startTurnHands()
+        b.doCtx.waitUntil(b.refreshHands().catch(() => undefined))
+        mark("submit")
+        await b.harness.submit(blocks.map((text) => ({ type: "text" as const, text })), { operationId: id })
+      }
+      // A child's bound runs from its start, across restarts (its slot frees after SLOT_STALE_MS).
+      const left = child ? Math.max(1_000, Number(b.sql.exec<{ s: number }>(`SELECT started AS s FROM cb_turn WHERE id = ?`, id).one().s) + TURN_MS - Date.now()) : TURN_MS
+      const limit = new Promise<"timeout">((r) => (timer = setTimeout(() => r("timeout"), left)))
+      b.turnLive = true
+      // After a restart: the ops that joined this turn before (pi takes a repeated operation id once).
+      for (const s of b.steerOps(id)) [b.steered.push(s.op), await b.harness.session().steer([{ type: "text" as const, text: s.text }], { operationId: s.op }).catch(() => undefined)]
+      // Messages of a burst that came while the turn was being set up (admitted, not live yet) join it now,
+      // instead of starting a second run after it.
+      if (!child) await b.steerQueued(row.conversation)
+      let result = await Promise.race([b.harness.wait(id), limit])
+      // Messages that joined the turn: wait for them as well (one that came after the last step runs on, under this turn).
+      for (let i = 0; i < b.steered.length && result !== "timeout"; i++) {
         const joined = await Promise.race([b.harness.wait(b.steered[i]!), limit])
         if (joined === "timeout" || joined.status !== "done") result = joined
       }
-    }
-    // No message joins from here on: the next one starts its own turn.
-    b.turnLive = false
-    if (result === "timeout") {
-      for (const op of [id, `${id}:hands`, ...b.steered]) void b.harness.abort({ operationId: op }).catch(() => undefined)
-      reason = "timeout"
-    } else {
-      ok = result.status === "done"
-      reason = ok ? null : (result.reason ?? "unknown")
+      // The turn made or found the Chief's first hand: one continuation in the same run, with the full tools (the
+      // tools list changes only between pi turns; the finished turn's thinking is dropped from the continuation's
+      // requests by stripStaleThinking, since the route checks every replayed block). At most one per run.
+      const cont = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont:${id}`).toArray()[0]?.value
+      const steeredBefore = b.steered.length
+      if (!child && result !== "timeout" && result.status === "done" && (cont === "pending" || cont === "submitted")) {
+        if (cont === "pending") writeConfig(b.sql, { [`hands_cont:${id}`]: "submitted" })
+        b.sql.exec(`INSERT INTO cb_marks (turn, mark, at) VALUES (?, 'continuation', ?) ON CONFLICT DO NOTHING`, id, Date.now())
+        b.startTurnHands()
+        // pi takes a repeated operation id once, so a resumed turn submits again safely.
+        const info = b.sql.exec<{ value: string }>(`SELECT value FROM cb_config WHERE name = ?`, `hands_cont_info:${id}`).toArray()[0]?.value
+        await b.harness.submit([{ type: "text" as const, text: handsContinueText(info, b.doEnv.HAND_SANDBOX_WORKDIR || "/root/proj") }], { operationId: `${id}:hands` })
+        result = await Promise.race([b.harness.wait(`${id}:hands`), limit])
+        // Messages that joined during the continuation: wait for them too.
+        for (let i = steeredBefore; i < b.steered.length && result !== "timeout"; i++) {
+          const joined = await Promise.race([b.harness.wait(b.steered[i]!), limit])
+          if (joined === "timeout" || joined.status !== "done") result = joined
+        }
+      }
+      // No message joins from here on: the next one starts its own turn.
+      b.turnLive = false
+      if (result === "timeout") {
+        for (const op of [id, `${id}:hands`, ...b.steered]) void b.harness.abort({ operationId: op }).catch(() => undefined)
+        reason = "timeout"
+      } else {
+        ok = result.status === "done"
+        reason = ok ? null : (result.reason ?? "unknown")
+      }
     }
   } catch (e) {
     reason = e instanceof Error ? e.message : String(e)
@@ -277,7 +343,7 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
     clearTimeout(timer)
     b.turnLive = false
     b.steered = []
-    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`)
+    b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?, ?)`, `steer:${id}`, `hands_cont:${id}`, `hands_cont_info:${id}`, `marks:${id}`)
     b.turnId = undefined
     b.turnConversation = undefined
   }

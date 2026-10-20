@@ -138,18 +138,18 @@ extension CloudHandlers {
             CloudPresenter.copy("http://\(address):\(port)")
         }
         bind("cloudCopyLink", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context), port = try port(invocation); guard session.machine.capabilities.supports(.ports) else { throw operationUnavailable }
+            let session = try machine(invocation, context), port = try port(invocation); guard session.machine.allows(.ports) else { throw operationUnavailable }
             run("copy machine link", context) { CloudPresenter.copy(try await cloud.api.openPort(session.machineID, port: port).url) }
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.sizing) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
             guard let size = invocation["size"]?.stringValue, let (cpu, memory) = sizes[size] else {
                 throw ActionFailure(message: CloudStrings.sizeMustBeOneOf(sizes.keys.sorted().joined(separator: ", ")))
             }
             run("resize machine", context) { try await cloud.api.resize(session.machineID, cpu: cpu, memoryMb: memory) }
         }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.stats) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             run("machine status", context) {
                 let stats = try await cloud.api.stats(session.machineID)
                 CloudPresenter.show(CloudStrings.statusTitle, describe(session, stats), copyable: true, in: window(context))
@@ -166,7 +166,7 @@ extension CloudHandlers {
             }
         }
         bind("palette.cloud.tools", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.exec) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
             run("machine tools", context) {
                 let result = try await cloud.api.exec(session.machineID, command: toolsProbe)
                 CloudPresenter.show(CloudStrings.toolsTitle, result.stdout, copyable: true, in: window(context))
@@ -182,7 +182,7 @@ extension CloudHandlers {
             }
         }
         bind("palette.cloud.snapshot", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.snapshot) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             run("snapshot machine", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: nil)
                 CloudPresenter.show(CloudStrings.snapshotTitle, CloudStrings.snapshotBody(snapshot.id), copyable: true, in: window(context))
@@ -201,7 +201,7 @@ extension CloudHandlers {
         // The old app's `cmux vm promote-template`: a snapshot named after the
         // machine, which Restore Cloud Machine then starts new machines from.
         bind("palette.cloud.promoteTemplate", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.snapshot) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.snapshot) else { throw operationUnavailable }
             run("promote machine to template", context) {
                 let snapshot = try await cloud.api.snapshot(session.machineID, name: templateName(session.machineID, at: Date()))
                 CloudPresenter.show(CloudStrings.templateTitle, CloudStrings.templateBody(snapshot.id), copyable: true, in: window(context))
@@ -215,7 +215,7 @@ extension CloudHandlers {
             }
         }
         bind("palette.cloud.fork", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.capabilities.supports(.fork) else { throw operationUnavailable }
+            let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }
             run("fork machine", context) {
                 _ = try await cloud.api.fork(session.machineID, name: nil)
                 await cloud.refresh()

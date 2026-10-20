@@ -12,6 +12,8 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_focus;
+mod agent_list;
 mod agent_message_cmd;
 mod browser;
 mod bulk_close;
@@ -22,6 +24,7 @@ mod flags;
 pub(super) mod git;
 mod history;
 mod machine;
+mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
@@ -29,8 +32,9 @@ mod server_ensure;
 mod sidebar_doc;
 mod state;
 mod workspace;
-
-pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
+pub(super) use plan::{
+    AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
+};
 use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
@@ -1347,22 +1351,7 @@ fn parse_agent(
                 providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
             }))
         }
-        ["list"] => {
-            let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
-            }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
-        }
+        ["list"] => agent_list::parse(flags),
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
             let source = flags.required("source")?;
@@ -1444,7 +1433,7 @@ fn parse_agent(
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        _ => usage("agent action"),
+        other => agent_focus::parse(other, flags),
     }
 }
 
@@ -2208,19 +2197,7 @@ fn request_with_required_name(
     selectors: &Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
-    let mut params = Map::new();
-    params.insert("name".into(), Value::String(flags.required("name")?));
-    if operation == ResourceOperation::TabRename {
-        if let Some(source) = flags.take("source") {
-            validate_one_of("--source", &source, &["user", "auto"])?;
-            params.insert("source".into(), Value::String(source));
-        }
-        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
-        if let Some(revision) = flags.take("expected-name-revision") {
-            validate_decimal("--expected-name-revision", &revision)?;
-            params.insert("expected_name_revision".into(), Value::String(revision));
-        }
-    }
+    let params = name_flags::rename_params(operation, flags)?;
     request(operation, selectors, flags, params)
 }
 
@@ -4318,6 +4295,7 @@ mod tests {
         }
     }
 
+    mod name_source_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

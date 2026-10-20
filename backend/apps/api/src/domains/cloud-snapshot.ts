@@ -11,6 +11,7 @@ import { ledgerKey, machineRow, TABLE_SNAPSHOT, mayManage, next, noChangePower, 
  */
 
 export interface SnapshotRow {
+  readonly transport?: import("../cloud-vm-api-config.ts").CloudTransport
   readonly id: string
   readonly machine: string
   readonly name: string | null
@@ -26,7 +27,7 @@ export interface SnapshotRow {
 }
 
 export const publicSnapshot = (r: SnapshotRow): typeof CloudSnapshot.Type => {
-  const { provider_name: _p, size: _s, creator: _c, ...view } = r
+  const { transport: _t, provider_name: _p, size: _s, creator: _c, ...view } = r
   return view
 }
 const counts = (s: SnapshotRow["status"]) => (s === "creating" || s === "ready" ? 1 : 0)
@@ -49,9 +50,9 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   const rev = state.rev + 1
   const id = ctx.newId("snap")
   const size = { cpu: m.size.cpu ?? 0, memory_mb: m.size.memory_mb ?? 0, disk_mb: m.size.disk_mb ?? 0 }
-  const row: SnapshotRow = { id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
+  const row: SnapshotRow = { transport: m.transport ?? "direct", id, machine: m.id, name: d.value.name ?? null, size_mb: size.disk_mb, status: "creating", created_at: ctx.now, revision: String(rev), provider_name: providerName(config.prefix, id), size, creator: ctx.principal.user! }
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
+  const ledger: LedgerRow = { transport: m.transport ?? "direct", key, op: "snapshot", machine: m.id, provider_name: m.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: id, snapshot_name: row.provider_name }
   const s = next(state, { saved: state.saved + 1, pending: { ...state.pending, [key]: { machine: m.id, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: m.id, removed: false, snapshot: id })
   return { ok: true, state: s, value: { snapshot: publicSnapshot(row) }, writes: [upsertLedger(ledger, rev), upsertSnapshot(row, rev)] }
 }
@@ -72,7 +73,7 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   if (!config.prefix || !ctx.idempotencyKey) return unavailable()
   const rev = state.rev + 1
   const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
-  const ledger: LedgerRow = { key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
+  const ledger: LedgerRow = { transport: r.transport ?? "direct", key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
   const row: SnapshotRow = { ...r, status: "deleting", revision: String(rev) }
   const s = next(state, { saved: state.saved - counts(r.status), pending: { ...state.pending, [key]: { machine: r.machine, due_at: ctx.now + PENDING_SAFETY_MS } } }, { machine: r.machine, removed: false, snapshot: r.id })
   return { ok: true, state: s, value: { deleted: true }, writes: [upsertLedger(ledger, rev), upsertSnapshot(row, stored.n)] }

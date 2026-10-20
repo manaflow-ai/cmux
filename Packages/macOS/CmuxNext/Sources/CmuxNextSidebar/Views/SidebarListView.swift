@@ -12,6 +12,9 @@ import QuartzCore
 /// drag image is a static snapshot. Here layout is a pure function
 /// (`SidebarLayout`), so every change is "compute new frames, animate to them",
 /// and only rows near the viewport get views (see `realizationRect`).
+// Keep implementation extensions in a separate checker namespace.
+typealias SidebarListViewComponents = SidebarListView
+
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
@@ -24,6 +27,14 @@ final class SidebarListView: NSView {
     var blocks: SidebarListBlocks? {
         // A held drag hit-tests a geometry built at its begin: new blocks rebuild it at the next move.
         didSet { if blocks != oldValue { drag?.docGeometry = nil } }
+    }
+    /// The selected top item, drawn active in its block (`SidebarRegionView.activeItem`): a selection
+    /// change repaints the old and new item only, with no list reload (perf-speed-of-light I6).
+    var activeTopItem: LayoutItemID? {
+        didSet {
+            guard oldValue != activeTopItem else { return }
+            for view in rowViews.values { (view as? SidebarBlockRowView)?.region.activeItem = activeTopItem }
+        }
     }
     /// A dropped drag whose move is on the way: the list keeps showing its drop (the rows or tile at the
     /// slot, the source closed) until the model or the blocks change, so the drop settles with no fly-back
@@ -53,6 +64,9 @@ final class SidebarListView: NSView {
     /// True while a scroll moves the hover to the row under a still pointer: that row's hover
     /// shows at once instead of fading, so a scroll does not start a fade on every row it passes.
     var hoverFollowsScroll = false
+    /// Bulk projection applies update many rows before the next frame. Hover
+    /// paint remains valid, but marquee/layout work must wait for that frame.
+    var suppressHoverEffects = false
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
@@ -81,10 +95,16 @@ final class SidebarListView: NSView {
     var external: ExternalDrag?
     /// The active row the last reload laid out (close-focus.md: reveal on change).
     var revealedActive: SidebarRowKey?
+    /// The selection the last reload or patch took (`takeTopReveal`): the top reveal scrolls once per change.
+    var revealedSelection: SidebarItem?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
+    /// The rect a list outside a scroll view shows (a space page, `SidebarSpacePaging`): rows are
+    /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
+    /// made every row view of its space, so a switch cost grew with the space's workspaces).
+    var pageViewport: NSRect?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
@@ -117,6 +137,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A close's successor is the next row drawn here (FocusAfterClose.workspace).
+        model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
         // A no-op drop settles the same way (nothing will change the model).
         for name in [SidebarDocStore.refusedNotification, SidebarDocStore.settledNotification] {
@@ -183,14 +205,19 @@ final class SidebarListView: NSView {
     }
     /// Pauses (or resumes) every row's activity animation, down to a row badge's glyphs (cx-m8buz).
     func setWindowVisible(_ visible: Bool) {
-        func reach(_ view: NSView) { view.subviews.forEach { ($0 as? StatusIndicatorView)?.isWindowVisible = visible; if !($0 is StatusIndicatorView) { reach($0) } } }
-        subviews.forEach(reach)
+        // Depth first in subview order; an indicator's own subviews are not entered. An explicit
+        // stack, not a recursive local function (Swift 6.3.3's SendNonSendable pass crashed now and
+        // then on capturing ones in Release).
+        var pending: [NSView] = subviews.reversed()
+        while let view = pending.popLast() {
+            if let indicator = view as? StatusIndicatorView { indicator.isWindowVisible = visible } else { pending.append(contentsOf: view.subviews.reversed()) }
+        }
     }
     nonisolated override var isFlipped: Bool { true }
     /// The list draws nothing itself (rows, group lines and decorations are subviews). A drawing
     /// layer-backed view this tall (1,000 rows) gets a visible-rect backing that AppKit marks for
     /// display on every scroll frame; with updateLayer it keeps no bitmap, so a scroll draws nothing here.
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func updateLayer() {}
     override var acceptsFirstResponder: Bool { true }
     var metrics: SidebarLayoutMetrics { .standard }
