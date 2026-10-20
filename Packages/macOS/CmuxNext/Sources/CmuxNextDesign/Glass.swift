@@ -34,13 +34,16 @@ public struct Glass {
     /// replacing the solid surface of 2026-10-12); the frosted vibrancy
     /// material before macOS 26, and the solid popup surface under Reduce
     /// Transparency. It follows the theme live. Use this for every overlay;
-    /// it takes clicks unless `interactive` is false.
+    /// it takes clicks unless `interactive` is false. `tone` `.neutral` draws
+    /// the shared neutral glass with its rim (``FloatingGlassStyle``: dialogs,
+    /// prompts, toasts) instead of the theme tint.
     public static func makeOverlayPanel(
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = true
+        interactive: Bool = true,
+        tone: OverlayTone = .theme
     ) -> OverlaySurfaceView {
-        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius)
+        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius, tone: tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true

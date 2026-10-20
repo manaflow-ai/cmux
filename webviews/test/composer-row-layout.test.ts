@@ -190,10 +190,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   });
 
   const row = async (variant: string, width: number) => {
-    // 340 px tall: the split's quiet row (32 px) under the box must fit with a queued prompt's row
-    // above it. At 300 px the dock is already at its floor (the transcript keeps its 96 px), so the
-    // queued card ran 13 px past the pane's bottom; agent-pane-bottom-stack covers that short pane.
-    const page = await browser!.newPage({ viewport: { width, height: 340 } });
+    const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
@@ -260,6 +257,47 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
         }
         expect(problems).toEqual([]);
       });
+
+  // A short pane with a queued prompt (re-review of #22285): the queue's last row, the card and the
+  // split's quiet row (28 px and its 4 px gap) under it all stay inside the pane. The transcript
+  // gives up room for the quiet row, down to 64 px above the stack.
+  for (const height of [300, 285])
+    test(`queued in a ${height} px pane: the quiet row stays inside the pane`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 720, height } });
+      await page.goto(stageURL("queued"));
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.locator(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button").waitFor();
+      const drawn = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+        const main = rect(".acpmux-main")!;
+        const foot = rect(".acpmux-composer-foot")!;
+        const box = rect(".acpmux-composer-box")!;
+        const queue = rect(".acpmux-composer-queue");
+        const transcript = rect(".acpmux-main .acpmux-scroll")!;
+        const stack = rect(".acpmux-main > .acpmux-dock")!;
+        return {
+          footInside: foot.bottom <= main.bottom + 0.5,
+          footUnderBox: foot.top >= box.bottom - 0.5,
+          queueAboveBox: !queue || queue.bottom <= box.top + 0.5,
+          transcriptRoom: Math.round(stack.top - transcript.top),
+          footBottom: Math.round(foot.bottom),
+          paneBottom: Math.round(main.bottom),
+        };
+      });
+      await page.close();
+      console.log(`queued at ${height} px`, JSON.stringify(drawn));
+      expect({
+        footInside: drawn.footInside,
+        footUnderBox: drawn.footUnderBox,
+        queueAboveBox: drawn.queueAboveBox,
+      }).toEqual({
+        footInside: true,
+        footUnderBox: true,
+        queueAboveBox: true,
+      });
+      // The transcript keeps a row's worth above the stack.
+      expect(drawn.transcriptRoom).toBeGreaterThanOrEqual(64);
+    });
 
   for (const width of [420, 720, 1100])
     test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {

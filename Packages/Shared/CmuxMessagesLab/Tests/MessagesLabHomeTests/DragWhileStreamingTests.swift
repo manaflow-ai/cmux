@@ -207,7 +207,7 @@ import UniformTypeIdentifiers
             MessagesWindowView.commitLog = []
             let c0 = Self.cpuMs()
             let f0 = CACurrentMediaTime()
-            store.drafts[Self.conversation] = draft
+            store.showDraft(draft, turn: draft.turn, author: draft.participant, in: Self.conversation)
             projection.refresh()
             token.append(Self.ms(f0))
             var c = 0.0

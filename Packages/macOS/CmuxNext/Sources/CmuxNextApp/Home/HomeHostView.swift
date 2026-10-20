@@ -92,9 +92,9 @@ final class HomeHostView: NSView {
                     CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
             }
         }
-        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor for the toggle
-            Task { @MainActor in self?.toggleChiefSettings() }
+        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] note in
+            // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
+            Task { @MainActor [target = (note.object as? NSWindow).map(ObjectIdentifier.init)] in if let self, HomeChiefSettingsPopover.answersToggle(for: target, in: self.window) { self.toggleChiefSettings() } }
         }
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
@@ -103,7 +103,12 @@ final class HomeHostView: NSView {
         transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
-        transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
+        // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.
+        transcript.onOpenLink = { [weak self] url, other in
+            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { LinkRouter.shared.open(url, otherTarget: other) }
+        }
+        // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
+        transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
