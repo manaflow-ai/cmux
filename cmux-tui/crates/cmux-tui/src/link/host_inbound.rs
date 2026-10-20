@@ -104,3 +104,7 @@ where
 #[cfg(test)]
 #[path = "host_inbound_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "host_native_token_tests.rs"]
+mod native_token_tests;
