@@ -14,12 +14,14 @@ extension TabStripView {
         var tabs: [TabItem]
         var groups: [TabGroupItem]
         var selectedID: TabID?
+        var multiSelection = TabMultiSelection()
         var style: TabStripStyle
         var showsNewTabButton: Bool
 
         @MainActor init(_ model: TabStripModel) {
             self.init(tabs: model.tabs, groups: model.groups, selectedID: model.selectedID,
                       style: model.style, showsNewTabButton: model.showsNewTabButton)
+            multiSelection = model.multiSelection
         }
 
         init(tabs: [TabItem], groups: [TabGroupItem], selectedID: TabID?, style: TabStripStyle, showsNewTabButton: Bool) {
@@ -30,9 +32,9 @@ extension TabStripView {
             self.showsNewTabButton = showsNewTabButton
         }
 
-        /// The same strip with another tab selected (a tab switch).
+        /// The same strip with another tab selected (a tab switch) or other tabs multi-selected.
         func differsOnlyInSelection(from other: ModelSnapshot) -> Bool {
-            selectedID != other.selectedID && tabs == other.tabs && groups == other.groups
+            (selectedID != other.selectedID || multiSelection != other.multiSelection) && tabs == other.tabs && groups == other.groups
                 && style == other.style && showsNewTabButton == other.showsNewTabButton
         }
     }
