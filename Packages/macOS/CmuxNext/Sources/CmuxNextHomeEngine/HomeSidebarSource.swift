@@ -67,6 +67,8 @@ public final class HomeSidebarSource {
     @ObservationIgnored private let chiefAvatar: @MainActor () -> HomeChiefAvatar?
     /// Each local Chief's engine by participant id (`HomeChiefHarnesses`), for the rows' badges.
     @ObservationIgnored private let chiefHarnesses: @MainActor () -> [String: String]
+    /// The main Chief, its merged hosts and where each Chief runs (``HomeChiefRoster``).
+    @ObservationIgnored private let chiefRoster: @MainActor () -> HomeChiefRoster
     public var query = ""
     public private(set) var pins = HomePins()
     /// Conversations shown unread by the user's Mark as Unread until they open or read them.
@@ -82,7 +84,8 @@ public final class HomeSidebarSource {
          rows: @escaping @MainActor () -> [InboxRow],
          me: @escaping @MainActor () -> ParticipantID?, contacts: @escaping @MainActor () -> [HomeContact],
          chiefAvatar: @escaping @MainActor () -> HomeChiefAvatar? = { nil },
-         chiefHarnesses: @escaping @MainActor () -> [String: String] = { [:] }) {
+         chiefHarnesses: @escaping @MainActor () -> [String: String] = { [:] },
+         chiefRoster: @escaping @MainActor () -> HomeChiefRoster = { HomeChiefRoster() }) {
         self.store = store
         self.inboxes = inboxes
         self.account = account
@@ -91,6 +94,7 @@ public final class HomeSidebarSource {
         self.contacts = contacts
         self.chiefAvatar = chiefAvatar
         self.chiefHarnesses = chiefHarnesses
+        self.chiefRoster = chiefRoster
     }
 
     /// The owners' replies (nil: that owner does not serve `home-inbox`), for observers of the list.
@@ -112,12 +116,14 @@ public final class HomeSidebarSource {
         let replies = inboxes.compactMap(\.reply)
         guard !replies.isEmpty else {
             return HomeSidebarModel(rows: listed, pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
-                                    unreadMarks: unreadMarks, chiefAvatar: chiefAvatar(), chiefHarnesses: chiefHarnesses(), now: now)
+                                    unreadMarks: unreadMarks, chiefAvatar: chiefAvatar(), chiefHarnesses: chiefHarnesses(),
+                                    chiefRoster: chiefRoster(), now: now)
         }
         let owned = HomeInboxMapping.ordered(replies.map(\.rows))
         let list = HomeInboxMapping(owned: owned, listed: listed, pins: pins, unreadMarks: unreadMarks)
         var model = HomeSidebarModel(ordered: list.rows, pinned: list.pinned, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(),
-                                     unreadMarks: list.unreadMarks, chiefAvatar: chiefAvatar(), chiefHarnesses: chiefHarnesses(), now: now)
+                                     unreadMarks: list.unreadMarks, chiefAvatar: chiefAvatar(), chiefHarnesses: chiefHarnesses(),
+                                     chiefRoster: chiefRoster(), now: now)
         model.cloudState = replies.compactMap(\.cloud).first { $0 != "not_asked" }
         return model
     }
@@ -181,6 +187,11 @@ public final class HomeSidebarSource {
 
     /// Whether `id` can be muted (a Cloud DM or group listed by its owner).
     public func canMute(_ id: ConversationID) -> Bool { owner(of: id)?.canMute(id.rawValue) == true }
+
+    /// Whether `id`'s alerts are hidden, as its owner lists it (or this Mac's last Hide Alerts).
+    public func isMuted(_ id: ConversationID) -> Bool {
+        owner(of: id)?.rows?.first { $0.id == id.rawValue }?.muted ?? false
+    }
 
     /// The signed-in account changed: its own pins and unread marks.
     public func reloadPins() {

@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { isAgentMotionOff } from "../shared/motion";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -863,7 +864,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (!node || typeof node.animate !== "function") return;
+  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -1178,12 +1179,20 @@ const STRAY_SCROLL_PX = 24;
 /// else the chat opens at its latest message.
 const OPEN_AT_PAGE_MS = 1500;
 const OPEN_AT_SEEK_MS = 8000;
-/// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view.
-function scrollRangeIn(scroller: HTMLElement, range: Range) {
+/// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
+/// above the `inset` px at its foot that the bottom stack covers.
+function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
   const box = range.getBoundingClientRect();
   const view = scroller.getBoundingClientRect();
-  if (box.top < view.top || box.bottom > view.bottom)
+  if (box.top < view.top || box.bottom > view.bottom - inset)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+}
+/// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
+/// output scrolls on its own), innermost first; the transcript itself is left to the caller.
+function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
+  for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+      scrollRangeIn(box, range);
 }
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
 /// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
@@ -1233,9 +1242,12 @@ function JumpToLatest({
   shown,
   working,
   onJump,
+  lift,
 }: {
   shown: boolean;
   working: boolean;
+  /// The bottom stack's height over the transcript's foot: the button sits above it.
+  lift: number;
   /// `focused`: the button had keyboard focus, which it loses when it hides at the latest message.
   onJump: (focused: boolean) => void;
 }) {
@@ -1247,6 +1259,7 @@ function JumpToLatest({
       className="acpmux-jump-latest"
       data-shown={shown ? "" : undefined}
       data-working={working ? "" : undefined}
+      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
       aria-label={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
@@ -1280,6 +1293,7 @@ export function VirtualTranscript({
   reveal,
   working = false,
   jumpButton = false,
+  dock,
   focusComposer,
   openAt,
   onAnchor,
@@ -1299,6 +1313,10 @@ export function VirtualTranscript({
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;
+  /// The chat's bottom stack, laid over the transcript's foot (bottomStack.css): the view runs under
+  /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
+  /// above it. Its height is room under the last row, followed as it changes before the frame paints.
+  dock?: HTMLElement | null;
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -1336,6 +1354,32 @@ export function VirtualTranscript({
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
+  /// The bottom stack's height over the view's foot: room under the last row, out of the view.
+  const [dockSpace, setDockSpace] = useState(0);
+  const dockSpaceRef = useRef(0);
+  dockSpaceRef.current = dockSpace;
+  useLayoutEffect(() => {
+    if (!dock) {
+      setDockSpace(0);
+      return;
+    }
+    // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
+    // queue that appeared, never draws a frame with the latest row under it. The room is how far
+    // the stack reaches over the view: none for a stack in the flow under it, or with no box
+    // (display: contents).
+    const over = () => {
+      const stack = dock.getBoundingClientRect();
+      const view = ref.current?.getBoundingClientRect();
+      return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
+    };
+    const observer = new ResizeObserver(() => {
+      const next = over();
+      if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
+    });
+    observer.observe(dock);
+    setDockSpace(over());
+    return () => observer.disconnect();
+  }, [dock]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -1559,7 +1603,7 @@ export function VirtualTranscript({
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
-  const previousViewport = useRef({ height, width });
+  const previousViewport = useRef({ height, width, dockSpace });
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -1677,9 +1721,10 @@ export function VirtualTranscript({
   }, [estimated, drawn, registry, rows, sessionId, width]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
+  // The bottom stack's room follows the rows, so the latest row ends above it.
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP }),
-    [measured],
+    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP + dockSpace }),
+    [measured, dockSpace],
   );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
@@ -1874,7 +1919,10 @@ export function VirtualTranscript({
     const oldRows = previousRows.current;
     const node = ref.current;
     const rewrapped = width !== previousViewport.current.width;
-    const resized = rewrapped || height !== previousViewport.current.height;
+    // The bottom stack's room changing (a composer line, a queue) is the view's foot moving, as a
+    // resize is: a followed view moves its offset at once and nothing glides.
+    const resized =
+      rewrapped || height !== previousViewport.current.height || dockSpace !== previousViewport.current.dockSpace;
     if (rewrapped) reflowing.current = true;
     else if (rows.length !== oldRows.length || rows.some((row, index) => row !== oldRows[index]))
       reflowing.current = false;
@@ -1968,14 +2016,14 @@ export function VirtualTranscript({
     }
     previousLayout.current = layout;
     previousRows.current = rows;
-    previousViewport.current = { height, width };
+    previousViewport.current = { height, width, dockSpace };
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, dockSpace, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2037,7 +2085,7 @@ export function VirtualTranscript({
     if (!node || !findTarget || !targetKey) return;
     const top = layout.tops[findIndex];
     const bottom = top + layout.heights[findIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
+    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
     node.scrollTop = Math.max(0, top - node.clientHeight / 3);
     findMoved(node);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new target scrolls, not a layout change
@@ -2058,7 +2106,7 @@ export function VirtualTranscript({
     if (!node || revealIndex < 0) return;
     const top = layout.tops[revealIndex];
     const bottom = top + layout.heights[revealIndex];
-    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight) return;
+    if (top >= node.scrollTop && bottom <= node.scrollTop + node.clientHeight - dockSpaceRef.current) return;
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
@@ -2098,8 +2146,9 @@ export function VirtualTranscript({
         // and a move with no render (a block that grew) is brought back here, not only on a commit.
         const range = findActiveRange();
         if (range && range.getBoundingClientRect().height > 0) {
+          scrollRangeInBoxes(node, range);
           const before = node.scrollTop;
-          scrollRangeIn(node, range);
+          scrollRangeIn(node, range, dockSpaceRef.current);
           if (node.scrollTop !== before) findMoved(node);
         }
         const at = findMatchOffset(node);
@@ -2114,11 +2163,9 @@ export function VirtualTranscript({
     }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.
-    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
-      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-        scrollRangeIn(box, current);
+    scrollRangeInBoxes(node, current);
     const before = node.scrollTop;
-    scrollRangeIn(node, current);
+    scrollRangeIn(node, current, dockSpaceRef.current);
     if (node.scrollTop !== before) findMoved(node);
     // Rows are immutable snapshots, so their identity changes when streamed text or a revealed
     // fold changes. The mounted-range signature catches virtualization entering/leaving rows.
@@ -2347,6 +2394,10 @@ export function VirtualTranscript({
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+        // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
+        // scroll a row into view above it.
+        data-docked={dockSpace > 0 || undefined}
+        style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
       >
         <ThreadMinimap
           rows={rows}
@@ -2354,7 +2405,7 @@ export function VirtualTranscript({
           layout={layout}
           scroller={ref}
           scrollTop={renderScroll.top}
-          viewportHeight={height}
+          viewportHeight={height - dockSpace}
           width={width}
         />
         {find?.open && <ChatFindBar find={find} />}
@@ -2421,7 +2472,7 @@ export function VirtualTranscript({
           </div>
         </FindReveal.Provider>
       </div>
-      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
+      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
     </>
   );
 }
@@ -3083,15 +3134,19 @@ function AcpmuxPane() {
             const tool = item.tool;
             if (!tool) return false;
             if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
+            // scheduled() list reads them the same way).
+            if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;
             if (tool.kind !== "execute") return false;
+            // Claude's raw input arrives as JSON (`"run_in_background":true`).
             const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
-              command,
-            );
+            return /run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)/.test(command);
           })),
     );
   }, [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
+  /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
+  const [dock, setDock] = useState<HTMLElement | null>(null);
   const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
   // drew one frame of the old subagent id against the new chat's rows: an empty child view).
@@ -5324,6 +5379,8 @@ function AcpmuxPane() {
                                   // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                   jumpButton={!quick}
                                   focusComposer={() => composerHandle.current?.focus()}
+                                  // Quick Chat's panel stacks its composer below the transcript.
+                                  dock={quick ? undefined : dock}
                                   find={quick ? undefined : find}
                                   sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
                                   canLoadOlder={!childRows && snapshot.canLoadOlder}
@@ -5904,6 +5961,9 @@ function AcpmuxPane() {
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
+          // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
+          data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
@@ -6215,15 +6275,17 @@ function AcpmuxPane() {
                   </Suspense>
                 )}
               </div>
-              {asks}
-              {/* Between the hero and the docked composer. */}
-              {freshView && (
-                <div className="acpmux-home-area">
-                  <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
-                </div>
-              )}
-              {hostErrorCard}
-              {composer}
+              <div ref={setDock} className="acpmux-dock">
+                {asks}
+                {/* Between the hero and the docked composer. */}
+                {freshView && (
+                  <div className="acpmux-home-area">
+                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                  </div>
+                )}
+                {hostErrorCard}
+                {composer}
+              </div>
             </>
           )}
         </div>

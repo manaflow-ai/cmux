@@ -53,6 +53,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "link.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser focus-address-bar"
             ),
+            // Chrome's Search the Web (IDC_FOCUS_SEARCH, Opt-Cmd-F on the Mac): the
+            // address bar in a search with the default engine. No default key:
+            // Opt-Cmd-F stays Search All Windows (a default moves only with the
+            // user's OK); bind one in cmux.json or run it from the palette.
+            ActionDescriptor(
+                id: "browser.focusSearch",
+                title: String(localized: "action.browser.focusSearch", defaultValue: "Search the Web", bundle: .module),
+                keywords: ["browser", "search", "omnibox", "address bar", "google", "engine"],
+                category: .browser, symbol: "magnifyingglass.circle", surfaces: [.palette, .keyboard], requires: [.browserFocused],
+                targets: [.pane], cliName: "browser focus-search"
+            ),
             ActionDescriptor(
                 id: "browserZoomIn",
                 title: String(localized: "action.browserZoomIn", defaultValue: "Zoom In", bundle: .module),

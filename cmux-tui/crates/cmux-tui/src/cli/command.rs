@@ -589,6 +589,10 @@ fn parse_workspace(
     if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
         return Ok(plan);
     }
+    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
+    {
+        return Ok(plan);
+    }
     match refs.as_slice() {
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {

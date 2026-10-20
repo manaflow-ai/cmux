@@ -31,7 +31,8 @@
 //!   workspace's `CMUX_CUA_DISPLAY`, and a session without a workspace gets
 //!   no computer use server.
 //! - Binaries are found next to this executable (the app's
-//!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
+//!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`; `cmux-cua`
+//!   also in the nested helper app, its only copy in shipped builds. A missing
 //!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
 //!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
 //!   cmux MCP tools by default"), so it controls cmux without a shell
@@ -380,7 +381,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             args: vec!["cua-mcp".into()],
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
-    } else if let Some(cua) = executable("cmux-cua") {
+    } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {
@@ -769,6 +770,17 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
             Err(e.into())
         }
     }
+}
+
+/// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
+/// Use.app/Contents/MacOS/cmux-cua`), for an app whose `Resources/bin` has no
+/// copy: NIGHTLY, NEXT and release ship the client only inside the helper
+/// (nightly.yml removes the scratch bin copy). It is the same client binary;
+/// `CMUX_CUA_MCP_FORCE_PROXY=1` keeps it a proxy to the helper daemon.
+fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
+    let contents = inputs.bin_dir.as_ref()?.parent()?.parent()?;
+    let path = contents.join("Library/cmux Computer Use.app/Contents/MacOS/cmux-cua");
+    is_executable(&path).then_some(path)
 }
 
 #[cfg(all(test, unix))]
