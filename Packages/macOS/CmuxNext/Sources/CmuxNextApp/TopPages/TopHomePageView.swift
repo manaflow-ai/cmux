@@ -110,7 +110,7 @@ final class TopHomePageView: NSView {
             // task-owner: one conversation start; ends with the owner's answer
             Task { _ = await home.startConversation([.contact(person)], title: "") }
         }
-        list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onCompose = { [weak self] in self?.startChiefConversation() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
@@ -276,6 +276,23 @@ final class TopHomePageView: NSView {
         sheet.onAnswer = { id, answer in await requests.answer(id, answer) }
         present(sheet)
         requests.refresh()
+    }
+
+    /// Compose, as classic cmux's Chief list (ChiefHomeView.newConversation, #21063): another Chief
+    /// at once, named as the Chief is, its conversation shown with the message box focused so the
+    /// person can ask it something; a refusal says why. New Chief… (the sheet) names one first.
+    func startChiefConversation() {
+        guard let services else { return }
+        let home = services.home, registry = services.registry
+        // task-owner: one create; ends with the owner's answer
+        Task { [weak self] in
+            let outcome = await home.createChief(named: HomeStrings.chiefName)
+            guard case .opened(let id) = outcome else { return registry.refuse(outcome.message ?? "") }
+            guard let self else { return }
+            // Shown now when listed; else once the inbox lists it (createChief set pendingSelection).
+            if home.homeStore.rows.contains(where: { $0.id == id }) { show(id) }
+            focusPrimaryInput()
+        }
     }
 
     func presentNewChief() {

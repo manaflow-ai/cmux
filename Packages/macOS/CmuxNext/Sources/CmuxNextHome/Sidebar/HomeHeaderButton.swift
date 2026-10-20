@@ -15,7 +15,7 @@ final class HomeHeaderButton: NSButton {
     private let onSymbol: String?
     private(set) lazy var hover = ChromeHover(self, cornerRadius: 0, behindContent: true)
     private var followsPointer = false
-    /// A right-click menu (compose: New Chief, Invite).
+    /// A right-click menu (compose: New Message, New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 
     /// A toggle's state: the filled glyph in the accent, and the accessibility value.

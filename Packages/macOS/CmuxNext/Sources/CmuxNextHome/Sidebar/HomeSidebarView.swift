@@ -27,8 +27,9 @@ public final class HomeSidebarView: NSView {
     public var teammates: (String) -> [HomeContact] = { _ in [] }
     /// A teammate from the search section was chosen: start (or open) the DM.
     public var onStartTeammate: (HomeContact) -> Void = { _ in }
-    public var onNewMessage: () -> Void = {}
-    /// The compose button's right-click menu (New Chief, Invite), or nil for none.
+    /// The compose button was clicked: another Chief, as classic cmux's Chief list does.
+    public var onCompose: () -> Void = {}
+    /// The compose button's right-click menu (New Message, New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
     /// The Message Requests button was clicked (`showRequests`).
     public var onOpenRequests: () -> Void = {}
@@ -38,7 +39,7 @@ public final class HomeSidebarView: NSView {
     /// Messages' sidebar toolbar.
     let dragStrip = HomeWindowDragStrip()
     /// The header row (`HomeSidebarHeaderLayout`): search, the Unread toggle, then compose.
-    let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.newMessage,
+    let compose = HomeHeaderButton(symbol: "square.and.pencil", label: HomeConversationStrings.chiefTitle,
                                    identifier: "cmux.home.sidebar.compose")
     /// All or Unread: one click, the filled glyph while only unread conversations show
     /// (Home offers no other filter, so no menu).
@@ -152,7 +153,7 @@ public final class HomeSidebarView: NSView {
         }
     }
 
-    @objc func newMessage() { onNewMessage() }
+    @objc func composeClicked() { onCompose() }
     @objc func openRequests() { onOpenRequests() }
 
     /// Shows the Message Requests button for `count` open requests; none hides it.
@@ -215,7 +216,7 @@ public final class HomeSidebarView: NSView {
         field.onTextChange = { [weak self] in self?.list.headerView.needsLayout = true }
         searchCapsule.onClick = { [weak self] in self?.openSearch() }
         compose.target = self
-        compose.action = #selector(newMessage)
+        compose.action = #selector(composeClicked)
         compose.contextMenu = { [weak self] in self?.composeMenu() }
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
