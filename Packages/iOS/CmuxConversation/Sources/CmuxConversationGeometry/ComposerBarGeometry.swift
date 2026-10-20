@@ -14,6 +14,7 @@ import CoreGraphics
 /// With the keyboard up Messages drops the concentric padding and uses the
 /// system layout margin instead: 16 pt on a 402 pt iPhone, 20 pt on a 440 pt
 /// one. Both the "+" and the field's trailing edge use that inset.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ComposerBarGeometry {
     /// The "+" glass circle's diameter.
     public static let plusDiameter: CGFloat = 40
@@ -134,6 +135,7 @@ public enum ComposerBarGeometry {
 /// `plus.circle.fill` at the Title 1 text style (32.67 pt at Large), label
 /// over secondarySystemFill, centered 25.35 pt from the capsule's trailing
 /// edge and 16 pt above the last line's bottom.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ComposeRecipientAddGeometry {
     public static let symbolName = "plus.circle.fill"
     public static let textStyleName = "title1"
