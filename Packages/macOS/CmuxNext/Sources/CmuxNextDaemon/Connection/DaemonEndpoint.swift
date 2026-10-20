@@ -442,6 +442,8 @@ public struct DaemonCapabilities: Sendable {
     public let agentCLIAppInvalidation = "agent-cli-app-invalidation-v1"
     /// Admission receipts on the agent inventory watch (`DaemonReadyConnection`).
     public let agentInventoryWatchAdmission = "agent-inventory-watch-admission-v1"
+    /// Stash, a native OneTab (`stash.*`; `StateResourceClient+Stash.swift`).
+    public let stash = "stash-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -462,7 +464,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

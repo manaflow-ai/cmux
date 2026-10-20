@@ -244,8 +244,8 @@ struct DaemonRestartTests {
         #expect(recovery["offers_restart"] == .bool(true))
         #expect(recovery["is_restarting"] == .bool(false))
         #expect(recovery["can_retry"] == .bool(true))
-        // compactMap is rethrows: inside #require the macro reads it as a throwing call, so map it outside.
-        let windows = try #require(report["windows"]?.arrayValue).compactMap(\.objectValue)
+        let windowObjects = report["windows"]?.arrayValue?.compactMap { $0.objectValue }
+        let windows = try #require(windowObjects)
         #expect(!windows.isEmpty)
         #expect(windows.allSatisfy { $0["shows"] == .string("connecting") }, "\(windows)")
 

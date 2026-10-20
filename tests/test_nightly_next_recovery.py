@@ -259,6 +259,7 @@ OWN = dict(
     OWN_RESULT="success",
     OWN_PENDING="",
     OWN_VERIFIED="success",
+    OWN_DMG_VERIFIED="success",
     OWN_BUILD="50001",
     OWN_BUILD_SHA="a" * 40,
     OWN_TIP_SHA="b" * 40,
@@ -336,7 +337,7 @@ class WorkflowTests(unittest.TestCase):
         condition = workflow()["jobs"]["publish-nightly"]["if"]
         self.assertTrue(condition.startswith("!cancelled() && needs.decide.result == 'success' && "), condition)
         self.assertIn(
-            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
+            "((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))",
             condition,
         )
 
@@ -350,7 +351,8 @@ class WorkflowTests(unittest.TestCase):
     def test_select_publishes_the_recovered_build_when_this_one_is_pending_or_failed(self):
         # A build whose secret-free verify job failed is not published either.
         for own in (dict(OWN, OWN_PENDING="true"), dict(OWN, OWN_RESULT="failure"), dict(OWN, OWN_RESULT="skipped"),
-                    dict(OWN, OWN_VERIFIED="failure")):
+                    dict(OWN, OWN_VERIFIED="failure"),
+                    dict(OWN, OWN_DMG_VERIFIED="failure")):
             selected = run_select(**dict(own, **RECOVERED))
             self.assertEqual(selected["source"], "recovered")
             self.assertEqual(selected["build"], "49801")
@@ -427,7 +429,7 @@ class FailureIssueTests(unittest.TestCase):
 
     def publication(self, source, **results):
         jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
-                "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly",
+                "prepare-nightly-variant", "build-sign-notarize-nightly", "verify-signed-nightly", "verify-final-dmg-nightly",
                 "verify-recovered-nightly-next", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
                 "sign-release-notes", "publish-release-notes")
         outcome = dict.fromkeys(jobs, "success")
