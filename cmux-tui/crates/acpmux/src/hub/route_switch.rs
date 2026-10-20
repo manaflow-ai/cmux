@@ -6,35 +6,42 @@
 
 use super::*;
 
-use crate::routes;
+use crate::{route_account, routes};
 
 impl Hub {
     /// The route env of a spawn, applied over `env`: the session's chat
     /// binding, else its workspace's, family's or the global one. No
     /// binding: `env` is unchanged. A binding to a route that is gone or
     /// that cannot start is the spawn's error, never a silent other route;
-    /// a non-chat binding to a route of another family is skipped.
+    /// a non-chat binding to a route of another family is skipped. Returns
+    /// the account home it gave a chat whose conversation has none yet
+    /// (route_account.rs records it once the chat has started). `forking`:
+    /// the session forks its parent's conversation, which has a home.
     pub(super) async fn apply_route(
         &self,
         meta: &SessionMeta,
+        forking: bool,
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
-    ) -> Result<Option<String>, RpcError> {
+    ) -> Result<Option<PathBuf>, RpcError> {
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, profile, env).await
+        let has_home = forking || route_account::has_home(meta);
+        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, has_home, profile, env).await
     }
 
     /// [`Self::apply_route`] for a spawn of harness `harness` that may not
     /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
-    /// profile's, family's or global route applies.
+    /// profile's, family's or global route applies. `has_home`: the chat's
+    /// conversation already has a folder, which the route does not change.
     pub(super) async fn apply_route_for(
         &self,
         harness: &str,
         session: Option<&str>,
         workspace: Option<&str>,
+        has_home: bool,
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
-    ) -> Result<Option<String>, RpcError> {
+    ) -> Result<Option<PathBuf>, RpcError> {
         let (dir, state) = routes::places(&*self.config.read().await);
         let family = crate::config::derive_family(harness, profile);
         let mut bindings = routes::bindings(&state);
@@ -46,9 +53,13 @@ impl Hub {
         // global binding; a chat or workspace binding still wins.
         let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
         let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
+        // Your own endpoint (byo_endpoint.rs) names its provider itself: a
+        // family or global binding never rewrites it.
+        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
         let Some((id, scope)) = (match (bound, profile_route) {
             (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
             (_, Some(id)) => Some((id, "profile")),
+            (_, None) if own_endpoint => None,
             (bound, None) => bound,
         }) else {
             return Ok(None);
@@ -66,13 +77,22 @@ impl Hub {
             }
             return Ok(None);
         }
-        let route_env =
-            tokio::task::spawn_blocking(move || routes::env_for(&route, &family, &state))
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))?
-                .map_err(|e| route_error(&e))?;
+        let home = route.file.account_home.clone().map(PathBuf::from);
+        let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
+        let fam = family.clone();
+        let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
-        Ok(Some(id))
+        // A home the profile pins (a Chief turn's, a claude-sr profile's) is
+        // only replaced by a route picked for this chat or profile.
+        let pinned = before.is_some() && !matches!(scope, "chat" | "profile");
+        if has_home || pinned {
+            route_account::keep_home(&family, before, env);
+            return Ok(None);
+        }
+        Ok(home)
     }
 
     /// Bind a chat to a route (None: back to the inherited one) and move its
@@ -99,6 +119,17 @@ impl Hub {
                 .map_err(|e| RpcError::internal(e.to_string()))?
                 .map_err(|e| route_error(&e))?;
         }
+        if let (Some(id), Some(profile)) = (&route, &profile)
+            && route_account::has_home(&meta)
+        {
+            // Its conversation stays in its folder: another account's route
+            // would not move it there, so it is refused instead.
+            let family = crate::config::derive_family(&meta.harness, profile);
+            let (_, env) = self.harness_env(&meta).await;
+            let current = route_account::current_home(&meta, &family, &env);
+            let to = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
+            route_account::switch_allowed(current.as_deref(), &to).map_err(|e| route_error(&e))?;
+        }
         let from = routes::bindings(&state).chats.get(&session.id).cloned();
         routes::set_binding(&state, &format!("chat:{}", session.id), route.as_deref())
             .map_err(|e| route_error(&e))?;
@@ -120,6 +151,24 @@ impl Hub {
         }
         self.restart_on_route(session).await?;
         Ok(json!({"routeId": route, "applied": "now"}))
+    }
+
+    /// A new chat that started in an account home keeps it as its store
+    /// from now on (route_account.rs `record`); a failed start records nothing.
+    pub(super) fn keep_account_home<T>(
+        &self,
+        session: &Session,
+        spawn: &super::spawn::Spawn,
+        child: T,
+    ) -> T {
+        let recorded = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            route_account::record(&mut m, spawn.account_home.as_deref())
+        };
+        if recorded {
+            self.save_meta(session);
+        }
+        child
     }
 
     /// Restart the harness on its current binding and resume the same agent
@@ -262,12 +311,14 @@ impl Hub {
                 hub.append(&s, "mux", "route_probe", probe);
             });
         }
-        let next = route
-            .file
-            .fallback
-            .iter()
-            .filter(|f| **f != id)
-            .find_map(|f| routes::find(dir.as_deref(), f).ok().filter(|r| r.serves(&family)));
+        // A fallback never names another account: the chat keeps its folder.
+        let (_, env) = self.harness_env(&meta).await;
+        let home = route_account::current_home(&meta, &family, &env);
+        let next = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+            routes::find(dir.as_deref(), f).ok().filter(|r| {
+                r.serves(&family) && route_account::switch_allowed(home.as_deref(), r).is_ok()
+            })
+        });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
             out["fallback"] = json!({"routeId": next.id, "name": next.name()});

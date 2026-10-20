@@ -85,5 +85,6 @@ export interface ReleaseNotes {
   summary?: SummaryLine[];
 }
 
-/** The page design (Debug Settings `whatsNew.design`, route `design=`): A is the default. */
-export type ChangelogDesign = "journal" | "rail" | "digest";
+/** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
+    (u5099, design/changelog-variations-gallery #01). */
+export type ChangelogDesign = "ledger" | "journal" | "rail" | "digest";

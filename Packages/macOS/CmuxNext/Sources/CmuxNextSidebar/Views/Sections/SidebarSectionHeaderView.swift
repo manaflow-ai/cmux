@@ -9,7 +9,7 @@ final class SidebarSectionHeaderView: NSView {
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
     private let name = ChromeLabel(labelWithString: "")
-    let chevron = NSImageView()
+    let chevron = DecorativeImageView() // AXExpanded says what it draws
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
@@ -56,7 +56,7 @@ final class SidebarSectionHeaderView: NSView {
         let alpha: CGFloat = collapsed || isHovered ? 1 : 0
         guard chevron.alphaValue != alpha else { return }
         guard window != nil, Motion.canAnimate(in: self) else { chevron.alphaValue = alpha; return }
-        Motion.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
+        Motion.feedback.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
     }
 
     override func updateLayer() {

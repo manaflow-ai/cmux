@@ -14,8 +14,8 @@
 // Linux CI image), the browser cases are skipped and say so. EDITOR_SCREENSHOTS=<dir> saves
 // screenshots there (editor-*.png).
 //
-// 24 browser tests in two engines take about 115 s on the CI runner (run-webviews-tests.sh):
-// cmux-web-test-timeout: 240
+// 28 browser tests in two engines take about 130 s on the CI runner (run-webviews-tests.sh):
+// cmux-web-test-timeout: 300
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
@@ -114,6 +114,11 @@ await requireBrowserLane("editor-page.test.ts", async () => {
 
   async function openEditor(page: Page, target: string, options: { highlighted?: boolean } = {}) {
     await page.goto(`${base}/editor?file=${encodeURIComponent(target)}`);
+    await editorReady(page, options);
+  }
+
+  /** Waits until the page now loaded shows its file in Monaco. */
+  async function editorReady(page: Page, options: { highlighted?: boolean } = {}) {
     await page.waitForFunction(
       () =>
         document.documentElement.dataset.cmuxEditorBoot === "ready" &&
@@ -393,6 +398,55 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         fs.rmSync(path.join(stateDir, "editor-preferences.json"), { force: true });
       });
 
+      // THEME-FLASH (user 2026-10-20, "for monaco editors there is flash of wrong theme"): Monaco's
+      // first painted frame already has the page's theme. The editor used to be created with a theme
+      // name defined only once Shiki loaded, so Monaco fell back to its light `vs` theme (white
+      // #fffffe background) for the first frames, then switched.
+      for (const scheme of ["dark", "light"] as const) {
+        for (const fileName of ["flash.ts", "flash.txt"]) {
+          test(`the first Monaco frame has the ${scheme} theme (${fileName})`, async () => {
+            await fresh(scheme);
+            // Every theme Monaco shows, from the moment its node exists (a mutation callback runs
+            // before the frame paints): the base class and the editor background it resolved.
+            await page.addInitScript(() => {
+              const seen: { classes: string; background: string }[] = [];
+              (window as unknown as { __themeFrames: typeof seen }).__themeFrames = seen;
+              const record = () => {
+                const node = document.querySelector<HTMLElement>(".monaco-editor");
+                if (!node) return;
+                const entry = {
+                  classes: [...node.classList]
+                    .filter((name) => /^(vs|vs-dark|hc-black|hc-light)$/.test(name))
+                    .join(" "),
+                  background: getComputedStyle(node).getPropertyValue("--vscode-editor-background").trim(),
+                };
+                const last = seen[seen.length - 1];
+                if (!last || last.classes !== entry.classes || last.background !== entry.background) seen.push(entry);
+              };
+              new MutationObserver(record).observe(document, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                attributeFilter: ["class"],
+              });
+            });
+            const target = file(fileName, "const a = 1;\n");
+            await openEditor(page, target, { highlighted: fileName.endsWith(".ts") });
+            await page.waitForTimeout(200);
+            const frames = await page.evaluate(
+              () => (window as unknown as { __themeFrames: { classes: string; background: string }[] }).__themeFrames,
+            );
+            expect(frames.length).toBeGreaterThan(0);
+            for (const frame of frames) {
+              expect(frame.classes).toBe(scheme === "dark" ? "vs-dark" : "vs");
+              // Monaco's own light background never shows: the page's `--cmux-editor-background`
+              // (transparent by default) is the editor's from the first frame.
+              expect(frame.background.toLowerCase()).not.toBe("#fffffe");
+            }
+          });
+        }
+      }
+
       test("settings and theme.css from the look stream restyle the editor in place", async () => {
         await fresh();
         const target = file("look.ts", "const a = 1;\n");
@@ -440,6 +494,129 @@ await requireBrowserLane("editor-page.test.ts", async () => {
           `// ${line.trimEnd()}`,
         );
         if (shots && name === "chromium") await page.screenshot({ path: path.join(shots, "editor-large.png") });
+      });
+
+      // PANE-FOCUS (user 2026-10-20, "monaco editor on focus does not get focus"): the app gives
+      // the page's web view the keyboard (pane click, Cmd-Opt-Arrow, tab switch, new tab) and sends
+      // `focusContent`; with nothing focused in the page, typing must land in Monaco, not the body.
+      const focusContent = (page: Page) =>
+        page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "focusContent" }),
+        );
+      const editorHasFocus = (page: Page) =>
+        page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus());
+
+      test("the host's focusContent puts the keyboard in Monaco without a click", async () => {
+        await fresh();
+        const target = file("focus.ts", "const a = 1;\n");
+        await openEditor(page, target);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        expect(await editorHasFocus(page)).toBe(false);
+        expect(await focusContent(page)).toBe(true);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+        await page.keyboard.type("x");
+        expect(await editorText(page)).toBe("xconst a = 1;\n");
+      });
+
+      test("focusContent that arrives before Monaco mounts focuses the editor once it mounts", async () => {
+        await fresh();
+        const target = file("early.ts", "let b = 2;\n");
+        await page.goto(`${base}/editor?file=${encodeURIComponent(target)}`);
+        // As soon as the page subscribes to its commands (before the Monaco chunk loads).
+        await page.waitForFunction(
+          () =>
+            (
+              window as unknown as { __cmuxEditorDev?: { emit: (stream: string, data: unknown) => boolean } }
+            ).__cmuxEditorDev?.emit("cmux.page.command", { command: "focusContent" }) === true,
+          null,
+          { timeout: 60_000, polling: 10 },
+        );
+        // The same document: a second goto would load a new one and drop the request.
+        await editorReady(page);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+        await page.keyboard.type("y");
+        expect(await editorText(page)).toBe("ylet b = 2;\n");
+      });
+
+      test("the page getting the keyboard back focuses Monaco only when nothing in it has focus", async () => {
+        await fresh();
+        const target = file("keep.ts", "find me\nfind me\n");
+        await openEditor(page, target);
+        // The find field has focus: getting the keyboard back keeps it there.
+        await page.keyboard.press("Meta+f");
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+        expect(await focusContent(page)).toBe(true);
+        await page.waitForTimeout(100);
+        expect(await page.evaluate(() => document.activeElement?.closest(".find-pill") != null)).toBe(true);
+        // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+      });
+
+      test("Cmd-F shows the shared find pill, never Monaco's find widget", async () => {
+        await fresh();
+        const target = file("pill.ts", "alpha beta\nalpha gamma\nAlpha delta\n");
+        await openEditor(page, target);
+        await page.keyboard.press("Meta+f");
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
+        await page.keyboard.type("alpha");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 3");
+        // Monaco's own widget never shows.
+        expect(
+          await page.evaluate(() => {
+            const widget = document.querySelector<HTMLElement>(".find-widget");
+            return widget != null && widget.classList.contains("visible") && widget.offsetParent != null;
+          }),
+        ).toBe(false);
+        // Return steps and selects the next match in the editor.
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "2 of 3");
+        expect(
+          await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.getSelection()?.startLineNumber),
+        ).toBe(2);
+        // Match Case drops "Alpha".
+        await page.click(".find-pill__button[aria-pressed]");
+        await page.waitForFunction(() =>
+          (document.querySelector(".find-pill__count")?.textContent ?? "").endsWith("of 2"),
+        );
+        // Escape hides the pill and gives Monaco the keyboard back.
+        await page.focus(".find-pill__field");
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector(".find-pill") == null);
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+      });
+
+      test("Replace (the replace page command) opens the find pill's replace row, never Monaco's widget", async () => {
+        await fresh();
+        const target = file("replace.ts", "old one\nold two\n");
+        await openEditor(page, target);
+        await page.evaluate(() =>
+          (
+            window as unknown as { __cmuxEditorDev: { emit: (stream: string, data: unknown) => boolean } }
+          ).__cmuxEditorDev.emit("cmux.page.command", { command: "replace" }),
+        );
+        await page.waitForSelector(".find-pill__replace");
+        expect(await page.evaluate(() => document.querySelector(".find-widget.visible.replaceToggled") != null)).toBe(
+          false,
+        );
+        await page.fill(".find-pill__field", "old");
+        await page.fill(".find-pill__replace .find-pill__field", "new");
+        await page.click(".find-pill__replace-all");
+        await page.waitForFunction(
+          () => window.__cmuxEditor!.view()!.monacoEditor.getModel()!.getValue() === "new one\nnew two\n",
+        );
       });
 
       test("screen reader mode works from the keyboard alone", async () => {
@@ -497,15 +674,19 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         );
         // Find (the dispatcher's `find` page command) announces its result in a live region.
         await page.keyboard.press("Meta+f");
-        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.keyboard.type("second");
         await page.waitForFunction(
-          () => /2/.test(document.querySelector(".find-widget .matchesCount")?.textContent ?? ""),
+          () => /2/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
           null,
           { timeout: 10_000 },
         );
         const announced = await page.evaluate(() =>
-          [...document.querySelectorAll(".monaco-aria-container [role], .monaco-alert, .monaco-status")]
+          [
+            ...document.querySelectorAll(
+              ".find-pill__count[aria-live], .monaco-aria-container [role], .monaco-alert, .monaco-status",
+            ),
+          ]
             .map((node) => node.textContent ?? "")
             .join(" | "),
         );

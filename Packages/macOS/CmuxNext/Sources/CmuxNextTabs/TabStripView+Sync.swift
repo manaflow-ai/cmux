@@ -29,11 +29,18 @@ extension TabStripView {
         let selected = input.selectedID
         if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
         if let selected { cells[selected]?.isSelected = true }
-        if input.multiSelection != lastSyncedInput?.multiSelection { applyMultiSelection() }
+        let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
+        if multiChanged { applyMultiSelection() }
         lastSyncedInput = input
-        // Same geometry: only what the selected tab draws over or hides changes.
-        TabSeparatorVisibility.apply(to: self)
-        updateOcclusion()
+        // Same geometry: only what the selected tab draws over or hides changes, so a plain switch
+        // touches the two tabs whose selection changed and their neighbors' lines, at any tab count.
+        if multiChanged {
+            TabSeparatorVisibility.apply(to: self)
+        } else {
+            TabSeparatorVisibility.apply(to: self, around: [lastSelectedID, selected])
+        }
+        // At rest no tab overlaps another and no mask is on: only a move in flight needs the pass.
+        if !movesInFlight.isEmpty || !occlusionEnds.isEmpty { updateOcclusion() }
         if let selected, selected != lastSelectedID { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
         refreshHoverCard()
@@ -87,7 +94,7 @@ extension TabStripView {
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        let structureAnimates = !(adding || removing) || Motion.animates(.newTab)
+        let structureAnimates = !(adding || removing) || Motion.tabs.animates(.newTab)
         let inGesture = drag != nil || groups.drag != nil || pendingDrop != nil
         let animated = hasSynced && !reduceMotion && animating && (structureAnimates || inGesture)
         // Added/closed cells move only outside a gesture; a sync that adds no tab never re-tokens the strip.
@@ -180,6 +187,7 @@ extension TabStripView {
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
+        cell.accessibilityToggleAudio = { [weak self] in self?.model.send(.toggleAudioMute(id)) }
         let element = ObjectIdentifier(cell.accessibility)
         cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
@@ -223,6 +231,8 @@ extension TabStripView {
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
+        if audioHoveredID == id { setAudioHovered(nil) }
+        if pressedAudioID == id { pressedAudioID = nil }
     }
 
     /// Drops `id`'s place and the moves that tracked it.
