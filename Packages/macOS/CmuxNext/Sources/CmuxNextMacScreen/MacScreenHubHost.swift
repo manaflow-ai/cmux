@@ -41,12 +41,19 @@ public final class MacScreenHubHost {
         let log: @Sendable (String) -> Void = { line in logger.info("\(line, privacy: .public)") }
         return ScreenStreamHost(name: name, viewOnly: viewOnly, backend: { ScreenCaptureBackend(log: log) }, log: log)
     }
+    /// The hub calls the host's controls make; tests replace them.
+    @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
+        try? await hub.endSession(id, reason: reason)
+    }
+    @ObservationIgnored var revokePermission: @MainActor (DeviceHub, String) async throws -> Void = { hub, viewer in
+        try await hub.setPermission(host: hub.identity.id, viewer: viewer, scope: .none)
+    }
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
 
     init(share: MacScreenShareHost) {
         self.share = share
-        indicator.stopSharing = { [weak self] in self?.stopSession(reason: .hostStopped) }
+        indicator.stopSharing = { [weak self] in _ = self?.stopSession(reason: .hostStopped) }
     }
 
     /// Whether this Mac allows Mac Screen (the hub's record of this device).
@@ -143,22 +150,38 @@ public final class MacScreenHubHost {
 
     // MARK: The person's controls
 
-    /// Stop Sharing (menu bar, Mac Screen home): ends the session on both Macs.
-    public func stopSession(reason: MacScreenHubReason = .hostStopped) {
-        guard let current = session else { return }
-        closeLocal()
-        if let hub = hub() { end(current.id, reason: reason, hub: hub) }
+    /// Stop Sharing (menu bar, Mac Screen home): the hub hears `host_stopped`
+    /// first (`/end`), then the stream closes, so the viewer reads why.
+    /// `immediately` (quitting) closes at once.
+    @discardableResult
+    public func stopSession(reason: MacScreenHubReason = .hostStopped, immediately: Bool = false) -> Task<Void, Never>? {
+        guard let current = session else { return nil }
+        guard let hub = hub(), !immediately else {
+            closeLocal()
+            if let hub = hub() { end(current.id, reason: reason, hub: hub) }
+            return nil
+        }
+        let end = endSession
+        // task-owner: one /end, then this session's stream closes (its revocation push may close it first)
+        return Task { [weak self] in
+            await end(hub, current.id, reason.rawValue)
+            guard let self, session?.id == current.id else { return }
+            closeLocal()
+        }
     }
 
-    /// Revoke This Device: its access to this Mac becomes None, which ends its sessions.
-    public func revokeViewer() {
-        guard let current = session, let hub = hub() else { return }
-        closeLocal()
-        let me = hub.identity.id
-        // task-owner: one permission write; the hub revokes the session and pushes to both Macs
-        Task {
-            do { try await hub.setPermission(host: me, viewer: current.viewerID, scope: .none) } catch {
-                try? await hub.endSession(current.id, reason: MacScreenHubReason.revoked.rawValue)
+    /// Revoke This Device: this Mac (the host, the only device that may)
+    /// sets its access to None. The hub revokes the session with that reason
+    /// and pushes it to both Macs, which closes it here (`sessionOver`). Only
+    /// when the write fails does it end the session itself.
+    @discardableResult
+    public func revokeViewer() -> Task<Void, Never>? {
+        guard let current = session, let hub = hub() else { return nil }
+        let revoke = revokePermission
+        // task-owner: one permission write; the hub's revocation push closes the session
+        return Task { [weak self] in
+            do { try await revoke(hub, current.viewerID) } catch {
+                await self?.stopSession(reason: .hostStopped)?.value
             }
         }
     }
@@ -194,7 +217,7 @@ public final class MacScreenHubHost {
             ? String(format: L.t("macScreen.indicator.viewing", "%@ is viewing this Mac"), session.viewerName)
             : String(format: L.t("macScreen.indicator.controlling", "%@ is controlling this Mac"), session.viewerName)
         indicator.setVisible(true)
-        indicator.update(title: title, revoke: { [weak self] in self?.revokeViewer() })
+        indicator.update(title: title, revoke: { [weak self] in _ = self?.revokeViewer() })
     }
 
     /// The menu bar item's state, for `debug.device_hub`.

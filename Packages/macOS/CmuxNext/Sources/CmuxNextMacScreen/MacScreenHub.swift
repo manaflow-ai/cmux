@@ -96,35 +96,66 @@ public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
     }
 }
 
-/// Why a session was revoked or ended, as people read it.
+/// Why a session was revoked or ended, as people read it. The hub's reasons
+/// are authoritative (PROTOCOL.md): `permission_revoked`,
+/// `device_removed:viewer|host`, `sharing_off`, `host_stopped`,
+/// `viewer_disconnected`, `signed_out`, `peer_offline`; older servers sent
+/// `permission_changed` and `device_removed`, and a dropped socket `bye` or `closed`.
 public nonisolated enum MacScreenEndReason: Equatable, Sendable {
-    case permissionChanged, deviceRemoved, sharingOff, hostStopped, viewerDisconnected, signedOut, other
+    case permissionRevoked
+    /// This Mac (the viewer) was removed from the user's devices.
+    case viewerRemoved
+    /// The host was removed from the user's devices.
+    case hostRemoved
+    /// A device of the session was removed (a server that does not say which).
+    case deviceRemoved
+    case sharingOff
+    case hostStopped
+    case viewerDisconnected
+    case signedOut
+    /// The other device lost its connection to the hub.
+    case peerOffline
+    /// The stream could not start (or dropped) on one side.
+    case failed
+    case other
 
-    /// The protocol's reason (`permission_changed`, `device_removed`,
-    /// `sharing_off`, an `/end` reason, `bye`, `closed`).
     public init(_ reason: String?) {
         switch reason ?? "" {
-        case "permission_changed": self = .permissionChanged
+        case "permission_revoked", "permission_changed", "host_revoked": self = .permissionRevoked
+        case "device_removed:viewer": self = .viewerRemoved
+        case "device_removed:host": self = .hostRemoved
         case "device_removed": self = .deviceRemoved
         case "sharing_off": self = .sharingOff
-        default:
-            switch MacScreenHubReason(rawValue: reason ?? "") {
-            case .hostStopped, .revoked: self = .hostStopped
-            case .viewerDisconnected, .tabClosed: self = .viewerDisconnected
-            case .signedOut: self = .signedOut
-            case .replaced, .failed, nil: self = .other
-            }
+        case "host_stopped": self = .hostStopped
+        case "viewer_disconnected", "tab_closed": self = .viewerDisconnected
+        case let text where text.hasPrefix("signed_out"): self = .signedOut
+        case let text where text.hasPrefix("peer_offline"): self = .peerOffline
+        case "failed": self = .failed
+        default: self = .other
         }
     }
 
-    var text: String {
+    /// The viewer lost its access (a card titled Access Removed), rather than a session that ended.
+    var removesAccess: Bool {
         switch self {
-        case .permissionChanged: L.t("macScreen.hub.reason.permission", "Your access to this Mac changed.")
+        case .permissionRevoked, .viewerRemoved, .hostRemoved, .deviceRemoved: true
+        default: false
+        }
+    }
+
+    /// The viewer's card text, naming the host device (never "this Mac" for it).
+    func text(host: String) -> String {
+        switch self {
+        case .permissionRevoked: String(format: L.t("macScreen.hub.reason.revoked", "%@ removed this Mac’s access to its screen."), host)
+        case .viewerRemoved: L.t("macScreen.hub.reason.viewerRemoved", "This Mac was removed from your devices.")
+        case .hostRemoved: String(format: L.t("macScreen.hub.reason.hostRemoved", "%@ was removed from your devices."), host)
         case .deviceRemoved: L.t("macScreen.hub.reason.removed", "A device was removed from your devices.")
-        case .sharingOff: L.t("macScreen.hub.reason.sharingOff", "This Mac stopped sharing its screen.")
-        case .hostStopped: L.t("macScreen.hub.reason.hostStopped", "The other Mac stopped sharing.")
+        case .sharingOff: String(format: L.t("macScreen.hub.reason.sharingOffNamed", "%@ turned off Mac Screen."), host)
+        case .hostStopped: String(format: L.t("macScreen.hub.reason.hostStoppedNamed", "%@ stopped sharing its screen."), host)
         case .viewerDisconnected: L.t("macScreen.hub.reason.viewer", "You disconnected.")
-        case .signedOut: L.t("macScreen.hub.reason.signedOut", "A device signed out.")
+        case .signedOut: L.t("macScreen.hub.reason.signedOutEither", "A Mac in this session signed out of cmux.")
+        case .peerOffline: String(format: L.t("macScreen.hub.reason.offline", "%@ went offline."), host)
+        case .failed: L.t("macScreen.hub.reason.failed", "The screen stream could not start.")
         case .other: L.t("macScreen.hub.reason.other", "The session ended.")
         }
     }
@@ -134,10 +165,8 @@ public nonisolated enum MacScreenEndReason: Equatable, Sendable {
 public nonisolated enum MacScreenHubReason: String, Sendable {
     /// The host's Stop Sharing.
     case hostStopped = "host_stopped"
-    /// The host's Revoke This Device.
-    case revoked = "host_revoked"
+    /// Disconnect, or the viewer's tab closed.
     case viewerDisconnected = "viewer_disconnected"
-    case tabClosed = "tab_closed"
     case signedOut = "signed_out"
     /// A newer session of the same pair took over.
     case replaced

@@ -44,6 +44,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var videoSender: RTCRtpSender?
     /// Secondary channels by label (the unordered `pointer` channel).
     private var extras: [String: RTCDataChannel] = [:]
+    private var candidateErrorSink: (@Sendable (ICECandidateError) -> Void)?
+    /// A STUN or TURN server could not give a candidate (WebRTC's
+    /// `icecandidateerror`): a TURN 401 is refused credentials, 701 an
+    /// unreachable server. Any thread.
+    var onCandidateError: (@Sendable (ICECandidateError) -> Void)? {
+        get { lock.withLock { candidateErrorSink } }
+        set { lock.withLock { candidateErrorSink = newValue } }
+    }
 
     /// `relayOnly` forces the TURN relay (measurements).
     /// `preferStreamRelays` (byte streams only) drops UDP TURN; video lets ICE choose.
@@ -325,6 +333,10 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         if newState == .failed || newState == .closed { closeOffCallback() }
+    }
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didFailToGatherIceCandidate event: RTCIceCandidateErrorEvent) {
+        onCandidateError?(ICECandidateError(code: Int(event.errorCode), url: event.url, text: event.errorText))
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {

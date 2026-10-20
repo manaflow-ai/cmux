@@ -113,7 +113,7 @@ public final class MacScreenPages {
         termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 for tab in self?.tabs.values.map({ $0 }) ?? [] { tab.pane?.close() }
-                self?.hubHost.stopSession()
+                self?.hubHost.stopSession(immediately: true)
             }
         }
         hubHost.hub = { [weak self] in self?.hub }
@@ -173,6 +173,8 @@ public final class MacScreenPages {
         namesWatch = Task { [weak self] in
             for await names in ObservationStream({ hub.devices.map { [$0.id, $0.name] } }) {
                 guard let self else { return }
+                store.rememberDeviceNames(Dictionary(names.map { ($0[0], $0[1]) }, uniquingKeysWith: { _, last in last }))
+                refreshDeviceTitles()
                 for tab in tabs.values {
                     guard let id = tab.record.deviceID, let name = names.first(where: { $0[0] == id })?[1],
                           !name.isEmpty, tab.pane?.model.name != name else { continue }
@@ -183,9 +185,14 @@ public final class MacScreenPages {
         }
     }
 
-    /// The name of device `id`: the hub's, else "Mac".
+    /// The name of device `id`: the hub's, else the last one seen, else "Mac".
     func deviceName(_ id: String) -> String {
-        hub?.devices.first { $0.id == id }?.name ?? L.t("macScreen.hub.unknownDevice", "Mac")
+        hub?.devices.first { $0.id == id }?.name ?? store.deviceNames[id] ?? L.t("macScreen.hub.unknownDevice", "Mac")
+    }
+
+    /// Device tabs whose view is not made yet (restored, not selected) take their device's name.
+    private func refreshDeviceTitles() {
+        for (key, record) in records where record.deviceID != nil && tabs[key] == nil { events.titleChanged(key) }
     }
 
     /// The home page opens device `id` asking for `scope` (a person's click).
@@ -206,6 +213,8 @@ public final class MacScreenPages {
         Task { [weak self] in
             await self?.store.load()
             self?.host.activate()
+            // The saved device names are in: restored device tabs take them.
+            self?.refreshDeviceTitles()
         }
     }
 
@@ -253,7 +262,12 @@ public final class MacScreenPages {
     /// record and waits for Connect. An unknown route shows the home page.
     public func restore(_ route: String, for key: String) {
         guard records[key] == nil else { return }
-        prepare(key, record: Self.record(route: route) ?? MacScreenRecord(macID: nil), byPerson: false)
+        let record = Self.record(route: route) ?? MacScreenRecord(macID: nil)
+        prepare(key, record: record, byPerson: false)
+        // The strip may have asked for the title before the route came back: a device tab is retitled once its pane lists it.
+        if record.deviceID != nil {
+            Task { @MainActor [weak self] in self?.events.titleChanged(key) }
+        }
     }
 
     /// The home page's title, "Mac Screen".

@@ -322,7 +322,7 @@ public final class DeviceHub {
     public func iceServers(for ticket: SessionTicket? = nil) -> [DeviceHubICEServer] {
         let name = thisDevice?.name ?? deviceName
         let mine = relays.filter(\.enabled).sorted { ($0.priority, $0.name) < ($1.priority, $1.name) }.compactMap { relay in
-            secrets.secret(relayID: relay.id).map { RelaySealing.iceServer(relay, secret: $0, deviceName: name, now: now()) }
+            secrets.secret(relayID: relay.id).map { RelaySealing.iceServer(relay, secret: $0, deviceName: name, deviceID: identity.id, now: now()) }
         }
         return (ticket?.ice ?? []) + mine
     }

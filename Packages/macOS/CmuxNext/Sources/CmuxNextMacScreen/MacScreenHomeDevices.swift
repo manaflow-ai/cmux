@@ -87,13 +87,13 @@ struct MacScreenHomeDeviceSections: View {
             Spacer()
             if access == .none {
                 Menu {
-                    Button(L.t("macScreen.hub.view", "View Only")) { askForAccess(device, scope: .view, hub: hub) }
-                    Button(L.t("macScreen.hub.control", "Full Control")) { askForAccess(device, scope: .full, hub: hub) }
+                    Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
+                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
                 } label: {
                     Text(L.t("macScreen.home.askForAccess", "Ask for Access")).font(MacScreenType.body)
                 }
                 .macScreenMenu(colors.primary)
-                .themedHelp(L.t("macScreen.home.askForAccessHelp", "Sets this Mac’s access to Ask, then asks that Mac; its prompt can allow this Mac from now on."))
+                .themedHelp(String(format: L.t("macScreen.home.askForAccessHelpNamed", "Asks %@. Only that Mac can change this Mac’s access to it."), device.name))
                 .accessibilityIdentifier("macScreen.home.askForAccess.\(device.name)")
             } else {
                 Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
@@ -107,13 +107,11 @@ struct MacScreenHomeDeviceSections: View {
                 Button(L.t("macScreen.home.openViewNewTab", "View Only in New Tab")) { actions.openDeviceInNewTab(device.id, .view) }
                 Button(L.t("macScreen.home.openControlNewTab", "Full Control in New Tab")) { actions.openDeviceInNewTab(device.id, .full) }
                 Divider()
-                Menu(L.t("macScreen.home.changeAccess", "Change Access…")) {
-                    ForEach(MacScreenAccess.all, id: \.value) { option in
-                        Toggle(option.title, isOn: Binding(get: { access == option.scope }, set: { on in
-                            guard on else { return }
-                            setAccess(option.scope, device: device, hub: hub)
-                        }))
-                    }
+                // Only the host sets access to itself: from here this Mac asks, and the
+                // host's prompt offers Always Allow.
+                Menu(L.t("macScreen.home.requestAccess", "Ask for Access")) {
+                    Button(L.t("macScreen.hub.view", "View Only")) { actions.openDevice(device.id, .view) }
+                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.openDevice(device.id, .full) }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -124,23 +122,6 @@ struct MacScreenHomeDeviceSections: View {
         .padding(.horizontal, 14).padding(.vertical, 10)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if access != .none { actions.openDevice(device.id, nil) } }
-    }
-
-    /// The speed run: this Mac's access becomes Ask (the host's prompt then offers
-    /// Always Allow), and the tab asks for `scope`.
-    private func askForAccess(_ device: HubDevice, scope: SessionScope, hub: DeviceHub) {
-        let me = hub.identity.id
-        // task-owner: one permission write before the request
-        Task {
-            try? await hub.setPermission(host: device.id, viewer: me, scope: .ask)
-            actions.openDevice(device.id, scope)
-        }
-    }
-
-    private func setAccess(_ scope: DeviceScope, device: HubDevice, hub: DeviceHub) {
-        let me = hub.identity.id
-        // task-owner: one permission write; the hub pushes the change to both Macs
-        Task { try? await hub.setPermission(host: device.id, viewer: me, scope: scope) }
     }
 
     // MARK: Allow Mac Screen on This Mac
@@ -189,7 +170,7 @@ struct MacScreenHomeDeviceSections: View {
             Text(sessionText(hubHost)).accessibilityIdentifier("macScreen.home.hubStatus")
             Spacer()
             if hubHost.session != nil {
-                Button(L.t("macScreen.indicator.revoke", "Revoke This Device"), action: hubHost.revokeViewer)
+                Button(L.t("macScreen.indicator.revoke", "Revoke This Device")) { hubHost.revokeViewer() }
                     .buttonStyle(MacScreenButtonStyle(compact: true))
                 Button(L.t("macScreen.indicator.stop", "Stop Sharing This Mac")) { hubHost.stopSession() }
                     .buttonStyle(MacScreenButtonStyle(role: .destructive, compact: true))

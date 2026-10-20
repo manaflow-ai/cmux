@@ -89,6 +89,8 @@ public final class MacScreenDevicesSettings {
             var name: String
             var platform: String
             var fingerprint: String?
+            /// The whole fingerprint (tooltip and Copy).
+            var fingerprintFull: String?
             var online: Bool
             var presence: String
             var thisDevice: Bool
@@ -97,7 +99,7 @@ public final class MacScreenDevicesSettings {
             var removeConfirm: Confirm
 
             enum CodingKeys: String, CodingKey {
-                case id, name, platform, fingerprint, online, presence, thisDevice, sharesText, access, removeConfirm
+                case id, name, platform, fingerprint, fingerprintFull, online, presence, thisDevice, sharesText, access, removeConfirm
             }
 
             /// The page reads null for an absent value, never a missing key.
@@ -107,6 +109,7 @@ public final class MacScreenDevicesSettings {
                 try c.encode(name, forKey: .name)
                 try c.encode(platform, forKey: .platform)
                 try c.encode(fingerprint, forKey: .fingerprint)
+                try c.encode(fingerprintFull, forKey: .fingerprintFull)
                 try c.encode(online, forKey: .online)
                 try c.encode(presence, forKey: .presence)
                 try c.encode(thisDevice, forKey: .thisDevice)
@@ -280,7 +283,7 @@ public final class MacScreenDevicesSettings {
                                    confirm: L.t("devices.removeConfirm", "Remove"))
         return State.Device(
             id: device.id, name: device.name, platform: device.platform == .ios ? L.t("devices.platform.ios", "iPhone") : L.t("devices.platform.mac", "Mac"),
-            fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), online: isMe || device.online, presence: presence,
+            fingerprint: device.fingerprint.map(DeviceIdentity.displayFingerprint), fingerprintFull: device.fingerprint, online: isMe || device.online, presence: presence,
             thisDevice: isMe, sharesText: device.macScreenShared ? L.t("devices.shares", "Shares Mac Screen") : nil,
             access: isMe ? nil : hub.scope(host: me, viewer: device.id).rawValue, removeConfirm: confirm)
     }
@@ -307,10 +310,10 @@ public final class MacScreenDevicesSettings {
         case let other?: scope = DeviceScope(rawValue: other).map { MacScreenAccess($0).title } ?? other
         case nil: scope = "—"
         }
-        return State.HistoryRow(id: entry.id, time: entry.ts.map { $0.formatted(date: .abbreviated, time: .standard) } ?? "—",
+        return State.HistoryRow(id: entry.id, time: entry.ts.map(Self.timeText) ?? "—",
                                 event: entry.event, eventText: eventText(entry.event), tone: eventTone(entry.event),
                                 device: name(entry.viewerId), host: name(entry.hostId), scope: scope,
-                                detail: detailText(entry), duration: entry.durationS.map(durationText) ?? "")
+                                detail: detailText(entry, viewer: name(entry.viewerId), host: name(entry.hostId)), duration: entry.durationS.map(durationText) ?? "")
     }
 
     static func eventText(_ event: String) -> String {
@@ -339,7 +342,7 @@ public final class MacScreenDevicesSettings {
     }
 
     /// The entry's detail: an access change as "Ask → Full Control", a decision, an end reason.
-    static func detailText(_ entry: AuditEntry) -> String {
+    static func detailText(_ entry: AuditEntry, viewer: String = "—", host: String = "—") -> String {
         guard let detail = entry.detail, !detail.isEmpty else { return "" }
         switch entry.event {
         case "permission_changed":
@@ -360,10 +363,32 @@ public final class MacScreenDevicesSettings {
             switch detail {
             case "bye": return L.t("devices.history.bye", "Disconnected")
             case "closed": return L.t("devices.history.closed", "Connection closed")
-            default: return MacScreenEndReason(detail).text
+            default: return endText(MacScreenEndReason(detail), viewer: viewer, host: host)
             }
         default:
             return detail
+        }
+    }
+
+    /// "Oct 19, 9:12:04 PM": short enough for a narrow History table.
+    static func timeText(_ date: Date) -> String {
+        date.formatted(.dateTime.month(.abbreviated).day().hour().minute().second())
+    }
+
+    /// An end reason in History, naming the devices (never "this Mac" for another one).
+    static func endText(_ reason: MacScreenEndReason, viewer: String, host: String) -> String {
+        switch reason {
+        case .permissionRevoked: String(format: L.t("devices.history.revoked", "%@ removed the access"), host)
+        case .viewerRemoved: String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), viewer)
+        case .hostRemoved: String(format: L.t("devices.history.deviceRemoved", "%@ was removed"), host)
+        case .deviceRemoved: L.t("devices.history.someDeviceRemoved", "A device was removed")
+        case .sharingOff: String(format: L.t("devices.history.sharingOff", "%@ turned off Mac Screen"), host)
+        case .hostStopped: String(format: L.t("devices.history.hostStopped", "%@ stopped sharing"), host)
+        case .viewerDisconnected: String(format: L.t("devices.history.viewerDisconnected", "%@ disconnected"), viewer)
+        case .signedOut: L.t("devices.history.signedOut", "A device signed out")
+        case .peerOffline: L.t("devices.history.offline", "A device went offline")
+        case .failed: L.t("devices.history.failed", "The stream could not start")
+        case .other: L.t("devices.history.other", "Ended")
         }
     }
 
@@ -523,12 +548,14 @@ public final class MacScreenDevicesSettings {
                 return RunResult(error: L.t("devices.error.secretToCheck", "Enter the relay’s secret to check it."))
             }
             let relay = HubRelay(id: draft.id ?? "draft", name: draft.name, urls: Self.urls(draft), authMode: secret.authMode)
-            servers = [RelaySealing.iceServer(relay, secret: secret, deviceName: hub.thisDevice?.name ?? hub.deviceName, now: now()).config]
+            servers = [RelaySealing.iceServer(relay, secret: secret, deviceName: hub.thisDevice?.name ?? hub.deviceName,
+                                                deviceID: hub.identity.id, now: now()).config]
         } else {
             guard let relay = hub.relays.first(where: { $0.id == run.id }), let secret = hub.relaySecret(relay.id) else {
                 return RunResult(error: L.t("devices.error.noSecret", "This Mac can’t open this relay’s secret. Edit the relay and enter it again."))
             }
-            servers = [RelaySealing.iceServer(relay, secret: secret, deviceName: hub.thisDevice?.name ?? hub.deviceName, now: now()).config]
+            servers = [RelaySealing.iceServer(relay, secret: secret, deviceName: hub.thisDevice?.name ?? hub.deviceName,
+                                                deviceID: hub.identity.id, now: now()).config]
         }
         checking.insert(key)
         defer { checking.remove(key) }
@@ -541,6 +568,8 @@ public final class MacScreenDevicesSettings {
     static func checkResult(_ outcome: ICERelayCheck.Outcome) -> State.Check {
         switch outcome {
         case .relayed: .init(tone: "success", text: L.t("devices.relay.checkOK", "The relay works: it gave this Mac a relay address."))
+        case .refusedCredentials: .init(tone: "danger", text: L.t("devices.relay.checkRefused", "The relay refused the credentials. Check the shared secret, or the username and password."))
+        case .unreachable: .init(tone: "danger", text: L.t("devices.relay.checkUnreachable", "The relay can’t be reached. Check its URLs and that its port is open."))
         case .noRelayCandidate: .init(tone: "danger", text: L.t("devices.relay.checkNone", "No relay address within 10 seconds. Check the URLs, the secret and that the port is open."))
         case .failed: .init(tone: "danger", text: L.t("devices.relay.checkFailed", "The check could not start."))
         }
@@ -573,6 +602,7 @@ extension MacScreenDevicesSettings {
         var historySection, historyEmpty: String
         var historyColumns: Columns
         var refresh: String
+        var copy: String
 
         static var current: Labels {
             Labels(
@@ -623,7 +653,8 @@ extension MacScreenDevicesSettings {
                                         device: L.t("devices.history.device", "Viewer"), host: L.t("devices.history.host", "Host"),
                                         scope: L.t("devices.history.scope", "Scope"), detail: L.t("devices.history.detail", "Detail"),
                                         duration: L.t("devices.history.duration", "Duration")),
-                refresh: L.t("devices.refresh", "Refresh"))
+                refresh: L.t("devices.refresh", "Refresh"),
+                copy: L.t("devices.copy", "Copy"))
         }
     }
 }

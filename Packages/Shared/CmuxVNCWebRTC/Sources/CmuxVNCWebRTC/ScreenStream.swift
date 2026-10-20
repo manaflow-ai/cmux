@@ -525,6 +525,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     public var onDisplays: (@Sendable (ScreenHostMessage) -> Void)?
     public var onState: (@Sendable (String?) -> Void)?
     public var onPath: (@Sendable (String) -> Void)?
+    /// A STUN or TURN server gave no candidate (`icecandidateerror`), for saying why a relay path failed.
+    public var onICEError: (@Sendable (ICECandidateError) -> Void)?
 
     /// The signaling for each attempt (0 first); nil when there is no other.
     private let makeSignaling: @Sendable (Int) -> (any ScreenSignaling)?
@@ -564,6 +566,7 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         guard let first = makeSignaling(0) else { throw RFBError.transport("signaling: none") }
         let ice = try await first.iceServers()
         let link = try VNCPeerLink(iceServers: ice, relayOnly: relayOnly, preferStreamRelays: false)
+        link.onCandidateError = { [weak self] error in self?.onICEError?(error) }
         lock.withLock { self.link = link }
         let opened = OpenSignal()
         let peerTask = Task { [weak self] in

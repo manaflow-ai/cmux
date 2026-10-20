@@ -128,6 +128,25 @@ extension MacScreenPaneModel {
         }
     }
 
+    /// Why the stream failed, as the failed card says it: a TURN relay that
+    /// refused the credentials or can't be reached, a relay-only path that
+    /// found no relay, else what to check on the other Mac.
+    var failedDetail: String {
+        Self.failedDetail(relayErrors: session?.relayErrors ?? [], relayOnly: relayOnly, hubTab: hub != nil, name: name)
+    }
+
+    static func failedDetail(relayErrors errors: [ICECandidateError], relayOnly: Bool, hubTab: Bool, name: String) -> String {
+        if errors.contains(where: \.refusedCredentials) {
+            return L.t("macScreen.card.relayRefused", "The relay refused the credentials. Check its secret in Settings › Devices.")
+        }
+        if errors.contains(where: \.unreachable), relayOnly {
+            return L.t("macScreen.card.relayUnreachable", "The relay can’t be reached. Check its URL and that its port is open.")
+        }
+        if relayOnly { return L.t("macScreen.card.relayNone", "No relay could connect the two Macs. Check your relays in Settings › Devices.") }
+        if hubTab { return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name) }
+        return L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake.")
+    }
+
     /// Whether the toolbar shows the stream's controls: a link-paired Mac's
     /// always, a device hub tab's only while a session streams.
     var showsStreamControls: Bool {
@@ -388,7 +407,7 @@ struct MacScreenCardView: View {
             // The session's message can quote the signaling URL (with the room id): never shown.
             glyph("exclamationmark.triangle", color: colors.attention)
             title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-            detail(L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake."))
+            detail(model.failedDetail)
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
@@ -449,10 +468,10 @@ struct MacScreenCardView: View {
             refusedContent(refusal, requested: requested)
         case let .hubRevoked(reason):
             // Ends from either side come as revocations too: only a lost permission or device reads as removed access.
-            let removed = reason == .permissionChanged || reason == .deviceRemoved
+            let removed = reason.removesAccess
             glyph(removed ? "lock" : "display", color: removed ? colors.danger : nil)
             title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text)
+            detail(reason.text(host: model.name))
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
@@ -461,9 +480,9 @@ struct MacScreenCardView: View {
                     .accessibilityIdentifier("macScreen.hub.connectAgain")
             }
         case let .hubEnded(reason):
-            glyph("display")
-            title(L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(reason.text)
+            glyph(reason.removesAccess ? "lock" : "display", color: reason.removesAccess ? colors.danger : nil)
+            title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
+            detail(reason.text(host: model.name))
             HStack {
                 Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
                     .buttonStyle(MacScreenButtonStyle())
@@ -482,9 +501,19 @@ struct MacScreenCardView: View {
         case .permissionNone:
             glyph("nosign", color: colors.danger)
             title(L.t("macScreen.hub.noneTitle", "No Access"))
-            detail(String(format: L.t("macScreen.hub.noneBody", "%@ does not allow this Mac to see its screen. Change its access to this Mac in Settings › Devices on either Mac."), model.name))
-            Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
-                .buttonStyle(MacScreenButtonStyle())
+            detail(String(format: L.t("macScreen.hub.noneBodyNamed", "%@ does not allow this Mac to see its screen. Ask for access, or allow this Mac in Settings › Devices on that Mac."), model.name))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                Menu {
+                    Button(L.t("macScreen.hub.view", "View Only")) { actions.requestScope(.view) }
+                    Button(L.t("macScreen.hub.control", "Full Control")) { actions.requestScope(.full) }
+                } label: {
+                    Text(L.t("macScreen.home.askForAccess", "Ask for Access")).font(MacScreenType.body)
+                }
+                .macScreenMenu(colors.primary)
+                .accessibilityIdentifier("macScreen.hub.askForAccess")
+            }
         case .scopeExceeds:
             glyph("eye", color: colors.attention)
             title(L.t("macScreen.hub.viewOnlyTitle", "View Only Access"))
@@ -523,7 +552,7 @@ struct MacScreenCardView: View {
     private func refusedBody(_ refusal: MacScreenHubRefusal) -> String {
         switch refusal {
         case .hostOffline: L.t("macScreen.hub.offlineBody", "Open cmux on that Mac and make sure it is signed in.")
-        case .notShared: L.t("macScreen.hub.notSharedBody", "That Mac does not allow Mac Screen. Turn on Allow Mac Screen on this Mac in its Settings › Devices.")
+        case .notShared: String(format: L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."), model.name)
         case .notFound: L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
         case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
         case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")

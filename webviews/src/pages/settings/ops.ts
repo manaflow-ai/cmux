@@ -307,6 +307,8 @@ export type DevicesDevice = {
   platform: string;
   /** Display fingerprint ("1A2B 3C4D …"), null when unknown. */
   fingerprint: string | null;
+  /** The whole fingerprint (lowercase hex SHA-256 of the signing key) for the tooltip and Copy. */
+  fingerprintFull: string | null;
   online: boolean;
   /** "Online", "Offline · seen 5 minutes ago". */
   presence: string;
@@ -398,6 +400,8 @@ export type DevicesLabels = {
   historyEmpty: string;
   historyColumns: { time: string; event: string; device: string; host: string; scope: string; detail: string; duration: string };
   refresh: string;
+  /** The Copy button beside a fingerprint. */
+  copy: string;
 };
 export type DevicesRelayDraft = {
   /** Absent for a new relay. */

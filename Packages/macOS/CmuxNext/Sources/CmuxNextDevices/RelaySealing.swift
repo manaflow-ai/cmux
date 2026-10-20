@@ -90,21 +90,47 @@ public struct RelaySealing: Sendable {
         do { return try JSONDecoder().decode(RelaySecret.self, from: plaintext) } catch { throw Failure.badSecret }
     }
 
-    /// TURN REST credentials from a shared secret: `username = "<expiry>:<name>"`,
+    /// TURN REST credentials from a shared secret: `username = "<expiry>:<label>"`,
     /// `credential = base64(HMAC-SHA1(secret, username))`, expiry six hours from `now`.
-    public static func sharedSecretCredential(secret: String, deviceName: String, now: Date,
+    /// The label is ``relayLabel(deviceName:deviceID:)``: TURN servers (coturn)
+    /// refuse a username with spaces or curly quotes, which default Mac names have.
+    public static func sharedSecretCredential(secret: String, deviceName: String, deviceID: String = "", now: Date,
                                               lifetime: TimeInterval = 6 * 3600) -> (username: String, credential: String, expires: Date) {
         let expires = Date(timeIntervalSince1970: (now.timeIntervalSince1970 + lifetime).rounded(.down))
-        let username = "\(Int(expires.timeIntervalSince1970)):\(deviceName)"
+        let username = "\(Int(expires.timeIntervalSince1970)):\(relayLabel(deviceName: deviceName, deviceID: deviceID))"
         let mac = HMAC<Insecure.SHA1>.authenticationCode(for: Data(username.utf8), using: SymmetricKey(data: Data(secret.utf8)))
         return (username, Data(mac).base64EncodedString(), expires)
     }
 
+    /// A device's name as a TURN username label: lowercase ASCII letters,
+    /// digits and single dashes (apostrophes dropped, diacritics folded), at
+    /// most 32 characters; the first 8 of the device id when nothing is left,
+    /// and `device` when there is no id either. Never empty.
+    public static func relayLabel(deviceName: String, deviceID: String) -> String {
+        let folded = deviceName.replacingOccurrences(of: "\u{2019}", with: "").replacingOccurrences(of: "'", with: "")
+            .folding(options: [.diacriticInsensitive, .widthInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        var label = ""
+        for scalar in folded.unicodeScalars {
+            if ("a" ... "z").contains(scalar) || ("0" ... "9").contains(scalar) {
+                label.unicodeScalars.append(scalar)
+            } else if !label.isEmpty, !label.hasSuffix("-") {
+                label.append("-")
+            }
+        }
+        label = String(label.prefix(32))
+        while label.hasSuffix("-") { label.removeLast() }
+        if !label.isEmpty { return label }
+        let id = deviceID.lowercased().unicodeScalars.filter { ("a" ... "z").contains($0) || ("0" ... "9").contains($0) }
+        return id.isEmpty ? "device" : String(String(id).prefix(8))
+    }
+
     /// The ICE server for one relay and its opened secret.
-    public static func iceServer(_ relay: HubRelay, secret: RelaySecret, deviceName: String, now: Date) -> DeviceHubICEServer {
+    public static func iceServer(_ relay: HubRelay, secret: RelaySecret, deviceName: String, deviceID: String = "",
+                                 now: Date) -> DeviceHubICEServer {
         switch secret {
         case let .sharedSecret(shared):
-            let minted = sharedSecretCredential(secret: shared, deviceName: deviceName, now: now)
+            let minted = sharedSecretCredential(secret: shared, deviceName: deviceName, deviceID: deviceID, now: now)
             return DeviceHubICEServer(urls: relay.urls, username: minted.username, credential: minted.credential)
         case let .static(username, password):
             return DeviceHubICEServer(urls: relay.urls, username: username, credential: password)

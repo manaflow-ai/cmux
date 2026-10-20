@@ -7,9 +7,12 @@ public struct ICERelayCheck: Sendable {
     public enum Outcome: Sendable, Equatable {
         /// The relay allocated an address (`typ relay` candidate).
         case relayed
-        /// No relay candidate before the deadline: wrong credentials, an
-        /// unreachable server, or a blocked port.
+        /// No relay candidate before the deadline, and no error from the server.
         case noRelayCandidate
+        /// The TURN server refused the credentials (401).
+        case refusedCredentials
+        /// The TURN server could not be reached (WebRTC 701).
+        case unreachable
         case failed(String)
     }
 
@@ -28,6 +31,8 @@ public struct ICERelayCheck: Sendable {
             return .failed("\(error)")
         }
         defer { link.close() }
+        let errors = ErrorLog()
+        link.onCandidateError = { error in if error.isTURN { errors.add(error) } }
         let timeout = timeout
         return await withTaskGroup(of: Outcome.self) { group in
             group.addTask {
@@ -46,12 +51,51 @@ public struct ICERelayCheck: Sendable {
             }
             let first = await group.next() ?? .noRelayCandidate
             group.cancelAll()
-            return first
+            return first == .noRelayCandidate ? Self.outcome(errors.all) : first
         }
+    }
+
+    /// Why no relay candidate came, from the TURN servers' errors.
+    public static func outcome(_ errors: [ICECandidateError]) -> Outcome {
+        if errors.contains(where: \.refusedCredentials) { return .refusedCredentials }
+        if errors.contains(where: \.unreachable) { return .unreachable }
+        return .noRelayCandidate
+    }
+
+    /// Errors from WebRTC's threads.
+    private final class ErrorLog: @unchecked Sendable {
+        // @unchecked: `errors` is behind `lock`.
+        private let lock = NSLock()
+        private var errors: [ICECandidateError] = []
+        func add(_ error: ICECandidateError) { lock.withLock { errors.append(error) } }
+        var all: [ICECandidateError] { lock.withLock { errors } }
     }
 
     /// Whether an ICE candidate line is a relay (TURN) candidate.
     public static func isRelayCandidate(_ line: String) -> Bool {
         VNCPeerLink.type(of: line) == "relay"
     }
+}
+
+/// One `icecandidateerror`: a STUN or TURN server that gave no candidate.
+public struct ICECandidateError: Sendable, Equatable {
+    /// The STUN/TURN error code: 401 refused credentials; 701 the server
+    /// could not be reached (WebRTC's own code).
+    public var code: Int
+    /// The server's URL as configured (no credentials).
+    public var url: String
+    public var text: String
+
+    public init(code: Int, url: String, text: String) {
+        self.code = code
+        self.url = url
+        self.text = text
+    }
+
+    /// The server refused the credentials (TURN 401, or 403 for a disallowed peer).
+    public var refusedCredentials: Bool { code == 401 || code == 403 }
+    /// The server could not be reached (WebRTC 701, or a TURN server error).
+    public var unreachable: Bool { code == 701 || (code >= 500 && code < 600) }
+    /// Whether this is a TURN server's error (STUN errors don't matter for a relay).
+    public var isTURN: Bool { url.hasPrefix("turn:") || url.hasPrefix("turns:") }
 }

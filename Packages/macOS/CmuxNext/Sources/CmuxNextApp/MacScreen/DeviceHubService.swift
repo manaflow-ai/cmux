@@ -132,14 +132,29 @@ final class DeviceHubService {
         if endingSessions {
             var ids = Set(hub.tickets.keys)
             if let session = pages.hubHost.session { ids.insert(session.id) }
-            // task-owner: one /end per open session before the hub forgets the account
-            Task {
-                for id in ids { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
+            guard !ids.isEmpty else {
                 hub.stop()
+                pages.hub = nil
+                logger.info("device hub stopped")
+                return
             }
-        } else {
-            hub.stop()
+            // The hub hears `signed_out` for every open session first (all at
+            // once, while the hub session still holds), then the streams close
+            // and the hub stops.
+            // task-owner: the sign-out's /end calls, then the stop
+            Task { [weak self] in
+                await withTaskGroup(of: Void.self) { group in
+                    for id in ids {
+                        group.addTask { try? await hub.endSession(id, reason: MacScreenHubReason.signedOut.rawValue) }
+                    }
+                }
+                hub.stop()
+                if let pages = self?.pages, pages.hub === hub { pages.hub = nil }
+            }
+            logger.info("device hub stopping")
+            return
         }
+        hub.stop()
         pages.hub = nil
         logger.info("device hub stopped")
     }

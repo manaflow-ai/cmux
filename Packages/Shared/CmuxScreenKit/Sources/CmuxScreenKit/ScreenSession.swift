@@ -78,6 +78,9 @@ public final class ScreenSession {
     public private(set) var streamPath = "WebRTC"
     /// The stream dropped and is coming back on its own.
     public private(set) var isReconnecting = false
+    /// The TURN relays' errors in the current connection (refused
+    /// credentials, unreachable), so a failure can say why; cleared on connect.
+    public private(set) var relayErrors: [ICECandidateError] = []
     @ObservationIgnored private var reconnectAttempts = 0
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     public var isStream: Bool { pairing?.isStream == true || makeSignaling != nil }
@@ -218,6 +221,11 @@ public final class ScreenSession {
 
     private func connectStream(_ viewer: ScreenStreamViewer, name: String) {
         stream = viewer
+        relayErrors = []
+        viewer.onICEError = { [weak self] error in
+            guard error.isTURN else { return }
+            Task { @MainActor in self?.relayErrors.append(error) }
+        }
         viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
         viewer.onDisplays = { [weak self] message in
             Task { @MainActor in

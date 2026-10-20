@@ -311,8 +311,13 @@ public final class MacScreenPane {
     public func close() {
         hideTimer.cancel()
         visible = false
-        if let hub = model.hub, hub.phase != .idle { hub.disconnect(reason: .tabClosed) }
-        session?.close()
+        if let hub = model.hub, hub.phase != .idle {
+            // The hub hears why first, then the stream closes.
+            let session = self.session
+            hub.disconnect(reason: .viewerDisconnected, closingTab: true) { session?.close() }
+        } else {
+            session?.close()
+        }
         handlers.keyboardChanged()
     }
 

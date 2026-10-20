@@ -24,6 +24,10 @@ public final class MacScreenHubViewer {
     @ObservationIgnored var stopStream: () -> Void = {}
     /// Makes the session's signaling from a ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
+    /// Ends a session on the hub (`/end`); tests replace it.
+    @ObservationIgnored var endSession: @MainActor (DeviceHub, String, String) async -> Void = { hub, id, reason in
+        try? await hub.endSession(id, reason: reason)
+    }
     /// DEV builds (Relay Only): the stream uses only TURN relays.
     @ObservationIgnored var relayOnly = false
     /// The signaling the next `ScreenSession.connect()` takes (once).
@@ -105,13 +109,27 @@ public final class MacScreenHubViewer {
         phase = .idle
     }
 
-    /// Disconnect, or the tab closed: the session ends on both Macs.
-    public func disconnect(reason: MacScreenHubReason) {
+    /// Disconnect, or the tab closed: the session ends on both Macs. The hub
+    /// hears the reason first (`/end`), then the stream stops, so the other
+    /// Mac reads why rather than a dropped connection. `then` runs once the
+    /// stream may stop (a closing tab closes its session there).
+    public func disconnect(reason: MacScreenHubReason, closingTab: Bool = false, then: (() -> Void)? = nil) {
         let id = phase.sessionID
+        let streaming = phase.streamingScope != nil
         cancelPending(endingSession: true)
-        stopStream()
-        if let id, let hub = hub() { Self.end(id, reason: reason, on: hub) }
-        phase = reason == .tabClosed ? .idle : .ended(reason: reason.rawValue)
+        phase = closingTab ? .idle : .ended(reason: reason.rawValue)
+        guard streaming, let id, let hub = hub() else {
+            stopStream()
+            then?()
+            return
+        }
+        // task-owner: one /end before the stream stops; a newer session of this tab keeps running
+        let end = endSession
+        Task { [weak self] in
+            await end(hub, id, reason.rawValue)
+            if let self, phase.sessionID == nil { stopStream() }
+            then?()
+        }
     }
 
     /// The tab hid past its grace: the session ends, and showing the tab asks again.
@@ -122,9 +140,14 @@ public final class MacScreenHubViewer {
         phase = .idle
     }
 
+    /// The session this tab's stream failed in: its card says why (a relay's
+    /// error), and the hub's revocation for it does not replace that card.
+    @ObservationIgnored private(set) var failedSession: String?
+
     /// The stream failed to start or dropped: the session is over for the hub too.
     func streamFailed() {
         guard let id = phase.sessionID, let hub = hub() else { return }
+        failedSession = id
         Self.end(id, reason: .failed, on: hub)
     }
 
@@ -185,6 +208,7 @@ public final class MacScreenHubViewer {
 
     /// `session.revoked`: end now, and say why.
     func revoked(reason: String?) {
+        if let failed = failedSession, failed == phase.sessionID { return }
         requestTask?.cancel()
         pendingSignaling = nil
         stopStream()
@@ -193,6 +217,7 @@ public final class MacScreenHubViewer {
 
     /// `session.ended`.
     func ended(reason: String?) {
+        if let failed = failedSession, failed == phase.sessionID { return }
         requestTask?.cancel()
         pendingSignaling = nil
         stopStream()

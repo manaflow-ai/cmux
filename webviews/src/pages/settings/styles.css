@@ -960,6 +960,7 @@ mark {
 
 .devices-history {
   width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -984,6 +985,24 @@ mark {
 
 .devices-nowrap {
   white-space: nowrap;
+}
+
+/* History fits a narrow page: names and details wrap, the time keeps its date and clock together. */
+.devices-wrap {
+  overflow-wrap: anywhere;
+}
+
+.devices-detail {
+  min-width: 10em;
+}
+
+.devices-time {
+  min-width: 6.5em;
+}
+
+.devices-copy {
+  padding: 0 6px;
+  font-size: var(--text-detail);
 }
 
 .devices-pill {

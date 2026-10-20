@@ -174,6 +174,7 @@ function Confirm({
 }
 
 function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesLabels }) {
+  const store = useStore();
   const [error, run, setError] = useRun();
   const [mode, setMode] = useState<"rename" | "remove" | null>(null);
   const [name, setName] = useState(device.name);
@@ -212,7 +213,22 @@ function DeviceRow({ device, labels }: { device: DevicesDevice; labels: DevicesL
           {device.fingerprint && (
             <div className="row-help" data-device-fingerprint="">
               {labels.fingerprint}{" "}
-              <code className="font-mono selectable">{device.fingerprint}</code>
+              <code className="font-mono selectable" title={device.fingerprintFull ?? undefined}>
+                {device.fingerprint}
+              </code>
+              {device.fingerprintFull && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="button devices-copy"
+                    data-device-copy-fingerprint=""
+                    onClick={() => void store.copy(device.fingerprintFull!)}
+                  >
+                    {labels.copy}
+                  </button>
+                </>
+              )}
             </div>
           )}
           {device.sharesText && (
@@ -751,16 +767,16 @@ function HistoryGroup({ state }: { state: DevicesState }) {
             <tbody>
               {state.history.map((row) => (
                 <tr key={row.id} data-history={row.id}>
-                  <td className="devices-nowrap">{row.time}</td>
+                  <td className="devices-time">{row.time}</td>
                   <td>
                     <span className="devices-pill" data-tone={row.tone} data-event={row.event}>
                       {row.eventText}
                     </span>
                   </td>
-                  <td>{row.device}</td>
-                  <td>{row.host}</td>
+                  <td className="devices-wrap">{row.device}</td>
+                  <td className="devices-wrap">{row.host}</td>
                   <td>{row.scope}</td>
-                  <td>{row.detail}</td>
+                  <td className="devices-wrap devices-detail">{row.detail}</td>
                   <td className="devices-nowrap">{row.duration}</td>
                 </tr>
               ))}

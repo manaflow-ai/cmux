@@ -48,7 +48,14 @@ public struct MacScreenHomeView: View {
         self.devices = devices
     }
 
-    /// Pairing links (Your Macs, Pair a Mac, Share This Mac's link): DEV builds only.
+    /// Pairing links (Your Macs, Pair a Mac, Share This Mac's link) show only
+    /// in DEV builds without a device hub: with one, your devices and Allow
+    /// Mac Screen on This Mac replace them.
+    private var showsLinks: Bool { Self.showsLinks(hubConfigured: devices?.box.configured ?? false) }
+
+    static func showsLinks(hubConfigured: Bool) -> Bool { showsLinkPairing && !hubConfigured }
+
+    /// Pairing links: DEV builds only.
     static var showsLinkPairing: Bool {
         #if DEBUG
         true
@@ -62,12 +69,12 @@ public struct MacScreenHomeView: View {
             VStack(alignment: .leading, spacing: 28) {
                 header
                 if let devices { MacScreenHomeDeviceSections(devices: devices, host: host, actions: actions) }
-                if Self.showsLinkPairing {
+                if showsLinks {
                     macsSection
                     connectSection
                 }
                 if let systemShortcuts { keyboardSection(systemShortcuts) }
-                if Self.showsLinkPairing { shareSection }
+                if showsLinks { shareSection }
             }
             .frame(maxWidth: 620, alignment: .leading)
             .padding(.horizontal, 32)

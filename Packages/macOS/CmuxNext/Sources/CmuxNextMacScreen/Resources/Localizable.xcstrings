@@ -263,6 +263,137 @@
         }
       }
     },
+    "devices.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷貝"
+          }
+        }
+      }
+    },
     "devices.error.credentials": {
       "extractionState": "manual",
       "localizations": {
@@ -3669,6 +3800,137 @@
         }
       }
     },
+    "devices.history.deviceRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je uklonjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ blev fjernet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ was removed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se eliminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a été supprimé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è stato rimosso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@が削除されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវបានដកចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 제거됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ble fjernet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ został usunięty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ foi removido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ удален"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถูกเอาออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ вилучено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã bị xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已被移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已被移除"
+          }
+        }
+      }
+    },
     "devices.history.duration": {
       "extractionState": "manual",
       "localizations": {
@@ -4062,6 +4324,137 @@
         }
       }
     },
+    "devices.history.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء البث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijenos se nije mogao pokrenuti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streamen kunne ikke starte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Stream konnte nicht starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The stream could not start"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar la transmisión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le flux n’a pas pu démarrer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare lo streaming"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリームを開始できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមការផ្សាយបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트림을 시작할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strømmen kunne ikke starte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można uruchomić strumienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível iniciar a transmissão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить трансляцию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มสตรีมได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akış başlatılamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити трансляцію"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể bắt đầu luồng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动串流"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動串流"
+          }
+        }
+      }
+    },
     "devices.history.host": {
       "extractionState": "manual",
       "localizations": {
@@ -4189,6 +4582,399 @@
           "stringUnit": {
             "state": "translated",
             "value": "主機"
+          }
+        }
+      }
+    },
+    "devices.history.hostStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف %@ عن المشاركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je prestao dijeliti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stoppede delingen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die Freigabe beendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stopped sharing"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dejó de compartir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a arrêté le partage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha interrotto la condivisione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@が共有を停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានឈប់ចែករំលែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 공유 중단"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sluttet å dele"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ przestał udostępniać"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ parou de compartilhar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ прекратил общий доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ หยุดแชร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ paylaşımı durdurdu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ припинив спільний доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã ngừng chia sẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 停止了共享"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 停止了共享"
+          }
+        }
+      }
+    },
+    "devices.history.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أصبح أحد الأجهزة غير متصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređaj je prešao van mreže"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhed gik offline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Gerät ist offline gegangen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A device went offline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dispositivo se desconectó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un appareil est passé hors ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dispositivo è andato offline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスがオフラインに"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍មួយបានក្លាយជាអហ្វឡាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 오프라인됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhet ble frakoblet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urządzenie przeszło w tryb offline"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um dispositivo ficou offline"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройство отключилось от сети"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์หนึ่งออฟไลน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir aygıt çevrimdışı oldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пристрій вийшов з мережі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thiết bị đã ngoại tuyến"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一台设备已离线"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部裝置已離線"
+          }
+        }
+      }
+    },
+    "devices.history.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Završeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afsluttet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ended"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finalizada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avsluttet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zakończono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encerrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สิ้นสุดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sona erdi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Завершено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã kết thúc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已結束"
           }
         }
       }
@@ -4324,6 +5110,137 @@
         }
       }
     },
+    "devices.history.revoked": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزال %@ الوصول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je uklonio pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ fjernede adgangen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat den Zugriff entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removed the access"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ retiró el acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a retiré l’accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha rimosso l’accesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@がアクセスを削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានដកសិទ្ធិចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 접근 권한 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ fjernet tilgangen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ odebrał dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ removeu o acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ отозвал доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ เอาสิทธิ์เข้าถึงออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ erişimi kaldırdı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ скасував доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã xóa quyền truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 移除了访问权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 移除了取用權限"
+          }
+        }
+      }
+    },
     "devices.history.scope": {
       "extractionState": "manual",
       "localizations": {
@@ -4455,6 +5372,399 @@
         }
       }
     },
+    "devices.history.sharingOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أوقف %@ تشغيل Mac Screen"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je isključio Mac Screen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slog Mac Screen fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat Mac Screen deaktiviert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ turned off Mac Screen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ desactivó Mac Screen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a désactivé Mac Screen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha disattivato Mac Screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@がMac Screenをオフに"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានបិទ Mac Screen"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 Mac Screen 끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ slo av Mac Screen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wyłączył Mac Screen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ desativou o Mac Screen"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ выключил Mac Screen"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ปิด Mac Screen"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, Mac Screen’i kapattı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ вимкнув Mac Screen"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã tắt Mac Screen"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 关闭了 Mac Screen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 關閉了 Mac Screen"
+          }
+        }
+      }
+    },
+    "devices.history.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل أحد الأجهزة خروجه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređaj se odjavio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhed loggede ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Gerät hat sich abgemeldet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A device signed out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dispositivo cerró sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un appareil s’est déconnecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dispositivo ha effettuato il logout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスがサインアウト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍មួយបានចេញពីគណនី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 로그아웃됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhet logget ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urządzenie zostało wylogowane"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um dispositivo saiu da conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройство вышло из учетной записи"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์หนึ่งออกจากระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir aygıt oturumu kapattı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пристрій вийшов з облікового запису"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thiết bị đã đăng xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一台设备已退出登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部裝置已登出"
+          }
+        }
+      }
+    },
+    "devices.history.someDeviceRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة جهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uređaj je uklonjen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhed blev fjernet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Gerät wurde entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A device was removed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminó un dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un appareil a été supprimé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dispositivo è stato rimosso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デバイスが削除されました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍មួយត្រូវបានដកចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기 제거됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En enhet ble fjernet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Urządzenie zostało usunięte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um dispositivo foi removido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Устройство удалено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อุปกรณ์ถูกเอาออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir aygıt kaldırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пристрій вилучено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một thiết bị đã bị xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一台设备已被移除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部裝置已被移除"
+          }
+        }
+      }
+    },
     "devices.history.time": {
       "extractionState": "manual",
       "localizations": {
@@ -4582,6 +5892,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "時間"
+          }
+        }
+      }
+    },
+    "devices.history.viewerDisconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قطع %@ الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je prekinuo vezu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ afbrød forbindelsen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die Verbindung getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ disconnected"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se desconectó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ s’est déconnecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ si è disconnesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@が接続を解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានផ្ដាច់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 연결 해제됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ koblet fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ rozłączył się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se desconectou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ отключился"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ตัดการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bağlantıyı kesti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ від’єднався"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã ngắt kết nối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已断开连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已中斷連線"
           }
         }
       }
@@ -6023,6 +7464,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "中繼可用：它為這部 Mac 提供了中繼位址。"
+          }
+        }
+      }
+    },
+    "devices.relay.checkRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض المُرحِّل بيانات الاعتماد. تحقق من السر المشترك، أو من اسم المستخدم وكلمة السر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relej je odbio vjerodajnice. Provjerite zajedničku tajnu ili korisničko ime i lozinku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relæet afviste loginoplysningerne. Tjek den delte hemmelighed eller brugernavnet og adgangskoden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Relay hat die Anmeldedaten abgelehnt. Prüfe das gemeinsame Geheimnis oder Benutzername und Passwort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relay refused the credentials. Check the shared secret, or the username and password."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El relé rechazó las credenciales. Comprueba el secreto compartido o el usuario y la contraseña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais a refusé les identifiants. Vérifiez le secret partagé, ou le nom d’utilisateur et le mot de passe."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il relay ha rifiutato le credenziali. Controlla il segreto condiviso, oppure nome utente e password."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーが認証情報を拒否しました。共有シークレット、またはユーザ名とパスワードを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "relay បានបដិសេធព័ត៌មានផ្ទៀងផ្ទាត់។ ពិនិត្យសម្ងាត់រួម ឬឈ្មោះអ្នកប្រើ និងពាក្យសម្ងាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이가 자격 증명을 거부했습니다. 공유 비밀 키 또는 사용자 이름과 암호를 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reléet avviste påloggingsinformasjonen. Sjekk den delte hemmeligheten, eller brukernavnet og passordet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaźnik odrzucił dane uwierzytelniające. Sprawdź wspólny sekret albo nazwę użytkownika i hasło."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O retransmissor recusou as credenciais. Verifique o segredo compartilhado ou o nome de usuário e a senha."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор отклонил учетные данные. Проверьте общий секрет или имя пользователя и пароль."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเลย์ปฏิเสธข้อมูลประจำตัว ตรวจสอบข้อมูลลับที่ใช้ร่วมกัน หรือชื่อผู้ใช้และรหัสผ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktarıcı kimlik bilgilerini reddetti. Paylaşılan sırrı veya kullanıcı adını ve parolayı denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор відхилив облікові дані. Перевірте спільний секрет або ім’я користувача та пароль."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ chuyển tiếp đã từ chối thông tin xác thực. Hãy kiểm tra khóa bí mật dùng chung, hoặc tên người dùng và mật khẩu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继拒绝了凭据。请检查共享密钥，或用户名和密码。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼拒絕了憑證。請檢查共享密鑰，或使用者名稱和密碼。"
+          }
+        }
+      }
+    },
+    "devices.relay.checkUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الوصول إلى المُرحِّل. تحقق من عناوين URL الخاصة به ومن أن منفذه مفتوح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relej nije dostupan. Provjerite njegove URL-ove i da li je njegov port otvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relæet kan ikke nås. Tjek dets URL'er, og at dets port er åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Relay ist nicht erreichbar. Prüfe seine URLs und ob sein Port offen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relay can’t be reached. Check its URLs and that its port is open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede acceder al relé. Comprueba sus URL y que su puerto esté abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais est injoignable. Vérifiez ses URL et que son port est ouvert."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il relay non è raggiungibile. Controlla i suoi URL e che la sua porta sia aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーに接続できません。URLとポートが開いているかを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចទាក់ទង relay បានទេ។ ពិនិត្យ URL របស់វា និងថាតើច្រករបស់វាបើកឬអត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이에 연결할 수 없습니다. URL과 포트가 열려 있는지 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reléet kan ikke nås. Sjekk URL-ene og at porten er åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można połączyć się z przekaźnikiem. Sprawdź jego adresy URL i czy jego port jest otwarty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível acessar o retransmissor. Verifique as URLs dele e se a porta está aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор недоступен. Проверьте его URL и то, что его порт открыт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถติดต่อรีเลย์ได้ ตรวจสอบ URL ของรีเลย์ และว่าพอร์ตเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktarıcıya ulaşılamıyor. URL’lerini ve bağlantı noktasının açık olduğunu denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор недоступний. Перевірте його URL-адреси і те, що його порт відкритий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể kết nối tới máy chủ chuyển tiếp. Hãy kiểm tra các URL của nó và cổng có đang mở không."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接中继。请检查其 URL 以及端口是否开放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連接中繼。請檢查其 URL 以及埠是否開放。"
           }
         }
       }
@@ -14935,6 +16638,137 @@
         }
       }
     },
+    "macScreen.card.failedHub": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق من أن %@ ليس في وضع السكون وأنه متصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerite da li je %@ budan i na mreži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjek, at %@ er vågen og online."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe, ob %@ wach und online ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that %@ is awake and online."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba que %@ esté activo y conectado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez que %@ est sorti de veille et en ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla che %@ sia attivo e online."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@がスリープしておらず、オンラインであることを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យថា %@ មិនស្ថិតក្នុងរបៀបដេក ហើយនៅលើអ៊ីនធឺណិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 잠자기 상태가 아니고 온라인인지 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekk at %@ er våken og tilkoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź, czy %@ jest wybudzony i online."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se %@ está ativo e online."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убедитесь, что %@ не в режиме сна и в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบว่า %@ ไม่ได้อยู่ในโหมดพักเครื่องและออนไลน์อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aygıtının uyanık ve çevrimiçi olduğunu denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переконайтеся, що %@ не в режимі сну та в мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hãy kiểm tra %@ đang thức và trực tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请检查 %@ 是否已唤醒并在线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請檢查 %@ 是否已喚醒並在線上。"
+          }
+        }
+      }
+    },
     "macScreen.card.failedTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -15717,6 +17551,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "正在重新連線⋯"
+          }
+        }
+      }
+    },
+    "macScreen.card.relayNone": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتمكن أي مُرحِّل من توصيل جهازي Mac. تحقق من المُرحِّلات في الإعدادات › الأجهزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan relej nije mogao povezati ova dva Maca. Provjerite svoje releje u Postavke › Uređaji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet relæ kunne forbinde de to Mac-computere. Tjek dine relæer i Indstillinger › Enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Relay konnte die beiden Macs verbinden. Prüfe deine Relays unter Einstellungen › Geräte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No relay could connect the two Macs. Check your relays in Settings › Devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún relé pudo conectar los dos Mac. Comprueba tus relés en Ajustes › Dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun relais n’a pu connecter les deux Mac. Vérifiez vos relais dans Réglages › Appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun relay è riuscito a collegare i due Mac. Controlla i tuoi server relay in Impostazioni › Dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2台のMacを接続できるリレーがありませんでした。設定 › デバイスでリレーを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មាន relay ណាអាចភ្ជាប់ Mac ទាំងពីរបានទេ។ ពិនិត្យ relay របស់អ្នកនៅក្នុង ការកំណត់ › ឧបករណ៍។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 Mac을 연결할 수 있는 릴레이가 없습니다. 설정 › 기기에서 릴레이를 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen releer kunne koble sammen de to Macene. Sjekk releene dine i Innstillinger › Enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żaden przekaźnik nie mógł połączyć obu Maców. Sprawdź swoje przekaźniki w Ustawieniach › Urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum retransmissor conseguiu conectar os dois Macs. Verifique seus retransmissores em Ajustes › Dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни один ретранслятор не смог соединить два Mac. Проверьте ретрансляторы в разделе «Настройки › Устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีรีเลย์ใดเชื่อมต่อ Mac ทั้งสองเครื่องได้ ตรวจสอบรีเลย์ของคุณในการตั้งค่า › อุปกรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiçbir aktarıcı iki Mac’i bağlayamadı. Aktarıcılarınızı Ayarlar › Aygıtlar’da denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоден ретранслятор не зміг з’єднати два Mac. Перевірте ретранслятори в меню «Параметри › Пристрої»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không máy chủ chuyển tiếp nào có thể kết nối hai máy Mac. Hãy kiểm tra máy chủ chuyển tiếp trong Cài đặt › Thiết bị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有中继能连接这两台 Mac。请在“设置 › 设备”中检查你的中继。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有中繼能連接這兩部 Mac。請在「設定 › 裝置」中檢查你的中繼。"
+          }
+        }
+      }
+    },
+    "macScreen.card.relayRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض المُرحِّل بيانات الاعتماد. تحقق من سره في الإعدادات › الأجهزة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relej je odbio vjerodajnice. Provjerite njegovu tajnu u Postavke › Uređaji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relæet afviste loginoplysningerne. Tjek dets hemmelighed i Indstillinger › Enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Relay hat die Anmeldedaten abgelehnt. Prüfe sein Geheimnis unter Einstellungen › Geräte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relay refused the credentials. Check its secret in Settings › Devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El relé rechazó las credenciales. Comprueba su secreto en Ajustes › Dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais a refusé les identifiants. Vérifiez son secret dans Réglages › Appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il relay ha rifiutato le credenziali. Controlla il suo segreto in Impostazioni › Dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーが認証情報を拒否しました。設定 › デバイスでシークレットを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "relay បានបដិសេធព័ត៌មានផ្ទៀងផ្ទាត់។ ពិនិត្យសម្ងាត់របស់វានៅក្នុង ការកំណត់ › ឧបករណ៍។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이가 자격 증명을 거부했습니다. 설정 › 기기에서 비밀 키를 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reléet avviste påloggingsinformasjonen. Sjekk hemmeligheten i Innstillinger › Enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekaźnik odrzucił dane uwierzytelniające. Sprawdź jego sekret w Ustawieniach › Urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O retransmissor recusou as credenciais. Verifique o segredo dele em Ajustes › Dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор отклонил учетные данные. Проверьте его секрет в разделе «Настройки › Устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีเลย์ปฏิเสธข้อมูลประจำตัว ตรวจสอบข้อมูลลับในการตั้งค่า › อุปกรณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktarıcı kimlik bilgilerini reddetti. Sırrını Ayarlar › Aygıtlar’da denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор відхилив облікові дані. Перевірте його секрет у меню «Параметри › Пристрої»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ chuyển tiếp đã từ chối thông tin xác thực. Hãy kiểm tra khóa bí mật của nó trong Cài đặt › Thiết bị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继拒绝了凭据。请在“设置 › 设备”中检查其密钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中繼拒絕了憑證。請在「設定 › 裝置」中檢查其密鑰。"
+          }
+        }
+      }
+    },
+    "macScreen.card.relayUnreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر الوصول إلى المُرحِّل. تحقق من عنوان URL الخاص به ومن أن منفذه مفتوح."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relej nije dostupan. Provjerite njegov URL i da li je njegov port otvoren."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relæet kan ikke nås. Tjek dets URL, og at dets port er åben."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Relay ist nicht erreichbar. Prüfe seine URL und ob sein Port offen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relay can’t be reached. Check its URL and that its port is open."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede acceder al relé. Comprueba su URL y que su puerto esté abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le relais est injoignable. Vérifiez son URL et que son port est ouvert."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il relay non è raggiungibile. Controlla il suo URL e che la sua porta sia aperta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレーに接続できません。URLとポートが開いているかを確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចទាក់ទង relay បានទេ។ ពិនិត្យ URL របស់វា និងថាតើច្រករបស់វាបើកឬអត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이에 연결할 수 없습니다. URL과 포트가 열려 있는지 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reléet kan ikke nås. Sjekk URL-en og at porten er åpen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można połączyć się z przekaźnikiem. Sprawdź jego adres URL i czy jego port jest otwarty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível acessar o retransmissor. Verifique a URL dele e se a porta está aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор недоступен. Проверьте его URL и то, что его порт открыт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถติดต่อรีเลย์ได้ ตรวจสอบ URL ของรีเลย์ และว่าพอร์ตเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktarıcıya ulaşılamıyor. URL’sini ve bağlantı noktasının açık olduğunu denetleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ретранслятор недоступний. Перевірте його URL-адресу і те, що його порт відкритий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể kết nối tới máy chủ chuyển tiếp. Hãy kiểm tra URL của nó và cổng có đang mở không."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接中继。请检查其 URL 以及端口是否开放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連接中繼。請檢查其 URL 以及埠是否開放。"
           }
         }
       }
@@ -17031,133 +19258,133 @@
         }
       }
     },
-    "macScreen.home.askForAccessHelp": {
+    "macScreen.home.askForAccessHelpNamed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يضبط وصول هذا الـ Mac على السؤال، ثم يسأل ذلك الـ Mac؛ ويمكن لمطالبته السماح لهذا الـ Mac من الآن فصاعدًا."
+            "value": "يرسل طلبًا إلى %@. لا يمكن إلا لذلك الـ Mac تغيير وصول هذا الـ Mac إليه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Postavlja pristup ovog Maca na Pitaj, a zatim pita taj Mac; njegov upit može ubuduće dozvoliti ovaj Mac."
+            "value": "Pita %@. Samo taj Mac može promijeniti pristup ovog Maca njemu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sætter denne Macs adgang til Spørg og spørger derefter den Mac; dens anmodning kan tillade denne Mac fremover."
+            "value": "Spørger %@. Kun den Mac kan ændre denne Macs adgang til den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Setzt den Zugriff dieses Macs auf „Fragen“ und fragt dann den anderen Mac; seine Abfrage kann diesen Mac künftig erlauben."
+            "value": "Fragt %@. Nur der andere Mac kann den Zugriff dieses Macs ändern."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sets this Mac’s access to Ask, then asks that Mac; its prompt can allow this Mac from now on."
+            "value": "Asks %@. Only that Mac can change this Mac’s access to it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Establece el acceso de este Mac en Preguntar y después pregunta a ese Mac; su aviso puede permitir este Mac a partir de ahora."
+            "value": "Pregunta a %@. Solo ese Mac puede cambiar el acceso de este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Règle l’accès de ce Mac sur Demander, puis interroge ce Mac ; sa demande peut autoriser ce Mac à partir de maintenant."
+            "value": "Envoie une demande à %@. Seul l’autre Mac peut modifier l’accès de ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Imposta l’accesso di questo Mac su Chiedi, poi lo chiede a quel Mac; la sua richiesta può consentire questo Mac da ora in poi."
+            "value": "Chiede a %@. Solo quel Mac può modificare l’accesso di questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacのアクセス権を「確認」に設定してから相手のMacに確認します。相手の確認画面で今後このMacを許可できます。"
+            "value": "%@に確認します。このMacのアクセス権を変更できるのは相手のMacだけです。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណត់សិទ្ធិចូលប្រើរបស់ Mac នេះទៅ សួរ បន្ទាប់មកសួរ Mac នោះ ផ្ទាំងសួររបស់វាអាចអនុញ្ញាត Mac នេះចាប់ពីពេលនេះតទៅ។"
+            "value": "សួរ %@។ មានតែ Mac នោះទេដែលអាចប្ដូរសិទ្ធិចូលប្រើរបស់ Mac នេះទៅកាន់វាបាន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac의 접근 권한을 ‘묻기’로 설정한 다음 해당 Mac에 요청합니다. 해당 Mac의 알림에서 앞으로 이 Mac을 허용할 수 있습니다."
+            "value": "%@에 요청합니다. 해당 Mac만 이 Mac의 접근 권한을 변경할 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Setter tilgangen for denne Macen til Spør, og spør deretter den Macen; forespørselen der kan tillate denne Macen fra nå av."
+            "value": "Spør %@. Bare den Macen kan endre denne Macens tilgang til den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ustawia dostęp tego Maca na Pytaj, a następnie pyta tamten Mac; jego monit może odtąd pozwalać temu Macowi."
+            "value": "Pyta %@. Tylko tamten Mac może zmienić dostęp tego Maca do siebie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Define o acesso deste Mac como Perguntar e então pergunta àquele Mac; o aviso dele pode permitir este Mac daqui em diante."
+            "value": "Pergunta a %@. Só aquele Mac pode alterar o acesso deste Mac a ele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Устанавливает для этого Mac доступ «Спрашивать», затем отправляет запрос тому Mac; в его запросе можно разрешить этот Mac и впредь."
+            "value": "Отправляет запрос на %@. Только тот Mac может изменить доступ этого Mac к нему."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตั้งค่าการเข้าถึงของ Mac เครื่องนี้เป็น ถาม แล้วส่งคำขอไปยัง Mac เครื่องนั้น ข้อความแจ้งของเครื่องนั้นสามารถอนุญาต Mac เครื่องนี้ต่อจากนี้ไปได้"
+            "value": "ส่งคำขอไปยัง %@ มีเพียง Mac เครื่องนั้นเท่านั้นที่เปลี่ยนการเข้าถึงของ Mac เครื่องนี้ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac’in erişimini Sor olarak ayarlar, ardından o Mac’e sorar; onun istemi bundan sonra bu Mac’e izin verebilir."
+            "value": "%@ aygıtına sorar. Bu Mac’in ona erişimini yalnızca o Mac değiştirebilir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Встановлює для цього Mac доступ «Запитувати», а потім надсилає запит тому Mac; у його запиті можна дозволити цей Mac надалі."
+            "value": "Надсилає запит на %@. Лише той Mac може змінити доступ цього Mac до нього."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đặt quyền truy cập của máy Mac này thành Hỏi, rồi gửi yêu cầu tới máy Mac kia; lời nhắc của máy đó có thể cho phép máy Mac này từ nay về sau."
+            "value": "Gửi yêu cầu tới %@. Chỉ máy Mac đó mới có thể thay đổi quyền truy cập của máy Mac này vào nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将这台 Mac 的访问权限设为“询问”，然后向那台 Mac 发出请求；对方的提示可以从此允许这台 Mac。"
+            "value": "向 %@ 发出请求。只有那台 Mac 可以更改这台 Mac 对它的访问权限。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將這部 Mac 的取用權限設為「詢問」，然後向那部 Mac 送出要求；對方的提示可以從此允許這部 Mac。"
+            "value": "向 %@ 送出要求。只有那部 Mac 可以更改這部 Mac 對它的取用權限。"
           }
         }
       }
@@ -17289,137 +19516,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "取消"
-          }
-        }
-      }
-    },
-    "macScreen.home.changeAccess": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تغيير الوصول…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Promijeni pristup…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skift adgang…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zugriff ändern …"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Change Access…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cambiar acceso…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modifier l’accès…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Modifica accesso…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセス権を変更…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ប្ដូរសិទ្ធិចូលប្រើ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "접근 권한 변경…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Endre tilgang …"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zmień dostęp…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alterar Acesso…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Изменить доступ…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เปลี่ยนการเข้าถึง…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Erişimi Değiştir…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Змінити доступ…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thay đổi quyền truy cập…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更改访问权限…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "變更取用權限…"
           }
         }
       }
@@ -22533,6 +24629,137 @@
         }
       }
     },
+    "macScreen.home.requestAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب الوصول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatraži pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bed om adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff anfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask for Access"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitar acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander l’accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi accesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスをリクエスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្នើសុំសិទ្ធិចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근 권한 요청"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Be om tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poproś o dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pedir Acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросить доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขอสิทธิ์เข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişim İste"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запросити доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yêu cầu quyền truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求访问权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要求取用權限"
+          }
+        }
+      }
+    },
     "macScreen.home.reset": {
       "extractionState": "manual",
       "localizations": {
@@ -26856,133 +29083,133 @@
         }
       }
     },
-    "macScreen.hub.noneBody": {
+    "macScreen.hub.noneBodyNamed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يسمح %@ لهذا الـ Mac برؤية شاشته. غيّر وصوله إلى هذا الـ Mac في الإعدادات › الأجهزة على أي من جهازي Mac."
+            "value": "لا يسمح %@ لهذا الـ Mac برؤية شاشته. اطلب الوصول، أو اسمح لهذا الـ Mac في الإعدادات › الأجهزة على ذلك الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ne dozvoljava ovom Macu da vidi njegov ekran. Promijenite njegov pristup ovom Macu u Postavke › Uređaji na bilo kojem od ta dva Maca."
+            "value": "%@ ne dozvoljava ovom Macu da vidi njegov ekran. Zatražite pristup ili dozvolite ovaj Mac u Postavke › Uređaji na tom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillader ikke denne Mac at se dens skærm. Skift dens adgang til denne Mac i Indstillinger › Enheder på en af de to Mac-computere."
+            "value": "%@ tillader ikke denne Mac at se sin skærm. Bed om adgang, eller tillad denne Mac i Indstillinger › Enheder på den Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ erlaubt diesem Mac nicht, seinen Bildschirm zu sehen. Ändere seinen Zugriff auf diesen Mac unter Einstellungen › Geräte auf einem der beiden Macs."
+            "value": "%@ erlaubt diesem Mac nicht, seinen Bildschirm zu sehen. Frage den Zugriff an oder erlaube diesen Mac unter Einstellungen › Geräte auf dem anderen Mac."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ does not allow this Mac to see its screen. Change its access to this Mac in Settings › Devices on either Mac."
+            "value": "%@ does not allow this Mac to see its screen. Ask for access, or allow this Mac in Settings › Devices on that Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ no permite que este Mac vea su pantalla. Cambia su acceso a este Mac en Ajustes › Dispositivos en cualquiera de los dos Mac."
+            "value": "%@ no permite que este Mac vea su pantalla. Solicita acceso o permite este Mac en Ajustes › Dispositivos en ese Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ n’autorise pas ce Mac à voir son écran. Modifiez son accès à ce Mac dans Réglages › Appareils sur l’un ou l’autre Mac."
+            "value": "%@ n’autorise pas ce Mac à voir son écran. Demandez l’accès, ou autorisez ce Mac dans Réglages › Appareils sur l’autre Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ non consente a questo Mac di vedere il suo schermo. Modifica il suo accesso a questo Mac in Impostazioni › Dispositivi su uno dei due Mac."
+            "value": "%@ non consente a questo Mac di vedere il suo schermo. Chiedi accesso, oppure consenti questo Mac in Impostazioni › Dispositivi su quel Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@はこのMacによる画面の表示を許可していません。どちらかのMacの設定 › デバイスで、このMacへのアクセス権を変更してください。"
+            "value": "%@はこのMacに画面の表示を許可していません。アクセスをリクエストするか、相手のMacの設定 › デバイスでこのMacを許可してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ មិនអនុញ្ញាតឱ្យ Mac នេះមើលអេក្រង់របស់វាទេ។ ប្ដូរសិទ្ធិចូលប្រើរបស់វាទៅ Mac នេះនៅក្នុង ការកំណត់ › ឧបករណ៍ នៅលើ Mac ណាមួយ។"
+            "value": "%@ មិនអនុញ្ញាតឱ្យ Mac នេះមើលអេក្រង់របស់វាទេ។ ស្នើសុំសិទ្ធិចូលប្រើ ឬអនុញ្ញាត Mac នេះនៅក្នុង ការកំណត់ › ឧបករណ៍ នៅលើ Mac នោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 이 Mac이 화면을 보도록 허용하지 않습니다. 두 Mac 중 하나의 설정 › 기기에서 이 Mac에 대한 접근 권한을 변경하십시오."
+            "value": "%@에서 이 Mac이 화면을 보도록 허용하지 않습니다. 접근 권한을 요청하거나 해당 Mac의 설정 › 기기에서 이 Mac을 허용하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ tillater ikke at denne Macen ser skjermen. Endre tilgangen til denne Macen i Innstillinger › Enheter på en av Mac-maskinene."
+            "value": "%@ tillater ikke denne Macen å se skjermen sin. Be om tilgang, eller tillat denne Macen i Innstillinger › Enheter på den Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ nie pozwala temu Macowi widzieć swojego ekranu. Zmień jego dostęp do tego Maca w Ustawieniach › Urządzenia na dowolnym z tych Maców."
+            "value": "%@ nie pozwala temu Macowi widzieć swojego ekranu. Poproś o dostęp albo zezwól na ten Mac w Ustawieniach › Urządzenia na tamtym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ não permite que este Mac veja a tela dele. Altere o acesso dele a este Mac em Ajustes › Dispositivos em qualquer um dos Macs."
+            "value": "%@ não permite que este Mac veja a tela dele. Peça acesso ou permita este Mac em Ajustes › Dispositivos naquele Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ не разрешает этому Mac видеть свой экран. Измените его доступ к этому Mac в разделе «Настройки › Устройства» на любом из Mac."
+            "value": "%@ не разрешает этому Mac видеть свой экран. Запросите доступ или разрешите этот Mac в разделе «Настройки › Устройства» на том Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ไม่อนุญาตให้ Mac เครื่องนี้ดูหน้าจอ เปลี่ยนการเข้าถึง Mac เครื่องนี้ได้ในการตั้งค่า › อุปกรณ์ บน Mac เครื่องใดก็ได้"
+            "value": "%@ ไม่อนุญาตให้ Mac เครื่องนี้ดูหน้าจอ ขอสิทธิ์เข้าถึง หรืออนุญาต Mac เครื่องนี้ในการตั้งค่า › อุปกรณ์บน Mac เครื่องนั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@, bu Mac’in ekranını görmesine izin vermiyor. Bu Mac’e erişimini iki Mac’ten birinde Ayarlar › Aygıtlar’da değiştirin."
+            "value": "%@, bu Mac’in ekranını görmesine izin vermiyor. Erişim isteyin veya o Mac’te Ayarlar › Aygıtlar’da bu Mac’e izin verin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ не дозволяє цьому Mac бачити свій екран. Змініть його доступ до цього Mac у меню «Параметри › Пристрої» на будь-якому з Mac."
+            "value": "%@ не дозволяє цьому Mac бачити свій екран. Запросіть доступ або дозвольте цей Mac у меню «Параметри › Пристрої» на тому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ không cho phép máy Mac này xem màn hình của nó. Hãy thay đổi quyền truy cập của nó vào máy Mac này trong Cài đặt › Thiết bị trên một trong hai máy Mac."
+            "value": "%@ không cho phép máy Mac này xem màn hình của nó. Hãy yêu cầu quyền truy cập, hoặc cho phép máy Mac này trong Cài đặt › Thiết bị trên máy Mac đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 不允许这台 Mac 查看其屏幕。请在任一台 Mac 的“设置 › 设备”中更改它对这台 Mac 的访问权限。"
+            "value": "%@ 不允许这台 Mac 查看其屏幕。请申请访问权限，或在那台 Mac 的“设置 › 设备”中允许这台 Mac。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 不允許這部 Mac 檢視其螢幕。請在任一部 Mac 的「設定 › 裝置」中變更它對這部 Mac 的取用權限。"
+            "value": "%@ 不允許這部 Mac 檢視其螢幕。請要求取用權限，或在那部 Mac 的「設定 › 裝置」中允許這部 Mac。"
           }
         }
       }
@@ -27380,133 +29607,133 @@
         }
       }
     },
-    "macScreen.hub.notSharedBody": {
+    "macScreen.hub.notSharedBodyNamed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يسمح ذلك الـ Mac بـ Mac Screen. شغّل السماح بـ Mac Screen على هذا الـ Mac في الإعدادات › الأجهزة الخاصة به."
+            "value": "لا يشارك %@ شاشته. لمشاركتها، شغّل «السماح بـ Mac Screen» في الإعدادات › الأجهزة على ذلك الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Taj Mac ne dozvoljava Mac Screen. Uključite Dozvoli Mac Screen na ovom Macu u njegovim Postavke › Uređaji."
+            "value": "%@ ne dijeli svoj ekran. Da biste ga dijelili, uključite Dozvoli Mac Screen u Postavke › Uređaji na tom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den Mac tillader ikke Mac Screen. Slå Tillad Mac Screen på denne Mac til i dens Indstillinger › Enheder."
+            "value": "%@ deler ikke sin skærm. Slå Tillad Mac Screen til i Indstillinger › Enheder på den Mac for at dele den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Mac erlaubt Mac Screen nicht. Aktiviere „Mac Screen auf diesem Mac erlauben“ in seinen Einstellungen › Geräte."
+            "value": "%@ teilt seinen Bildschirm nicht. Aktiviere dazu „Mac Screen erlauben“ unter Einstellungen › Geräte auf dem anderen Mac."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "That Mac does not allow Mac Screen. Turn on Allow Mac Screen on this Mac in its Settings › Devices."
+            "value": "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ese Mac no permite Mac Screen. Activa Permitir Mac Screen en este Mac en sus Ajustes › Dispositivos."
+            "value": "%@ no comparte su pantalla. Para compartirla, activa Permitir Mac Screen en Ajustes › Dispositivos en ese Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce Mac n’autorise pas Mac Screen. Activez Autoriser Mac Screen sur ce Mac dans ses Réglages › Appareils."
+            "value": "%@ ne partage pas son écran. Pour le partager, activez Autoriser Mac Screen dans Réglages › Appareils sur l’autre Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quel Mac non consente Mac Screen. Attiva Consenti Mac Screen su questo Mac nelle sue Impostazioni › Dispositivi."
+            "value": "%@ non condivide il suo schermo. Per condividerlo, attiva Consenti Mac Screen in Impostazioni › Dispositivi su quel Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのMacはMac Screenを許可していません。そのMacの設定 › デバイスで「このMacでMac Screenを許可」をオンにしてください。"
+            "value": "%@は画面を共有していません。共有するには、相手のMacの設定 › デバイスで「Mac Screenを許可」をオンにしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac នោះមិនអនុញ្ញាត Mac Screen ទេ។ បើក អនុញ្ញាត Mac Screen នៅលើ Mac នេះ នៅក្នុង ការកំណត់ › ឧបករណ៍ របស់វា។"
+            "value": "%@ មិនចែករំលែកអេក្រង់របស់វាទេ។ ដើម្បីចែករំលែក សូមបើក អនុញ្ញាត Mac Screen នៅក្នុង ការកំណត់ › ឧបករណ៍ នៅលើ Mac នោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "해당 Mac에서 Mac Screen을 허용하지 않습니다. 해당 Mac의 설정 › 기기에서 ‘이 Mac에서 Mac Screen 허용’을 켜십시오."
+            "value": "%@에서 화면을 공유하지 않습니다. 공유하려면 해당 Mac의 설정 › 기기에서 Mac Screen 허용을 켜십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den Macen tillater ikke Mac Screen. Slå på Tillat Mac Screen på denne Macen i Innstillinger › Enheter på den Macen."
+            "value": "%@ deler ikke skjermen sin. Slå på Tillat Mac Screen i Innstillinger › Enheter på den Macen for å dele den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tamten Mac nie pozwala na Mac Screen. Włącz opcję Pozwalaj na Mac Screen na tym Macu w jego Ustawieniach › Urządzenia."
+            "value": "%@ nie udostępnia swojego ekranu. Aby go udostępnić, włącz opcję Pozwalaj na Mac Screen w Ustawieniach › Urządzenia na tamtym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aquele Mac não permite o Mac Screen. Ative Permitir Mac Screen neste Mac em Ajustes › Dispositivos dele."
+            "value": "%@ não compartilha a tela. Para compartilhá-la, ative Permitir Mac Screen em Ajustes › Dispositivos naquele Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Тот Mac не разрешает Mac Screen. Включите «Разрешить Mac Screen на этом Mac» в его разделе «Настройки › Устройства»."
+            "value": "%@ не открывает общий доступ к экрану. Чтобы открыть его, включите «Разрешить Mac Screen» в разделе «Настройки › Устройства» на том Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac เครื่องนั้นไม่อนุญาต Mac Screen เปิด อนุญาต Mac Screen บน Mac เครื่องนี้ ในการตั้งค่า › อุปกรณ์ ของเครื่องนั้น"
+            "value": "%@ ไม่ได้แชร์หน้าจอ หากต้องการแชร์ ให้เปิด อนุญาต Mac Screen ในการตั้งค่า › อุปกรณ์บน Mac เครื่องนั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Mac, Mac Screen’e izin vermiyor. Onun Ayarlar › Aygıtlar bölümünde Bu Mac’te Mac Screen’e izin ver seçeneğini açın."
+            "value": "%@ ekranını paylaşmıyor. Paylaşmak için o Mac’te Ayarlar › Aygıtlar’da Mac Screen’e İzin Ver’i açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Той Mac не дозволяє Mac Screen. Увімкніть «Дозволити Mac Screen на цьому Mac» у його меню «Параметри › Пристрої»."
+            "value": "%@ не надає спільний доступ до екрана. Щоб надати його, увімкніть «Дозволити Mac Screen» у меню «Параметри › Пристрої» на тому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Mac đó không cho phép Mac Screen. Hãy bật Cho phép Mac Screen trên máy Mac này trong Cài đặt › Thiết bị của máy đó."
+            "value": "%@ không chia sẻ màn hình. Để chia sẻ, hãy bật Cho phép Mac Screen trong Cài đặt › Thiết bị trên máy Mac đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "那台 Mac 不允许 Mac Screen。请在它的“设置 › 设备”中打开“允许在这台 Mac 上使用 Mac Screen”。"
+            "value": "%@ 未共享其屏幕。要共享，请在那台 Mac 的“设置 › 设备”中打开“允许 Mac Screen”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "那部 Mac 不允許 Mac Screen。請在它的「設定 › 裝置」中開啟「允許在這部 Mac 上使用 Mac Screen」。"
+            "value": "%@ 未共享其螢幕。若要共享，請在那部 Mac 的「設定 › 裝置」中開啟「允許 Mac Screen」。"
           }
         }
       }
@@ -28035,133 +30262,526 @@
         }
       }
     },
-    "macScreen.hub.reason.hostStopped": {
+    "macScreen.hub.reason.failed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توقف الـ Mac الآخر عن المشاركة."
+            "value": "تعذّر بدء بث الشاشة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drugi Mac je prestao dijeliti."
+            "value": "Prijenos ekrana se nije mogao pokrenuti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den anden Mac holdt op med at dele."
+            "value": "Skærmstreamen kunne ikke starte."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der andere Mac teilt nicht mehr."
+            "value": "Der Bildschirmstream konnte nicht gestartet werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The other Mac stopped sharing."
+            "value": "The screen stream could not start."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El otro Mac ha dejado de compartir."
+            "value": "No se pudo iniciar la transmisión de pantalla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’autre Mac a arrêté le partage."
+            "value": "Le flux d’écran n’a pas pu démarrer."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’altro Mac ha smesso di condividere."
+            "value": "Impossibile avviare lo streaming dello schermo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "相手のMacが共有を停止しました。"
+            "value": "画面ストリームを開始できませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac ម្ខាងទៀតបានឈប់ចែករំលែក។"
+            "value": "មិនអាចចាប់ផ្ដើមការផ្សាយអេក្រង់បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac이 공유를 중단했습니다."
+            "value": "화면 스트림을 시작할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den andre Macen sluttet å dele."
+            "value": "Skjermstrømmen kunne ikke starte."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Drugi Mac przestał udostępniać."
+            "value": "Nie można uruchomić strumienia ekranu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O outro Mac parou de compartilhar."
+            "value": "Não foi possível iniciar a transmissão da tela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Другой Mac прекратил общий доступ."
+            "value": "Не удалось запустить трансляцию экрана."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac อีกเครื่องหยุดแชร์แล้ว"
+            "value": "ไม่สามารถเริ่มสตรีมหน้าจอได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diğer Mac paylaşmayı durdurdu."
+            "value": "Ekran akışı başlatılamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інший Mac припинив спільний доступ."
+            "value": "Не вдалося запустити трансляцію екрана."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Mac kia đã ngừng chia sẻ."
+            "value": "Không thể bắt đầu luồng màn hình."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一台 Mac 已停止共享。"
+            "value": "无法启动屏幕串流。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "另一部 Mac 已停止共享。"
+            "value": "無法啟動螢幕串流。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.hostRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة %@ من أجهزتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je uklonjen iz vaših uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ blev fjernet fra dine enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde aus deinen Geräten entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ was removed from your devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se eliminó de tus dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a été supprimé de vos appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è stato rimosso dai tuoi dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はあなたのデバイスから削除されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ត្រូវបានដកចេញពីឧបករណ៍របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 내 기기에서 제거되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ble fjernet fra enhetene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ został usunięty z Twoich urządzeń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ foi removido dos seus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ удален из ваших устройств."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ถูกเอาออกจากอุปกรณ์ของคุณแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aygıtlarınızdan kaldırıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ вилучено з ваших пристроїв."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã bị xóa khỏi thiết bị của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已从你的设备中移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已從你的裝置中移除。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.hostStoppedNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف %@ عن مشاركة شاشته."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je prestao dijeliti svoj ekran."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ holdt op med at dele sin skærm."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ teilt seinen Bildschirm nicht mehr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ stopped sharing its screen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ dejó de compartir su pantalla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a arrêté de partager son écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha smesso di condividere il suo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@が画面共有を停止しました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានឈប់ចែករំលែកអេក្រង់របស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 화면 공유를 중단했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sluttet å dele skjermen sin."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ przestał udostępniać swój ekran."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ parou de compartilhar a tela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ прекратил общий доступ к экрану."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ หยุดแชร์หน้าจอแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ekranını paylaşmayı durdurdu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ припинив спільний доступ до екрана."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã ngừng chia sẻ màn hình."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已停止共享屏幕。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已停止共享螢幕。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أصبح %@ غير متصل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je prešao van mreže."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ gik offline."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist jetzt offline."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ went offline."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se desconectó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est passé hors ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è andato offline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@がオフラインになりました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ បានក្លាយជាអហ្វឡាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 오프라인 상태가 되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ble frakoblet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ przeszedł w tryb offline."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ficou offline."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ не в сети."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ออฟไลน์แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ çevrimdışı oldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ вийшов з мережі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đã ngoại tuyến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已离线。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已離線。"
           }
         }
       }
@@ -28297,137 +30917,6 @@
         }
       }
     },
-    "macScreen.hub.reason.permission": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تغيّر وصولك إلى هذا الـ Mac."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vaš pristup ovom Macu je promijenjen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Din adgang til denne Mac er ændret."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dein Zugriff auf diesen Mac wurde geändert."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your access to this Mac changed."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tu acceso a este Mac ha cambiado."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Votre accès à ce Mac a changé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il tuo accesso a questo Mac è cambiato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacへのアクセス権が変更されました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សិទ្ធិចូលប្រើ Mac នេះរបស់អ្នកបានផ្លាស់ប្ដូរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 Mac에 대한 접근 권한이 변경되었습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tilgangen din til denne Macen er endret."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Twój dostęp do tego Maca został zmieniony."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seu acesso a este Mac mudou."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш доступ к этому Mac изменился."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สิทธิ์เข้าถึง Mac เครื่องนี้ของคุณเปลี่ยนไปแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu Mac’e erişiminiz değişti."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ваш доступ до цього Mac змінився."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quyền truy cập của bạn vào máy Mac này đã thay đổi."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你对这台 Mac 的访问权限已更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你對這部 Mac 的取用權限已變更。"
-          }
-        }
-      }
-    },
     "macScreen.hub.reason.removed": {
       "extractionState": "manual",
       "localizations": {
@@ -28559,264 +31048,395 @@
         }
       }
     },
-    "macScreen.hub.reason.sharingOff": {
+    "macScreen.hub.reason.revoked": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "توقف هذا الـ Mac عن مشاركة شاشته."
+            "value": "أزال %@ وصول هذا الـ Mac إلى شاشته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ovaj Mac je prestao dijeliti svoj ekran."
+            "value": "%@ je uklonio pristup ovog Maca svom ekranu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Mac holdt op med at dele sin skærm."
+            "value": "%@ fjernede denne Macs adgang til sin skærm."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Mac teilt seinen Bildschirm nicht mehr."
+            "value": "%@ hat den Zugriff dieses Macs auf seinen Bildschirm entfernt."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac stopped sharing its screen."
+            "value": "%@ removed this Mac’s access to its screen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este Mac ha dejado de compartir su pantalla."
+            "value": "%@ retiró el acceso de este Mac a su pantalla."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce Mac a arrêté de partager son écran."
+            "value": "%@ a retiré l’accès de ce Mac à son écran."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo Mac ha smesso di condividere lo schermo."
+            "value": "%@ ha rimosso l’accesso di questo Mac al suo schermo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacは画面共有を停止しました。"
+            "value": "%@がこのMacによる画面へのアクセスを削除しました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac នេះបានឈប់ចែករំលែកអេក្រង់របស់វា។"
+            "value": "%@ បានដកសិទ្ធិចូលប្រើអេក្រង់របស់វាពី Mac នេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac이 화면 공유를 중단했습니다."
+            "value": "%@에서 이 Mac의 화면 접근 권한을 제거했습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Macen sluttet å dele skjermen."
+            "value": "%@ fjernet denne Macens tilgang til skjermen sin."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ten Mac przestał udostępniać swój ekran."
+            "value": "%@ odebrał temu Macowi dostęp do swojego ekranu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este Mac parou de compartilhar a tela."
+            "value": "%@ removeu o acesso deste Mac à tela dele."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот Mac прекратил общий доступ к экрану."
+            "value": "%@ отозвал доступ этого Mac к своему экрану."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac เครื่องนี้หยุดแชร์หน้าจอแล้ว"
+            "value": "%@ เอาสิทธิ์เข้าถึงหน้าจอของตนออกจาก Mac เครื่องนี้แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac ekranını paylaşmayı durdurdu."
+            "value": "%@, bu Mac’in ekranına erişimini kaldırdı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цей Mac припинив спільний доступ до екрана."
+            "value": "%@ скасував доступ цього Mac до свого екрана."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Mac này đã ngừng chia sẻ màn hình."
+            "value": "%@ đã xóa quyền truy cập màn hình của nó khỏi máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 已停止共享屏幕。"
+            "value": "%@ 已移除这台 Mac 对其屏幕的访问权限。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這部 Mac 已停止共享螢幕。"
+            "value": "%@ 已移除這部 Mac 對其螢幕的取用權限。"
           }
         }
       }
     },
-    "macScreen.hub.reason.signedOut": {
+    "macScreen.hub.reason.sharingOffNamed": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل أحد الأجهزة خروجه."
+            "value": "أوقف %@ تشغيل Mac Screen."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uređaj se odjavio."
+            "value": "%@ je isključio Mac Screen."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En enhed loggede ud."
+            "value": "%@ slog Mac Screen fra."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Gerät hat sich abgemeldet."
+            "value": "%@ hat Mac Screen deaktiviert."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A device signed out."
+            "value": "%@ turned off Mac Screen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un dispositivo cerró sesión."
+            "value": "%@ desactivó Mac Screen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un appareil s’est déconnecté."
+            "value": "%@ a désactivé Mac Screen."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un dispositivo ha effettuato il logout."
+            "value": "%@ ha disattivato Mac Screen."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デバイスがサインアウトしました。"
+            "value": "%@がMac Screenをオフにしました。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ឧបករណ៍មួយបានចេញពីគណនី។"
+            "value": "%@ បានបិទ Mac Screen។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기기가 로그아웃했습니다."
+            "value": "%@에서 Mac Screen을 껐습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En enhet logget ut."
+            "value": "%@ slo av Mac Screen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Urządzenie zostało wylogowane."
+            "value": "%@ wyłączył Mac Screen."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um dispositivo saiu da conta."
+            "value": "%@ desativou o Mac Screen."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Устройство вышло из учетной записи."
+            "value": "%@ выключил Mac Screen."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อุปกรณ์หนึ่งออกจากระบบแล้ว"
+            "value": "%@ ปิด Mac Screen แล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir aygıt oturumu kapattı."
+            "value": "%@, Mac Screen’i kapattı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Пристрій вийшов з облікового запису."
+            "value": "%@ вимкнув Mac Screen."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một thiết bị đã đăng xuất."
+            "value": "%@ đã tắt Mac Screen."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一台设备已退出登录。"
+            "value": "%@ 已关闭 Mac Screen。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "一部裝置已登出。"
+            "value": "%@ 已關閉 Mac Screen。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.signedOutEither": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل أحد أجهزة Mac في هذه الجلسة خروجه من cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedan Mac u ovoj sesiji se odjavio iz aplikacije cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Mac i denne session loggede ud af cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Mac in dieser Sitzung hat sich von cmux abgemeldet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Mac in this session signed out of cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac de esta sesión cerró sesión en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac de cette session s’est déconnecté de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac di questa sessione è uscito da cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションのMacがcmuxからサインアウトしました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac មួយក្នុងវគ្គនេះបានចេញពី cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 세션의 Mac 하나가 cmux에서 로그아웃했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En Mac i denne økten logget ut av cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden z Maców w tej sesji wylogował się z cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um Mac desta sessão saiu do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один из Mac в этом сеансе вышел из cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องหนึ่งในเซสชันนี้ออกจากระบบ cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu oturumdaki bir Mac, cmux’tan çıkış yaptı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один із Mac у цьому сеансі вийшов із cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một máy Mac trong phiên này đã đăng xuất khỏi cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此会话中的一台 Mac 已退出 cmux 登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作階段中的一部 Mac 已登出 cmux。"
           }
         }
       }
@@ -28948,6 +31568,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "你已中斷連線。"
+          }
+        }
+      }
+    },
+    "macScreen.hub.reason.viewerRemoved": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إزالة هذا الـ Mac من أجهزتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac je uklonjen iz vaših uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac blev fjernet fra dine enheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac wurde aus deinen Geräten entfernt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac was removed from your devices."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac se eliminó de tus dispositivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac a été supprimé de vos appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac è stato rimosso dai tuoi dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacはあなたのデバイスから削除されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះត្រូវបានដកចេញពីឧបករណ៍របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 내 기기에서 제거되었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen ble fjernet fra enhetene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac został usunięty z Twoich urządzeń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac foi removido dos seus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac удален из ваших устройств."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ถูกเอาออกจากอุปกรณ์ของคุณแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac aygıtlarınızdan kaldırıldı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac вилучено з ваших пристроїв."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này đã bị xóa khỏi thiết bị của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 已从你的设备中移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這部 Mac 已從你的裝置中移除。"
           }
         }
       }
