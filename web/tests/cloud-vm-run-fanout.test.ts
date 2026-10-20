@@ -56,12 +56,18 @@ test("fan-out submits every lane at once and reports each outcome, including adm
   const posted: string[] = [];
   const reads = new Map<string, number>();
   let admitted = 0;
+  const cancelled: string[] = [];
   const api = async (method: string, route: string, body?: any) => {
     if (method === "POST" && route === "/api/runs") {
       posted.push(body.operationId);
-      if (admitted >= 3) return { status: 429, text: "", json: { error: { message: "This team already has 16 queued or running Runs" } } };
+      if (admitted >= 3) return { status: 429, text: "", json: { error: "run_admission_full", message: "This team already has 16 queued or running Runs" } };
       admitted += 1;
       return { status: 202, text: "", json: { id: `run-${body.operationId}`, status: "queued", createdAt: new Date(0).toISOString(), events: [], attempts: [] } };
+    }
+    if (method === "GET" && route === "/api/vm") return { status: 200, text: "", json: { vms: [], limits: { maxActiveVms: 5 } } };
+    if (method === "POST" && route.endsWith("/cancel")) {
+      cancelled.push(route);
+      return { status: 200, text: "", json: {} };
     }
     if (method === "GET") {
       const id = route.split("/").pop()!;
@@ -97,4 +103,29 @@ test("fan-out submits every lane at once and reports each outcome, including adm
   expect(failed.error).toContain("cloud-origin");
   const rejected = receipt.lanes.filter((lane: any) => lane.status === "rejected");
   expect(rejected.every((lane: any) => lane.httpStatus === 429 && lane.error.includes("16 queued or running"))).toBe(true);
+  expect(receipt.maxActiveVms).toBe(5);
+  // Failed and rejected lanes never count toward the run-time stats.
+  expect(receipt.stats.attemptMs).toMatchObject({ n: 2, p50: 30000 });
+  expect(receipt.stats.clientFirstRunningMs.n).toBe(3);
+  expect(cancelled).toEqual([]);
+});
+
+test("a lane still running at the deadline is cancelled and reported as a timeout", async () => {
+  let clock = 0;
+  const cancelled: string[] = [];
+  const api = async (method: string, route: string) => {
+    if (method === "GET" && route === "/api/vm") return { status: 200, text: "", json: { vms: [], limits: { maxActiveVms: 5 } } };
+    if (method === "POST" && route === "/api/runs") return { status: 202, text: "", json: { id: "run-slow", status: "queued", createdAt: new Date(0).toISOString(), events: [], attempts: [] } };
+    if (method === "POST" && route.endsWith("/cancel")) {
+      cancelled.push(route);
+      return { status: 200, text: "", json: {} };
+    }
+    return { status: 200, text: "", json: { id: "run-slow", status: "queued", createdAt: new Date(0).toISOString(), events: [], attempts: [{ id: "a", status: "queued" }] } };
+  };
+  const receipt = await runFanout({
+    api, count: 1, marker: "slow", sourceCommit: commit, setupManifestDigest,
+    now: () => clock, sleep: async (ms: number) => { clock += ms; }, pollMs: 1000, timeoutMs: 5000,
+  });
+  expect(receipt.outcomes).toEqual({ timeout: 1 });
+  expect(cancelled).toEqual(["/api/runs/run-slow/cancel"]);
 });
