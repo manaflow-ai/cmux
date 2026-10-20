@@ -272,6 +272,44 @@ struct NotificationFeedHistoryTests {
         #expect(history.snapshot.notifications.first?.title == record.title)
     }
 
+    /// manaflow-ai/cmux#21847: builds before #12667 recorded cmux's own
+    /// memory-pressure warning in the durable feed, which keeps syncing it to
+    /// paired phones. Loading drops only that exact workspace-level pair.
+    @Test func loadingHistoryDropsRetiredMemoryPressureNotices() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("notification-feed-retired-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent("history.json")
+        let workspaceID = UUID()
+        let entries: [(title: String, subtitle: String, surfaceID: UUID?)] = [
+            ("cmux 正处于严重内存压力下", "已释放隐藏的渲染器和浏览器", nil),
+            ("cmux is using substantial aggregate memory", "Idle agent surfaces may be hibernated", nil),
+            ("cmux is using substantial aggregate memory", "User message", nil),
+            ("cmux is under critical memory pressure", "Hidden renderers and browsers were released", UUID()),
+        ]
+        let records = entries.enumerated().map { offset, entry in
+            NotificationFeedHistoryRecord(notification: TerminalNotification(
+                id: UUID(),
+                tabId: workspaceID,
+                surfaceId: entry.surfaceID,
+                title: entry.title,
+                subtitle: entry.subtitle,
+                body: "Body",
+                createdAt: Date(timeIntervalSince1970: 1_600 + Double(offset)),
+                isRead: false
+            ))
+        }
+        try write(NotificationFeedHistorySnapshot(revision: 7, notifications: records), to: fileURL)
+
+        let history = NotificationFeedHistoryStore(fileURL: fileURL)
+        await history.loadingTask?.value
+
+        #expect(Set(history.notifications.map(\.subtitle)) == [
+            "User message",
+            "Hidden renderers and browsers were released",
+        ])
+    }
+
     @Test func oversizedHistoryFileIsQuarantinedWithMonotonicRevisionAndWritesRecover() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("notification-feed-size-limit-\(UUID().uuidString)", isDirectory: true)
