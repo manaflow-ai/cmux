@@ -10,10 +10,14 @@ import QuartzCore
 /// in place, so nothing moves or resizes. Layouts that hover did not cause
 /// (reloads, recycling, theme) apply at once.
 extension NSView {
-    /// Shows or hides `view` in its slot, fading when `fades`. A control
-    /// fading out keeps its frame and takes no clicks (`hitTest` skips clear
-    /// buttons); it hides once the fade ends, unless it came back.
-    func setHoverShown(_ view: NSView, _ shown: Bool, fades: Bool) {
+    /// Shows or hides `view` in its slot, fading with `token` when `fades`
+    /// (opacity only). A control fading in takes clicks at once (its alpha is
+    /// already 1; only what is drawn fades). A control fading out keeps its
+    /// frame and takes no clicks (`hitTest` skips clear buttons); it hides
+    /// once the fade ends, unless it came back.
+    func setHoverShown(_ view: NSView, _ shown: Bool, fades requested: Bool, token: MotionFade = .hover) {
+        // An instant token (Reduce Motion, animations off) shows or hides at once, not after a 0 s fade.
+        let fades = requested && Motion.duration(token) > 0
         let appears = shown && view.isHidden
         if appears {
             view.alphaValue = fades ? 0 : 1
@@ -34,18 +38,18 @@ extension NSView {
                 }
             }
         }
-        fadeOpacity(view, to: shown ? 1 : 0, fades: true, from: appears ? 0 : nil)
+        fadeOpacity(view, to: shown ? 1 : 0, fades: true, from: appears ? 0 : nil, token: token)
         CATransaction.commit()
     }
 
     /// Sets `view`'s alpha, fading when `fades` from `from` or else from what
     /// is on screen, so a reversal mid-fade never jumps.
-    func fadeOpacity(_ view: NSView, to alpha: CGFloat, fades: Bool, from: CGFloat? = nil) {
+    func fadeOpacity(_ view: NSView, to alpha: CGFloat, fades: Bool, from: CGFloat? = nil, token: MotionFade = .hover) {
         guard view.alphaValue != alpha || from != nil else { return }
         let shown = from.map { Float($0) } ?? view.layer.map { ($0.presentation() ?? $0).opacity }
         view.alphaValue = alpha
         guard let layer = view.layer else { return }
         guard fades, let shown else { return layer.removeAnimation(forKey: "opacity") }
-        Motion.set(layer, "opacity", to: Float(alpha), fade: .hover, from: shown)
+        Motion.set(layer, "opacity", to: Float(alpha), fade: token, from: shown)
     }
 }
