@@ -28,6 +28,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import shlex
 import subprocess
 import sys
@@ -97,15 +98,29 @@ def ran_no_test(entry, output):
 def run_once(root, entry, max_seconds):
     argv, cwd = command(entry)
     started = time.monotonic()
+    # Its own process group, so a timeout stops everything the entry started:
+    # swift test runs the tests in an xctest child that outlives it (cmux19, run
+    # 39360407187: six orphan xctest processes after three timed-out entries).
+    proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
     try:
-        done = subprocess.run(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                              text=True, timeout=max_seconds)
-        ok, output = done.returncode == 0, done.stdout
+        output, _ = proc.communicate(timeout=max_seconds)
+        ok = proc.returncode == 0
         if ok and ran_no_test(entry, output):
             ok, output = False, output + "\nmatched no test: check the entry's filter"
-    except subprocess.TimeoutExpired as expired:
-        output = expired.stdout if isinstance(expired.stdout, str) else (expired.stdout or b"").decode(errors="replace")
-        ok, output = False, output + f"\ntimed out after {max_seconds}s"
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        output, _ = proc.communicate()
+        ok, output = False, (output or "") + f"\ntimed out after {max_seconds}s"
+    finally:
+        # A child that left the group still dies with it on success too.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
     return ok, time.monotonic() - started, output
 
 
