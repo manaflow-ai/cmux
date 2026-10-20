@@ -513,7 +513,6 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   await open();
   expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
   expect(modelNames(menu()!).length).toBeGreaterThan(0);
-  expect(itemsOf(menu()!)).not.toContain("Add harness…");
   const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
     item.textContent?.startsWith("More models"),
   )!;

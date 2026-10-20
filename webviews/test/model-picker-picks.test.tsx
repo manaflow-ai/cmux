@@ -69,10 +69,10 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
-  setComposerSettings({ harnessSwitch: false });
   act(() => root?.unmount());
   root = undefined;
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ harnessSwitch: false });
   host.replaceChildren();
   dom.window.localStorage.clear();
   remembered = [];
