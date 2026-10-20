@@ -120,14 +120,14 @@ extension MacScreenPaneModel {
     static func hubCard(_ phase: MacScreenHubPhase, access: DeviceScope? = nil) -> MacScreenCard? {
         if case let .revoked(reason) = phase, MacScreenEndReason(reason) == .permissionRevoked, access == .view { return .hubAccessLowered }
         switch phase {
-        case .idle: .hubConnect
-        case let .requesting(scope), let .approved(_, scope): .hubRequesting(scope)
-        case let .waitingForApproval(_, scope): .hubWaiting(scope)
-        case .streaming: nil
-        case let .declined(scope): .hubDeclined(scope)
-        case let .refused(refusal, requested): .hubRefused(refusal, requested: requested)
-        case let .revoked(reason): .hubRevoked(MacScreenEndReason(reason))
-        case let .ended(reason): .hubEnded(MacScreenEndReason(reason))
+        case .idle: return .hubConnect
+        case let .requesting(scope), let .approved(_, scope): return .hubRequesting(scope)
+        case let .waitingForApproval(_, scope): return .hubWaiting(scope)
+        case .streaming: return nil
+        case let .declined(scope): return .hubDeclined(scope)
+        case let .refused(refusal, requested): return .hubRefused(refusal, requested: requested)
+        case let .revoked(reason): return .hubRevoked(MacScreenEndReason(reason))
+        case let .ended(reason): return .hubEnded(MacScreenEndReason(reason))
         }
     }
 
