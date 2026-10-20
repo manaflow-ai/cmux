@@ -145,7 +145,7 @@ export const installActive = (state: UserState, p: Principal) => {
 /** Current grant admission for an install; callers supply their authoritative clock. */
 export const liveInstallGrant = (state: UserState, p: Principal, now: number) => {
   const grant = grantFor(state, p)
-  return p.kind === "install" && installActive(state, p) && grant?.grantee === p.install && grant.revoked_at === null
+  return p.kind === "install" && installActive(state, p) && grant !== undefined && grant.grantee === p.install && grant.revoked_at === null
     && (grant.expires_at === null || (Number.isFinite(grant.expires_at) && grant.expires_at > now)) ? grant : undefined
 }
 
