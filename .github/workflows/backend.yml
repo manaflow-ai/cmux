@@ -211,6 +211,7 @@ jobs:
         run: bun migrate.ts --env development
 
   preview:
+    environment: cmux-next-preview-deploy
     needs: migrations-development
     if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -474,6 +475,7 @@ jobs:
   # staging-proven commit (G1) and check G2-G7; the hold switch (repository variable
   # CMUX_NEXT_PRODUCTION_HOLD, non-empty = hold) stops it first. No production secret here.
   promote-gates:
+    environment: cmux-next-production
     if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))
     needs: [deploy-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -760,6 +762,7 @@ jobs:
         run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
 
   preview-cleanup:
+    environment: cmux-next-preview-deploy
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:

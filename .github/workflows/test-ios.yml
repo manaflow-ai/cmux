@@ -117,6 +117,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
+    environment: ci-pr-routing
     # The macOS pool mobile-core-package and ios-simulator-build run on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
     # per-family ios-simulator test jobs, which over-reserves until the
