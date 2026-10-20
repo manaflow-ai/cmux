@@ -1,18 +1,41 @@
 public import AppKit
 
 /// The view that carries a window's agent cursor layer. It takes no mouse
-/// (`hitTest` is nil) and no accessibility focus; the layer is a sublayer of
-/// its backing layer, sized to its bounds.
+/// (`hitTest` is nil) and no accessibility focus.
+///
+/// Two subviews, bottom to top: a behind-window glass (`NSVisualEffectView`)
+/// masked by `glassLayer`, where each cursor cuts its name tag and caption
+/// shapes, and the view holding `cursorLayer`. The carrier sits in the
+/// overlay panel, a window above the Chromium page windows, so the glass
+/// blurs the page under each tag (user, 2026-10-20: "get a real blur").
 final class AgentCursorCarrierView: NSView {
     let cursorLayer = CALayer()
+    /// The glass's mask: y-down, the carrier's bounds; empty until a cursor shows a tag.
+    let glassLayer = CALayer()
+    let glassView = NSVisualEffectView()
+    private let cursorView = PassThroughLayerView()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        glassView.blendingMode = .behindWindow
+        glassView.material = .hudWindow
+        glassView.state = .active
+        // A light glass under the tag's dark label, on light and dark pages alike.
+        glassView.appearance = NSAppearance(named: .aqua)
+        glassView.wantsLayer = true
+        glassView.autoresizingMask = [.width, .height]
+        glassLayer.name = "agentCursor.glass"
+        glassLayer.isGeometryFlipped = true
+        cursorView.wantsLayer = true
+        cursorView.autoresizingMask = [.width, .height]
         cursorLayer.name = "agentCursor"
         // Content-view coordinates, y-down (the agent cursor's geometry).
         cursorLayer.isGeometryFlipped = true
-        layer?.addSublayer(cursorLayer)
+        cursorView.layer?.addSublayer(cursorLayer)
+        addSubview(glassView)
+        addSubview(cursorView)
+        glassView.layer?.mask = glassLayer
         setAccessibilityElement(false)
         syncLayerFrame()
     }
@@ -28,12 +51,23 @@ final class AgentCursorCarrierView: NSView {
     }
 
     func syncLayerFrame() {
-        guard cursorLayer.frame != bounds else { return }
+        if glassView.frame != bounds { glassView.frame = bounds }
+        if cursorView.frame != bounds { cursorView.frame = bounds }
+        let local = CGRect(origin: .zero, size: bounds.size)
+        guard cursorLayer.frame != local || glassLayer.frame != local else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        cursorLayer.frame = bounds
+        cursorLayer.frame = local
+        glassLayer.frame = local
+        // AppKit may replace the glass view's layer; keep the mask on the current one.
+        if glassView.layer?.mask !== glassLayer { glassView.layer?.mask = glassLayer }
         CATransaction.commit()
     }
+}
+
+/// A layer-backed view that never takes the mouse.
+private final class PassThroughLayerView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 extension WindowOverlayHost {
@@ -43,12 +77,19 @@ extension WindowOverlayHost {
     /// mouse. It is in the overlay panel (between the window and modal
     /// containers) while the panel is attached, else on top of the window's
     /// content view; callers hold the layer, never its superlayer.
-    public var agentCursorLayer: CALayer {
-        if let agentCursorCarrier { return agentCursorCarrier.cursorLayer }
+    public var agentCursorLayer: CALayer { agentCursorCarrierView.cursorLayer }
+
+    /// The mask of the cursor's behind-window glass, in `agentCursorLayer`'s
+    /// coordinates: each cursor adds its tag and caption shapes here, and the
+    /// page under them is blurred.
+    public var agentCursorGlassLayer: CALayer { agentCursorCarrierView.glassLayer }
+
+    private var agentCursorCarrierView: AgentCursorCarrierView {
+        if let agentCursorCarrier { return agentCursorCarrier }
         let carrier = AgentCursorCarrierView(frame: .zero)
         agentCursorCarrier = carrier
         placeAgentCursor()
-        return carrier.cursorLayer
+        return carrier
     }
 
     /// A subview was added to the window's content view (`WindowRootView`):
@@ -88,12 +129,16 @@ extension WindowOverlayHost {
             }
             carrier.autoresizingMask = []
             carrier.frame = contentFrameInPanel(root: root)
+            // In the panel, a window above the page windows: blur what is behind the panel.
+            carrier.glassView.blendingMode = .behindWindow
         } else if let content = window?.contentView {
             if carrier.superview !== content || content.subviews.last !== carrier {
                 content.addSubview(carrier, positioned: .above, relativeTo: nil)
             }
             carrier.autoresizingMask = [.width, .height]
             carrier.frame = content.bounds
+            // On the window's own content (no page windows): blur the views under it, never the desktop.
+            carrier.glassView.blendingMode = .withinWindow
         } else {
             carrier.removeFromSuperview()
         }

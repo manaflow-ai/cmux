@@ -117,6 +117,8 @@ final class TerminalThemeSetting {
         backdropScope.setAppearanceTuning(tuning)
         // Per-surface backgrounds (R55): every owner repaints from them.
         backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
+        // Over a picture the Opacity the user set is the window's tint (unset: the work's own).
+        backdropScope.setWindowBackdropTint(background.opacity)
         var state = State(snapshot)
         state.theme = theme
         state.edits = edits

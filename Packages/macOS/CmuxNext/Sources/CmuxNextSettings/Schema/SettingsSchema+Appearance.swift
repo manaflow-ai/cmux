@@ -73,7 +73,9 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
                 default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "attribution", "legacy"]
-            ),
+            // A second painting chooser beside the wallpaper card (Leo, 10-19: "it just doesn't make
+            // sense"). The key still loads; appearance.background wins when both are set.
+            ).hiddenFromSettingsPage("legacy: the wallpaper card's appearance.background replaces it; the key still loads"),
             SettingDescriptor(
                 BackdropSelectionSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
@@ -86,6 +88,7 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
             ),
+            PaneBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
@@ -109,6 +112,8 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
                 help: SettingsText.keyed("settings.appearance.backgroundBlur.help",
                                         "Unset, the window follows Ghostty's background-opacity and background-blur."),
+                summary: SettingsText.keyed("settings.appearance.backgroundBlur.summary",
+                                           "Clear Glass shows the desktop through the wallpaper"),
                 kind: .choice([
                     SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
                     SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
@@ -126,7 +131,9 @@ nonisolated enum AppearanceSettingsSchema {
                 kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction, placeholder: 0)),
                 default: .number(AppearanceTuningSetting.fallback.glassTransparency),
                 keywords: ["glass", "transparency", "alpha", "clear"]
-            ),
+            // A second opacity over the wallpaper card's Opacity (Leo, 10-19: "this other
+            // transparency situation"). It still applies with Experimental Appearance Controls on.
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
             SettingDescriptor(
                 AppearanceTuningSetting.huePath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.hue", "Hue"),

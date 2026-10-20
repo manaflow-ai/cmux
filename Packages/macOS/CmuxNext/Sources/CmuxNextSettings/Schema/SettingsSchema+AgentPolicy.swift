@@ -28,7 +28,8 @@ extension SettingsSchema {
         .union(WorkspaceRowSetting.keys)
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
-        .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
+        .union(MarkdownViewerSettingsSchema.agentSettableKeys) // the markdown viewer's looks only
+        .union(AgentPaneDisplaySettingsSchema.keys) // the agent chat's fonts, sizes and width (looks only)
         // The code editor's looks and editing behavior (diff-host S7); `editor.importFrom` is the person's.
         .union(EditorSettingsSchema.agentSettableKeys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
@@ -87,6 +88,7 @@ extension SettingsSchema {
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
         "appearance.background",
+        "appearance.paneBackgrounds",
         "appearance.experimentalControls",
         "app.uiScale",
         "appearance.glassTransparency",
@@ -157,6 +159,7 @@ extension SettingsSchema {
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
         "browser.freezeHiddenTabs",
+        "browser.keepNeighborTabsAwake",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -220,6 +223,8 @@ extension SettingsSchema {
         "browser.remoteLocalhost": .network,
         // Off, Chromium tabs load ads and trackers again.
         "browser.builtInAdBlocker": .privacy,
+        // On, merely opening attacker-authored Markdown contacts its web image hosts.
+        "markdown.remoteImages": .privacy,
         // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
         "browser.showAgentCursor": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.

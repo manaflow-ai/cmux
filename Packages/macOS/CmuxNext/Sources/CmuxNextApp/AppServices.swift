@@ -51,6 +51,9 @@ final class AppServices {
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
+    /// Restart CLI Listener: binds the control socket again. Set once the
+    /// app's control socket starts; nil while it has none (tests, socket off).
+    var restartControlListener: (@MainActor () throws -> Void)?
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -71,7 +74,9 @@ final class AppServices {
     var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
+    /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
+    let chromiumRuntime = ChromiumRuntimeService.make()
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, lifecycleTrace: .shared, contextMenus: self.contextMenus))  // first read in init (no IUO)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
     private(set) lazy var palette: PaletteController = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
@@ -105,6 +110,18 @@ final class AppServices {
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
+    /// The session vault (past agent sessions); tests may set one over a fixed source.
+    lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
+    /// `cmux://vault`: Open Vault as Pane.
+    private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
+    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
+    var rightSidebarDefaults: UserDefaults = .standard
+    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
+    private(set) lazy var rightSidebarSections: RightSidebarSections = {
+        let sections = RightSidebarSections()
+        sections.registerAppSections()
+        return sections
+    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
@@ -205,6 +222,8 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
+    private(set) lazy var agentPermissions = AgentPermissionsService(services: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
