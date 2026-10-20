@@ -37,7 +37,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// pastel fill): the line starts under it and runs to the last member.
     private let dot = CALayer()
     /// The more button (the pack's three-dot action.more): the group editor, as a click on the
-    /// name (cx-rcby, Lawrence 2026-10-08); its More Group Actions row has the full menu.
+    /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
     let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                        label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
@@ -59,7 +59,7 @@ final class GroupHeaderRowView: SidebarRowView {
     var isKeyboardFocused = false { didSet { if isKeyboardFocused != oldValue { needsLayout = true; needsDisplay = true } } }
     /// The group editor is open for this group.
     var isEditing = false { didSet { if isEditing != oldValue { needsLayout = true; needsDisplay = true } } }
-    /// Shows the group's full menu: VoiceOver's More Group Actions (the editor's last row).
+    /// Shows the group's full menu: VoiceOver's More Group Actions (a right-click shows the same menu).
     var onMore: (() -> Void)?
     /// Opens the group editor (name, color and actions): the more button and VoiceOver's Edit action.
     var onEdit: (() -> Void)?
