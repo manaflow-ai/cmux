@@ -62,7 +62,7 @@ export function captureAppearance(state: SettingsState): TargetState[] {
   return [...captureKeys(state, appearanceKeys()), ...captureThemes(state)];
 }
 
-/** What a target's state shows, in the page's language ("Shuffle Daily", "45 %", "Default"). */
+/** What a target's state shows, in the page's language ("Shuffle Paintings", "45 %", "Default"). */
 export function stateText(state: SettingsState, target: TargetState): string {
   if (target.kind === "theme") return target.spec ?? t("settingsPage.history.ghosttyTheme");
   const row = rowsByKey.get(target.key);
@@ -102,7 +102,7 @@ export function targetTitle(target: TargetState): string {
   return row ? text(row.title) : target.key;
 }
 
-/** "Background → Shuffle Daily": the first change's title and new state. A change that also
+/** "Background → Shuffle Paintings": the first change's title and new state. A change that also
  * moved a linked key is named by the key the person moved (the first). */
 export function changeLabel(state: SettingsState, after: TargetState): string {
   return t("settingsPage.history.change", targetTitle(after), stateText(state, after));
