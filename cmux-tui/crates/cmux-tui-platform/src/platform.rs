@@ -942,11 +942,11 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 /// in the foreground when that job is not the terminal's own PTY child
 /// `pid`: the program a shell started and waits for. `None` when the child
 /// itself is in the foreground (an idle shell, or a command terminal whose
-/// command is the child), or when the lookup fails. One PTY query of a
-/// known process, never a process scan.
+/// command is the child, or login(1)'s shell), or when the lookup fails. One
+/// PTY query of a known process, never a process scan.
 pub fn foreground_job_name(pid: u32) -> Option<String> {
     let leader = foreground_process_group(pid)?;
-    if leader == pid {
+    if leader == pid || crate::kinfo_proc::login_session_shell(pid, leader) {
         return None;
     }
     let name = process_name(leader)?;
@@ -1012,7 +1012,7 @@ fn process_cwd(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
-    let pid = libc::c_int::try_from(pid).ok()?;
+    let (raw_pid, pid) = (pid, libc::c_int::try_from(pid).ok()?);
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
     // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
@@ -1021,7 +1021,7 @@ fn foreground_process_group(pid: u32) -> Option<u32> {
         libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
     };
     if written != size {
-        return None;
+        return crate::kinfo_proc::KinfoProc::read(raw_pid)?.foreground_group(); // login(1)
     }
     // SAFETY: proc_pidinfo initialized the full structure.
     let info = unsafe { info.assume_init() };
@@ -1367,6 +1367,9 @@ fn restrict_permissions(path: &Path, mode: u32) -> io::Result<()> {
 fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
+
+mod codex_daemon;
+pub use codex_daemon::descends_from_codex_app_server_daemon;
 
 #[cfg(test)]
 mod tests;

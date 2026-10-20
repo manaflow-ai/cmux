@@ -3,6 +3,12 @@
 use super::*;
 
 impl Mux {
+    /// The terminal registry revision without reading every terminal row:
+    /// the registry lock is held for one indexed read.
+    pub fn terminal_registry_revision(&self) -> anyhow::Result<u64> {
+        self.workspace_registry.lock().unwrap().terminal_revision()
+    }
+
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }

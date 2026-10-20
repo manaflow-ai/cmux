@@ -1180,137 +1180,6 @@
         }
       }
     },
-    "handlers.misc.failed.markUnread": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The daemon cannot mark a notification unread."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "デーモンは通知を未読に戻せません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن للخدمة تعليم إشعار كغير مقروء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemon ne može označiti obavještenje kao nepročitano."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dæmonen kan ikke markere en notifikation som ulæst."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Daemon kann eine Benachrichtigung nicht als ungelesen markieren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El daemon no puede marcar una notificación como no leída."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le daemon ne peut pas marquer une notification comme non lue."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il daemon non può segnare una notifica come non letta."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "daemon មិនអាចសម្គាល់ការជូនដំណឹងថាមិនទាន់អានបានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "데몬은 알림을 읽지 않음으로 표시할 수 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemonen kan ikke merke et varsel som ulest."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Demon nie może oznaczyć powiadomienia jako nieprzeczytanego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O daemon não pode marcar uma notificação como não lida."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Демон не может отметить уведомление непрочитанным."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "daemon ไม่สามารถทำเครื่องหมายการแจ้งเตือนว่ายังไม่อ่านได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arka plan hizmeti bir bildirimi okunmadı olarak işaretleyemez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Демон не може позначити сповіщення непрочитаним."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daemon không thể đánh dấu thông báo là chưa đọc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "守护进程无法将通知标记为未读。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "背景程式無法將通知標記為未讀。"
-          }
-        }
-      }
-    },
     "handlers.misc.failed.noAgentSession": {
       "extractionState": "manual",
       "localizations": {
@@ -3534,268 +3403,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "網址列目前還無法隱藏。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.reactGrab": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "React Grab injection is not ported yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "React Grab の挿入はまだ移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يُنقل حقن React Grab بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ubacivanje React Grab još nije preneseno."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "React Grab-injektion er endnu ikke porteret."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die React-Grab-Injektion ist noch nicht portiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La inyección de React Grab aún no está portada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’injection de React Grab n’est pas encore portée."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’iniezione di React Grab non è ancora portata."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការបញ្ចូល React Grab មិនទាន់បានផ្ទេរនៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "React Grab 삽입은 아직 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "React Grab-injeksjon er ikke overført ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wstrzykiwania React Grab nie przeniesiono jeszcze."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A injeção do React Grab ainda não foi portada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Внедрение React Grab еще не перенесено."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การแทรก React Grab ยังไม่ได้พอร์ต"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "React Grab ekleme henüz taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вставлення React Grab ще не перенесено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa hỗ trợ chèn React Grab."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "React Grab 注入尚未移植。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "尚未移植 React Grab 注入功能。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.sectionScreenshot": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Section screenshots need a selection overlay that is not built yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "範囲スクリーンショットには未実装の選択オーバーレイが必要です。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تتطلب لقطات الأقسام طبقة تحديد لم تُبنَ بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Snimci ekrana odjeljka trebaju sloj za odabir koji još nije izgrađen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skærmbilleder af udsnit kræver et markeringslag, som endnu ikke er bygget."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bildschirmfotos von Bereichen benötigen ein Auswahl-Overlay, das noch nicht verfügbar ist."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las capturas de una sección requieren una superposición de selección que aún no existe."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les captures de section nécessitent une superposition de sélection pas encore disponible."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gli screenshot di sezione richiedono una sovrapposizione di selezione non ancora disponibile."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រូបថតអេក្រង់តាមផ្នែកត្រូវការស្រទាប់ជ្រើសរើស ដែលមិនទាន់បានបង្កើតនៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "영역 스크린샷에는 아직 구현되지 않은 선택 오버레이가 필요합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Skjermbilder av utsnitt krever et markeringslag som ikke er bygd ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zrzuty sekcji wymagają nakładki zaznaczania, która nie jest jeszcze gotowa."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Capturas de seção requerem uma sobreposição de seleção que ainda não foi criada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Для снимков фрагментов нужен оверлей выделения, который еще не создан."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ภาพหน้าจอแบบส่วนต้องใช้โอเวอร์เลย์การเลือกซึ่งยังไม่ได้สร้าง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bölüm ekran görüntüleri, henüz hazır olmayan bir seçim katmanı gerektirir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Для знімків області потрібен шар виділення, який ще не реалізовано."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chụp ảnh một phần cần lớp phủ chọn vùng, lớp này chưa được xây dựng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "区域截图需要选择覆盖层，但尚未实现。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "區域截圖需要尚未建置的選取覆蓋層。"
           }
         }
       }
@@ -10146,6 +9753,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "尚未向任何代理傳送過提示。"
+          }
+        }
+      }
+    },
+    "handlers.browserPage.wakeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The hibernated page did not wake in time; retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تستيقظ الصفحة المُسبَتة في الوقت المحدد؛ أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uspavana stranica se nije probudila na vrijeme; pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvaletilstandede side vågnede ikke i tide; prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die ruhende Seite wurde nicht rechtzeitig geweckt; erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página hibernada no se reactivó a tiempo; vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page en veille ne s’est pas réveillée à temps ; réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina ibernata non si è riattivata in tempo; riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休止中のページが時間内に再開しませんでした。もう一度お試しください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដែលកំពុងសម្រាកមិនបានភ្ញាក់ទាន់ពេលទេ សូមព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "절전 중인 페이지가 제때 깨어나지 않았습니다. 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den dvalende siden våknet ikke i tide; prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uśpiona strona nie wybudziła się na czas; spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página hibernada não foi reativada a tempo; tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спящая страница не проснулась вовремя; повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าที่พักไว้ไม่ตื่นขึ้นทันเวลา โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uykudaki sayfa zamanında uyanmadı; yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приспана сторінка не прокинулася вчасно; повторіть спробу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đang ngủ đông không được đánh thức kịp; hãy thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的页面未能及时唤醒；请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "休眠的頁面未能及時喚醒；請重試"
+          }
+        }
+      }
+    },
+    "handlers.misc.reactGrabFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab could not load on this page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページでは React Grab を読み込めませんでした。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر تحميل React Grab في هذه الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab se nije mogao učitati na ovoj stranici."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab kunne ikke indlæses på denne side."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab konnte auf dieser Seite nicht geladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab no se pudo cargar en esta página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab n’a pas pu se charger sur cette page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile caricare React Grab in questa pagina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab មិនអាចផ្ទុកនៅលើទំព័រនេះបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지에서 React Grab을 불러올 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab kunne ikke lastes inn på denne siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się załadować React Grab na tej stronie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar o React Grab nesta página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось загрузить React Grab на этой странице."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถโหลด React Grab ในหน้านี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "React Grab bu sayfada yüklenemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося завантажити React Grab на цій сторінці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể tải React Grab trên trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法在此页面上加载 React Grab。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法在此頁面上載入 React Grab。"
           }
         }
       }

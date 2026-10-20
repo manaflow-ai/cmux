@@ -81,11 +81,21 @@
 }
 
 .apps-error {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px var(--page-edge);
   color: var(--page-text-2);
   background: color-mix(in srgb, var(--page-selection) 25%, transparent);
   border-bottom: 1px solid var(--page-separator);
+}
+
+.apps-error-copy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
 }
 
 .apps-scroll {
@@ -437,6 +447,17 @@
   min-height: 0;
 }
 
+.apps-detail-state .apps-detail-body {
+  min-height: 220px;
+}
+
+.apps-detail-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
 .apps-detail-body {
   max-width: 760px;
   margin: 0 auto;
@@ -723,6 +744,10 @@ code {
   margin-top: 8px;
   border: 1px dashed var(--page-separator);
   border-radius: 12px;
+}
+
+.apps-state-error {
+  gap: 8px;
 }
 
 @media (prefers-reduced-motion: reduce) {

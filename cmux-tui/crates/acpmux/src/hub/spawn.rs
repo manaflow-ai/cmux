@@ -16,7 +16,9 @@ impl Hub {
         profile: &HarnessProfile,
         session_id: Option<&str>,
     ) -> Value {
-        let servers = crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id);
+        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env);
+        let servers =
+            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
         if let Some(id) = session_id {
             params["sessionId"] = json!(id);
@@ -129,6 +131,16 @@ impl Hub {
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
             p.argv.push(file.to_string_lossy().into_owned());
+        }
+        // Claude Code defers MCP tools behind its tool search, which it turns
+        // off by itself behind a router; the cmux server lists every tool
+        // for it (agent_tools::lists_all_tools). A profile's own value wins.
+        if crate::agent_tools::is_claude_code(&meta.harness, profile)
+            && crate::agent_tools::own_provider(&p.env)
+        {
+            p.env
+                .entry(crate::agent_tools::TOOL_SEARCH_ENV.to_owned())
+                .or_insert_with(|| "true".to_owned());
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {

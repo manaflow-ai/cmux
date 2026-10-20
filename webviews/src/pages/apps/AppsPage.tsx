@@ -11,7 +11,7 @@ import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
-  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   return (
     <div className="apps-page">
@@ -50,6 +50,17 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           }}
         />
       </header>
+      {snap.catalogError && snap.connection !== "disconnected" && (
+        <div className="apps-error" role="alert">
+          <span className="apps-error-copy">
+            <strong>{t("store.error.load")}</strong>
+            <span className="selectable">{snap.catalogError}</span>
+          </span>
+          <button type="button" className="apps-button" onClick={() => void store.reload()}>
+            {t("store.action.reload")}
+          </button>
+        </div>
+      )}
       {snap.error && snap.connection !== "disconnected" && (
         <output className="apps-error selectable">{snap.error}</output>
       )}
@@ -114,8 +125,8 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
         ))}
       </div>
       {snap.loading && snap.visible.length === 0 ? (
-        <LoadingGrid />
-      ) : snap.visible.length === 0 ? (
+        <LoadingGrid strings={strings} />
+      ) : snap.visible.length === 0 && snap.catalogStatus === "error" ? null : snap.visible.length === 0 ? (
         <output className="apps-state apps-state-empty">
           <span className="apps-state-mark" aria-hidden="true">
             ⌕
@@ -182,9 +193,9 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
   );
 }
 
-function LoadingGrid() {
+function LoadingGrid({ strings }: { strings: Strings }) {
   return (
-    <div className="apps-grid apps-grid-loading" aria-busy="true">
+    <div className="apps-grid apps-grid-loading" aria-busy="true" aria-label={strings.t("store.detail.loading")}>
       {Array.from({ length: 6 }, (_, index) => (
         <div className="apps-card-skeleton" key={index} aria-hidden="true">
           <span className="apps-skeleton-icon" />

@@ -25,13 +25,16 @@ extension WorkspaceRowView {
 
     override func hoverChanged() {
         super.hoverChanged()
+        // The x, the more button and the chevron show or hide only in
+        // `layout()`, so every hover change asks for one; AppKit coalesces it
+        // into the next pass. Skipping it during a scroll or a list apply left
+        // a row's controls up after hover cleared (no pointer event follows).
+        needsLayout = true
         // During a scroll the pointer is stationary while rows pass under it.
-        // Rebuilding the full row layout and starting a marquee for every
-        // crossing turns realization into a main-thread hitch. The next real
-        // pointer event reconciles the row's controls after scrolling settles.
+        // A synchronous layout and a marquee for every crossing turn
+        // realization into a main-thread hitch, so those wait for real hover.
         let list = superview as? SidebarListView
         let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
-        if !suppressEffects { needsLayout = true }
         guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
             title.stopMarquee()
             return
@@ -144,7 +147,7 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(style: rowBadgeStyle, trailing: trailing, cy: cy)
+        trailing = layoutRowBadge(trailing: trailing, cy: cy)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {
@@ -158,13 +161,24 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !audioButton.isHidden {
+            audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
             presenceDots.frame = NSRect(x: trailing - w, y: isExpanded ? top : 0, width: w, height: isExpanded ? th : b.height)
             trailing -= w + Metrics.space2
         }
 
-        var textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading - Self.labelInset // the title's text starts at `leading`
+        // The title's text starts a Chrome-like 6 pt after the icon's drawing (a favicon or an
+        // emoji draws at `kindGlyphSize`, centered in its box; Lawrence 2026-10-19: "slightly too
+        // much space between the favicon and the name"); without an icon, at `leading`.
+        let iconTextGap: CGFloat = switch iconKind {
+        case .swatch?: Metrics.space3 // a color dot keeps its spacing
+        default: Metrics.space3 - Self.labelInset - max(0, (side - SidebarStyle.kindGlyphSize) / 2)
+        }
+        var textX = side > 0 ? icon.frame.maxX + iconTextGap : leading - Self.labelInset
         if !agentMark.isHidden && agentMarkVariant == .besideTitle {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
@@ -189,7 +203,7 @@ extension WorkspaceRowView {
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

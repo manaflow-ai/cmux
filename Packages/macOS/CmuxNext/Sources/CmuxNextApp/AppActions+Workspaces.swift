@@ -77,6 +77,7 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
@@ -101,11 +102,13 @@ extension AppActions {
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
         spawn.inputToken = keys
+        // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
+        let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
         services.registry.track(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
-                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                _ = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
@@ -165,6 +168,13 @@ extension AppActions {
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
+        // A person's Move Up/Down on one of several selected rows moves them as one block, as Cmd-Opt-Up/Down does.
+        if invocation.origin == .user, let workspace = scope(services, invocation).workspace,
+           let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           case let id = SidebarWorkspaceID(workspace.id), sidebar.actionTargets(for: id).count > 1 {
+            sidebar.moveActionTargets(of: id, offset < 0 ? .up : .down)
+            return
+        }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,

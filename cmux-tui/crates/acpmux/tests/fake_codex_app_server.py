@@ -5,6 +5,18 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 `turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
+
+Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
+dev` (process 1001), whose item is still open when the turn completes, `ls`
+(1002), which completes in the turn, and `cargo watch` (1003), whose item
+completes while its process still runs. "bg-codex-exit" then ends 1003 with
+exit code 1. `thread/backgroundTerminals/terminate` stops a running one and
+completes its item. A prompt with "codex-die" exits the app-server.
+"bg-codex-sub" starts a subagent thread (fake-sub-1) whose `npm run watch`
+(2001) runs in the background. "bg-codex-gone": Codex forgets 1001, so its
+terminate answers `terminated: false`. "bg-codex-interrupt" leaves `sleep 60`
+(3001) open when the turn is interrupted. FAKE_CODEX_END_FIRST=1 completes a
+terminated item before answering the terminate.
 """
 import json
 import os
@@ -54,6 +66,58 @@ PAGES = {
 mode = os.environ.get("FAKE_CODEX", "")
 
 
+# processId -> the open item of each background terminal still running.
+running = {}
+
+
+def exec_item(item_id, command, process_id, cwd, status="inProgress", exit_code=None):
+    return {
+        "type": "commandExecution",
+        "id": item_id,
+        "command": command,
+        "cwd": cwd,
+        "processId": process_id,
+        "source": "unifiedExecStartup",
+        "status": status,
+        "commandActions": [],
+        "aggregatedOutput": None,
+        "exitCode": exit_code,
+        "durationMs": None,
+    }
+
+
+def item_event(kind, thread, turn, item):
+    reply({"method": "item/" + kind, "params": {"threadId": thread, "turnId": turn, "item": item}})
+
+
+def background_turn(thread, turn, cwd, text):
+    if "bg-codex-sub" in text:
+        sub = "fake-sub-1"
+        reply({"method": "thread/started", "params": {"thread": {"id": sub, "parentThreadId": thread, "agentNickname": "helper"}}})
+        watch = exec_item("call_sub", "npm run watch", "2001", cwd)
+        item_event("started", sub, turn, watch)
+        item_event("completed", sub, turn, watch)
+        running["2001"] = (sub, turn, watch)
+        return
+    if "bg-codex-interrupt" in text:
+        item_event("started", thread, turn, exec_item("call_sleep", "sleep 60", "3001", cwd))
+        return
+    dev = exec_item("call_dev", "npm run dev", "1001", cwd)
+    item_event("started", thread, turn, dev)
+    if "bg-codex-gone" not in text:
+        running["1001"] = (thread, turn, dev)
+    ls = exec_item("call_ls", "ls", "1002", cwd)
+    item_event("started", thread, turn, ls)
+    item_event("completed", thread, turn, dict(ls, status="completed", exitCode=0))
+    watch = exec_item("call_watch", "cargo watch", "1003", cwd)
+    item_event("started", thread, turn, watch)
+    item_event("completed", thread, turn, watch)
+    if "bg-codex-exit" in text:
+        item_event("completed", thread, turn, dict(watch, status="failed", exitCode=1))
+    else:
+        running["1003"] = (thread, turn, watch)
+
+
 def reply(message):
     delay = float(os.environ.get("FAKE_DELAY", "0"))
     if delay:
@@ -85,9 +149,26 @@ for line in sys.stdin:
     elif method == "turn/start":
         params = message.get("params", {})
         thread, turn = params.get("threadId"), "fake-turn-%s" % rid
+        text = " ".join(i.get("text") or "" for i in params.get("input") or [] if isinstance(i, dict))
+        if "codex-die" in text:
+            sys.exit(1)
         reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
+        if "bg-codex" in text:
+            background_turn(thread, turn, os.getcwd(), text)
         reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": "ok"}})
-        reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}}})
+        status = "interrupted" if "bg-codex-interrupt" in text else "completed"
+        reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": status, "items": []}}})
+    elif method == "thread/backgroundTerminals/terminate":
+        params = message.get("params", {})
+        found = running.pop(params.get("processId"), None)
+        end_first = os.environ.get("FAKE_CODEX_END_FIRST") == "1"
+        if found and end_first:
+            thread, turn, item = found
+            item_event("completed", thread, turn, dict(item, status="failed", exitCode=143))
+        reply({"id": rid, "result": {"terminated": found is not None}})
+        if found and not end_first:
+            thread, turn, item = found
+            item_event("completed", thread, turn, dict(item, status="failed"))
     else:
         reply({"id": rid, "error": {"code": -32601, "message": "unknown method"}})
