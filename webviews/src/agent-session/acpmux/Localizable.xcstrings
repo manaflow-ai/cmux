@@ -176111,13 +176111,13 @@
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان رسالة واحدة خلال {window} دون أي رسالة منك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسالة خلال {window} دون أي رسالة منك"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان رسالتين خلال {window} دون أي رسالة منك"
+                  "value": "تم إيقاف الرسائل مع {peer} مؤقتًا: تبادل الوكيلان {n} رسالة خلال {window} دون أي رسالة منك"
                 }
               },
               "few": {
@@ -176669,19 +176669,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "لم تُسلَّم أي رسالة"
+                  "value": "{n} رسالة لم تُسلَّم"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "رسالة واحدة لم تُسلَّم"
+                  "value": "{n} رسالة لم تُسلَّم"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "رسالتان لم تُسلَّما"
+                  "value": "{n} رسالة لم تُسلَّم"
                 }
               },
               "few": {
@@ -177101,19 +177101,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "ولا شيء غير ذلك"
+                  "value": "و{n} رسالة أخرى"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "ورسالة أخرى"
+                  "value": "و{n} رسالة أخرى"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "ورسالتان أخريان"
+                  "value": "و{n} رسالة أخرى"
                 }
               },
               "few": {
@@ -177797,19 +177797,19 @@
               "zero": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم استئناف الرسائل مع {peer}، لم يُسلَّم شيء"
+                  "value": "تم استئناف الرسائل مع {peer}، سُلّمت {n} رسالة"
                 }
               },
               "one": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم استئناف الرسائل مع {peer}، سُلّمت رسالة واحدة"
+                  "value": "تم استئناف الرسائل مع {peer}، سُلّمت {n} رسالة"
                 }
               },
               "two": {
                 "stringUnit": {
                   "state": "needs_review",
-                  "value": "تم استئناف الرسائل مع {peer}، سُلّمت رسالتان"
+                  "value": "تم استئناف الرسائل مع {peer}، سُلّمت {n} رسالة"
                 }
               },
               "few": {
