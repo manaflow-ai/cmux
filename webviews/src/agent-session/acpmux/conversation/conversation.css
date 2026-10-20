@@ -2143,6 +2143,15 @@ pre.cv-math-source {
   max-width: 100%;
   height: auto;
 }
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+}
 .cv-diagram__error {
   padding: 8px 10px;
   font-size: 12px;
