@@ -55,7 +55,23 @@ async fn closed(stream: &mut UnixStream) -> anyhow::Result<()> {
     }
 }
 
-async fn read_frame(role: &mut UnixStream) -> anyhow::Result<Zeroizing<Vec<u8>>> {
+async fn read_frame(role: &mut UnixStream) -> anyhow::Result<Option<Zeroizing<Vec<u8>>>> {
+    let result = read_complete_frame(role).await;
+    match result {
+        // Root may stop after sending the role fd but before finishing its
+        // frame. No child exists yet, so EOF is already a completed stop.
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::UnexpectedEof) =>
+        {
+            Ok(None)
+        }
+        result => result.map(Some),
+    }
+}
+
+async fn read_complete_frame(role: &mut UnixStream) -> anyhow::Result<Zeroizing<Vec<u8>>> {
     let mut prefix = [0; 4];
     role.read_exact(&mut prefix).await?;
     let length = NativeBootstrap::frame_length(prefix).map_err(anyhow::Error::msg)?;
@@ -88,7 +104,10 @@ async fn receive_role(
     let frame = tokio::select! {
         biased;
         result = closed(&mut stopped) => return result,
-        result = tokio::time::timeout(REQUEST_BUDGET, read_frame(&mut role)) => result??,
+        result = tokio::time::timeout(REQUEST_BUDGET, read_frame(&mut role)) => match result?? {
+            Some(frame) => frame,
+            None => return Ok(()),
+        },
     };
     let canceled = async {
         tokio::select! {
@@ -211,7 +230,7 @@ impl NativeChild {
     async fn stop(mut self) -> anyhow::Result<()> {
         drop(self.entry.take());
         let control = self.control.as_mut().ok_or_else(|| io::Error::other("no child control"))?;
-        let graceful = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        let graceful = tokio::time::timeout(Duration::from_secs(8), async {
             control.shutdown().await?;
             if control.read_u8().await? != 2 {
                 anyhow::bail!("cloud.receiver.invalid_drain_ack");

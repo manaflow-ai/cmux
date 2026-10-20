@@ -33,7 +33,7 @@ fn native_receiver_daemon_fixture() {
     let entry = cmux_unix_socket::connect(&entry).unwrap();
     entry.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     let mut greeting = String::new();
-    std::io::BufReader::new(&entry).read_line(&mut greeting).unwrap();
+    io::BufReader::new(&entry).read_line(&mut greeting).unwrap();
     assert!(greeting.contains("remote_entry"), "the entry refused its actual owned child");
     // The entry's pending stamp is released when this child stops too.
     let mut report =
@@ -175,4 +175,15 @@ async fn native_receiver_daemon_cancellation_during_readiness_reaps_the_owned_ch
 #[test]
 fn native_receiver_daemon_original_inherited_parent_check_refuses_a_descriptor_claim() {
     assert!(crate::link::cloud_broker::inherited("not-a-descriptor").is_err());
+}
+
+#[tokio::test]
+async fn native_receiver_daemon_stop_before_bootstrap_finishes_needs_no_child() {
+    let (mut root, daemon) = StdStream::pair().unwrap();
+    daemon.set_nonblocking(true).unwrap();
+    // The root has delivered a role fd but stops during its four-byte prefix.
+    root.write_all(&[0, 0]).unwrap();
+    root.shutdown(std::net::Shutdown::Write).unwrap();
+    let mut daemon = UnixStream::from_std(daemon).unwrap();
+    assert!(within(read_frame(&mut daemon)).await.unwrap().is_none());
 }

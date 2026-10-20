@@ -8,6 +8,8 @@ mod cloud;
 mod cloud_broker;
 mod cloud_fs;
 mod control;
+mod daemon_entry;
+pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
 mod enrollment;
@@ -21,8 +23,6 @@ mod native_process;
 mod native_receiver;
 #[cfg(target_os = "linux")]
 mod native_supervision;
-#[cfg(target_os = "linux")]
-pub(crate) use native_supervision::attach_native_receiver;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
