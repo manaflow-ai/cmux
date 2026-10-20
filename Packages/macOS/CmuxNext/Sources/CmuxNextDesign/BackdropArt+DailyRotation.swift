@@ -1,5 +1,6 @@
 /// The works Shuffle Daily turns through, in catalog order. Listed by hand rather than taken from
-/// `allCases`, so a newly added work joins the rotation only when someone lists it here.
+/// `allCases`; DailyBackgroundTests keeps it equal to the catalog, so a newly added work is listed
+/// here too.
 extension BackdropArt {
     public nonisolated static let dailyRotation: [BackdropArt] = [
         .davidDeathOfMarat, .veldeSmallShipStorm, .boschGardenRight, .boschAscentBlessed, .goyaWitchesFlight,

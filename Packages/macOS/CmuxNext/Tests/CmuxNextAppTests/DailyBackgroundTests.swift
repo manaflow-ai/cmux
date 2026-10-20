@@ -122,9 +122,8 @@ import Testing
         #expect(BackdropArt.daily(on: start.addingTimeInterval(3_600), calendar: calendar) == works[0])
     }
 
-    /// Over two passes of the catalog's size in days, Shuffle Daily never lands on Goya's Saturn
-    /// Devouring His Son (Leo's call: too scary for a daily backdrop).
-    @Test func shuffleDailyNeverShowsGoyasSaturn() async throws {
+    /// Over two passes of the catalog's size in days, Shuffle Daily shows a work every day.
+    @Test func shuffleDailyShowsAWorkEveryDay() async throws {
         let harness = try await make()
         defer { harness.tearDown() }
         _ = try await harness.page.call("cmux.settings.set", params: ["key": "appearance.background", "value": "daily"],
