@@ -134,7 +134,5 @@
     "viewer-empty/DiffEmptyState.tsx#DiffEmptyState",
     "viewer-empty/icons.tsx#EmptyIcon"
   ],
-  "pages": [
-    "cmux.mobile-pairing"
-  ]
+  "pages": ["cmux.mobile-pairing"]
 }
