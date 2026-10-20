@@ -462,9 +462,13 @@ export type HomeConversationSummary = {
   readonly settings?: HomeConversationSettings
   readonly invites?: ReadonlyArray<HomeInvite>
   readonly retention_days?: number
+  /** A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them. */
+  readonly member_count?: number
 }
 
 export type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
+
+export type HomeGrantableRole = "admin" | "member" | "read_only"
 
 export type HomeInboxEntry = {
   readonly conversation: ConversationId
@@ -481,6 +485,9 @@ export type HomeInboxEntry = {
   }
   readonly dm_peer?: ParticipantId
   readonly removed: boolean
+  /** A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed). */
+  readonly large?: boolean
+  readonly member_count?: number
   readonly unread: number
   readonly mentions: number
   readonly counts_rev: number
@@ -575,7 +582,7 @@ export type HomeParticipant = {
   readonly agent_class?: "mux" | "agent"
   readonly acp_session?: string
   readonly owner_user?: string
-  readonly role?: "owner" | "member"
+  readonly role?: HomeParticipantRole
   readonly joined_seq?: number
   readonly added_by?: string
   readonly left_at?: Timestamp
@@ -588,6 +595,8 @@ export type HomeParticipantInput = {
   readonly agent_class?: "mux" | "agent"
   readonly owner_user?: string
 }
+
+export type HomeParticipantRole = "owner" | "admin" | "member" | "read_only"
 
 export type HomePartRef = {
   readonly message_id: MessageId
@@ -1748,6 +1757,19 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster. */
+  readonly "conversation.members": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly after?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly members: ReadonlyArray<HomeParticipant>
+      readonly member_count: number
+      readonly next?: number
+    }
+  }
   /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
   readonly "conversation.settings.set": {
     readonly params: {
@@ -2175,6 +2197,31 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group. */
+  readonly "grant.create": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly role?: HomeGrantableRole
+      readonly expires_in_hours?: number
+      readonly max_uses?: number
+    }
+    readonly result: {
+      readonly rev: number
+      readonly change: unknown
+      readonly grant_id: string
+      readonly code: string
+      readonly secret: string
+      readonly link?: string
+    }
+  }
+  /** Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants. */
+  readonly "grant.revoke": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly grant_id: string
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
   readonly "home.requests.list": {
     readonly params: Readonly<Record<string, never>>
@@ -2438,7 +2485,7 @@ export interface CloudOps {
     }
     readonly result: Connection
   }
-  /** Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval. */
+  /** Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role. */
   readonly "invite.accept": {
     readonly params: {
       readonly code: string
@@ -2629,6 +2676,14 @@ export interface CloudOps {
       }>
     }
   }
+  /** Hand a group to another current person (the owner only). You stay as an admin. */
+  readonly "ownership.transfer": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+    }
+    readonly result: HomeConversationCommit
+  }
   /** A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant. */
   readonly "participant.avatar.get": {
     readonly params: {
@@ -2660,16 +2715,35 @@ export interface CloudOps {
       readonly avatar: AvatarRef | null
     }
   }
-  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
       readonly participant: HomeParticipantInput
+      readonly role?: HomeGrantableRole
     }
     readonly result: HomeConversationCommit
   }
-  /** Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation. */
+  /** Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation. */
   readonly "participants.remove": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+      readonly ban?: boolean
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes. */
+  readonly "participants.set_role": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+      readonly role: HomeGrantableRole
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Lift a ban (admins and the owner), so the person may be added or invited again. */
+  readonly "participants.unban": {
     readonly params: {
       readonly conversation: ConversationId
       readonly participant: ParticipantId
@@ -3458,6 +3532,7 @@ export const cloudOpMeta = {
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.members": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.thread": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
@@ -3486,6 +3561,8 @@ export const cloudOpMeta = {
   "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "grant.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "grant.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
@@ -3529,10 +3606,13 @@ export const cloudOpMeta = {
   "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "ownership.transfer": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
   "participant.avatar.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "participant.avatar.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
+  "participants.set_role": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "participants.unban": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
