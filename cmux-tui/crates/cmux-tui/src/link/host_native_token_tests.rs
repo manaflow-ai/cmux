@@ -11,7 +11,7 @@ fn receiver() -> Box<dyn TokenVerifier> {
 #[tokio::test]
 async fn native_token_receiver_daemon_stamps_backend_identity_and_signed_time() {
     let f: Value =
-        serde_json::from_str(include_str!("../../../../../../schemas/link-token/native.json"))
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
             .unwrap();
     let directory = cmux_unix_socket::short_test_dir("nativejwt");
     let session = directory.path().join("s.sock");
@@ -70,7 +70,7 @@ async fn native_token_receiver_daemon_stamps_backend_identity_and_signed_time() 
 #[tokio::test]
 async fn native_token_receiver_ssh_reaches_only_the_loopback_service() {
     let f: Value =
-        serde_json::from_str(include_str!("../../../../../../schemas/link-token/native.json"))
+        serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
             .unwrap();
     let sshd = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let directory = cmux_unix_socket::short_test_dir("nativejwtssh");
