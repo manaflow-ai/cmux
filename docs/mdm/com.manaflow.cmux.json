@@ -3213,6 +3213,12 @@
       "title" : "Show Projects",
       "type" : "boolean"
     },
+    "sidebar.showSearchButton" : {
+      "default" : true,
+      "description" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.",
+      "title" : "Show Search Button",
+      "type" : "boolean"
+    },
     "sidebar.showSpaces" : {
       "default" : true,
       "description" : "sidebar.showSpaces",
