@@ -113,7 +113,7 @@ fail() { printf '%s (exit %s, %ss, state %s), output:\n%s\n' "$1" "$status" "$to
 expect() { # <case> <event> <state> [reason text]
   probe "$2"
   [[ "$status" == 0 ]] || fail "$1: probe exited non-zero"
-  (( took < ${PROBE_MAX_SECONDS:-10} )) || fail "$1: probe waited"
+  (( took < 10 )) || fail "$1: probe waited"
   [[ "$state" == "$3" ]] || fail "$1: expected tree_state=$3"
   grep -qxF "tree_key=$key" "$TMP/gh-output" || fail "$1: no tree_key output"
   if [[ -n "${4:-}" ]]; then grep -qF "$4" <<<"$reason" || fail "$1: reason lacks '$4': $reason"; fi
@@ -259,9 +259,9 @@ grep -qxF "tree_fetch_key=$published_key" "$TMP/gh-output" || fail "(d) the tree
 fetched=$(cd "$TMP/src" && CMUX_TUI_TREE_KEY="$published_key" bash scripts/cmux-next/pin-cmux-tui.sh path)
 [[ "$fetched" == *"/$published_key/"*cmux-tui ]] || fail "(d) CMUX_TUI_TREE_KEY must select the fetched tree: $fetched"
 mv "$TMP/cdn/cmux-tui/tree/$published_key" "$TMP/unpublished"
-# This probe searches the recent history for a published tree, keying each commit's tree
-# (8 s on a fast host, 11-16 s on a fleet mini): compute, not a wait, so it gets more room.
-PROBE_MAX_SECONDS=30 expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
+# This probe searches the recent history for a published tree, keying each commit's tree:
+# compute, which the virtual clock does not count, so the usual bound holds.
+expect "pull request, no cmux-tui change, nothing published" pull_request skipped "changes no cmux-tui"
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
 

@@ -7,6 +7,8 @@
 #   fake_clock_at 2 "printf x > $TMP/f"    # runs once the clock is 2 s past now
 #
 # Every other `date` call runs the real date. Not safe for sleeps in concurrent processes.
+# `sleep` takes one duration in seconds (whole or decimal, optional "s"); anything else exits 2.
+# An event is one line of the events file, split on a tab: its command holds no tab or newline.
 
 fake_clock_install() {
   local dir="$1" real_date
