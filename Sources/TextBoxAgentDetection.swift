@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 
 enum TextBoxAgentDetection: CaseIterable {

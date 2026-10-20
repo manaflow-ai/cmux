@@ -44,8 +44,13 @@ extension MobileHostService {
         "mobile.chat.send",
         "mobile.chat.session",
         "mobile.chat.sessions",
-        "mobile.directory.list",
-        "mobile.directory.search",
+        "mobile.conversation.list",
+        "mobile.conversation.create",
+        "mobile.conversation.snapshot",
+        "mobile.conversation.replay",
+        "mobile.conversation.command",
+        "mobile.conversation.receipt",
+        "mobile.conversation.artifact",
         "mobile.events.probe",
         "mobile.events.subscribe",
         "mobile.events.unsubscribe",
@@ -65,7 +70,6 @@ extension MobileHostService {
         "mobile.simulator.stream.stop",
         "mobile.sync.fetch",
         "mobile.task.attachment.upload",
-        "mobile.task.models.list",
         "mobile.terminal.artifact.fetch",
         "mobile.terminal.artifact.list",
         "mobile.terminal.artifact.scan",
@@ -122,6 +126,7 @@ extension MobileHostService {
     nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
         switch method {
         case "mobile.task.attachment.upload",
+             "mobile.conversation.artifact",
              "mobile.workspace.changes.file_fetch",
              "mobile.terminal.paste_image",
              "terminal.paste_image":
@@ -144,12 +149,8 @@ extension MobileHostService {
     nonisolated static let phonePushTestCapability = "phone_push.test.v1"
     /// Read and mutate cmux's process-scoped idle-sleep assertion.
     nonisolated static let caffeineControlCapability = "caffeine.control.v1"
-    nonisolated static let taskCreateCapability = "workspace.task_create.v1"
+    /// Chunked terminal-composer file uploads from the paired phone.
     nonisolated static let taskAttachmentCapability = "task.attachments.v1"
-    nonisolated static let taskModelsCapability = "task.models.v1"
-    nonisolated static let taskDirectoryBrowseCapability = "workspace.directory_browse.v1"
-    nonisolated static let taskDirectorySearchCapability = "workspace.directory_search.v1"
-    nonisolated static let taskDirectorySearchV2Capability = "workspace.directory_search.v2"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -171,9 +172,6 @@ extension MobileHostService {
             ),
             includingSimulator: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.simulatorFlag
-            ),
-            includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
-                for: CmuxFeatureFlags.mobileTaskComposerFlag
             ),
             // Managed policy only: under it every browser pane is closed, so
             // no browser affordance can work. A user-level disable keeps live
@@ -197,7 +195,6 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
-        includingTaskComposer: Bool = true,
         includingBrowser: Bool = true
     ) -> [String] {
         var capabilities = [
@@ -217,6 +214,7 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.devicesIdentifier,
             MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
+            "conversation.v1",
             // The agent workstream feed: `feed.list` + the three reply verbs,
             // with `feed.changed` revision invalidations. iOS shows the Feed
             // tab's live content only against hosts that advertise this.
@@ -268,12 +266,7 @@ extension MobileHostService {
             // drag-and-drop and group-create affordances enabled after ticket
             // expiry only against hosts that advertise this.
             "workspace.mutations.account_auth.v1",
-            Self.taskCreateCapability,
             Self.taskAttachmentCapability,
-            Self.taskModelsCapability,
-            Self.taskDirectoryBrowseCapability,
-            Self.taskDirectorySearchCapability,
-            Self.taskDirectorySearchV2Capability,
             Self.caffeineControlCapability,
             "chat.artifact.v1",
             "chat.artifact.folders.v1",
@@ -299,17 +292,6 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.recoverIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
-        }
-        if !includingTaskComposer {
-            let taskComposerCapabilities: Set<String> = [
-                Self.taskCreateCapability,
-                Self.taskAttachmentCapability,
-                Self.taskModelsCapability,
-                Self.taskDirectoryBrowseCapability,
-                Self.taskDirectorySearchCapability,
-                Self.taskDirectorySearchV2Capability,
-            ]
-            capabilities.removeAll { taskComposerCapabilities.contains($0) }
         }
         if !includingBrowser {
             // The embedded browser is disabled by MDM policy: every pane is

@@ -1,6 +1,6 @@
 #if os(iOS)
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 import CmuxMobileChanges
 import CmuxMobileShell
 

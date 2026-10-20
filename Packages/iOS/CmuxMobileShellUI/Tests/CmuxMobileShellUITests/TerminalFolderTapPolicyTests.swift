@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Testing
 
 @testable import CmuxMobileShellUI

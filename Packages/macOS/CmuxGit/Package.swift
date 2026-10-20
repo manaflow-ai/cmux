@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),
-        .package(path: "../../Shared/CmuxAgentChat"),
+        .package(path: "../../Shared/CmuxArtifactCore"),
         .package(path: "../../Shared/CMUXMobileCore"),
     ],
     targets: [
@@ -23,7 +23,7 @@ let package = Package(
             name: "CmuxGit",
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
-                .product(name: "CmuxAgentChat", package: "CmuxAgentChat"),
+                .product(name: "CmuxArtifactCore", package: "CmuxArtifactCore"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
             ],
             swiftSettings: [

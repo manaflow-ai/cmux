@@ -1,4 +1,4 @@
-import CmuxAgentChatUI
+import CmuxArtifactUI
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation

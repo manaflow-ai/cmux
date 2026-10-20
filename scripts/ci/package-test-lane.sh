@@ -128,11 +128,14 @@ select_packages() {
     CmuxCloudMachines
     CmuxCloudTui
     CmuxComputerUse
+    CmuxConversation
+    CmuxConversationHost
+    CmuxConversationUI
     CmuxCore
     CmuxRemoteDaemon
     CmuxRemoteWorkspace
     CmuxRemoteSession
-    CmuxAgentChat
+    CmuxArtifactCore
     CmuxAgentSessionStore
     CmuxAuthRuntime
     CmuxWorkspacePresence
@@ -456,7 +459,7 @@ run_package_tests() {
     # CmuxFoundation has several process-tree suites whose child
     # fixtures share global process resources; run each suite in its
     # own Swift Testing process just like the auth/transport suites.
-    CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
+    CmuxArtifactCore|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     CmuxTerminal|CmuxTerminalCore|CmuxCloudTui|CmuxCloud)

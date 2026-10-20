@@ -1,4 +1,4 @@
-import CmuxAgentChatUI
+import CmuxArtifactUI
 import CmuxMobileShell
 
 extension WorkspaceDetailView {

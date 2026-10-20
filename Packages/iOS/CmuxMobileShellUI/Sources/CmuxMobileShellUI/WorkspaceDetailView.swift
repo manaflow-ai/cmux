@@ -1,6 +1,6 @@
 import CMUXMobileCore
-import CmuxAgentChat
-import CmuxAgentChatUI
+import CmuxArtifactCore
+import CmuxArtifactUI
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileDiagnostics

@@ -1,6 +1,6 @@
 #if os(iOS) && DEBUG
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxArtifactCore
 import CmuxMobileRPC
 import CmuxMobileShell
 import Foundation

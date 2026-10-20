@@ -1,4 +1,4 @@
-internal import CmuxAgentChat
+internal import CmuxArtifactCore
 import Foundation
 
 /// Reads committed, staged, unstaged, and untracked changes for a workspace directory.

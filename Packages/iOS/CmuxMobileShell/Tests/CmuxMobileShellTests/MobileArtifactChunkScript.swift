@@ -1,4 +1,4 @@
-import CmuxAgentChat
+import CmuxArtifactCore
 import Foundation
 
 /// Deterministic chunk source and delivery recorder for fetch-loop tests.

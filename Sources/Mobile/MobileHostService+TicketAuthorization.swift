@@ -42,9 +42,7 @@ extension MobileHostService {
         case "mobile.rpc.methods":
             return nil
 #endif
-        case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary",
-             "mobile.task.models.list",
-             "mobile.directory.list", "mobile.directory.search":
+        case "mobile.workspace.list", "workspace.list", "mobile.workspace.changes.summary":
             // List-shaped reads may span the Mac's workspaces; same-account
             // Stack authorization remains the authoritative data-plane gate.
             return nil
@@ -58,6 +56,15 @@ extension MobileHostService {
              "mobile.simulator.input.pointer",
              "mobile.simulator.input.text",
              "mobile.simulator.input.button":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
+        case "mobile.conversation.list", "mobile.conversation.create",
+             "mobile.conversation.snapshot", "mobile.conversation.replay",
+             "mobile.conversation.command", "mobile.conversation.receipt", "mobile.conversation.artifact":
+            // Conversation handlers also verify the stored session belongs to
+            // this workspace; a matching client-supplied ID alone is not authority.
             return ticketWorkspaceAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value
@@ -76,10 +83,6 @@ extension MobileHostService {
             guard request.params["group_id"] == nil || request.params["group_id"] is NSNull else {
                 return ticketMacScopedWorkspaceMutationAuthorizationError(authorization: authorization)
             }
-            return nil
-        case "mobile.task.attachment.upload":
-            // Task uploads share the Mac-scoped authorization class of the
-            // workspace.create operation they precede.
             return nil
         case "workspace.move":
             return ticketMacScopedWorkspaceMutationAuthorizationError(
