@@ -121,6 +121,7 @@ import Testing
         h.list.press = SidebarPress(key: header.key, point: start)
         h.list.beginDrag(try #require(h.list.press))
         _ = Self.counts()
+        let realizedAtDrop = h.realized
         for step in 1...20 { h.list.updateDrag(windowPoint: h.list.convert(NSPoint(x: start.x, y: start.y + CGFloat(step) * 3), to: nil)) }
         let moves = Self.counts()
         h.list.finishDrag()
@@ -128,7 +129,7 @@ import Testing
         let drop = Self.counts()
 
         print("render-counts n=\(count) realized=\(realized) idle=\(idle) selection=\(selection) click=\(click) streaming=\(streaming) "
-              + "typing=\(typing) dragMoves=\(moves) drop=\(drop)")
+              + "typing=\(typing) dragMoves=\(moves) drop=\(drop) realizedAtDrop=\(realizedAtDrop)")
 
         #expect(idle.reloads == 0 && idle.configures == 0, "idle re-rendered: \(idle)")
         #expect(selection.reloads == 0, "a selection change laid the whole list out: \(selection)")
@@ -141,6 +142,7 @@ import Testing
         #expect(typing.reloads == 0 && typing.configures == 0 && typing.patches == 0, "an unchanged row re-rendered: \(typing)")
         #expect(moves.reloads == 0 && moves.configures <= 2, "drag moves re-rendered rows: \(moves)")
         // The drop moves rows (one layout); it configures each realized row at most once.
-        #expect(drop.reloads <= 1 && drop.configures <= realized, "the drop re-rendered \(drop.configures) for \(realized) rows: \(drop)")
+        #expect(drop.reloads <= 1 && drop.configures <= realizedAtDrop,
+                "the drop re-rendered \(drop.configures) for \(realizedAtDrop) realized rows: \(drop)")
     }
 }

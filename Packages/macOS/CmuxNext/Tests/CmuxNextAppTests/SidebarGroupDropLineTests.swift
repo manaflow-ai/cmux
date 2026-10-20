@@ -45,8 +45,9 @@ import Testing
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: start.y + dy * CGFloat(step) / 4), to: nil))
         }
         if drop { list.finishDrag() } else { list.cancelDrag() }
-        let landing = try #require(list.landing, "the card flies to its slot")
-        list.finishLand(landing, then: nil)
+        // The flight's end (without a display the card lands at once, inside the drop).
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+        #expect(list.landing == nil && list.subviews.contains { $0 is DragLiftView } == false, "the card is still up")
     }
 
     @Test(arguments: [true, false])
