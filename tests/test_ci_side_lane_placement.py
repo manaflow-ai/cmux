@@ -351,17 +351,20 @@ class CmuxNextWiring(unittest.TestCase):
         push = self.context()
         push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(gate, push))
+        # A dispatch on a working branch runs every tier, so its Mac jobs are placed too (#22303).
+        dispatch_on_a_branch = self.context()
+        dispatch_on_a_branch["github"].update(event_name="workflow_dispatch", ref="refs/heads/issue-22303-next-pr-ci")
+        dispatch_on_a_branch["inputs"] = {"same_tree_sha": ""}
+        self.assertTrue(evaluate(gate, dispatch_on_a_branch))
         other_owner = self.context()
         other_owner["github"]["repository_owner"] = "someone"
         owned_off = self.context()
         owned_off["vars"]["CI_PR_POOL_OWNED"] = "0"
-        dispatch_elsewhere = self.context()
-        dispatch_elsewhere["github"].update(event_name="workflow_dispatch", ref="refs/heads/main")
         no_mac_work = self.context()
         no_mac_work["needs"]["path_route"]["outputs"].update(native="false", macos="false")
         for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
                              "attempt 3": self.context("3"), "another owner": other_owner,
-                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere,
+                             "owned pools off": owned_off,
                              "no Mac work on the path route": no_mac_work}.items():
             self.assertFalse(evaluate(gate, context), why)
         # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
