@@ -96,7 +96,7 @@ fn duration_ms(value: Option<&Value>) -> Option<u64> {
     let value = value?;
     let secs = value.get("secs").and_then(Value::as_u64)?;
     let nanos = value.get("nanos").and_then(Value::as_u64).unwrap_or(0);
-    Some(secs * 1000 + nanos / 1_000_000)
+    Some(secs.saturating_mul(1000).saturating_add(nanos / 1_000_000))
 }
 
 /// A Codex item status as an ACP one.

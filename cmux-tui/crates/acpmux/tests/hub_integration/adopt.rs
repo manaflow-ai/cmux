@@ -270,7 +270,6 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
         .replace("{ID}", &chat)
         .replace("{CWD}", &project.to_string_lossy());
     std::fs::write(&rollout, fixture).unwrap();
-    backdate(&rollout);
 
     let s = c.request(method::SESSION_NEW, adopt("fakecodex", &chat)).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
@@ -392,7 +391,6 @@ async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
     ];
     let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
     std::fs::write(&rollout, text).unwrap();
-    backdate(&rollout);
 
     let s = c.request(method::SESSION_NEW, adopt("fakecodex", &chat)).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
@@ -525,7 +523,6 @@ async fn adopt_replays_a_claude_turns_tool_calls() {
     std::fs::create_dir_all(transcript.parent().unwrap()).unwrap();
     std::fs::write(&transcript, lines.iter().map(|l| format!("{l}\n")).collect::<String>())
         .unwrap();
-    backdate(&transcript);
     let (hub, mut c) = super::fork_through::claude_setup(&claude, &[]).await;
 
     let s = c.request(method::SESSION_NEW, adopt("claude", &chat)).await.unwrap();
