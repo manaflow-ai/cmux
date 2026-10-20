@@ -485,7 +485,7 @@
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>86400</integer>
+	<integer>3600</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
 	<key>UTImportedTypeDeclarations</key>

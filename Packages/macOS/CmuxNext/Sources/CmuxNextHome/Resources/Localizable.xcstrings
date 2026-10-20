@@ -14043,6 +14043,534 @@
         }
       }
     },
+    "home.firstRun.hero.title": {
+      "comment": "Empty Chief conversation: the title under the Chief's character, over what the Chief does.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief الخاص بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vaš Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dein Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Votre Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il tuo Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "あなたの Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "나의 Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Din Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twój Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seu Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief'iniz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ваш Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Chief"
+          }
+        }
+      }
+    },
+    "home.firstRun.hero.body": {
+      "comment": "Empty Chief conversation: two lines under 'Your Chief' saying what the Chief does: it does quick tasks itself, hands longer work to agents (each in its own cmux workspace the person can watch and join) and reports back in this conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tell it what you want done. It handles quick things itself and hands longer work to agents, each in its own workspace you can watch and join. It reports back here."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أخبره بما تريد إنجازه. ينجز الأشياء السريعة بنفسه ويسلّم الأعمال الأطول إلى وكلاء، لكل منهم مساحة عمل خاصة يمكنك متابعتها والانضمام إليها. ويعود إليك بالنتائج هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Recite mu šta želite uraditi. Brze stvari radi sam, a duži posao predaje agentima, svakom u vlastitom radnom prostoru koji možete pratiti i kojem se možete pridružiti. Ovdje vam javlja rezultate."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortæl, hvad du vil have gjort. Små ting klarer den selv, og længere opgaver giver den til agenter, hver i sit eget arbejdsområde, som du kan følge og deltage i. Den melder tilbage her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sag ihm, was erledigt werden soll. Schnelles erledigt er selbst, längere Arbeit gibt er an Agenten ab, jeden in einem eigenen Arbeitsbereich, den du verfolgen und betreten kannst. Hier meldet er sich zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dile lo que quieres hacer. Resuelve lo rápido por sí mismo y pasa el trabajo más largo a agentes, cada uno en su propio espacio de trabajo que puedes seguir y al que puedes unirte. Te informa aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dites-lui ce que vous voulez faire. Il règle lui-même les choses rapides et confie le travail plus long à des agents, chacun dans son propre espace de travail que vous pouvez suivre et rejoindre. Il vous répond ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Digli cosa vuoi fare. Le cose rapide le fa da solo e affida il lavoro più lungo ad agenti, ciascuno nel proprio spazio di lavoro che puoi seguire e raggiungere. Ti aggiorna qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "やりたいことを伝えてください。すぐ終わることは自分で片付け、時間のかかる作業はエージェントに任せます。各エージェントには専用のワークスペースがあり、様子を見たり参加したりできます。結果はここで報告します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រាប់វាអំពីអ្វីដែលអ្នកចង់ធ្វើ។ វាធ្វើកិច្ចការរហ័សដោយខ្លួនឯង ហើយប្រគល់ការងារវែងៗទៅភ្នាក់ងារ ម្នាក់ៗមានកន្លែងធ្វើការផ្ទាល់ខ្លួនដែលអ្នកអាចមើល និងចូលរួមបាន។ វារាយការណ៍ត្រឡប់មកទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "하고 싶은 일을 말하세요. 간단한 일은 직접 처리하고, 오래 걸리는 일은 에이전트에게 맡깁니다. 에이전트마다 자기 워크스페이스가 있어 지켜보거나 참여할 수 있습니다. 결과는 여기로 알려 줍니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si hva du vil ha gjort. Raske ting gjør den selv, og lengre arbeid gir den til agenter, hver i sitt eget arbeidsområde som du kan følge og bli med i. Den melder tilbake her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiedz mu, co chcesz zrobić. Szybkie rzeczy robi sam, a dłuższą pracę przekazuje agentom, każdemu we własnym obszarze roboczym, który możesz obserwować i do którego możesz dołączyć. Tutaj zdaje relację."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diga o que você quer fazer. Ele resolve as coisas rápidas sozinho e passa o trabalho mais longo para agentes, cada um no próprio espaço de trabalho que você pode acompanhar e entrar. Ele dá retorno aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скажите, что нужно сделать. Быстрые дела он выполняет сам, а долгую работу передаёт агентам, у каждого из которых своё рабочее пространство: за ним можно следить и присоединиться. Отчитывается он здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บอกสิ่งที่คุณอยากให้ทำ งานเร็ว ๆ มันทำเอง ส่วนงานที่ยาวกว่าจะส่งต่อให้เอเจนต์ แต่ละตัวมีพื้นที่ทำงานของตัวเองที่คุณดูและเข้าร่วมได้ แล้วมันจะรายงานกลับมาที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne yapılmasını istediğinizi söyleyin. Hızlı işleri kendisi yapar, uzun işleri ise her biri izleyip katılabileceğiniz kendi çalışma alanına sahip ajanlara verir. Sonuçları burada bildirir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скажіть, що потрібно зробити. Швидкі справи він виконує сам, а довшу роботу передає агентам, кожен у власному робочому просторі, за яким можна стежити й до якого можна приєднатися. Звітує він тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy nói điều bạn muốn làm. Việc nhanh nó tự làm, việc dài hơn nó giao cho các agent, mỗi agent có không gian làm việc riêng mà bạn có thể theo dõi và tham gia. Nó báo lại ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "告诉它你想做什么。简单的事它自己处理，较长的工作交给智能体，每个智能体都有自己的工作区，你可以查看并加入。结果会在这里汇报。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "告訴它你想做什麼。簡單的事它自己處理，較長的工作交給代理，每個代理都有自己的工作區，你可以查看並加入。結果會在這裡回報。"
+          }
+        }
+      }
+    },
+    "home.firstRun.showPet": {
+      "comment": "Empty Chief conversation: a row that shows the floating Chief pet over every app.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chief Pet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار رفيق Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži Chief ljubimca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief-kæledyr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Begleiter anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar mascota Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le compagnon Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra mascotte Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ペットを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញសត្វចិញ្ចឹម Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 펫 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis Chief-kjæledyr"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż zwierzaka Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar mascote Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать питомца Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงสัตว์เลี้ยง Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief evcil hayvanını göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати улюбленця Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thú cưng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示 Chief 宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示 Chief 寵物"
+          }
+        }
+      }
+    },
+    "home.firstRun.hidePet": {
+      "comment": "Empty Chief conversation: the same row while the Chief pet shows; it hides the pet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Chief Pet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء رفيق Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij Chief ljubimca"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul Chief-kæledyr"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief-Begleiter ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar mascota Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer le compagnon Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi mascotte Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief ペットを非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់សត្វចិញ្ចឹម Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 펫 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul Chief-kjæledyr"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj zwierzaka Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar mascote Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть питомца Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนสัตว์เลี้ยง Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief evcil hayvanını gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати улюбленця Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn thú cưng Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏 Chief 宠物"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏 Chief 寵物"
+          }
+        }
+      }
+    },
     "home.compose.toLabel": {
       "extractionState": "manual",
       "localizations": {
