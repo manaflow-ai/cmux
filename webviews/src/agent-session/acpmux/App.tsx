@@ -100,6 +100,7 @@ import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
+import { QUESTION_RECORD } from "./question/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -767,6 +768,15 @@ const PermissionRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A decided question's record (question/record.ts): the card's own answered or cancelled form,
+/// which answers nothing.
+const QuestionRecordRow = memo(
+  function QuestionRecordRow({ row }: RowProps) {
+    return row.question ? <QuestionCard question={row.question} onReply={ignoreReply} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const ignoreReply = () => {};
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -847,6 +857,7 @@ const defaultRegistry: NativeRegistry = {
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
   permission: PermissionRow,
+  [QUESTION_RECORD]: QuestionRecordRow,
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
