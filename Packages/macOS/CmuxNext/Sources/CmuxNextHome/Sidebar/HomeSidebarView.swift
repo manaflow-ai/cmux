@@ -313,6 +313,30 @@ public final class HomeSidebarView: NSView {
         }
         list.headerView.needsLayout = true
     }
+
+    /// Screenshots (`debug.home.sidebar_fixture`), each optional: the list's `width` (clamped as
+    /// a divider drag is), selects the `select`-th row (0 first, below the pinned tiles), sets
+    /// the Unread toggle, opens or ends the search (`debugSearch`). The answer is a
+    /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
+    /// height], NSNull when not shown, and `buttonsCovered`); nil when `select` names no row, and
+    /// nothing changes then.
+    public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
+        if let select, !model.rows.indices.contains(select) { return nil }
+        let split = superview as? HomeSidebarSplitView
+        if let width { split?.setWidth(width) }
+        if let select {
+            onSelect(model.rows[select].id)
+            self.select(model.rows[select].id)
+        }
+        if let unread { unreadOnly = unread }
+        if let search { debugSearch(search) }
+        (split?.superview ?? self).layoutSubtreeIfNeeded()
+        func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
+        let h = header
+        return ["width": Double(split?.sidebarWidth ?? bounds.width),
+                "header": ["search": frame(h.search), "searchButton": frame(h.searchButton), "filter": frame(h.filter),
+                           "compose": frame(h.compose), "buttonsCovered": h.buttonsCovered] as [String: Any]]
+    }
     #endif
 
     /// The collapsed search's icon: the field opens over the row with the keyboard.

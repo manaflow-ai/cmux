@@ -9,7 +9,7 @@ import Testing
 /// never wrap or hide; the row sits in the 52 pt band with no lone button above it.
 @MainActor
 struct HomeSidebarHeaderTests {
-    static let widths: [CGFloat] = [76, 100, 120, 159, 160, 180, 220, 260, 300, 320, 480]
+    nonisolated static let widths: [CGFloat] = [76, 100, 120, 159, 160, 180, 220, 260, 300, 320, 480]
 
     @Test(arguments: widths)
     func everythingStaysOnOneRow(_ width: CGFloat) {
