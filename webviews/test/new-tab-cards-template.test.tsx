@@ -212,6 +212,8 @@ test("Cards with the agent's chips draws the split, and the mic stays in the box
     expect(host.querySelector(".nt-foot .acpmux-composer-foot .acpmux-model")).not.toBeNull();
     const composer = host.querySelector<HTMLElement>(".nt-composer")!;
     expect(composer.firstElementChild?.classList.contains("nt-location")).toBe(true);
+    // Cards draws no create row with the split either (u2851): the app always passes the chips.
+    expect(host.querySelector(".nt-create")).toBeNull();
     // Search keeps the mic where it is: nothing that Search hides holds it.
     await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode button[data-mode="search"]')!.click());
     expect(screen.dataset.mode).toBe("search");
