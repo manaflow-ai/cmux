@@ -181,11 +181,11 @@ jobs:
           python3 scripts/ci/crash_ratchet_compare.py --script scripts/cmux-next/crash_ratchet.py \
             --head "$GITHUB_WORKSPACE" --base "$base_dir"
 
-  # A red size cap or crash ratchet on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
+  # A red size cap, crash ratchet or page strings on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
   # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
   # one comment, recomputed from all check runs of the head commit.
   pr-red-checks:
-    needs: [app-size, crash-ratchet]
+    needs: [app-size, crash-ratchet, page-strings]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
     permissions:
       actions: read

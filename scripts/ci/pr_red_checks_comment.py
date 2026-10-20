@@ -42,6 +42,7 @@ TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
     ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next-guards.yml app-size job (hq-11)
     ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
+    ("name", "cmux-next page strings generate"),      # cmux-next-guards.yml page-strings job
     ("name", "cmux-next checks (god files, concurrency, crash safety, l10n)"),  # cmux-next.yml checks job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
