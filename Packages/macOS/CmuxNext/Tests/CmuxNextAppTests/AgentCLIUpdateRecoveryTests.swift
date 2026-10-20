@@ -16,6 +16,7 @@ import Testing
         var events: [String] = []
         var refuse = false
         var refuseList = false
+        var refuseAttach = false
 
         var port: AgentCLIUpdateActions.Persistence {
             .init(record: { inputs in
@@ -27,6 +28,7 @@ import Testing
                 return Array(self.rows.values)
             }, attach: { input, receipt in
                 self.events.append("attach:\(input.cli)")
+                if self.refuseAttach { throw DaemonError.notConnected }
                 self.rows[input.key] = try .init(intent: input, receipt: receipt)
             }, settle: { keys in
                 self.events.append("settle:\(keys.count)")
@@ -175,7 +177,11 @@ import Testing
             session: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", cli: .codex, profiles: ["work-profile"])
         h.ledger.rows[foreign.key] = try .init(intent: foreign, receipt: nil)
         let (actions, _) = h.make(); try await actions.recover()
-        #expect(actions.state.arrayValue?.isEmpty == true && h.resolutions == 0 && h.owner.starts.isEmpty)
+        // Shown so a person can let it go, never resolved or started through another owner.
+        let shown = try #require(actions.state.arrayValue)
+        #expect(shown.count == 1 && shown.first?["state"] == "unknown" && shown.first?["terminal"] == nil)
+        #expect(shown.first?["can_dismiss"] == true && shown.first?["can_resume"] == false)
+        #expect(h.resolutions == 0 && h.owner.starts.isEmpty)
         h.owner.current = false
         h.ledger.rows = ["original-intent": try .init(intent: h.retained(), receipt: nil)]
         try await actions.recover()
@@ -266,9 +272,9 @@ import Testing
     }
 
     /// An unreachable session may be a live server on this machine still running the updater,
-    /// so its row blocks without being selected as the owner. Once the ledger's seven-day read
-    /// bound stops returning it, the current session may update.
-    @Test func aRowFromAnUnreachableSessionBlocksUntilItAgesOut() async throws {
+    /// so its row blocks without being selected as the owner. The row it blocks with is shown and
+    /// a person may dismiss it; until then (or the ledger's seven-day read bound) nothing starts.
+    @Test func aRowFromAnUnreachableSessionBlocksVisiblyUntilDismissed() async throws {
         let h = Harness()
         let foreign = try AgentCLIUpdateIntent(key: "orphan-intent", rootKey: "orphan-root", machine: h.owner.machine,
             session: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", cli: .codex, profiles: ["work-profile"])
@@ -279,10 +285,46 @@ import Testing
             Issue.record("another session's recorded update did not block")
         } catch {}
         #expect(h.owner.starts.isEmpty && h.resolutions == 0)
-        h.ledger.rows[foreign.key] = nil // past the age bound, the ledger no longer returns it
+        // What blocks is what the page shows.
+        let blocking = try #require(actions.state.arrayValue?.first { $0["intent_key"] == "orphan-intent" })
+        #expect(blocking["cli"] == "codex" && blocking["state"] == "unknown" && blocking["can_dismiss"] == true)
+        let dismiss: JSONValue = ["action": "dismissUpdate", "intent": "orphan-intent"]
+        do {
+            _ = try await actions.runPage(dismiss, context: gesture(user: false), registry: registry)
+            Issue.record("a script dismissed an intent")
+        } catch let error as PageError { #expect(error.code == PageNativeOp.userOnlyCode) }
+        #expect(h.ledger.rows[foreign.key] != nil)
+        _ = try await actions.runPage(dismiss, context: gesture("dismiss-orphan"), registry: registry)
+        #expect(h.ledger.rows[foreign.key] == nil && actions.state.arrayValue?.isEmpty == true)
         _ = try await actions.runSettings(id: "work-profile", context: gesture("current-session"), registry: registry)
         #expect(h.owner.starts.map(\.1) == ["current-session"])
         #expect(h.ledger.rows.keys.contains("current-session"))
+    }
+
+    /// A row the ledger stops returning (past its seven-day read bound) no longer blocks.
+    @Test func aRowPastTheAgeBoundNoLongerBlocks() async throws {
+        let h = Harness()
+        let foreign = try AgentCLIUpdateIntent(key: "orphan-intent", rootKey: "orphan-root", machine: h.owner.machine,
+            session: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", cli: .codex, profiles: ["work-profile"])
+        h.ledger.rows[foreign.key] = try .init(intent: foreign, receipt: nil)
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("blocked"), registry: registry) } catch {}
+        h.ledger.rows[foreign.key] = nil
+        _ = try await actions.runSettings(id: "work-profile", context: gesture("current-session"), registry: registry)
+        #expect(h.owner.starts.map(\.1) == ["current-session"])
+    }
+
+    /// A start whose receipt the ledger fails to keep still ran: the batch reports it and goes on.
+    @Test func aFailedAttachIsReportedAndTheBatchContinues() async throws {
+        let h = Harness(); h.ledger.refuseAttach = true
+        let (actions, registry) = h.make()
+        do {
+            _ = try await actions.runSettings(id: nil, context: gesture("attach-fails"), registry: registry)
+            Issue.record("a failed attach reported success")
+        } catch let error as PageError { #expect(error.message.contains("claude") && error.message.contains("codex")) }
+        #expect(h.owner.starts.map { $0.0.rawValue } == ["claude", "codex"])
+        let jobs = try #require(actions.state.arrayValue)
+        #expect(jobs.map { $0["cli"] } == ["claude", "codex"] && jobs.allSatisfy { $0["state"] == "created" })
     }
 
     /// Nothing starts before the ledger records; a failed record leaves no job that blocks.

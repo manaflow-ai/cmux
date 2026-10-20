@@ -223,9 +223,9 @@ import Testing
     }
 
     /// A new daemon session cannot reach the old job, so its in-memory job neither shows nor
-    /// blocks. Its ledger row still blocks the CLI on that machine: the old session may be a live
-    /// second server still running the updater (#21469).
-    @Test func aNewDaemonSessionRetiresTheOldJobButItsLedgerRowStillBlocks() async throws {
+    /// blocks. Its ledger row still blocks the CLI on that machine (the old session may be a live
+    /// second server still running the updater), shown and dismissable instead of invisible.
+    @Test func aNewDaemonSessionRetiresTheOldJobAndShowsItsBlockingRowUntilDismissed() async throws {
         let (owner, updates, registry) = make()
         _ = try await updates.runSettings(id: "work-profile", context: page("first-session"), registry: registry)
         owner.session = "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -236,6 +236,12 @@ import Testing
         } catch {}
         #expect(owner.starts.count == 1)
         #expect(updates.state.arrayValue?.contains { $0["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } == false)
+        // The row that blocks is shown, and a person may dismiss it.
+        let blocking = try #require(updates.state.arrayValue?.first { $0["intent_key"] == "first-session" })
+        #expect(blocking["session"] == "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" && blocking["can_dismiss"] == true)
+        _ = try await updates.runPage(["action": "dismissUpdate", "intent": "first-session"], context: page("dismiss"), registry: registry)
+        _ = try await updates.runSettings(id: "work-profile", context: page("after-dismiss"), registry: registry)
+        #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-dismiss")
     }
 
     @Test func anExitWithAnUnknownOutcomeSettlesTheJobWithoutBlockingTheCLI() async throws {

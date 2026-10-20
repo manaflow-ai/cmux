@@ -516,6 +516,38 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_agent_cli_intent_reads_skip_a_bad_row_instead_of_failing_the_list() {
+        let root = root();
+        let mut registry = WorkspaceRegistry::open(&root, "intents").unwrap();
+        let now = 1_000_000_000_000;
+        registry.record_agent_cli_intents_at(&actor(), &[keyed("good")], now).unwrap();
+        {
+            let db = registry.connection.get();
+            let mut bad_cli = keyed("bad-cli");
+            bad_cli.cli = "not-a-cli".into();
+            let insert = "INSERT INTO agent_cli_intents(actor,intent_key,intent_json,receipt_json,recorded_at)
+                 VALUES(?1,?2,?3,?4,?5)";
+            let actor = frontend(&actor()).unwrap();
+            for (key, input, receipt) in [
+                ("bad-cli", serde_json::to_string(&bad_cli).unwrap(), None),
+                ("bad-json", "{".to_owned(), None),
+                (
+                    "bad-receipt",
+                    serde_json::to_string(&keyed("bad-receipt")).unwrap(),
+                    Some(json!({"machine": "machine_other"}).to_string()),
+                ),
+            ] {
+                db.execute(insert, params![actor, key, input, receipt, now]).unwrap();
+            }
+        }
+        let rows = registry.list_agent_cli_intents_at(&actor(), now).unwrap();
+        assert_eq!(rows.len(), 1, "only the valid row reads: {rows:?}");
+        assert_eq!(rows[0]["key"], "good");
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn cmux_next_agent_cli_intent_store_is_principal_scoped_and_not_execution_authority() {
         let root = root();
         let mut registry = WorkspaceRegistry::open(&root, "intents").unwrap();
