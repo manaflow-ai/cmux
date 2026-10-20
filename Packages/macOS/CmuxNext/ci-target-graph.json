@@ -55,7 +55,8 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextActions/",
-        "plans/cmux-next/"
+        "plans/cmux-next/",
+        "schemas/keybindings/ghostty-reserved-keys.json"
       ]
     },
     "CmuxNextAgentActivity": {
@@ -512,6 +513,15 @@
       ],
       "packages": []
     },
+    "CmuxNextCodeRouterTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCodeRouterTests",
+      "targets": [
+        "CmuxNextCodeRouter"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCompat": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
@@ -959,7 +969,8 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1200,6 +1211,7 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+        "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",
         "schemas/settings-export/settings-schema.sources.sha256",
