@@ -64,7 +64,7 @@ tests. Nothing in this matrix was tried in the running app.
 | Tab group in a pane (`tabGroup.save` / `tabGroup.unsave`, Chrome's pin = save) | works (one of the two rows) | works | `tab-group save` / `unsave` work | `app_tab_group_save` / `unsave` work | not bindable (unchanged) | n/a | works | unchanged |
 | Screen (`screen.togglePin`) | works | works | `screen toggle-pin` works | `app_screen_toggle_pin` works | not bindable (unchanged) | n/a | works | unchanged |
 | Browser extension (`browser.extension.pin` / `unpin`, `move`) | Extensions menu pin works | works | `extension pin` / `unpin` / `move` work | `app_extension_pin` / `unpin` / `move` work | bindable, no default | reorder pinned works | works | unchanged |
-| Home conversation: Chief, DM, group (`home.togglePin`, new) | Pin row works | **missing** → works | **missing** → `home pin-unpin [--conversation ID] [--pinned true\|false]` | **missing** → `app_home_toggle_pin` | **missing** → bindable, no default | drag into the grid works | right-click and drag only | one action; the row's Pin and a tile dragged out run it |
+| Home conversation: Chief, DM, group (`home.togglePin`, new) | Pin row works | **missing** → works | **missing** → `home pin-unpin [--conversation ID] [--pinned true\|false]` | **missing** → `app_home_pin_unpin` | **missing** → bindable, no default | drag into the grid works | right-click and drag only | one action; the row's Pin and a tile dragged out run it |
 
 ## Open after this change
 
