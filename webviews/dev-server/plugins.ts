@@ -104,8 +104,8 @@ export function cmuxDevServer(): Plugin[] {
 /// WebDevOverride.swift): each page keeps its own `cmux-page://` or `cmux-agent://pane` origin and
 /// the app fetches the files from here, so the Vite client must be told where its HMR socket is,
 /// and the Settings page imports its schema from schemas/settings above webviews/. Only a server on
-/// a fixed port (`bun run dev`, dev-slot.sh, fastloop) that sets neither itself; a test's server on
-/// port 0 keeps Vite's defaults. vite.config.pages-dev.ts sets both the same way.
+/// a fixed port (`bun run dev`, dev-slot.sh, fastloop, `bun run dev:pages`) that sets neither
+/// itself; a test's server on port 0 keeps Vite's defaults.
 function appHostServer(): Plugin {
   return {
     name: "cmux-dev-app-host",
@@ -115,7 +115,13 @@ function appHostServer(): Plugin {
       if (typeof port !== "number" || port === 0) return;
       return {
         server: {
-          hmr: config.server?.hmr ?? { protocol: "ws", host: "127.0.0.1", clientPort: port },
+          // Vite 8 builds the client's socket address from `server.ws` (`server.hmr.host` and
+          // `clientPort` are deprecated and no longer reach the client). `vp dev` passes an empty
+          // `ws` object, so a value the config sets wins key by key.
+          ws:
+            config.server?.ws === false
+              ? false
+              : { protocol: "ws", host: "127.0.0.1", clientPort: port, ...config.server?.ws },
           fs: config.server?.fs?.allow
             ? undefined
             : { allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")] },
