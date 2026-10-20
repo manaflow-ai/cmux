@@ -362,15 +362,20 @@ impl SearchEngine {
     }
 
     fn signals(&self, target: &str, query: &Query) -> f64 {
-        // Red: opens, focus and the current workspace are not ranked yet.
-        let _ = (target, query, &self.opens, &self.focus, OPENS, FOCUS);
-        0.0
+        let opens = self.opens.bonus(target, query.now_ms, OPENS);
+        let focus = self.focus.bonus(target, query.now_ms, FOCUS);
+        let same_workspace = match (&query.workspace_id, self.contexts.get(target)) {
+            (Some(current), Some(context)) if context.context.workspace_id == *current => 100.0,
+            (Some(current), _) if current == target => 100.0,
+            _ => 0.0,
+        };
+        opens + focus + same_workspace
     }
 
     fn search_names(&self, words: &[Vec<u8>], query: &Query) -> Vec<Hit> {
         let mut hits: Vec<Hit> = self
             .names
-            .matches(words, &query.kinds, &Contexts::default())
+            .matches(words, &query.kinds, &self.contexts)
             .map(|(entry, found)| {
                 let doc = &entry.doc;
                 let score = score(found.tier, doc.kind, doc.at_ms, query.now_ms)
@@ -415,11 +420,10 @@ impl SearchEngine {
         let context_targets: Vec<HashSet<u32>> = words
             .iter()
             .map(|word| {
-                // Red: contexts do not match query words yet.
                 self.contexts
                     .entries
                     .iter()
-                    .filter(|(_, entry)| entry.contains(word) && word.is_empty())
+                    .filter(|(_, entry)| entry.contains(word))
                     .filter_map(|(target, _)| self.string_ids.get(target).copied())
                     .collect()
             })
@@ -683,7 +687,5 @@ fn score(tier: u8, kind: Kind, at_ms: i64, now_ms: i64) -> f64 {
 /// Query words that name the hit's place (workspace, group, title, folder,
 /// branch, agent): 60 points each, at most 150.
 fn context_bonus(words: u32) -> f64 {
-    // Red: context words are not ranked yet.
-    let _ = words;
-    0.0
+    (f64::from(words) * 60.0).min(150.0)
 }
