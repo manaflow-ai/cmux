@@ -69,6 +69,9 @@ public final class HomeChiefSettingsView: NSView {
     var source: any HomeChiefEngineSource
     /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
     var shownEngine: HomeChiefSnapshot?
+    /// The note says why the person's own change did not take (a pick, a picture): it stays
+    /// through refreshes until their next change or another Chief.
+    var changeFailed = false
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
     /// The Chief's avatar changed on disk (its picture): read it again.
@@ -177,6 +180,7 @@ public final class HomeChiefSettingsView: NSView {
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
         shownEngine = nil
+        changeFailed = false
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
         if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
             muxHome = files.muxHome
@@ -263,17 +267,24 @@ public final class HomeChiefSettingsView: NSView {
     }
 
     /// Writes the picture off the main actor, then has the header (and this
-    /// panel's avatar) read it; a picture that could not be used says so.
-    func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) {
+    /// panel's avatar) read it; a picture that could not be used says so, with
+    /// a beep, since the open panel closed the card (the note waits for its next open).
+    @discardableResult
+    func usePicture(_ write: @escaping @Sendable (HomeChiefFiles) throws -> Void) -> Task<Void, Never> {
         let files = HomeChiefFiles(muxHome: muxHome)
+        changeFailed = false
         // task-owner: one file write off the main actor, then the header reads it
-        Task { [weak self] in
+        return Task { [weak self] in
             let written = await Task.detached { (try? write(files)) != nil }.value
             guard let self else { return }
-            failure.stringValue = written ? "" : HomeEngineStrings.pictureUnreadable
-            failure.isHidden = written
-            onResize()
-            if written { onAvatar() }
+            if written {
+                failure.isHidden = true
+                onResize()
+                onAvatar()
+            } else {
+                NSSound.beep()
+                note(HomeEngineStrings.pictureUnreadable, kept: true)
+            }
         }
     }
 
@@ -320,6 +331,7 @@ public final class HomeChiefSettingsView: NSView {
     func pick(_ fields: [String: String?]) -> Task<Void, Never> {
         let source = source
         let home = muxHome
+        changeFailed = false
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
@@ -338,17 +350,26 @@ public final class HomeChiefSettingsView: NSView {
         }
     }
 
-    /// Says `error`; the pickers stay usable only when the brain answered before.
+    /// Says `error`; the pickers stay usable only when the brain answered before. A pick's error
+    /// (`readable`: the brain answered, then refused) stays until the next change.
     func say(_ error: HomeChiefEngineError, readable: Bool) {
-        failure.stringValue = error.text
-        failure.isHidden = false
         if !readable { for button in [harness, model, effort] { button.isEnabled = false } }
+        note(error.text, kept: readable)
+    }
+
+    /// Shows `text` in the note and has VoiceOver say it; `kept` keeps it through refreshes.
+    func note(_ text: String, kept: Bool) {
+        failure.stringValue = text
+        failure.isHidden = false
+        changeFailed = kept
+        NSAccessibility.post(element: failure, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         onResize()
     }
 
     func show(_ snapshot: HomeChiefSnapshot) {
         shownEngine = snapshot
-        failure.isHidden = true
+        if !changeFailed { failure.isHidden = true }
         for button in [harness, model, effort] { button.isEnabled = true }
         let shown = HomeChiefEngineTitles(snapshot)
         fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness, title: ChiefBackend.title(for:))

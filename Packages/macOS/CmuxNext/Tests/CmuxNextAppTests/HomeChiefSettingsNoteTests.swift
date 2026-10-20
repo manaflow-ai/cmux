@@ -26,6 +26,15 @@ import Testing
         await view.pick("model", nil).value
         #expect(view.failure.isHidden)
     }
+
+    @Test func aPictureThatCannotBeUsedStaysSaid() async {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: RefusingChief())
+        await view.refresh().value
+        await view.usePicture { _ in throw CocoaError(.fileReadCorruptFile) }.value
+        #expect(!view.failure.isHidden)
+        await view.refresh().value
+        #expect(!view.failure.isHidden)
+    }
 }
 
 /// A brain that answers reads and refuses writes to `refuses`.
