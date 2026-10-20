@@ -185,6 +185,35 @@ struct ProviderDetectionSourcesTests {
         #expect(detection.sources == [.file("~/.claude.json")])
     }
 
+    @Test(arguments: [
+        "{}",
+        "{\"claudeAiOauth\": {\"accessToken\": \"a\", \"expiresAt\": 1000}}",
+    ])
+    func claudeGatewayTokenWinsOverAnUnusableCredentialsFile(credentials: String) {
+        let settings = "{\"env\": {\"ANTHROPIC_AUTH_TOKEN\": \"t\"}}"
+        let detection = Self.detector(files: ["/fixture/home/.claude/.credentials.json": credentials,
+                                              "/fixture/home/.claude/settings.json": settings]).detectClaudeCode()
+        #expect(detection.status == .signedIn)
+        #expect(detection.detail == "ANTHROPIC_AUTH_TOKEN")
+        #expect(detection.sources == [.file("~/.claude/settings.json")])
+    }
+
+    @Test func claudeUnusableCredentialsFileStaysWhenNothingElseIsConfigured() {
+        let expired = "{\"claudeAiOauth\": {\"accessToken\": \"a\", \"expiresAt\": 1000}}"
+        let detection = Self.detector(files: ["/fixture/home/.claude/.credentials.json": expired]).detectClaudeCode()
+        #expect(detection.status == .expired)
+        #expect(detection.sources == [.file("~/.claude/.credentials.json")])
+    }
+
+    @Test func claudeUsableCredentialsFileComesFirst() {
+        let credentials = "{\"claudeAiOauth\": {\"accessToken\": \"a\", \"refreshToken\": \"r\"}}"
+        let settings = "{\"env\": {\"ANTHROPIC_AUTH_TOKEN\": \"t\"}}"
+        let detection = Self.detector(files: ["/fixture/home/.claude/.credentials.json": credentials,
+                                              "/fixture/home/.claude/settings.json": settings]).detectClaudeCode()
+        #expect(detection.status == .signedIn)
+        #expect(detection.sources == [.file("~/.claude/.credentials.json")])
+    }
+
     @Test func claudeKeychainSignInComesFirst() {
         let settings = "{\"env\": {\"ANTHROPIC_AUTH_TOKEN\": \"t\"}}"
         let detection = Self.detector(files: ["/fixture/home/.claude/settings.json": settings],
