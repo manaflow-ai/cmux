@@ -169,11 +169,12 @@ public final class AgentCLIUpdateActions {
                         intent.jobs[index] = .object(job)
                     }
                 case .failure(let error):
-                    // Busy is answered before the key is looked up, so on a replay it can mean the key's
-                    // original request is still running: keep the job and replay again next refresh.
-                    // Any other owner answer is the key's settled outcome (see `settled`); a lost
-                    // reply keeps the job and is replayed again.
-                    guard Self.settled(error), !Self.busy(error) else { continue }
+                    // Only a refusal (`agent_cli_job.*`, answered before a creation is journaled) proves
+                    // the replayed key created nothing. Busy can mean the key's original request still
+                    // runs, and another code can come before the owner reads its journal (a handoff,
+                    // a registry error) while the lost first start created the terminal: keep the job
+                    // and replay the same key again next refresh.
+                    guard Self.refusedBeforeCreation(error), !Self.busy(error) else { continue }
                     intent.unsent[family] = nil
                     intent.jobs.remove(at: index)
                 }
@@ -260,11 +261,11 @@ public final class AgentCLIUpdateActions {
             do {
                 receipt = try await route.start(cli, childKey)
             } catch {
-                // An owner answer settles the key: a refusal created nothing, and a failed
-                // creation is replayed as the same failure, so neither leaves a job to block
-                // this CLI. A lost reply may have created the terminal: it stays unknown, and
-                // refresh sends the same key again to learn which.
-                if Self.settled(error) {
+                // This key is fresh, so any owner answer means nothing runs for it (a refusal,
+                // a failed creation, a request turned away): no job is left to block this CLI.
+                // A lost reply may have created the terminal: it stays unknown, and refresh
+                // sends the same key again to learn which.
+                if Self.answered(error) {
                     if let index = Self.job(of: family, in: intent) { intent.jobs.remove(at: index) }
                 } else {
                     intent.unsent[family] = childKey
@@ -321,15 +322,19 @@ public final class AgentCLIUpdateActions {
         return !members.isEmpty && members.allSatisfy { $0.outdated && ($0.channel == .npm || $0.channel == .native) }
     }
 
-    /// Whether the owner answered the start with a coded failure, which settles the key:
-    /// `agent_cli_job.*` comes before any creation is journaled, so no terminal exists;
-    /// any other code is the key's journaled outcome (a failed creation, or an
-    /// interrupted one, `mutation.indeterminate`), and the owner answers every replay
-    /// of the key the same way, so replaying it can never learn more. Only a failure
-    /// without an owner answer (a lost reply) leaves the key worth replaying.
-    static func settled(_ error: any Error) -> Bool {
+    /// Whether the owner answered with a coded failure. On a first start (a fresh key) that
+    /// means nothing runs for the key; a failure with no owner answer (a lost reply) may
+    /// follow a creation. A replay needs `refusedBeforeCreation` instead.
+    static func answered(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
         return !code.isEmpty
+    }
+
+    /// The owner answers `agent_cli_job.*` before it journals a creation, so no
+    /// terminal exists for the key. Any other failure may follow a creation.
+    static func refusedBeforeCreation(_ error: any Error) -> Bool {
+        guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
+        return code.hasPrefix("agent_cli_job.")
     }
 
     /// The owner's execution lock or inventory reservation is held.
