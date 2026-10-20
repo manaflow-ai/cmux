@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import Testing
 @testable import CMUXAgentLaunch
@@ -21,20 +20,49 @@ struct WorkstreamPersistenceBoundedLoadTests {
         for item in items { try Self.appendRow(item, to: log) }
         let persistence = WorkstreamPersistence(fileURL: log)
 
-        let sampler = FootprintSampler()
-        sampler.start()
         let revision = try await persistence.loadRevision()
-        let latest = try await persistence.loadLatest(limit: 50)
+        let latest = try await persistence.loadLatest(limit: items.count)
+        let latestBytesRead = await persistence.lastLoadBytesRead
         let page = try await persistence.loadPage(limit: 5)
-        let peakGrowth = sampler.stop()
+        let pageBytesRead = await persistence.lastLoadBytesRead
 
         #expect(latest.map(\.id) == items.map(\.id))
         #expect(page.items.map(\.id) == items.suffix(5).map(\.id))
         #expect(revision >= items.count)
-        #expect(
-            peakGrowth < 64 * 1024 * 1024,
-            "Launch loads grew the footprint by \(peakGrowth / 1_048_576) MiB for a \(prefixBytes / 1_048_576) MiB log"
+        // Counting bytes read, not the process footprint, keeps this exact
+        // while other suites allocate in parallel.
+        let budget: UInt64 = 1024 * 1024
+        #expect(latestBytesRead < budget, "loadLatest read \(latestBytesRead) bytes of a \(prefixBytes / 1_048_576) MiB log")
+        #expect(pageBytesRead < budget, "loadPage read \(pageBytesRead) bytes of a \(prefixBytes / 1_048_576) MiB log")
+    }
+
+    @Test("A newline-free region larger than any row is skipped, not buffered")
+    func oversizedRegionIsSkipped() async throws {
+        let log = try Self.makeLog()
+        defer { try? FileManager.default.removeItem(at: log) }
+        let older = Self.item("older")
+        try Self.appendRow(older, to: log)
+        let size = try FileManager.default.attributesOfItem(atPath: log.path)[.size] as? NSNumber
+        try Self.extend(log, to: (size?.uint64Value ?? 0) + 4 * 1024 * 1024)
+        let newer = Self.item("newer")
+        try Self.appendRow(newer, to: log)
+        let handle = try FileHandle(forReadingFrom: log)
+        defer { try? handle.close() }
+        var reader = WorkstreamLogBackwardReader(
+            handle: handle,
+            endOffset: try handle.seekToEnd(),
+            maximumRowBytes: 64 * 1024
         )
+
+        var decoded: [UUID] = []
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        while let row = try reader.next() {
+            if let item = try? decoder.decode(WorkstreamItem.self, from: row.bytes) {
+                decoded.append(item.id)
+            }
+        }
+        #expect(decoded == [newer.id, older.id])
     }
 
     @Test("Latest load keeps each item's newest version in newest-row order")
@@ -114,49 +142,5 @@ private extension Data {
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: self)
-    }
-}
-
-/// Tracks the peak physical footprint while the code under test runs.
-private final class FootprintSampler: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "cmux.tests.footprint-sampler")
-    private var timer: DispatchSourceTimer?
-    private var baseline: UInt64 = 0
-    private var peak: UInt64 = 0
-
-    func start() {
-        baseline = Self.physicalFootprint()
-        peak = baseline
-        let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .microseconds(500))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            self.peak = max(self.peak, Self.physicalFootprint())
-        }
-        self.timer = timer
-        timer.resume()
-    }
-
-    /// Stops sampling and returns the peak growth over the starting footprint.
-    func stop() -> UInt64 {
-        queue.sync {
-            timer?.cancel()
-            timer = nil
-            peak = max(peak, Self.physicalFootprint())
-            return peak > baseline ? peak - baseline : 0
-        }
-    }
-
-    private static func physicalFootprint() -> UInt64 {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(
-            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size
-        )
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-            }
-        }
-        return result == KERN_SUCCESS ? info.phys_footprint : 0
     }
 }

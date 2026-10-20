@@ -30,6 +30,9 @@ public actor WorkstreamPersistence {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var handle: FileHandle?
+    /// Bytes the most recent `loadLatest` or `loadPage` read from the log.
+    /// Tests use it to check that launch reads stop near the end of the file.
+    private(set) var lastLoadBytesRead: UInt64 = 0
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -90,6 +93,7 @@ public actor WorkstreamPersistence {
             }
             newestFirst.append(item)
         }
+        lastLoadBytesRead = reader.bytesRead
         return newestFirst.reversed()
     }
 
@@ -141,6 +145,7 @@ public actor WorkstreamPersistence {
         while rows.count < limit, let row = try reader.next() {
             rows.append(row)
         }
+        lastLoadBytesRead = reader.bytesRead
         // Malformed lines are dropped silently; the audit log is
         // append-only and we don't want a corrupt row to block startup.
         let out = rows.reversed().compactMap { row in

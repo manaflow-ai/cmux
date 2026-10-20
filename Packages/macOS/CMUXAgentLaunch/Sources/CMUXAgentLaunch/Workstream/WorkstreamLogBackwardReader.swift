@@ -28,6 +28,8 @@ struct WorkstreamLogBackwardReader {
     private var pending = Data()
     /// File offset of `pending`'s first byte. Everything before it is unread.
     private var pendingStart: UInt64
+    /// Bytes read from the file so far, which is what a read costs.
+    private(set) var bytesRead: UInt64 = 0
 
     init(
         handle: FileHandle,
@@ -83,6 +85,7 @@ struct WorkstreamLogBackwardReader {
                 return
             }
             pendingStart = readStart
+            bytesRead += UInt64(chunk.count)
             if isDroppingRow {
                 guard Self.containsNewline(chunk),
                       let newline = Self.lastNewline(in: chunk) else { continue }
