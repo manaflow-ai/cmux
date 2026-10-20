@@ -40,7 +40,7 @@ nonisolated enum PaletteNavigationEntries {
                 }
                 for tab in tabs {
                     entries.append(PaletteNavigationEntry(
-                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.titleText, workspaceTitle: workspace.name, groupTitle: groupTitle,
+                        id: tab.id, kind: .tab(kind(of: tab)), title: tab.title, workspaceTitle: workspace.name, groupTitle: groupTitle,
                         cwd: tab.cwd, url: tab.url, agent: tab.agent, sessionID: sessionID(of: tab), isCurrent: tab.id == focus.tabID,
                         lastUsed: lastActive[tab.id]))
                 }

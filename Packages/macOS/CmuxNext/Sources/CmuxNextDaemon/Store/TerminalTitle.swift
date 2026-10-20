@@ -47,8 +47,22 @@ public struct TerminalTitle: Equatable, Sendable {
     /// - Parameter raw: the terminal's title as the daemon sent it (already
     ///   sanitized there: no control characters, at most 256 characters).
     public init(raw: String) {
-        text = raw
-        activity = nil
+        var rest = Substring(raw)
+        var activity: Activity?
+        while let first = rest.unicodeScalars.first, let found = Self.activity(of: first) {
+            // The last glyph wins: `✳ ⠂ Task` reads as working.
+            activity = found
+            rest = Substring(rest.unicodeScalars.dropFirst())
+            // A variation selector (`✔︎`) belongs to the glyph before it.
+            while let next = rest.unicodeScalars.first, next.properties.isVariationSelector {
+                rest = Substring(rest.unicodeScalars.dropFirst())
+            }
+            rest = rest.drop { $0.isWhitespace }
+        }
+        // Only glyphs, no words: keep them as the text so the tab is not blank.
+        let words = rest.trimmingCharacters(in: .whitespaces)
+        self.text = words.isEmpty ? raw.trimmingCharacters(in: .whitespaces) : words
+        self.activity = activity
     }
 
     private static func activity(of scalar: Unicode.Scalar) -> Activity? {
