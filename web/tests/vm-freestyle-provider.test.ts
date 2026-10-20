@@ -948,18 +948,30 @@ describe("Freestyle client configuration", () => {
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
-  test("uses persisted network metadata without a guest probe or healing", async () => {
+  test("uses persisted network metadata and mints a cryptographic enrollment grant", async () => {
     const commands: string[] = [];
     const vm = {
-      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+      exec: async ({ command }: { command: string }) => {
+        commands.push(command);
+        return {
+          statusCode: 0,
+          stdout: '{"uri":"cmux://enroll/inv_test?secret=test-secret"}',
+          stderr: "",
+        };
+      },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
       providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
     });
-    expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
-    expect(commands).toEqual([]);
+    expect(endpoint).toMatchObject({
+      route: "ws://10.4.0.7:1337/v1/link",
+      trustedCarrier: false,
+      invitation: { invitationId: "inv_test" },
+    });
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain("remote enroll create");
   });
 
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
