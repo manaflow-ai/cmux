@@ -344,9 +344,17 @@ public final class WindowMaterialView: NSView {
         return [blur].compactMap { $0 }
     }
 
-    /// The x of the middle of the span the art keeps clear of the panes, in this view's points.
+    /// The span the art frames itself in: clear of the panes, or the whole window when
+    /// `appearance.backgroundAvoidPanes` is off. Drawing, the starting placement and the drag
+    /// limits all measure from this one span, so placing by hand never jumps.
+    var placementSpan: BackdropVisibleSpan {
+        DesignSettings.shared.backdropPlayback.avoidsPanes
+            ? BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns) : .whole
+    }
+
+    /// The x of the middle of ``placementSpan``, in this view's points.
     var visibleMiddle: CGFloat {
-        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        let visible = placementSpan
         return (visible.minX + visible.maxX) / 2 * bounds.width
     }
 
@@ -361,7 +369,7 @@ public final class WindowMaterialView: NSView {
     public var adjustable: (id: String, imageSize: CGSize, current: BackdropUserPlacement)? {
         guard let id = shownID, let image = artImage, let placement = artPlacement, let metadata = shownMetadata,
               !artView.isHidden, videoView.url == nil else { return nil }
-        let visible = BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns)
+        let visible = placementSpan
         let current = placements.placement(for: id)
             ?? metadata.userPlacement(from: placement, viewSize: bounds.size, imageSize: image.size, visible: visible)
         return (id, image.size, current)
@@ -392,9 +400,7 @@ public final class WindowMaterialView: NSView {
                                            dominantPalette: [], quietZone: .init(x: 0, y: 0, width: 1, height: 1),
                                            subjectBox: .init(minX: 0, minY: 0, maxX: 1, maxY: 1))
         }
-        // `appearance.backgroundAvoidPanes` off: the art frames itself in the whole window.
-        let visible = DesignSettings.shared.backdropPlayback.avoidsPanes
-            ? BackdropVisibleSpan.uncovered(width: bounds.width, by: coveredColumns) : .whole
+        let visible = placementSpan
         let placement = shownID.flatMap(placements.placement(for:)).map {
             metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible, user: $0)
         } ?? metadata.placement(forViewSize: bounds.size, imageSize: image.size, visible: visible)
