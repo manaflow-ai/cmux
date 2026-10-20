@@ -187,6 +187,8 @@ public final class SidebarView: NSView {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
+            // A row's more button is wired from the provider: live rows take the new one.
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
             profileBar.contextMenuProvider = newValue
             for region in bandRegions { region.contextMenuProvider = newValue }
         }
