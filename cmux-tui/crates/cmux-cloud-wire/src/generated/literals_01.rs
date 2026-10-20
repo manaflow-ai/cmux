@@ -5,6 +5,10 @@
 use super::*;
 
 wire_literal! {
+    LitAgent = "agent"
+}
+
+wire_literal! {
     LitAgentPrompt = "agent_prompt"
 }
 
@@ -62,6 +66,10 @@ wire_literal! {
 
 wire_literal! {
     LitMac = "mac"
+}
+
+wire_literal! {
+    LitMachine = "machine"
 }
 
 wire_literal! {
