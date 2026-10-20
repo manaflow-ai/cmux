@@ -70,7 +70,7 @@ extension TabHandlers {
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
         if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
         let work: ActionWork = Task {
-            guard let key = await TabMoves.toNewWorkspace(tabs[0], services: ctx.services) else {
+            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
                 return "move-tab-to-new-workspace failed (see the app log)"
             }
             await TabMoves.join(tabs.dropFirst(), workspace: key, services: ctx.services)

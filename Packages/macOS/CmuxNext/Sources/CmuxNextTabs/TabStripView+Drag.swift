@@ -12,9 +12,9 @@ extension TabStripView {
         let shown = shownX(press.id) ?? placed[press.id]?.x ?? 0
         let local = convert(press.start, to: tabsClip)
         let contentX = scrollMapping.contentX(local.x, isPinned: start.isPinned)
+        guard let index = displayed.firstIndex(where: { $0.id == press.id }) else { return }
         // Dragging one of several selected tabs takes them all (Chrome): the others hide under it.
         hideDragCompanions(of: press.id)
-        guard let index = displayed.firstIndex(where: { $0.id == press.id }) else { return }
         placed[press.id]?.x = shown
         drag = TabStripDrag(
             id: press.id,

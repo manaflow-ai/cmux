@@ -297,6 +297,7 @@ public final class TabStripView: NSView {
         groupEditor.hide()
         groups.holdTask?.cancel()
         escapeMonitor.remove()
+        selectionEscape.remove()
         closingWatch.end()
         closingModeWidth = nil
         menuTracking.end()

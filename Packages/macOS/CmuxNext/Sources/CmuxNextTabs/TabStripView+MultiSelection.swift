@@ -33,8 +33,10 @@ extension TabStripView {
     }
 
     /// Hides the other selected tabs when `id`, one of several selected tabs, starts a drag.
+    /// A strip with tab groups drags the one tab: the strip keeps a group's members together, so a
+    /// multi-tab drop into or out of a group would ask for an order it can never show.
     func hideDragCompanions(of id: TabID) {
-        guard model.multiSelection.isMultiple, model.multiSelection.contains(id) else { return }
+        guard model.multiSelection.isMultiple, model.multiSelection.contains(id), model.groups.isEmpty else { return }
         let companions = Set(model.selectedTabIDs).subtracting([id])
         guard !companions.isEmpty else { return }
         dragCompanions = companions
