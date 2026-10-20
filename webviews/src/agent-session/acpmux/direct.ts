@@ -1839,6 +1839,10 @@ export class AcpmuxDirectClient {
     if (!id || !asked) return;
     this.askedQuestions.delete(id);
     const question = decidedQuestion(asked, msg.outcome);
+    // The text and tool fold before it close, as a tool call's would: the work after the answer
+    // draws below the record, never in the row above it.
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
     const rowId = `question-${id}`;
     this.rows.set(rowId, {
       id: rowId,
@@ -1846,7 +1850,7 @@ export class AcpmuxDirectClient {
       at: event.at,
       kind: QUESTION_RECORD,
       question,
-      // What Copy and Find in Chat read.
+      // What Copy reads.
       text:
         question.state.kind === "answered"
           ? summaryLines(question, question.state.answer).join("\n")

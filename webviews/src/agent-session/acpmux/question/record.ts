@@ -38,12 +38,24 @@ function selectionOf(item: Item, labels: string[]): Selection | undefined {
   return other.length > 0 ? { optionIDs, other: other.join(", ") } : { optionIDs };
 }
 
-/// Claude Code joins several choices with ", ". A whole string that is one label stays one,
-/// even with a comma in it.
+/// Claude Code answers one string per question; a multi-select joins its choices with ", ". A
+/// single-select answer is one choice whole, its Other text included. A multi-select is read from
+/// the front, the longest label that fits first, so a label with a comma in it stays one choice.
 function claudeLabels(item: Item, value: Json): string[] {
   if (typeof value !== "string") return [];
-  if (byLabel(item).has(value.trim())) return [value.trim()];
-  return value.split(", ");
+  const answer = value.trim();
+  if (!item.multiSelect) return [answer];
+  const labels = [...new Set(item.options.map((option) => option.label))].sort((a, b) => b.length - a.length);
+  const read: string[] = [];
+  let rest = answer;
+  while (rest) {
+    const label = labels.find((candidate) => rest === candidate || rest.startsWith(`${candidate}, `));
+    // Other text comes last (model.ts `labels`): what no label starts is that text, whole.
+    const taken = label ?? rest;
+    read.push(taken);
+    rest = rest.slice(taken.length).replace(/^, /, "");
+  }
+  return read;
 }
 
 function codexLabels(value: Json): string[] {
