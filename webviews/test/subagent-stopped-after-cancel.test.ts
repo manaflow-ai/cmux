@@ -2,8 +2,8 @@
 // A subagent read "running" for good once nothing would end it: its turn was stopped and the
 // harness never sent the subagent's end, or the agent restarted (a resume, a reopen, an exit)
 // and the subagent it had was gone. Now such a subagent reads as stopped: cancelled when its
-// turn was stopped, disconnected when the agent behind it went away. One that still reports
-// (a background subagent's progress) reads running again.
+// turn was stopped, disconnected when the agent behind it went away. A subagent the harness
+// says runs in the background outlives a stop, and one that still reports reads running again.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -29,6 +29,14 @@ const spawned = (id: string, name: string): Step => [
   "subagent_spawned",
   update({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id, parent: null, name, state: "running" }] }),
 ];
+const background = (id: string, name: string): Step => [
+  "in",
+  "subagent_spawned",
+  update(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id, parent: null, name, state: "running", background: true }] },
+  ),
+];
 const progress = (id: string, action: string): Step => [
   "in",
   "subagent_progress",
@@ -39,8 +47,21 @@ const turn = (text: string): Step[] => [
   ["mux", "turn_started", {}],
 ];
 
+/// The mux records a `transcript` client is sent (acpmux hub/paging.rs TRANSCRIPT_MUX_KINDS, the
+/// ones these tests use): the pane asks for no others.
+const TRANSCRIPT_MUX = new Set(
+  ["user_message", "turn_started", "turn_result", "stopped", "exited"].concat([
+    "resumed",
+    "reopened",
+    "host_started",
+    "host_ended",
+  ]),
+);
+const sent = (event: { dir: string; kind: string }) => event.dir !== "mux" || TRANSCRIPT_MUX.has(event.kind);
+
 /// A daemon over a fake socket: attach answers with `history`; `push` sends live events.
-function fakeDaemon(history: ReturnType<typeof record>) {
+function fakeDaemon(all: ReturnType<typeof record>) {
+  const history = all.filter(sent);
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -88,7 +109,7 @@ function fakeDaemon(history: ReturnType<typeof record>) {
     return socket as WebSocket;
   };
   const push = (events: ReturnType<typeof record>) => {
-    for (const event of events) {
+    for (const event of events.filter(sent)) {
       history.push(event);
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
@@ -139,7 +160,8 @@ test("a subagent the restarted agent no longer reports reads disconnected", asyn
     ["mux", "reopened", {}],
     ["mux", "exited", { code: 1 }],
     ["mux", "stopped", { code: 0 }],
-    ["mux", "turn_result", { status: "failed", detail: "outcome_unknown" }],
+    ["mux", "host_started", { incarnation: 2 }],
+    ["mux", "host_ended", {}],
   ] as Step[]) {
     const steps: Step[] = [
       ...turn("Run the audit in the background"),
@@ -183,6 +205,41 @@ test("a background subagent that still reports reads running", async () => {
   daemon.push(record([["mux", "resumed", { level: "exact" }], progress("bg", "Read src/fetch.ts")], steps.length + 1));
   expect(states(rows())).toEqual([
     ["Audit", "running"],
+    ["Reviewer", "cancelled"],
+  ]);
+});
+
+test("a turn the daemon lost reads its own subagents disconnected", async () => {
+  const steps: Step[] = [
+    ...turn("Audit in the background"),
+    spawned("bg", "Audit"),
+    ["mux", "turn_result", { status: "completed" }],
+    ...turn("Review it"),
+    spawned("fg", "Reviewer"),
+    ["mux", "turn_result", { status: "failed", detail: "outcome_unknown" }],
+  ];
+  const rows = await connect(fakeDaemon(record(steps)));
+  expect(states(rows())).toEqual([
+    ["Audit", "running"],
+    ["Reviewer", "disconnected"],
+  ]);
+});
+
+test("a stop ends only its own turn's subagents, and never a background one", async () => {
+  const steps: Step[] = [
+    // Still running from an earlier turn: it went on in the background.
+    ...turn("Audit in the background"),
+    spawned("old", "Audit"),
+    ["mux", "turn_result", { status: "completed" }],
+    ...turn("Watch the build and review"),
+    background("bg", "Watch"),
+    spawned("fg", "Reviewer"),
+    ["mux", "turn_result", { status: "cancelled" }],
+  ];
+  const rows = await connect(fakeDaemon(record(steps)));
+  expect(states(rows())).toEqual([
+    ["Audit", "running"],
+    ["Watch", "running"],
     ["Reviewer", "cancelled"],
   ]);
 });

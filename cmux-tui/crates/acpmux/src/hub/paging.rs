@@ -228,4 +228,13 @@ mod transcript_kind_tests {
             assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
         }
     }
+
+    /// A chat client reads a subagent nothing will end any more as stopped
+    /// when the agent process behind the chat went away or started again.
+    #[test]
+    fn agent_process_changes_are_transcript_records() {
+        for kind in ["stopped", "exited", "resumed", "reopened", "host_started", "host_ended"] {
+            assert!(is_transcript(&mux(kind)), "{kind} is not a transcript record");
+        }
+    }
 }
