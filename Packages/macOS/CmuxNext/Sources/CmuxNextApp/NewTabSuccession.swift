@@ -49,6 +49,12 @@ struct NewTabSuccession {
         begin(page: nil, after: anchor, in: pane, services: services)
     }
 
+    /// Starts showing the pane's next new tab first, after its pinned tabs. Returns the open, for `made`.
+    @discardableResult
+    static func begin(atStartOf pane: PaneModel, services: AppServices) -> DemandTimer? {
+        begin(page: nil, after: nil, in: pane, services: services)
+    }
+
     private static func begin(page: StripTabID?, after anchor: String?, in pane: PaneModel, services: AppServices) -> DemandTimer? {
         active[ObjectIdentifier(pane)]?.expiry.cancel()
         // A CLI or script open selects nothing and shows nothing: its tab lands as reported.
