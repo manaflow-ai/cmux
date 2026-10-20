@@ -338,6 +338,31 @@ describe("migration from team hubs", () => {
     v.ws.close()
   })
 
+  it("a retire that failed (the hub was mid-deploy) is retried by a later request in the same isolate", async () => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const legacy = ns.get(ns.idFromName("team-legacy-3"))
+    const parked = "33333333-3333-4333-8333-333333333333"
+    await runInDurableObject(legacy, (hub, state) => {
+      const pair = new WebSocketPair()
+      state.acceptWebSocket(pair[1], [parked])
+      pair[1].serializeAttachment({ userId: "vic", projectId: DEV_PROJECT, deviceId: parked, kind: "mac", name: "Vic parked" })
+      // The first retire RPC fails, as one does against a hub still running the previous deploy's class.
+      const real = hub.retireTeamHub.bind(hub)
+      let calls = 0
+      ;(hub as unknown as { retireTeamHub: () => Promise<{ closed: number }> }).retireTeamHub = () => (++calls === 1 ? Promise.reject(new Error("old class")) : real())
+    })
+    const uma = await token("uma")
+    const open = () => runInDurableObject(legacy, (_hub, state) => state.getWebSockets().filter((w) => !(w.deserializeAttachment() as { replaced?: boolean }).replaced).length)
+    expect((await call("GET", "/v1/teams/team-legacy-3/macs", uma)).status).toBe(200)
+    const deadline = Date.now() + 3000
+    while ((await open()) > 0 && Date.now() < deadline) {
+      // The phone keeps polling, as the app does every 4 s while its Mac looks offline.
+      await call("GET", "/v1/teams/team-legacy-3/macs", uma)
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    expect(await open()).toBe(0)
+  })
+
   it("never retires a user hub", async () => {
     const uma = await token("uma")
     const mac = await register(uma, "mac", "personal-uma", "Kept")

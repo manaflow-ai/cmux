@@ -26,7 +26,7 @@ export default defineConfig({
             dave: ["team-c"],
             erin: ["team-e"],
             // test/isolation.test.ts: uma and vic share team-u (two users on one team).
-            uma: ["team-u", "team-u2", "team-legacy"],
+            uma: ["team-u", "team-u2", "team-legacy", "team-legacy-3", "team-legacy-4"],
             yan: [],
             vic: ["team-u"],
             "9790718f-14cd-4f7e-824d-eaf527a82b82:alice": ["team-p"],
