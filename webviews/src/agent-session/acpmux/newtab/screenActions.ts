@@ -44,7 +44,12 @@ export function newTabScreenActions(deps: {
             text || attachments?.length
               ? callNative("chat.send", { text, ...(attachments?.length ? { attachments } : {}) })
               : undefined;
-          ignore(callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then(send));
+          // `chat.new` resolves to the chat it started; none (a refused or held start): no send.
+          ignore(
+            callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), peer }).then((started) =>
+              started ? send() : undefined,
+            ),
+          );
           return;
         }
         ignore(

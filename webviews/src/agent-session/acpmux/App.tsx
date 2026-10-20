@@ -4428,14 +4428,15 @@ function AcpmuxPane() {
               });
             }
             harnessSwitch.cancel();
-            return persistSession(
-              await client.create(
-                harness ? String(harness) : undefined,
-                folder,
-                peer ? String(peer) : undefined,
-                noProject === true,
-              ),
+            // Resolves to the chat it started (none: nothing started), so a caller can hold a prompt.
+            const started = await client.create(
+              harness ? String(harness) : undefined,
+              folder,
+              peer ? String(peer) : undefined,
+              noProject === true,
             );
+            await persistSession(started);
+            return started;
           },
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),

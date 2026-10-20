@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The New Tab page's saved environments (``AgentPaneEnvironment``), kept on this Mac in
 /// `environments.json` beside the app's sidebar snapshot (the tag's state): read once, written

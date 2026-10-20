@@ -109,7 +109,7 @@ async function mount({
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
-  peerStart?: "ok" | "refused";
+  peerStart?: "ok" | "refused" | "none";
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -120,8 +120,10 @@ async function mount({
     calls.push({ method, ...(params ? { params } : {}) });
     switch (method) {
       case "chat.new":
+        // The App's `chat.new` resolves to the chat it started (none when nothing started).
         if (params?.peer && peerStart === "refused") throw new Error("devbox is not connected");
-        return undefined;
+        if (params?.peer && peerStart === "none") return undefined;
+        return "session-1";
       case "environment.list":
         return { environments: SAVED };
       case "environment.save": {
@@ -382,4 +384,13 @@ test("New chat after a refused worktree leaves the page's create buttons working
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   await click(host.querySelector('[data-create="terminal"]'));
   expect(calls.some((call) => call.method === "tab.open")).toBe(true);
+});
+
+test("a start the SSH machine held without a chat sends the prompt nowhere", async () => {
+  const calls = await mount({ peerStart: "none" });
+  await click(environmentButton());
+  await click(row("Devbox API"));
+  await ask("tail the logs");
+  expect(calls.some((call) => call.method === "chat.new")).toBe(true);
+  expect(calls.some((call) => call.method === "chat.send")).toBe(false);
 });
