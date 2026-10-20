@@ -1415,6 +1415,19 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
+/* Another agent's message (IncomingMessageCard.tsx): Show more and Open on one line, and the
+   prompt as the agent got it once opened. */
+.cv-message__foot {
+  display: flex;
+  gap: 12px;
+  margin: -6px 0 7px 32.5px;
+}
+.cv-message__foot .cv-message__more {
+  margin: 0;
+}
+.cv-message.is-incoming > .cv-tool-output {
+  margin: 0 10px 8px 32.5px;
+}
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
 }
@@ -2561,4 +2574,33 @@ pre.cv-math-source {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* Reply on another agent's message (IncomingMessageCard.tsx): its key, the editor under the
+   message, and a quiet line once sent or when it was not. */
+.cv-message__key {
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-family: var(--cv-font);
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--cv-text-muted);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+}
+.cv-message__note {
+  color: var(--cv-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+.cv-message__note.is-failed {
+  color: var(--agent-danger);
+}
+.cv-message__reply {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 10px 8px 32.5px;
+}
+.cv-message__reply > .cv-user__edit {
+  width: 100%;
 }
