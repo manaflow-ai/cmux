@@ -20,7 +20,8 @@ public final class AgentPaneView: NSView {
     public let model: AgentPaneModel
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript: the shared link rule (``LinkRouter``,
-    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click.
+    /// `browser.openLinksInCmuxBrowser`), `otherTarget` for a Shift-Command click, beside the pane
+    /// that shows this chat (set in `init`; never the focused pane).
     public var openURL: (_ url: URL, _ otherTarget: Bool) -> Void = AgentPaneView.routedOpenURL
     static let routedOpenURL: (URL, Bool) -> Void = { LinkRouter.shared.open($0, otherTarget: $1) }
 
@@ -166,6 +167,9 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        openURL = { [weak self] url, other in
+            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { Self.routedOpenURL(url, other) }
+        }
         inputReadiness.attach(webView)
         if let page {
             attachPage(page)

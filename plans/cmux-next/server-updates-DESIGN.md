@@ -132,6 +132,9 @@ pill (share it, do not fork):
 - rim: a 1 px inside stroke, a vertical gradient (brighter top, faint bottom), per appearance;
 - corners: continuous; toast 9 pt, dialog `Metrics.panelCornerRadius`, card `Metrics.space3`;
 - shadow: one soft elevation-2 shadow (toast, dialog); none for in-sidebar cards.
+- motion: not part of the style. One place, `MotionTunables`: popups use `popover` (response
+  0.25 s, damping 0.86, from 0.95) and `popoverClose` (0.16 s, critically damped, to 0.97); toasts
+  use `appear` plus `fadeIn`/`fadeOut`. All fade the card layer, never the window alpha.
 
 Gallery: four looks (today, A "Rex neutral", B "neutral + stronger rim", C "theme tint + rim") for
 toast, confirm and tip in light and dark, in a Home right-pane tab; A ships (Recommended).
