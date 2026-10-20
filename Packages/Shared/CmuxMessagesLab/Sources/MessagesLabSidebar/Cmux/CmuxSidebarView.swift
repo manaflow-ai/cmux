@@ -106,6 +106,10 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 @MainActor
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
+    /// The person opened a conversation (its id): a plain click on its row or tile, the selected
+    /// one too, or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command-,
+    /// Shift- or Control-clicks only select. The host moves the keyboard into the conversation.
+    public var onOpen: (String) -> Void = { _ in }
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there). The host changes its order and calls `show` before returning, so the tiles land
@@ -328,6 +332,7 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     }
 
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID) { owner?.onOpen(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }

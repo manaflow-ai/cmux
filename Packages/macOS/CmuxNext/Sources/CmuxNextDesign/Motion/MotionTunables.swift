@@ -12,8 +12,11 @@ public nonisolated enum MotionTunables {
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
         .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
-        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
+        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A window closing: its fade out (a pane close takes the split spring)."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
+        // plans/cmux-next/split-spring-animation/DESIGN.md: half its travel at ~73 ms (the key reads as
+        // answered), a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt.
+        .split: (SpringParameters(response: 0.28, dampingFraction: 0.95), "Cmd-D and Cmd-Shift-D: the new pane growing in while its whole chain makes room, on one spring."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
@@ -52,6 +55,7 @@ public nonisolated enum MotionTunables {
 
     static let fadeDefaults: [MotionFade: (TimeInterval, String)] = [
         .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
+        .hoverReveal: (0.12, "A group header's + and more fading in and out with the pointer (opacity only)."),
         .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
         .focus: (0.1, "Pane focus ring and inactive dim."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),

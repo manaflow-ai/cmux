@@ -10,8 +10,9 @@ name: cmux-next fast-tier seed
 # cmux-ci-cache bucket (tests/test_ci_pull_request_caches_are_read_only.py).
 # Pull requests read the bucket's public URL and hold no credential.
 #
-# A seed is one cold build of exactly what the fast tier builds, on the pool the
-# fast tier overflows to, plus the input-time manifest the fast tier replays
+# A seed is one cold build of exactly what the Mac fast tier builds (its Swift
+# entries; the cargo entries run on Linux with their own cargo cache), on the
+# pool the fast tier overflows to, plus the input-time manifest the fast tier replays
 # (scripts/ci/e2e_warm_derived_data.py) so a pull request rebuilds only the
 # files that differ from the seed. It runs when the newest seed is older than
 # SEED_INTERVAL_MINUTES (scripts/cmux-next/fast-tier-seed-due.py), and prunes
@@ -77,10 +78,6 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
     permissions:
       contents: read
-    # As in the fast tier (cmux-next.yml): cmux-tui-core builds libghostty-vt from ghostty-next.
-    env:
-      GHOSTTY_ZIG_SOURCE: ghostty-next
-      CMUX_GHOSTTY_SRC: ""
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -90,15 +87,6 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
-
-      - name: Set up pinned cmux-tui Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
 
       - name: Compute fast-tier cache keys
         id: fast-cache-key
@@ -118,7 +106,7 @@ jobs:
       - name: Run the fast tier
         id: tier
         continue-on-error: true
-        run: python3 -I scripts/cmux-next/fast-tier.py --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
+        run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Check that every build passed
         id: built
@@ -131,10 +119,10 @@ jobs:
               print(f"{build['status']:5} {build['seconds']:8.1f}s {build['command']}")
           sys.exit(0 if builds and all(b["status"] == "pass" for b in builds) else 1)
           EOF
-          du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build cmux-tui/target | tee -a "$GITHUB_STEP_SUMMARY"
+          du -sh Packages/macOS/CmuxNext/.build Packages/Shared/CmuxHomeRender/.build | tee -a "$GITHUB_STEP_SUMMARY"
 
       # The swift archive goes last: its pointer is what a fast tier restores
-      # by prefix, and by then the other two archives of this commit exist.
+      # by prefix, and by then the home archive of this commit exists.
       - name: Save the CmuxHomeRender build
         if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         uses: ./.github/actions/cache-save
@@ -146,18 +134,6 @@ jobs:
           backend: r2
           path: Packages/Shared/CmuxHomeRender/.build
           key: ${{ steps.fast-cache-key.outputs.home-key }}
-
-      - name: Save the cmux-tui cargo target
-        if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-        uses: ./.github/actions/cache-save
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
-          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
-        with:
-          backend: r2
-          path: cmux-tui/target
-          key: ${{ steps.fast-cache-key.outputs.cargo-key }}
 
       - name: Save the CmuxNext build
         if: ${{ steps.built.outcome == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}

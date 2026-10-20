@@ -24,7 +24,7 @@ final class SidebarNowPlayingCardView: NSView {
     private var hoverArea: NSTrackingArea?
     private(set) var nowPlaying: SidebarNowPlaying?
     let surface = CardSurfaceView()
-    let artworkView = NSImageView()
+    let artworkView = DecorativeImageView()
     let titleLabel = ChromeLabel(labelWithString: "")
     let artistLabel = ChromeLabel(labelWithString: "")
     let scrubber = SidebarNowPlayingScrubber()
@@ -42,7 +42,6 @@ final class SidebarNowPlayingCardView: NSView {
         artworkView.wantsLayer = true
         artworkView.layer?.cornerRadius = Metrics.space1
         artworkView.layer?.masksToBounds = true
-        artworkView.setAccessibilityElement(false)
         for label in [titleLabel, artistLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
@@ -59,8 +58,12 @@ final class SidebarNowPlayingCardView: NSView {
         playPauseButton.onPress = { [weak self] in self?.onCommand?(.playPause) }
         nextButton.onPress = { [weak self] in self?.onCommand?(.next) }
         scrubber.onSeek = { [weak self] seconds in self?.onCommand?(.seek(seconds)) }
+        for (view, control) in [(previousButton, "previous"), (playPauseButton, "playPause"), (nextButton, "next"), (scrubber, "scrubber")] as [(NSView, String)] {
+            view.setAccessibilityIdentifier("cmux.sidebar.nowPlaying.\(control)")
+        }
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
+        setAccessibilityIdentifier("cmux.sidebar.nowPlaying")
         isHidden = true
     }
 
@@ -249,6 +252,7 @@ final class SidebarNowPlayingScrubber: NSView {
         fill.anchorPoint = .zero
         setAccessibilityElement(true)
         setAccessibilityRole(.slider)
+        setAccessibilityLabel(Strings.nowPlayingPosition)
     }
 
     @available(*, unavailable)

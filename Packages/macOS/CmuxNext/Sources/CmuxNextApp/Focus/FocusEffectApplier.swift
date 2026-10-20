@@ -383,6 +383,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
         default: break
         }
+        // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
+        next.remove(.webViewFocused)
+        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
         if registry.context != next { registry.context = next }
     }
 

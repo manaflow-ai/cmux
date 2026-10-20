@@ -85,6 +85,18 @@ public nonisolated enum HomeEngineStrings {
     static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .module) }
     /// Under the name, for a Chief whose brain runs here.
     static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .module) }
+    /// The Hosted Chief's place line.
+    public static var runsInCloud: String {
+        String(localized: "home.engine.runsInCloud", defaultValue: "Runs in the cloud", table: "Home", bundle: .module)
+    }
+    /// A paired server's place line, by its name.
+    public static var runsOnFormat: String {
+        String(localized: "home.engine.runsOn", defaultValue: "Runs on %@", table: "Home", bundle: .module)
+    }
+    /// The card's link to the same Chief on its other host.
+    static var switchHostFormat: String {
+        String(localized: "home.engine.switchHost", defaultValue: "Switch to %@", table: "Home", bundle: .module)
+    }
     /// The avatar's tooltip and VoiceOver label: a click opens its menu.
     static var changePicture: String {
         String(localized: "home.engine.changePicture", defaultValue: "Change Picture", table: "Home", bundle: .module)
