@@ -115,6 +115,70 @@ class PickRuleTests(unittest.TestCase):
         self.assertEqual(choice.retry_label, picker.BLACKSMITH[2])
 
 
+class NeverQueueBehindBlacksmithTests(unittest.TestCase):
+    """Minis first; Blacksmith only while a label has a free, moving slot; else the fleet's queue.
+
+    2026-10-20: blacksmith-12vcpu-macos-26 (5 runners) queued 5+ hours, about 95 PRs behind 318 runs.
+    """
+
+    FULL = (pool(picker.BLACKSMITH[0], 5, 5, 1), pool(picker.BLACKSMITH[1], 10, 10, 0),
+            pool(picker.BLACKSMITH[2], 10, 10, 5))
+
+    def state(self, blacksmith, **kwargs):
+        defaults = dict(jobs=2, owned=(pool("glaeda-std-xcode-26.6", 8, free=0, queued=6),
+                                       pool("glaeda-light-xcode-26.6", 4, free=1)),
+                        blacksmith=blacksmith, owned_enabled=True)
+        defaults.update(kwargs)
+        return picker.State(**defaults)
+
+    def test_a_full_fleet_and_full_blacksmith_wait_on_the_owned_label(self):
+        choice = picker.pick(self.state(self.FULL))
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(choice.owned)
+        # No free Blacksmith slot for the rescue either: its attempt 3 repeats the owned label.
+        self.assertEqual(choice.retry_label, "")
+        self.assertEqual(picker.write_outputs(choice, 2)["retry_runner"], "glaeda-std-xcode-26.6")
+
+    def test_a_free_blacksmith_slot_still_takes_the_overflow(self):
+        free = (pool(picker.BLACKSMITH[0], 5, 3), *self.FULL[1:])
+        self.assertEqual(picker.pick(self.state(free)).label, picker.BLACKSMITH[0])
+
+    def test_an_owned_pick_retries_only_on_a_free_blacksmith_label(self):
+        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
+        choice = picker.pick(state)
+        self.assertEqual((choice.label, choice.retry_label), ("glaeda-std-xcode-26.6", ""))
+        state = self.state((self.FULL[0], pool(picker.BLACKSMITH[1], 10, 2), self.FULL[2]),
+                           owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
+        self.assertEqual(picker.pick(state).retry_label, picker.BLACKSMITH[1])
+
+    def test_a_stalled_blacksmith_label_has_no_free_slot(self):
+        stalled = dataclasses.replace(pool(picker.BLACKSMITH[1], 10, 0, 3), stalled=True)
+        choice = picker.pick(self.state((self.FULL[0], stalled, self.FULL[2])))
+        self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
+        self.assertTrue(picker.stalled(queued=2, running=4, oldest_queued_minutes=picker.STALL_MINUTES))
+        self.assertTrue(picker.stalled(queued=1, running=0, oldest_queued_minutes=picker.IDLE_STALL_MINUTES))
+        self.assertTrue(picker.stalled(queued=1, running=3, oldest_queued_minutes=20, age=5))
+        self.assertFalse(picker.stalled(queued=1, running=3, oldest_queued_minutes=10))
+        self.assertFalse(picker.stalled(queued=0, running=0, oldest_queued_minutes=90))
+
+    def test_the_snapshot_marks_a_stalled_label(self):
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, fallback=picker.BLACKSMITH[1],
+                                  owned_enabled=False, snapshot={"generated_at": "", "pools": {
+                                      picker.BLACKSMITH[1]: {"queued": 2, "running": 0, "oldest_queued_minutes": 9}}})
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[picker.BLACKSMITH[1]].stalled)
+        self.assertFalse(by_label[picker.BLACKSMITH[0]].stalled)
+
+    def test_without_an_owned_pool_to_wait_on_the_rule_is_unchanged(self):
+        # A fork, owned pools off or an unread runner list has no fleet queue to wait on.
+        for state in (self.state(self.FULL, fork=True), self.state(self.FULL, owned_enabled=False),
+                      self.state(self.FULL, owned=())):
+            with self.subTest(state=state):
+                choice = picker.pick(state)
+                self.assertEqual(choice.label, picker.BLACKSMITH[1])
+                self.assertFalse(choice.owned)
+
+
 LIGHT = "glaeda-light-xcode-26.6"
 STD = "glaeda-std-xcode-26.6"
 OWNED_ENV = {
