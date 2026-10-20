@@ -1274,3 +1274,12 @@ fn page_input_verbs_send_the_caller() {
 
 #[path = "right_tests.rs"]
 mod right;
+
+#[test]
+fn only_reads_and_keyed_runs_are_resent_after_a_dropped_connection() {
+    use super::run::safe_to_resend;
+    assert!(safe_to_resend("system.identify", &json!({})));
+    assert!(safe_to_resend("action.run", &json!({ "idempotency_key": "mutation_1" })));
+    assert!(!safe_to_resend("action.run", &json!({})));
+    assert!(!safe_to_resend("errors.clear", &json!({})));
+}
