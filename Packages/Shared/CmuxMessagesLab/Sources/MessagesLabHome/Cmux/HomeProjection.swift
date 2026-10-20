@@ -96,6 +96,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var pendingReveal: MessageID?
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
+    /// One streamed-text commit per display frame (HomeStreamPacer).
+    let streamPacer = HomeStreamPacer()
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -181,8 +183,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
-        guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
-                || core.streamsDiffer(streams) else { return }
+        // Only the running replies' text changed (a token): at most one such commit per display frame,
+        // never ahead of a keystroke (HomeStreamPacer; home-streaming-perf-DESIGN.md). Any other
+        // change commits now, with the newest stream text.
+        let streamOnly = items == shown && summary == shownSummary && !typingChanged && newHasOlder == hasOlder
+        guard !streamOnly || core.streamsDiffer(streams) else { return }
+        if streamOnly, !streamPacer.admit(inputFrame: controller.inKeystrokeFrame, nextFrame: controller.nextFrame,
+                                          refresh: { [weak self] in if let self, !self.stopped { self.refresh() } }) { return }
         appliedUpdates += 1
         // A new oldest message is the page asked for, however it arrives: a
         // `.prependPage`, or a whole-window rebuild (that one carries no
@@ -225,9 +232,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
             if diff.rebuild || !orderMatchesStore() { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
+        // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
+        // no attachment, title, summary, read cursor or older page work per token.
+        video.place()
+        if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
-        video.place()
         if summaryChanged { onSummaryChange(summary) }
         onRowsChange()
         askForOlderIfNeeded()
@@ -325,6 +335,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
+        // A stream update held for the next frame (HomeStreamPacer) shows first: the send lands after the reply's newest text.
+        if !stopped { streamPacer.flush { refresh() } }
         let draft = store.state.ui.draft
         let typed = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
@@ -752,6 +764,8 @@ struct ProjectionCore {
     var shownStreams: [ShownStream] = []
     /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
     var replies: HomeReplyDisplay = .wholeMessages
+    /// Each running reply's parts between tokens, by turn (a cache: copies of the core share it).
+    let streamMappers = HomeStreamMappers()
 
     init(me: ParticipantID) { self.me = me }
 
