@@ -383,44 +383,82 @@ fn short(text: &str, max: usize) -> String {
 mod tests {
     use super::*;
 
-    /// A chat of `title` with `pending` asks open, as acpmux summarizes it at `seq`.
-    fn chat(indicator: &str, pending: u64, seq: u64) -> Chat {
+    /// A chat as acpmux summarizes it at `seq`.
+    fn chat(indicator: &str, seq: u64) -> Chat {
         Chat::of(&json!({
             "sessionId": "chat-1",
             "title": "Review",
             "indicator": indicator,
-            "pendingPermissions": pending,
             "lastSeq": seq,
             "lastMessage": {"text": "Run npm test?"},
         }))
         .expect("a local chat")
     }
 
-    fn keys(notices: &[Notice]) -> Vec<&str> {
-        notices.iter().map(|notice| notice.key.as_str()).collect()
+    /// The `_acpmux/permission_pending` a watcher gets for a new ask (a `permission_request`
+    /// record: it names its turn and its group, null when none).
+    fn ask(permission: &str, group: Option<&str>, seq: u64) -> Value {
+        json!({"permissionId": permission, "groupId": group, "turnId": "turn-1", "seq": seq,
+               "sessionId": "chat-1", "via": "watch", "request": {}})
+    }
+
+    /// The same ask re-issued by an acpmux that restarted (`permission_reissued`: no turn, no group).
+    fn reissued(permission: &str, seq: u64) -> Value {
+        json!({"permissionId": permission, "seq": seq, "sessionId": "chat-1", "via": "watch", "request": {}})
+    }
+
+    fn key(notice: Option<Notice>) -> Option<String> {
+        notice.map(|notice| notice.key)
+    }
+
+    /// The watch's chat after a change from `before`, as `apply` keeps it.
+    fn after(before: &Chat, indicator: &str, seq: u64) -> Chat {
+        let mut next = chat(indicator, seq);
+        next.keep_asks(Some(before));
+        next
     }
 
     #[test]
-    fn a_chat_that_starts_waiting_notifies_once() {
-        let working = chat("working", 0, 8);
-        let mut waiting = chat("input", 1, 10);
-        assert_eq!(keys(&waiting.notices(Some(&working))), ["input-10"]);
-        // Still the same ask: nothing new.
-        let mut later = chat("input", 1, 11);
-        assert!(later.notices(Some(&waiting)).is_empty());
+    fn the_ask_that_starts_a_wait_notifies_through_the_wait_alone() {
+        let working = chat("working", 8);
+        let mut waiting = after(&working, "input", 10);
+        assert_eq!(waiting.notices(Some(&working)).len(), 1);
+        assert_eq!(key(waiting.asked(&ask("p1", None, 10))), None);
     }
 
     #[test]
     fn a_second_ask_while_the_chat_waits_notifies_again() {
-        let first = chat("input", 1, 10);
-        let mut second = chat("input", 2, 12);
-        assert_eq!(keys(&second.notices(Some(&first))), ["input-12"]);
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        let mut later = after(&waiting, "input", 12);
+        assert_eq!(key(later.asked(&ask("p2", None, 12))), Some("input-12".into()));
+        // The same ask heard again is not new.
+        assert_eq!(key(later.asked(&ask("p2", None, 12))), None);
     }
 
     #[test]
-    fn an_ask_answered_while_another_still_waits_posts_nothing() {
-        let both = chat("input", 2, 12);
-        let mut one = chat("input", 1, 14);
-        assert!(one.notices(Some(&both)).is_empty());
+    fn a_burst_grouped_on_one_card_notifies_once() {
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        assert_eq!(key(waiting.asked(&ask("p2", Some("g1"), 12))), Some("input-12".into()));
+        assert_eq!(key(waiting.asked(&ask("p3", Some("g1"), 13))), None);
+        assert_eq!(key(waiting.asked(&ask("p4", Some("g1"), 14))), None);
+    }
+
+    #[test]
+    fn asks_an_acpmux_restart_reissues_post_nothing_new() {
+        let mut waiting = after(&chat("idle", 8), "input", 10);
+        assert_eq!(key(waiting.asked(&reissued("p1", 10))), None);
+        assert_eq!(key(waiting.asked(&reissued("p2", 11))), None);
+    }
+
+    #[test]
+    fn a_new_wait_starts_counting_again() {
+        let mut waiting = after(&chat("working", 8), "input", 10);
+        waiting.asked(&ask("p1", None, 10));
+        waiting.asked(&ask("p2", None, 11));
+        let answered = after(&waiting, "working", 12);
+        let mut again = after(&answered, "input", 14);
+        assert_eq!(key(again.asked(&ask("p3", None, 14))), None);
     }
 }
