@@ -1,8 +1,9 @@
 // cmux-web-test-timeout: 300
 // The composer's model and effort chips are plain text and icon at rest (Leo 2026-10-19: "✳ Opus 5.5 ⌄"
 // and "Medium ⌄" showed a filled pill all the time). A chip draws a background only under the
-// pointer, on keyboard focus or while its menu is open, and that background is the soft pill of the
-// Claude app's chips (composer-chip-press.test.ts covers the press).
+// pointer, on keyboard focus or while its menu is open, and that background is a small-radius rect,
+// not a capsule (Leo 2026-10-19, #22005; agent-pane-no-capsules.test.ts checks the CSS, and
+// composer-chip-press.test.ts covers the press).
 //
 // It renders the real composer and New Tab box on the gallery stage in Chromium. CI fails the file
 // when it cannot launch (requireBrowserLane). Locally:
@@ -87,7 +88,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
 
   for (const stage of STAGES)
     for (const chip of CHIPS)
-      test(`${stage.entry} ${stage.variant}: ${chip} is plain at rest; hover and focus draw the pill`, async () => {
+      test(`${stage.entry} ${stage.variant}: ${chip} is plain at rest; hover and focus draw a small-radius rect`, async () => {
         const page = await open(stage.entry, stage.variant);
         expect(await page.locator(chip).count(), "the stage shows the chip").toBeGreaterThan(0);
         const rest = await look(page, chip);
@@ -105,7 +106,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
         ).toBe(true);
         const focus = await look(page, chip);
         expect(focus.filled, "keyboard focus draws a background").toBe(true);
-        expect(focus.radius, "the pill shape").toBeGreaterThanOrEqual(focus.height / 2 - 0.5);
+        expect(focus.radius, "a small-radius rect, not a capsule").toBeLessThan(focus.height / 2 - 0.5);
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 
         const fine = await page.evaluate(() => matchMedia("(hover: hover) and (pointer: fine)").matches);
@@ -115,7 +116,7 @@ await requireBrowserLane("composer-chip-plain-rest.test.ts", async () => {
           await page.waitForTimeout(300);
           const hover = await look(page, chip);
           expect(hover.filled, "hover draws a background").toBe(true);
-          expect(hover.radius, "the pill shape").toBeGreaterThanOrEqual(hover.height / 2 - 0.5);
+          expect(hover.radius, "a small-radius rect, not a capsule").toBeLessThan(hover.height / 2 - 0.5);
         }
         await page.close();
       });
