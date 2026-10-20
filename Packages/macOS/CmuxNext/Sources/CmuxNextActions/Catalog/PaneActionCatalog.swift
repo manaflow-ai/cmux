@@ -70,8 +70,9 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "equalizeSplits",
                 title: String(localized: "action.equalizeSplits", defaultValue: "Equalize Splits", bundle: .module),
+                // Ctrl-Cmd-= as Ghostty's `equalize_splits` (Lawrence 2026-10-19); the interface scale moved to Ctrl-Shift-Cmd.
                 keywords: ["balance", "resize"],
-                defaultShortcut: Shortcut("=", modifiers: [.control, .shift, .command]), category: .pane,
+                defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .pane,
                 symbol: "equal.square", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane equalize-splits", mainMenu: .view
             ),
