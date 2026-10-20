@@ -49,6 +49,8 @@ import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { rememberRecentFolders } from "./newtab/recentProject";
+import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -141,6 +143,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -150,6 +153,7 @@ import {
 } from "./turnChanges/sessionRows";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
+import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
 import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
@@ -503,6 +507,17 @@ const postStartInBackground = (sessionId: string, cwd: string | undefined, name:
   }).catch(() => undefined);
 
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
+/// Each harness's last health answer on this page (signed out, outdated, fine), drawn at once for
+/// the next chat on that harness while it is read again (Leo 2026-10-19: the notice popped in late
+/// and pushed the composer on each switch and reconnect).
+const knownHarnessHealth = new Map<string, HarnessHealth | undefined>();
+
+/// Each local folder's GitHub repository (`#123` links in the transcript) from its last read.
+const knownGithubRepositories = new Map<string, string | undefined>();
+
+/// The last measured transcript box on this page: a transcript mounting again starts from it.
+const lastTranscriptBox = { height: 600, width: 760 };
+
 const trustSource: TrustSource = {
   get: (cwd) => callNative("acp.trust.get", { cwd }),
   set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
@@ -562,8 +577,8 @@ const MessageRow = memo(
               <pre className="cv-user__context-text selectable">{envelope.context}</pre>
             </details>
           )}
-          {envelope ? (
-            <div className="cv-user__bubble selectable">{envelope.task}</div>
+          {envelope || row.from === "chief" ? (
+            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
@@ -713,6 +728,12 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const SessionStartRow = memo(
+  function SessionStartRow({ row }: RowProps) {
+    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -808,6 +829,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
@@ -1026,13 +1048,14 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction or a
-/// failover note.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction, a
+/// failover or a session start note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
@@ -1162,6 +1185,13 @@ function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
   const view = scroller.getBoundingClientRect();
   if (box.top < view.top || box.bottom > view.bottom - inset)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+}
+/// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
+/// output scrolls on its own), innermost first; the transcript itself is left to the caller.
+function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
+  for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+      scrollRangeIn(box, range);
 }
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
 /// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
@@ -1320,7 +1350,8 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [height, setHeight] = useState(600);
+  // The last transcript box on this page until this one is measured (before its first paint, below).
+  const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
   /// The bottom stack's height over the view's foot: room under the last row, out of the view.
   const [dockSpace, setDockSpace] = useState(0);
@@ -1348,7 +1379,7 @@ export function VirtualTranscript({
     setDockSpace(over());
     return () => observer.disconnect();
   }, [dock]);
-  const [width, setWidth] = useState(760);
+  const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
   // Rows place by their drawn height once drawn, and by the estimate until then.
@@ -1550,19 +1581,23 @@ export function VirtualTranscript({
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
   const previousSession = useRef(sessionId);
-  useEffect(() => {
+  // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
+  // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    const measure = (resized: boolean) => {
+      // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
+      if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
+      setWidth(node.clientWidth);
+      if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
+      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth;
+    };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() =>
-      flushSync(() => {
-        setHeight(node.clientHeight);
-        setWidth(node.clientWidth);
-      }),
-    );
+    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
     observer.observe(node);
-    setWidth(node.clientWidth);
+    measure(false);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
@@ -2110,6 +2145,7 @@ export function VirtualTranscript({
         // and a move with no render (a block that grew) is brought back here, not only on a commit.
         const range = findActiveRange();
         if (range && range.getBoundingClientRect().height > 0) {
+          scrollRangeInBoxes(node, range);
           const before = node.scrollTop;
           scrollRangeIn(node, range, dockSpaceRef.current);
           if (node.scrollTop !== before) findMoved(node);
@@ -2126,9 +2162,7 @@ export function VirtualTranscript({
     }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.
-    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
-      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-        scrollRangeIn(box, current);
+    scrollRangeInBoxes(node, current);
     const before = node.scrollTop;
     scrollRangeIn(node, current, dockSpaceRef.current);
     if (node.scrollTop !== before) findMoved(node);
@@ -2549,7 +2583,7 @@ function DefaultComposerChips({
       }}
       onMode={(modeId) => {
         start();
-        void callNative("chat.mode", { modeId });
+        return callNative("chat.mode", { modeId });
       }}
       onEffort={(configId, value) => {
         start();
@@ -2734,11 +2768,15 @@ function AcpmuxPane() {
       setGithubRepository(undefined);
       return;
     }
+    // The folder's repository from its last read draws now (no links to the chat before's repo, no
+    // links popping in late); unknown, the transcript links nothing until the read answers.
+    setGithubRepository(knownGithubRepositories.get(cwd));
     let current = true;
     void callNative<{ repository?: unknown }>("git.githubRepository", { cwd })
       .then((value) => {
-        if (!current) return;
-        setGithubRepository(typeof value?.repository === "string" && value.repository ? value.repository : undefined);
+        const repository = typeof value?.repository === "string" && value.repository ? value.repository : undefined;
+        knownGithubRepositories.set(cwd, repository);
+        if (current) setGithubRepository(repository);
       })
       .catch(() => {});
     return () => {
@@ -2793,7 +2831,7 @@ function AcpmuxPane() {
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
-  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -2837,21 +2875,37 @@ function AcpmuxPane() {
     };
   }, []);
   useEffect(() => {
-    if (!connected || !healthHarness || !healthLocal) {
+    if (!healthHarness || !healthLocal) {
       setHarnessHealth(undefined);
       return;
     }
+    // Reconnecting keeps the last answer on screen; the read follows the connect.
+    if (!connected) return;
     let live = true;
     // Only the fetch a recheck started asks acpmux to check again.
     const refresh = healthRecheck !== healthRechecked.current;
     healthRechecked.current = healthRecheck;
     void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
-      .then((reply) => live && setHarnessHealth(reply.health ?? undefined))
+      .then((reply) => {
+        // A reply a newer read replaced changes nothing, the remembered answer included.
+        if (!live) return;
+        knownHarnessHealth.set(healthHarness, reply.health ?? undefined);
+        setHarnessHealth(reply.health ?? undefined);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
+  // Another chat's harness draws its last known health in this render (no notice popping in late).
+  const harnessHealth =
+    healthHarness && healthLocal
+      ? readHealth?.id === healthHarness
+        ? readHealth
+        : knownHarnessHealth.has(healthHarness)
+          ? knownHarnessHealth.get(healthHarness)
+          : readHealth
+      : undefined;
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.
@@ -2918,8 +2972,10 @@ function AcpmuxPane() {
     handoff.target.sessionId === snapshot.sessionId &&
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
-  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
+  // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
+  // composer left for the read on every open, switch and reconnect).
+  const freshChat = !reviewing && isNewChat(snapshot, newSession);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -3089,7 +3145,13 @@ function AcpmuxPane() {
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
   const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
-  useEffect(() => setSubagentView(undefined), [shownSessionId]);
+  // Another chat closes the subagent view in the render that shows it, not an effect later (which
+  // drew one frame of the old subagent id against the new chat's rows: an empty child view).
+  const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  if (subagentChat !== shownSessionId) {
+    setSubagentChat(shownSessionId);
+    setSubagentView(undefined);
+  }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
     if (!requestedSubagent || !shownSessionId) return;
@@ -3491,8 +3553,20 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
+  const showsNewTabRef = useRef(newTab !== undefined);
+  showsNewTabRef.current = newTab !== undefined;
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
-  const newTabGeneration = useNewTabAdoption(setNewTab);
+  // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
+  // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
+  // project on its first frame instead of "Choose folder".
+  const adoptNewTab = useCallback((host: NewTabHost) => {
+    setNewTab(host);
+    const cwd = host.cwd;
+    const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
+    setProjectDraft(named);
+  }, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
@@ -3518,6 +3592,9 @@ function AcpmuxPane() {
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
+  // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+  const connectMachine = (kind: "ssh" | "cloud") =>
+    void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
@@ -3938,7 +4015,7 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
-            // Search Files… (Cmd-P): the composer opens its file search.
+            // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
         ) {
@@ -4143,7 +4220,9 @@ function AcpmuxPane() {
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
         )
-          setSnapshot(emptySnapshot());
+          // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
+          // them); the client's first frame replaces them.
+          setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
@@ -4228,6 +4307,17 @@ function AcpmuxPane() {
             const summary = next.summary;
             const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
             harnessProfiles.observe(summary, started);
+            // The next New Tab page names the project used last on its first frame
+            // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
+            if (!mock) {
+              rememberRecentFolders(next);
+              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+              publishWarmNewTab(
+                next,
+                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                showsNewTabRef.current,
+              );
+            }
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -5159,6 +5249,21 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The chats the page's context carried, while its own list has not arrived (newtab/warmSnapshot.ts):
+  // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
+  const warmSessions = useWarmNewTabSessions();
+  const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  const newTabSnapshot = useMemo(
+    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
+    [composerSnapshot, carriedSessions],
+  );
+  // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
+  const newTabChatsPending =
+    !carriedSessions &&
+    !composerSnapshot.listedSessions &&
+    composerSnapshot.sessions.length === 0 &&
+    composerSnapshot.connection !== "disconnected" &&
+    composerSnapshot.connection !== "debug";
   // The folders the host lists as projects (no chat folders): the most recent project is one of them.
   // The daemon's list (removals win) once it has answered, else the page's own.
   const newTabKnownProjects = useMemo(
@@ -5459,7 +5564,7 @@ function AcpmuxPane() {
         : {})}
     />
   );
-  const composer = !reviewing && !handoffLoading && (
+  const composer = !reviewing && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       {recapCard.recap && (
@@ -5684,12 +5789,7 @@ function AcpmuxPane() {
           onQueueLost={(text) => composerHandle.current?.restore(text, [])}
           onProject={chooseProject}
           onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
-          // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
-          onConnect={(kind) =>
-            void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(
-              () => undefined,
-            )
-          }
+          onConnect={connectMachine}
           // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
           // panel lists them before its first prompt (cx-hkat).
           projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
@@ -5715,6 +5815,7 @@ function AcpmuxPane() {
                   })
           }
           localName={machineName}
+          environments={preview}
           onBrowseFolder={
             canMove
               ? () =>
@@ -5739,7 +5840,7 @@ function AcpmuxPane() {
             if (running) shellRuns.stop(running.id);
             return running !== undefined;
           }}
-          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          onMode={(modeId) => callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
           capture={captureScreen}
@@ -5898,12 +5999,20 @@ function AcpmuxPane() {
           ) : showNewTab && shownTemplate(newTab) !== "classic" ? (
             <NewTabScreen
               key={newTabGeneration}
+              environments={preview}
+              onConnect={connectMachine}
+              onNewWorktree={(cwd) => {
+                let folder: string | undefined;
+                return newWorktree(callNative, cwd, (used) => {
+                  folder = used;
+                }).then(() => folder);
+              }}
               accessory={<DictationMic dictation={dictation} />}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}
@@ -5915,6 +6024,8 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              {...(!handshaken ? { startPending: true } : {})}
+              {...(newTabChatsPending ? { chatsPending: true } : {})}
               {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>

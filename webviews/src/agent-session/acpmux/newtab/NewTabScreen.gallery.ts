@@ -5,12 +5,21 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { CATALOG, CWD, manySessions, noChat, session } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
+import { composerStatePlays } from "../composerStatePlays";
 
 /// Favicons as the host sends them (cx-d0d.8): small inline PNGs.
 const SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAOElEQVR42mNgoDZQTX79Hx+mSDNeQ4jVjNUQUjVjGIJNEh2QZAAuMJIMoDgQ6ZIWqJ+UqZKZyAEAwqPV6AATmH0AAAAASUVORK5CYII=";
 const OTHER_SITE_ICON =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAPklEQVR42mNgoDZ4FcHzHx+mSDNeQ4jVjNUQUjVjGIJN8v/bqyiYJAPQNeMyZDgbQHEg0iUtUD8pUyUzkQMARpy6LDTJkq8AAAAASUVORK5CYII=";
+
+/// No chat yet, Claude Code starting on Medium: the model and reasoning chips both show.
+const reasoningChat = () =>
+  noChat([], {
+    catalog: CATALOG.map((entry) =>
+      entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
+    ),
+  });
 
 /// Album art as the host sends it: a small inline PNG (a gradient).
 const ALBUM_ART =
@@ -190,12 +199,16 @@ export default agentPaneEntry({
     "reasoning-chip": {
       note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
       ready: newTab(),
-      snapshot: noChat([], {
-        catalog: CATALOG.map((entry) =>
-          entry.id === "claude" ? { ...entry, start: { model: "claude-opus-5-5", effort: "medium" } } : entry,
-        ),
-      }),
+      snapshot: reasoningChat(),
     },
+    // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
+    // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
+    ...Object.fromEntries(
+      Object.entries(composerStatePlays(".nt-field")).map(([state, variant]) => [
+        `composer-${state}`,
+        { ...variant, ready: newTab(), snapshot: reasoningChat() },
+      ]),
+    ),
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
@@ -508,6 +521,58 @@ export default agentPaneEntry({
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
+    "typed-search-mode": {
+      note: "Leo 2026-10-18 (reverses R86): Tab flips the glass Search | Ask switch at the field's right; in Search the web search leads and Return takes it.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.press("Tab");
+        // What React renders, not the data-mode the switch writes first: the rows in Search order.
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="search"]'),
+        );
+      },
+    },
+    "typed-ask-mode": {
+      note: "Ask, the mode a tab opens in: the switch's thumb on Ask, and Ask Claude Code first (Return's) over the web search.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('.nt-mode button[data-mode="ask"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="ask"]'),
+        );
+      },
+    },
+    "empty-search-mode": {
+      note: 'Search mode on an empty field: Tab moved the thumb to Search and the placeholder reads "Search the web or type a URL".',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.focus({ selector: ".nt-field" });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-field[placeholder="Search the web or type a URL"]'));
+      },
+    },
+    "typed-url-search-mode": {
+      note: "An address in Search mode: it still opens first (highlighted), ahead of the web search, as in Ask.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.press("Tab");
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
+            ctx.document.querySelector('#nt-row-0[data-type="open"]'),
+        );
+      },
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
@@ -718,6 +783,20 @@ export default agentPaneEntry({
         await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
         rightClick(ctx.find({ selector: ".nt-pickers .nt-send" }));
         await ctx.waitFor(() => item("Show Dictation Button"));
+      },
+    },
+    "template-cards": {
+      note: "Cards template, the default (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask switch, the project and agent chips under it, three tall chat cards.",
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat(manySessions(6)),
+    },
+    "template-cards-search": {
+      note: "Cards template in Search: the chip row steps aside and the suggestions show under the field.",
+      ready: newTab({ template: "cards" }),
+      snapshot: noChat(manySessions(6)),
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Search" });
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-mode="search"]'));
       },
     },
     "template-composer": {

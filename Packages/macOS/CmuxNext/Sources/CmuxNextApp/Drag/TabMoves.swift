@@ -236,8 +236,16 @@ enum TabMoves {
         }
         let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
+    }
+
+    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.
+    static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
+        guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
+        if services.workspace(id: key.rawValue) == nil { await daemon.store.refresh() }
+        guard let handle = services.workspace(id: key.rawValue)?.handle else { return }
+        for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,

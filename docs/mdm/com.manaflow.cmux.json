@@ -1128,6 +1128,15 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.freezeHiddenTabs" : {
+      "default" : 30,
+      "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
+      "enum" : [
+        "off"
+      ],
+      "title" : "Freeze Hidden Tabs",
+      "type" : "string"
+    },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
       "description" : "browser.hibernatePinnedTabs",
@@ -1414,6 +1423,12 @@
       },
       "title" : "URLs to Always Open Externally",
       "type" : "array"
+    },
+    "browser.verificationAutofill.enabled" : {
+      "default" : false,
+      "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
+      "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
     },
     "computerUse.driver" : {
       "default" : "legacy",
@@ -2044,6 +2059,39 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
+    "home.chiefPetEnabled" : {
+      "default" : false,
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "title" : "Show Chief Pet",
+      "type" : "boolean"
+    },
+    "home.chiefPetMascot" : {
+      "default" : "orb",
+      "description" : "home.chiefPetMascot",
+      "enum" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "title" : "Character",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2107,6 +2155,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
@@ -2242,10 +2296,17 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "default" : 14,
       "description" : "markdown.code.blockSize",
       "maximum" : 32,
       "minimum" : 8,
+      "title" : "Code Block Size",
+      "type" : "number"
+    },
+    "markdown.code.scale" : {
+      "default" : 0.875,
+      "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
       "title" : "Code Font Size",
       "type" : "number"
     },
@@ -2284,9 +2345,9 @@
     },
     "markdown.layout.width" : {
       "default" : 72,
-      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
-      "maximum" : 160,
-      "minimum" : 40,
+      "description" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 1000,
+      "minimum" : 30,
       "title" : "Text Width",
       "type" : "number"
     },
@@ -2429,7 +2490,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2748,6 +2809,23 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "screenshots.findTools" : {
+      "default" : true,
+      "description" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
+      "title" : "Find Screenshot Apps",
+      "type" : "boolean"
+    },
+    "screenshots.folders" : {
+      "default" : [
+
+      ],
+      "description" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "More Screenshot Folders",
+      "type" : "array"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2849,6 +2927,57 @@
       "title" : "Show Hover Cards",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.layout" : {
+      "default" : "timeline",
+      "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
+      "enum" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "title" : "Workspace Card Layout",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.maxRows" : {
+      "default" : 20,
+      "description" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Workspace Card History Lines",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.sections.git" : {
+      "default" : true,
+      "description" : "The workspace's branch and pull request.",
+      "title" : "Show Branch in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.ports" : {
+      "default" : true,
+      "description" : "The ports the workspace listens on.",
+      "title" : "Show Ports in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.prompts" : {
+      "default" : true,
+      "description" : "Each prompt you sent and when, in the card's history.",
+      "title" : "Show Prompts in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.timings" : {
+      "default" : true,
+      "description" : "How long the workspace has worked or waited, and how long its command has run.",
+      "title" : "Show Running Times in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.waiting" : {
+      "default" : true,
+      "description" : "When an agent waited for your input or finished its turn, in the card's history.",
+      "title" : "Show Waits in Workspace Cards",
+      "type" : "boolean"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2868,7 +2997,7 @@
       "type" : "string"
     },
     "sidebar.nowPlaying.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
       "title" : "Show Now Playing",
       "type" : "boolean"
@@ -3483,9 +3612,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "default",
+      "default" : "cards",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "cards",
         "default",
         "composer",
         "threads",

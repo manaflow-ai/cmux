@@ -1,8 +1,10 @@
 public import AppKit
 
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the
-/// pointer; horizontal scroll gestures over a columns screen are claimed by
-/// the layout (first dominant axis decides). Vertical ones pass through,
+/// pointer, and so does the start of a scroll that passes through to a pane
+/// (`LayoutRootView+ScrollFocus`); horizontal scroll gestures over a columns screen are claimed by
+/// the layout (first dominant axis decides), except where the pane's own
+/// content scrolls sideways (`LayoutRootView+ScrollClaim`). Vertical ones pass through,
 /// except over a column whose rows overflow: there they scroll the rows
 /// over the gaps between rows, or anywhere with Command held (rows.md V5).
 extension LayoutRootView {
@@ -37,7 +39,8 @@ extension LayoutRootView {
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
               let active = model.activeScreenID, let view = screenViews[active],
-              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)),
+              !paneContentClaimsHorizontalScroll(at: locationInWindow) else { return nil }
         return view
     }
 
@@ -75,7 +78,10 @@ extension LayoutRootView {
                 driver.start()
                 return nil
             }
-            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: locationInWindow) else { return event }
+            guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), let view = activeColumnsView(at: locationInWindow) else {
+                focusPaneForPassThroughScroll(at: locationInWindow)
+                return event
+            }
             view.discreteScroll(direction: event.scrollingDeltaX < 0 ? 1 : -1)
             driver.start()
             return nil
@@ -90,6 +96,7 @@ extension LayoutRootView {
 
         switch scrollLock {
         case .idle, .passthrough:
+            if case .passthrough = scrollLock, phase.contains(.began) { focusPaneForPassThroughScroll(at: locationInWindow) }
             if phase.contains(.ended) || phase.contains(.cancelled) { scrollLock = .idle }
             return event
         case let .undecided(view, rows):
@@ -113,6 +120,7 @@ extension LayoutRootView {
                 return nil
             }
             scrollLock = .passthrough
+            focusPaneForPassThroughScroll(at: locationInWindow)
             return event
         case let .vertical(view, column):
             if phase.contains(.ended) || phase.contains(.cancelled) {

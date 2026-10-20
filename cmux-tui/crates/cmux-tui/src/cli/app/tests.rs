@@ -21,6 +21,24 @@ fn call(command: AppCommand) -> (&'static str, Value) {
     }
 }
 
+/// `cmux window screenshot --out FILE` names a file of the caller's working
+/// directory, so the app (which runs elsewhere) gets it absolute; `--out -`
+/// (the PNG inline in the reply) and an absolute path go as given.
+#[test]
+fn screenshot_out_is_made_absolute_except_stdout() {
+    let out = |value: &str| {
+        let (method, params) =
+            call(parse(&args(&["window", "screenshot", "--out", value])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "window screenshot");
+        params["args"]["out"].as_str().unwrap().to_owned()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
+    assert_eq!(out("-"), "-");
+    assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
@@ -154,7 +172,7 @@ fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
     assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
 }
 
-fn global_for(socket: &std::path::Path) -> GlobalArgs {
+fn global_for(socket: &Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),
         output: OutputMode::Quiet,
@@ -825,7 +843,7 @@ fn identify_answer(bundle_id: &str) -> Value {
     json!({ "id": 1, "ok": true, "result": { "app": "cmux-next", "bundle_id": bundle_id, "tag": "occl1-v1" } })
 }
 
-fn app_call(socket: &std::path::Path, words: &[&str]) -> i32 {
+fn app_call(socket: &Path, words: &[&str]) -> i32 {
     let mut command_args = vec!["app", "call"];
     command_args.extend_from_slice(words);
     run(&global_for(socket), parse(&args(&command_args)).unwrap().unwrap())

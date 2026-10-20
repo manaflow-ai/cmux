@@ -300,10 +300,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Glass focus: over art (data-cmux-see-through) a focused card's top-lit rim (#21786) brightens, as
    light catches a lifted pane of glass, instead of the ring growing heavier. Reduce Transparency
    draws no rim layer at all (above), so it keeps the plain step. */
-:root[data-cmux-see-through]
+/* The New Tab card is the same glass (#22114 left it out): its field focused or a control under
+   keyboard focus, never a chip a click focused. Only the key page lifts it (pageKey.ts). */
+:root[data-cmux-see-through]:not([data-page-inactive])
   :is(
     .acpmux-composer-box:has(:focus-visible),
-    .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box
+    .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box,
+    .nt-box:has(.nt-field:focus, :focus-visible)
   ) {
   --acpmux-composer-rim: inset 0 1px 0 light-dark(
     color-mix(in srgb, var(--cmux-tone-light) 85%, transparent),
@@ -350,16 +353,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
    circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
    file). Increase Contrast keeps the shared offset ring. */
-.acpmux-composer-bar .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
 /* Its ink steps up as on hover, so focus reads as hover with a ring. */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
   color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
-  .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
@@ -374,6 +377,28 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-composer[data-shell] .acpmux-composer-box {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+
+/* Caret and ring agree (Leo 2026-10-19; the Claude app's caret shows only while its composer is
+   focused). A field can hold DOM focus while the page is not the key one: the window is in the
+   background, another pane has the keyboard, or the New Tab page focused its field before the user
+   came to it (pageKey.ts marks the root data-page-inactive). Then no field draws a caret and every
+   composer draws its resting ring: the focused tone falls back to the resting edge, and the shell
+   and Increase Contrast rings, which do not use it, are reset here. Once the page is key both come
+   back together. */
+:root[data-page-inactive] :is(input, textarea, [contenteditable="true"]):focus {
+  caret-color: transparent;
+}
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
+}
+:root[data-page-inactive] .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+@media (prefers-contrast: more) {
+  :root[data-page-inactive] :is(.acpmux-composer-box:has(:focus-visible), .nt-box:focus-within) {
+    --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+  }
 }
 
 /* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row

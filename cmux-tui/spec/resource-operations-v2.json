@@ -32287,6 +32287,34 @@
             },
             "description": "SF Symbol name or one emoji; null clears it."
           },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "workspace-description-v1: the person's notes for the workspace, 1-4096 characters (line breaks and tabs allowed, no other control characters); null clears it. Shown as the workspace's extra.description while set."
+          },
+          "task_status": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "enum",
+                "values": [
+                  "todo",
+                  "working",
+                  "needs-attention",
+                  "review",
+                  "done"
+                ]
+              }
+            },
+            "description": "workspace-status-v1: the task lane the person pinned the workspace to; null makes it automatic again. Shown as the workspace's extra.task_status while set."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -32298,7 +32326,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of title, color, or icon is present."
+          "At least one of title, color, icon, description, or task_status is present."
         ]
       },
       "result": {

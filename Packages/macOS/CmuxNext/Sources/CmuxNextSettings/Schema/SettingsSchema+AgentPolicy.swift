@@ -41,6 +41,7 @@ extension SettingsSchema {
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
         .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
+        .union(HomeSettingsSchema.agentSettableKeys) // the Chief chat's bubble style (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
@@ -49,7 +50,7 @@ extension SettingsSchema {
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -75,6 +76,7 @@ extension SettingsSchema {
         "layout.dockColumnMode",
         "layout.frameOrientation",
         "layout.rows",
+        "layout.focusPaneOnScroll",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
@@ -144,7 +146,9 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.nowPlaying.enabled", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
+        "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
+        "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.nowPlaying.enabled", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -152,6 +156,7 @@ extension SettingsSchema {
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",
+        "browser.freezeHiddenTabs",
         "notifications.dismissal",
         "notifications.timeoutSeconds",
         "notifications.sources.agent.dismissal",
@@ -179,6 +184,8 @@ extension SettingsSchema {
         "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
+        // The floating Chief pet's character (looks only); turning the pet on is the person's.
+        "home.chiefPetMascot",
         "updates.notify",
         "updates.showWhatsNew",
         "announcements.enabled",
@@ -188,6 +195,7 @@ extension SettingsSchema {
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
+        .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
         // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
@@ -246,6 +254,8 @@ extension SettingsSchema {
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         "computerUse.enabled": .userOnly,
+        // The Chief pet puts agent output over every app and a reply box that types into terminals.
+        "home.chiefPetEnabled": .userOnly,
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,

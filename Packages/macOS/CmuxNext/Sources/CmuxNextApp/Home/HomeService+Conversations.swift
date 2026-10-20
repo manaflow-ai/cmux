@@ -12,17 +12,19 @@ extension HomeService {
     }
 
     /// The people New Message offers: team members, then people of the
-    /// user's DMs. The cloud source learns their names for new groups.
+    /// user's DMs, then the user's Chiefs. The cloud source learns their
+    /// names for new groups.
     func contacts() -> [HomeContact] {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me))
+        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me),
+                                  agents: HomeContact.agents(in: homeStore.rows, me: me))
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.
-    func startConversation(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
-        let outcome = await composer.start(recipients, title: title)
+    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = []) async -> HomeComposeOutcome {
+        let outcome = await composer.start(recipients, title: title, firstMessage: firstMessage)
         if case .opened(let id) = outcome { pendingSelection = id }
         return outcome
     }
@@ -31,8 +33,16 @@ extension HomeService {
         await composer.invite(address)
     }
 
-    /// Creates another Chief; its main conversation shows once the inbox lists it.
-    func createChief(named name: String) async -> HomeComposeOutcome {
+    /// Creates another Chief on `backend`; its main conversation shows once the inbox lists it.
+    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: an
+    /// engine whose Chiefs are this Mac's (UniiChat, Codex: ``ChiefBackend/createsOnThisMac``)
+    /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
+    func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
+        backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    }
+
+    /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
+    private func createCloudChief(named name: String) async -> HomeComposeOutcome {
         do {
             let record = try await directory.createChief(named: name)
             let id = record.mainConversation.map { ConversationID($0) }
@@ -77,7 +87,8 @@ extension HomeService {
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatar: { [weak self] in self?.directory.chiefAvatar })
+            chiefAvatar: { [weak self] in self?.directory.chiefAvatar },
+            chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed

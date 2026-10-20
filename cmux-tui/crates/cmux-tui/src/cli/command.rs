@@ -12,6 +12,7 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
+mod agent_focus;
 mod agent_list;
 mod agent_message_cmd;
 mod browser;
@@ -31,7 +32,6 @@ mod server_ensure;
 mod sidebar_doc;
 mod state;
 mod workspace;
-
 pub(super) use plan::{
     AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
 };
@@ -679,7 +679,10 @@ fn parse_pane_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["list"] => request(ResourceOperation::PaneList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            request(ResourceOperation::PaneList, selectors, flags, Map::new())
+        }
         ["create"] => {
             let mut params = Map::new();
             add_size(&mut params, flags)?;
@@ -811,7 +814,10 @@ fn parse_tab_strings(
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
-        ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            request(ResourceOperation::TabList, selectors, flags, Map::new())
+        }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -902,7 +908,14 @@ fn parse_terminal(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(
+                selectors,
+                flags,
+                &["workspace", "screen", "pane", "tab"],
+            )?;
+            request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+        }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
             let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
@@ -1433,7 +1446,7 @@ fn parse_agent(
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
-        _ => usage("agent action"),
+        other => agent_focus::parse(other, flags),
     }
 }
 

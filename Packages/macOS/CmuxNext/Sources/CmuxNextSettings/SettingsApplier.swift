@@ -49,6 +49,8 @@ public final class SettingsApplier {
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.classicHome != snapshot.classicHome { design.classicHome = snapshot.classicHome }
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
+        let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
+        if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
@@ -57,12 +59,15 @@ public final class SettingsApplier {
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
+        let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
+        if design.workspaceHoverCard != workspaceHoverCard { design.workspaceHoverCard = workspaceHoverCard }
         if design.splitSizing != snapshot.splitSizing { design.splitSizing = snapshot.splitSizing }
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.dockColumnEdge != snapshot.dockColumnEdge { design.dockColumnEdge = snapshot.dockColumnEdge }
         if design.dockColumnMode != snapshot.dockColumnMode { design.dockColumnMode = snapshot.dockColumnMode }
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
+        if design.focusPaneOnScroll != snapshot.focusPaneOnScroll { design.focusPaneOnScroll = snapshot.focusPaneOnScroll }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

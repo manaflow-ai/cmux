@@ -508,6 +508,38 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 - A search engine switch re-queries and keeps an arrowed row.
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
+- Every commit (Enter with or without modifiers, a row click, Paste and Go, an extension
+  keyword) hands the keyboard back to the page once (`onReturnFocusToPage`); the omnibar
+  never keeps focus after Enter (Lawrence 2026-10-19, u2573).
+- Control-Enter adds `www.` and `.com` to a typed host without a dot (`example`,
+  `google/maps`); other text commits as Enter does (Chromium's desired TLD).
+- A leading `?` forces a search for the rest of the text.
+- Scheme-less private and intranet addresses load over `http`, never `https`: private,
+  CGNAT/tailnet and link-local IPv4, unique-local IPv6, `.local`, `.internal`, `.lan`,
+  `.home.arpa` and other non-unique names, and a single label with a port or path
+  (`devbox:8080`, `router/`). A single word alone still searches.
+- The card's rows change their text in place while the user types (Chromium
+  `OmniboxResultView::SetMatch`); typing never rebuilds the card's views.
+- Dragging the page-info chip drags the page out as a link (URL, text, title as
+  `public.url-name`) while the field is not focused.
+- A browser tab left while its address bar had the keyboard gets the address bar back when a
+  tab, pane or workspace change returns to it (Chrome `RestoreState`); a click into its page
+  forgets that. `OmnibarFocusMemory` in `FocusCoordinator` asks for `focusTarget(.addressBar)`
+  after the core reduced the return; the core still drops chrome targets on a tab change.
+- Search engines are keywords too (Chrome's tab to search): the default and built-in engines
+  and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
+  starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches
+  there (with no text, it opens the site). An extension's own keyword wins over an engine's.
+- Opt-Cmd-F in a browser tab (`browser.focusSearch`, Chrome's Search the Web) focuses the
+  address bar in a session of the default engine. Outside a browser tab it stays Search All
+  Windows.
+- `browser.omnibar.showFullURLs` (the field's menu: Always Show Full URLs) makes the resting
+  text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
+- Enter on a scheme-less address that loads over https (`example.com`) marks the load an
+  upgrade: if https cannot connect (not a name error), the chrome loads it once over http.
+- Page rows (history, bookmark, open tab) show the site's icon once it loads. The typed-address row keeps its globe, as in Chrome, so a half-typed host is never fetched.
+
+Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 
 ### Selection and focus
 
