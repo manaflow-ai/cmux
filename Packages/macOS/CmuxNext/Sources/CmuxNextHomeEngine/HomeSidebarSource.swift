@@ -70,7 +70,7 @@ public final class HomeSidebarSource {
     @ObservationIgnored private let defaultChiefAvatar: @MainActor () -> HomeChiefAvatar?
     /// Each local Chief's engine by participant id (`HomeChiefHarnesses`), for the rows' badges.
     @ObservationIgnored private let chiefHarnesses: @MainActor () -> [String: String]
-    /// The main Chief, its merged hosts and where each Chief runs (``HomeChiefRoster``).
+    /// The main Chief and where each Chief runs (``HomeChiefRoster``).
     @ObservationIgnored private let chiefRoster: @MainActor () -> HomeChiefRoster
     public var query = ""
     public private(set) var pins = HomePins()
