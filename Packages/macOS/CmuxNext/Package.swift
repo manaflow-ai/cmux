@@ -216,6 +216,7 @@ let package = Package(
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
+                "CmuxNextAgentPermissions",
                 "CmuxNextDaemonRecovery",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -419,6 +420,21 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent permission requests (plans/cmux-next/agent-permissions-DESIGN.md): the request
+        // store, the reason check, computer use onboarding flow, the card, panel and mock TCC probe.
+        .target(
+            name: "CmuxNextAgentPermissions",
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPermissionsTests",
+            dependencies: ["CmuxNextAgentPermissions"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1231,16 +1247,55 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextAgentUpdates", "CmuxNextCompat", "CmuxNextChromiumRuntime", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextWorkspaceNaming",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextHostedChief", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                           // ReduceMotionLoopTests builds the vendored Home typing indicators.
-                           .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
-                           .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
-                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                           // GhosttyGlassMinimumContrastTests builds a Ghostty config.
-                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextAgentCursor",
+                "CmuxNextAgentLanes",
+                "CmuxNextAgentUpdates",
+                "CmuxNextApp",
+                "CmuxNextApps",
+                "CmuxNextBrowserHistory",
+                "CmuxNextChromiumRuntime",
+                "CmuxNextCompat",
+                "CmuxNextComputerUse",
+                "CmuxNextCookieImport",
+                "CmuxNextCopyMode",
+                "CmuxNextCrashReporting",
+                "CmuxNextDaemon",
+                "CmuxNextDaemonRecovery",
+                "CmuxNextDaemonService",
+                "CmuxNextDiff",
+                "CmuxNextFeed",
+                "CmuxNextFileGrid",
+                "CmuxNextFiles",
+                "CmuxNextFloating",
+                "CmuxNextFocus",
+                "CmuxNextFocusUI",
+                "CmuxNextHistory",
+                "CmuxNextHome",
+                "CmuxNextHomeEngine",
+                "CmuxNextHostedChief",
+                "CmuxNextLayout",
+                "CmuxNextNowPlaying",
+                "CmuxNextProcessEnvironment",
+                "CmuxNextRemote",
+                "CmuxNextRemoteLocalhostService",
+                "CmuxNextScreenshots",
+                "CmuxNextTabs",
+                "CmuxNextTasks",
+                "CmuxNextTerminalGeometry",
+                "CmuxNextVSCodeServer",
+                "CmuxNextWakeups",
+                "CmuxNextWorkspaceNaming",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                // GhosttyGlassMinimumContrastTests builds a Ghostty config.
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // ReduceMotionLoopTests builds the vendored Home typing indicators.
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
+                .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
+            ],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

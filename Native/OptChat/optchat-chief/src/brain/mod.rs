@@ -26,6 +26,7 @@ mod children;
 mod control;
 mod drafts;
 mod engine_control;
+pub mod files;
 mod image_fit;
 pub mod images;
 mod inbox;
@@ -113,8 +114,10 @@ pub enum Input {
     /// Section 9: a `spawn` asks for its spawn id and subagent ids.
     SpawnRegister {
         tasks: Vec<String>,
-        /// The acpmux peer the spawn's subagents run on (cloud); None: here.
+        /// The env's acpmux peer (`OPTCHAT_SUBAGENT_PEER`); None: none.
         peer: Option<String>,
+        /// `spawn(place)`: `cloud`, `local` or None (the saved default).
+        place: Option<String>,
         reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
     },
     /// A queued subagent's launch, saved in its record.
@@ -354,6 +357,12 @@ pub struct Settings {
     pub home_view: Option<crate::home_view::HomeView>,
     /// Who this Chief is in the conversations and which messages wake it.
     pub membership: crate::membership::Membership,
+    /// Keep a Claude turn's Claude Code session after the turn and prompt it
+    /// again with only the next turn's new messages while the frozen view
+    /// holds (the Unii baseline's one process: no spawn, a fully cached
+    /// prefix). The session runs with Claude Code's own cache marks.
+    /// `CHIEF_KEEP_TURN_SESSION=0` turns it off.
+    pub keep_turn_session: bool,
 }
 
 /// The longest a turn waits for view lines that are still building
@@ -410,7 +419,10 @@ impl Queued {
             } | Source::Resume {
                 requires_approval: true,
                 ..
-            }
+            } | Source::Spawn(crate::state::SpawnRef {
+                requires_approval: true,
+                ..
+            })
         )
     }
 }
@@ -523,6 +535,10 @@ pub struct Brain {
     /// Whether the pool was last hinted for a turn with our mark (Claude
     /// Code's own marks off, `session_dir::set_session_cache`).
     prewarm_ours: Option<bool>,
+    /// The turn session the last turn kept (`Settings::keep_turn_session`).
+    kept: Option<turns::KeptTurn>,
+    /// The running turn's keep check: its key and the session shape.
+    keep_pending: Option<(String, u64)>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -532,6 +548,12 @@ pub struct Brain {
     workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
+    /// B4: the VMs behind cloud peers, how long a peer idles before its VM
+    /// pauses, the peers paused by this host and since when each idles.
+    cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+    cloud_idle: std::time::Duration,
+    cloud_paused: std::collections::BTreeSet<String>,
+    cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
     /// A finished subagent's workspace closes instead of taking the done
@@ -665,6 +687,8 @@ impl Brain {
             ttl_refused: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             prewarm_ttl: None,
             prewarm_ours: None,
+            kept: None,
+            keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_remote: false,
@@ -677,6 +701,10 @@ impl Brain {
             trace: crate::trace::Trace::off(),
             workspaces: None,
             sub_starter: None,
+            cloud_vms: None,
+            cloud_idle: std::time::Duration::from_secs(600),
+            cloud_paused: Default::default(),
+            cloud_idle_since: Default::default(),
             max_live: None,
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
@@ -791,6 +819,17 @@ impl Brain {
         self.sub_starter = starter;
     }
 
+    /// The VMs behind cloud peers: resumed before a cloud subagent starts,
+    /// paused after `idle` with no cloud subagent on them (B4).
+    pub fn set_cloud_vms(
+        &mut self,
+        vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
+        idle: std::time::Duration,
+    ) {
+        self.cloud_vms = vms;
+        self.cloud_idle = idle;
+    }
+
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;
@@ -892,8 +931,15 @@ impl Brain {
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, *outcome),
             Input::Notice { key, text } => self.notice(key, text),
             Input::CompactorStatus(status) => self.compactor_status(status),
-            Input::SpawnRegister { tasks, peer, reply } => {
-                let plan = self.register_spawn(&tasks, peer.as_deref());
+            Input::SpawnRegister {
+                tasks,
+                peer,
+                place,
+                reply,
+            } => {
+                let plan = self
+                    .spawn_peer(peer.as_deref(), place.as_deref())
+                    .and_then(|peers| self.register_spawn(&tasks, &peers));
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -943,7 +989,10 @@ impl Brain {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
             }
-            Input::SubTick => self.sub_tick(),
+            Input::SubTick => {
+                self.sub_tick();
+                self.cloud_tick();
+            }
             Input::Setting { key, value, reply } => {
                 let _ = reply.send(self.set_setting(&key, &value));
             }

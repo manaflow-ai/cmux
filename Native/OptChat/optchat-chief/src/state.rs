@@ -62,6 +62,10 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -89,6 +93,11 @@ pub struct HostState {
     /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_cap: Option<usize>,
+    /// `control cloud PEER|off`: the acpmux peer subagents run on by
+    /// default, set at run time (empty: off, local); None: the env's
+    /// (`OPTCHAT_SUBAGENT_PEER`). plans/cmux-next/cloud-subagents-DESIGN.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_peer: Option<String>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
@@ -546,6 +555,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The report came from a subagent whose effects required approval.
+    /// Older persisted reports have unknown provenance and fail closed.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
     #[serde(default)]
@@ -664,6 +677,15 @@ fn fields(state: &HostState) -> BTreeMap<String, String> {
 }
 
 impl StateFile {
+    /// Where a turn's attached files are saved (`brain::files`): the
+    /// `attachments` folder beside the state, in the Chief's home.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),
@@ -930,7 +952,7 @@ impl FrozenRecord {
 
 #[cfg(test)]
 mod security_tests {
-    use super::{Item, Resume};
+    use super::{Item, Resume, SpawnRef};
 
     #[test]
     fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
@@ -948,5 +970,18 @@ mod security_tests {
             serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
         assert!(!item_again.requires_approval);
         assert!(!resume_again.requires_approval);
+
+        let old_spawn: SpawnRef =
+            serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
+        assert!(old_spawn.requires_approval);
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: false,
+            quiet: false,
+        };
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(!spawn_again.requires_approval);
     }
 }

@@ -51,6 +51,9 @@ final class AppServices {
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     /// The app's key window. Tests and `debug.key` replace it: a window only becomes key in a running, active app.
     var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
+    /// Restart CLI Listener: binds the control socket again. Set once the
+    /// app's control socket starts; nil while it has none (tests, socket off).
+    var restartControlListener: (@MainActor () throws -> Void)?
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -219,6 +222,8 @@ final class AppServices {
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
+    private(set) lazy var agentPermissions = AgentPermissionsService(services: self)
     /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
