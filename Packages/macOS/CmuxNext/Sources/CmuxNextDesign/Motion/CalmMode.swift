@@ -1,5 +1,3 @@
-public import Foundation
-
 /// `ui.calm` in cmux.json: one switch that quiets the chrome without touching
 /// the user's own motion and hover-card settings, which come back as they were
 /// when it is off.

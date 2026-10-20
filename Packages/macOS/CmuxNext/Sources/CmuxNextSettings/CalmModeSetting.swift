@@ -3,7 +3,8 @@ public import CmuxNextDesign
 /// `ui.calm` in cmux.json: "off" (default), "calm" or "still" (``CalmMode``).
 /// It overrides the motion and hover-card settings while on and leaves them
 /// as they are, so turning it off restores them.
-public nonisolated enum CalmModeSetting {
+public nonisolated struct CalmModeSetting {
+    public nonisolated init() {}
     public static let configPath = ["ui", "calm"]
     public static let fallback: CalmMode = .off
 

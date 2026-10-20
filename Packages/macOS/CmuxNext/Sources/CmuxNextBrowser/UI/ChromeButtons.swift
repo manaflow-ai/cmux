@@ -174,7 +174,7 @@ final class ChromeIconButton: NSButton {
                 .clear
             } else if isHighlighted || isOn || isMenuOpen {
                 Palette.selectionFill
-            } else if isHovering {
+            } else if isHovering, DesignSettings.shared.showsHoverFills {
                 Palette.hoverFill
             } else {
                 .clear

@@ -148,7 +148,7 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     private func updateFill(animated: Bool = false) {
         performWithTheme {
-            let color: NSColor = isHighlighted || isMenuOpen ? Palette.selectionFill : (isHovering ? Palette.hoverFill : .clear)
+            let color: NSColor = isHighlighted || isMenuOpen ? Palette.selectionFill : (isHovering && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear)
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
     }
