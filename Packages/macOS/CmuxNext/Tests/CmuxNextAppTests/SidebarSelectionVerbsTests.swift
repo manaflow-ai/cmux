@@ -51,6 +51,26 @@ import Testing
         #expect(Self.order(model) == ["a", "b", "d", "c"])
     }
 
+    /// Pin on a selection is one undo step: `pinOps` plans every row's tile change against the
+    /// document as the earlier ones leave it, so the batch goes out (and undoes) as one change.
+    /// Planned one by one against the same document, two pins with no Pinned section yet both
+    /// add that section, and the second is rejected.
+    @Test(arguments: [true, false])
+    func pinningASelectionIsOneBatchOfOps(hasPinnedSection: Bool) throws {
+        var document = SidebarLayoutDocument.defaults
+        if !hasPinnedSection { document = SidebarLayoutDocument(sections: document.sections.filter { $0.id != SidebarLayoutDocument.pinnedSectionID }) }
+        let refs = ["a", "b"].map(LayoutItemRef.workspace)
+        let pin = document.pinOps(refs.map { ($0, nil) }, pinned: true)
+        #expect(pin.count == 2)
+        for op in pin { document = try SidebarLayoutReducer.reduce(document, op).get() }
+        #expect(refs.allSatisfy(document.isPinned))
+        #expect(document.pinOps(refs.map { ($0, nil) }, pinned: true).isEmpty, "both already pinned")
+        let unpin = document.pinOps(refs.map { ($0, nil) }, pinned: false)
+        #expect(unpin.count == 2)
+        for op in unpin { document = try SidebarLayoutReducer.reduce(document, op).get() }
+        #expect(!refs.contains(where: document.isPinned))
+    }
+
     /// Loose `z`, `a`; group `g1` (`c`, `b`); group `g2` (`y`, `x`).
     static func sorting() -> SidebarSection {
         SidebarSection(kind: .machine(machine), nodes: [
