@@ -8,14 +8,15 @@ import AppKit
 @MainActor
 struct SidebarRowViewPool {
     /// Upper bound on parked views. Parked views stay in the list, hidden, so each one is a subtree
-    /// AppKit walks on every scroll frame: the list sets this to about one realization rect of rows
-    /// (`limit(forHeight:rowHeight:)`), what a scroll or a space switch takes back.
-    var limit = 32
+    /// AppKit walks on every scroll frame: the list sets this to two realization rects of rows
+    /// (`limit(forHeight:rowHeight:)`). A scroll keeps few parked (it rebinds them); a space
+    /// switch parks the page it leaves before it takes back the other space's rows by key.
+    var limit = 64
 
-    /// The parked views a list `height` points tall needs: its rows at the shortest row height,
-    /// at least 16.
+    /// The parked views a list `height` points tall needs: two pages of its rows at the shortest
+    /// row height (the page a space switch leaves and the one it takes back), at least 32.
     static func limit(forHeight height: CGFloat, rowHeight: CGFloat) -> Int {
-        max(16, Int((height / max(rowHeight, 1)).rounded(.up)))
+        max(32, 2 * Int((height / max(rowHeight, 1)).rounded(.up)))
     }
     private var views: [SidebarRowKey: SidebarRowView] = [:]
     /// Parked keys, oldest first, for eviction.

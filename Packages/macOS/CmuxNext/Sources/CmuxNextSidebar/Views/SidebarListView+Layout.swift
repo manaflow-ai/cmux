@@ -263,7 +263,7 @@ extension SidebarListViewComponents {
     func fitToClip() {
         guard let clip = enclosingScrollView?.contentView else { return }
         if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
-        // The pool parks about one realization rect of rows: what a scroll or a space switch reuses.
+        // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
         rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
         realizeVisibleRows()
