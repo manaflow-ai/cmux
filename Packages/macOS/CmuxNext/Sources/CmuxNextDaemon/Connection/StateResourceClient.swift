@@ -148,13 +148,26 @@ extension StateResourceClient {
     }
 
     /// `workspace.create`; `ephemeral` workspaces are closed by the daemon at
-    /// its next start and leave no closed history.
+    /// its next start and leave no closed history. `focus` makes the new
+    /// workspace the daemon's focused one, as the person's own creations
+    /// are; without it the daemon keeps its focused workspace.
     @discardableResult
-    public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool) async throws -> CreatedWorkspace {
+    public func createWorkspace(name: String?, ephemeral: Bool, terminal: Bool, focus: Bool) async throws -> CreatedWorkspace {
+        let supportsFocus = await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateFocus) == true
+        let params: [String: JSONValue] = Self.workspaceCreateParams(name: name, ephemeral: ephemeral, terminal: terminal,
+                                                                     focus: focus, daemonSupportsFocus: supportsFocus)
+        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+    }
+
+    /// The `workspace.create` params. `focus` is sent only to a daemon with
+    /// `workspace-create-focus-v1`: an older one refuses the field and
+    /// focuses every new workspace anyway.
+    static func workspaceCreateParams(name: String?, ephemeral: Bool, terminal: Bool,
+                                      focus: Bool, daemonSupportsFocus: Bool) -> [String: JSONValue] {
         var params: [String: JSONValue] = ["initial_content": .string(terminal ? "terminal" : "empty")]
         if let name { params["name"] = .string(name) }
         if ephemeral { params["ephemeral"] = .bool(true) }
-        return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
+        return params
     }
 
     /// Workspace title, color, icon, description (`workspace-description-v1`) and manual task
