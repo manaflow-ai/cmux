@@ -194,6 +194,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.notifications.postWebNotification(notification, surface: openerTab.surface)
         case .verificationPageWaiting:
             services.verificationAutofill.pageWaiting(page)
+        case .designMode(let message):
+            services.designMode.receive(message, from: page)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:

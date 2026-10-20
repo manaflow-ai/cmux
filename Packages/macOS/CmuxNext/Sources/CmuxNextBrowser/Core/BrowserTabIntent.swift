@@ -77,6 +77,9 @@ public enum BrowserTabIntent {
     /// `VerificationPageScripts`, saw a one-time-code field or "we sent you a code" text).
     /// The host's `VerificationAutofillCoordinator` may offer that site's code.
     case verificationPageWaiting
+    /// A design mode message from the top frame's isolated world (`BrowserDesignModeScript`):
+    /// the runtime's `{type, ...}` as JSON. The host's design mode controller reads it.
+    case designMode(Data)
 }
 
 /// Receives intents from a tab.
