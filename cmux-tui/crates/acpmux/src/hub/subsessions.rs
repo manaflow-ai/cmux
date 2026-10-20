@@ -559,8 +559,7 @@ impl Hub {
         }
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
         let worktree = if req.worktree {
-            let made = self.subsession_worktree(pm, &cwd, &short).await?;
-            let kept = KeptWorktree { folder: cwd.clone(), made, kept: false };
+            let kept = self.subsession_worktree(pm, &cwd, &short).await?;
             cwd = kept.made.cwd.clone();
             Some(kept)
         } else {
@@ -655,7 +654,7 @@ impl Hub {
         pm: &SessionMeta,
         folder: &Path,
         name: &str,
-    ) -> Result<crate::subsession_worktree::Worktree, RpcError> {
+    ) -> Result<KeptWorktree, RpcError> {
         let refuse = |why: String| {
             refused(
                 "subsessions.worktree_refused",
@@ -667,8 +666,14 @@ impl Hub {
             return Err(refuse("this session runs on another machine".into()));
         }
         let (folder2, name2) = (folder.to_path_buf(), name.to_owned());
+        // The guard is made with the worktree, so a start dropped while this
+        // runs (its caller gone) still removes it.
         tokio::task::spawn_blocking(move || {
-            crate::subsession_worktree::make_worktree(&folder2, &name2)
+            crate::subsession_worktree::make_worktree(&folder2, &name2).map(|made| KeptWorktree {
+                folder: folder2,
+                made,
+                kept: false,
+            })
         })
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?

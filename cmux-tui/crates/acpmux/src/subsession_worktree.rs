@@ -34,6 +34,11 @@ pub struct Worktree {
     pub cwd: PathBuf,
 }
 
+/// No automatic maintenance or gc: run from the throwaway git directory,
+/// whose refs reach none of the repository's objects, it would prune them
+/// (the user's unpushed work).
+const NO_MAINTENANCE: [&str; 4] = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
+
 /// Git that runs nothing from the repository at `dir`: no hooks, fsmonitor,
 /// submodule recursion, credential helper, system config, network transport
 /// or lazy fetch of a partial clone.
@@ -43,6 +48,7 @@ fn hardened(dir: &Path) -> Command {
         .arg(dir)
         .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
         .args(["-c", "submodule.recurse=false", "-c", "credential.helper="])
+        .args(NO_MAINTENANCE)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_NO_LAZY_FETCH", "1")
@@ -158,7 +164,9 @@ fn fetch_missing(objects: &Path, scratch: &Path, root: &Path, commit: &str) -> R
         .arg(scratch)
         .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
         .args(["-c", "submodule.recurse=false", "-c", "fetch.negotiationAlgorithm=noop"])
+        .args(NO_MAINTENANCE)
         .args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no"])
+        .args(["--no-auto-maintenance", "--no-write-commit-graph"])
         .args(["--stdin", "--", &url])
         .env("GIT_DIR", scratch)
         .env("GIT_OBJECT_DIRECTORY", objects)
@@ -239,6 +247,8 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
     let project = Some(slug(project.strip_suffix(".git").unwrap_or(&project)))
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| "repository".into());
+    // The app's `git.worktree.create` root (`git_ops/worktree.rs`), so its
+    // Apply and Remove find these: the person's worktrees, not build state.
     let parent = home.join(".cmux").join("worktrees").join(project);
     // The commit is resolved once; a branch name that reads as an option
     // (`-x`) is recorded as that commit instead.
