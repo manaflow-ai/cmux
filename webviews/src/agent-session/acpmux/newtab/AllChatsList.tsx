@@ -142,7 +142,7 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
-function useChatPages(load: LoadChatsPage) {
+export function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initial);
   const latestLoad = useRef(load);
   latestLoad.current = load;
