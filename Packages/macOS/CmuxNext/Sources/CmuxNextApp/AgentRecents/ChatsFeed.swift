@@ -15,9 +15,10 @@ final class ChatsFeed {
     var chats: [AcpmuxChat] { store.chats }
     private(set) var isEnabled = true
     private(set) var isReady = false
-    private let socket: String
+    private let environment: AcpmuxEnvironment
+    private var socket: String { environment.socketPath }
     private var observers: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
-    private var subscription: AgentActivityLineConnection?
+    private var subscription: AcpmuxCheckedLine?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
@@ -36,7 +37,7 @@ final class ChatsFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-chats")
 
-    init(socketPath: String) { socket = socketPath }
+    init(environment: AcpmuxEnvironment) { self.environment = environment }
 
     /// One chat by key, O(1).
     func chat(id: String) -> AcpmuxChat? { store.chat(id: id) }
@@ -72,7 +73,7 @@ final class ChatsFeed {
         directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
-        let connection = AgentActivityLineConnection(path: socket)
+        let connection = AcpmuxCheckedLine(environment: environment)
         subscription = connection
         seq = nil // a restarted daemon numbers from 0 again
         pageInFlight = true
@@ -80,9 +81,22 @@ final class ChatsFeed {
         early = []
         // Lines decode on the socket queue (the first page is megabytes) and reach the main
         // actor as one batch at a time: a burst of changes is one publish, never a Task per line.
-        connection.start(send: Self.watchRequest(limit: 5000), decode: Message.init(line:)) { [weak self, weak connection] drain in
+        requestID = 3
+        let batch = MainActorLineBatch<Message> { [weak self, weak connection] drain in
             if let connection { self?.apply(drain, from: connection) }
         }
+        connection.start(
+            send: Self.initializeRequest(),
+            onLine: { [weak self, weak connection] line in
+                guard let connection else { return }
+                if Self.isHandshake(line) {
+                    Task { @MainActor in self?.handshake(line, from: connection) }
+                } else if let message = Message(line: line) {
+                    batch.submit(message)
+                }
+            },
+            onClose: { batch.close() }
+        )
     }
 
     /// One decoded line of the watch.
@@ -95,7 +109,7 @@ final class ChatsFeed {
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
-            if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
+            if let id = (message["id"] as? NSNumber)?.intValue, id >= 3,
                let result = message["result"] as? [String: Any] {
                 var store = AcpmuxChatsStore()
                 store.reset(result)
@@ -116,23 +130,63 @@ final class ChatsFeed {
         }
     }
 
-    private static func watchRequest(limit: Int) -> Data {
+    private static func initializeRequest() -> Data {
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-chats", "version": "1"], "clientCapabilities": [:]],
         ]
-        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/chats_watch",
-                                     "params": ["enabled": true, "limit": limit]]
-        var payload = Data()
-        for request in [initialize, watch] {
-            payload += (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
-            payload.append(0x0A)
+        return frame(initialize)
+    }
+
+    nonisolated private static func isHandshake(_ line: Data) -> Bool {
+        guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let id = (message["id"] as? NSNumber)?.intValue else { return false }
+        return id == 1 || id == 2
+    }
+
+    private func handshake(_ line: Data, from connection: AcpmuxCheckedLine) {
+        guard subscription === connection,
+              let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              let id = (message["id"] as? NSNumber)?.intValue,
+              message["error"] == nil else {
+            connection.cancel()
+            return
         }
-        return payload
+        if id == 1 {
+            let result = message["result"] as? [String: Any]
+            let meta = (result?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+            let challenge = meta?["personChallenge"] as? [String: Any]
+            guard let nonce = challenge?["nonce"] as? String,
+                  let connectionID = challenge?["connection"] as? String,
+                  let proof = connection.personProof(nonce: nonce, connection: connectionID) else {
+                connection.cancel()
+                return
+            }
+            connection.send(Self.frame([
+                "jsonrpc": "2.0", "id": 2, "method": "_acpmux/person_prove",
+                "params": ["proof": proof],
+            ]))
+        } else if id == 2 {
+            let person = (message["result"] as? [String: Any])?["person"] as? Bool == true
+            guard person else {
+                connection.cancel()
+                return
+            }
+            connection.send(Self.frame([
+                "jsonrpc": "2.0", "id": 3, "method": "_acpmux/chats_watch",
+                "params": ["enabled": true, "limit": 5000],
+            ]))
+        }
+    }
+
+    nonisolated private static func frame(_ request: [String: Any]) -> Data {
+        var data = (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
+        data.append(0x0A)
+        return data
     }
 
     /// Applies everything since the last drain, then publishes once.
-    private func apply(_ drain: MainActorLineDrain<Message>, from connection: AgentActivityLineConnection) {
+    private func apply(_ drain: MainActorLineDrain<Message>, from connection: AcpmuxCheckedLine) {
         guard subscription === connection else { return }
         let started = ContinuousClock.now
         defer { DebugTimings.chatsFeedApplied(lines: drain.values.count, ContinuousClock.now - started) }
@@ -209,7 +263,7 @@ final class ChatsFeed {
         for observer in observers { observer.changed() }
     }
 
-    private func lost(_ connection: AgentActivityLineConnection) {
+    private func lost(_ connection: AcpmuxCheckedLine) {
         guard subscription === connection else { return }
         subscription = nil
         reconnect?.cancel()

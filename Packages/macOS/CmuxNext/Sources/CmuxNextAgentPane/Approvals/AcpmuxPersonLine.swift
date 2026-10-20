@@ -34,13 +34,31 @@ final class AcpmuxPersonLine {
         let challenge = ((initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = connection.line.personProof(nonce: nonce, connection: id) {
-            connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
+            connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?.value["person"] as? Bool ?? false
         }
         return connection
     }
 
+    /// One person-only request on a checked short connection. The caller receives no result when
+    /// the daemon, peer check, or person proof fails; the in-memory key never leaves the app.
+    nonisolated static func request(
+        _ environment: AcpmuxEnvironment,
+        method: String,
+        params: [String: any Sendable],
+        deadline: Duration
+    ) async -> ResultBox? {
+        guard let line = await open(environment, deadline: deadline) else { return nil }
+        guard await line.isPerson else {
+            await line.close()
+            return nil
+        }
+        let result = await line.call(method, params)
+        await line.close()
+        return result
+    }
+
     /// One request; its `result`, or nil when it failed or the connection closed.
-    func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+    func call(_ method: String, _ params: [String: Any]) async -> ResultBox? {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
@@ -49,12 +67,12 @@ final class AcpmuxPersonLine {
             waiters[id] = waiter
             line.send(frame)
         }
-        return reply?.value
+        return reply
     }
 
     /// The pending prompts of `session` (`_acpmux/info`).
     func pending(of session: String) async -> [[String: Any]] {
-        (await call("_acpmux/info", ["sessionId": session]))?["pending"] as? [[String: Any]] ?? []
+        (await call("_acpmux/info", ["sessionId": session]))?.value["pending"] as? [[String: Any]] ?? []
     }
 
     func close() {

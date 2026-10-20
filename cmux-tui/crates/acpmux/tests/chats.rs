@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 const A: &str = "11111111-1111-4111-8111-111111111111";
 const B: &str = "22222222-2222-4222-8222-222222222222";
 const C: &str = "33333333-3333-4333-8333-333333333333";
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -77,7 +78,9 @@ fn hub() -> Arc<Hub> {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    let hub = Hub::new(cfg, store);
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
+    hub
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -88,6 +91,24 @@ impl Client {
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
+    }
+
+    async fn person(hub: &Arc<Hub>) -> Self {
+        let mut client = Self::new(hub, Origin::Local);
+        let initialized = client
+            .ok("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "app"}}))
+            .await;
+        let challenge = &initialized["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = client.ok("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], true, "{proved}");
+        client
     }
 
     async fn next(&mut self) -> Value {
@@ -168,7 +189,7 @@ async fn a_chat_titles_from_the_persons_words_not_its_workspace_context() {
     write_session(&projects, A, &[user(A, "/work/app", first)]);
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let all = c.ok("_acpmux/chats", json!({})).await;
     let chat = all["chats"].as_array().unwrap().iter().find(|c| c["sessionId"] == A).unwrap();
     assert_eq!(chat["title"].as_str(), Some("what is running in my terminal?"), "{chat}");
@@ -206,7 +227,7 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
     write_session(&projects, B, &[user(B, "/work/other", "write docs")]);
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
 
     let all = c.ok("_acpmux/chats", json!({})).await;
     assert_eq!(all["ready"], true);
@@ -256,7 +277,7 @@ async fn settled_history_is_paged_and_filterable() {
     write_session(&projects, B, &[user(B, "/work/docs", "write docs")]);
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
 
     let first = c.ok("_acpmux/chat_settled", json!({"limit": 1})).await;
     assert_eq!(first["settled"], true);
@@ -280,7 +301,7 @@ async fn login_env_roots_are_used_and_guarded_roots_refused_unread() {
     ))
     .await
     .unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
 
     assert_eq!(keys(&c.ok("_acpmux/chats", json!({})).await), vec![format!("claude-code:{A}")]);
     let roots = c.ok("_acpmux/chat_roots", json!({})).await;
@@ -301,7 +322,7 @@ async fn watch_pushes_new_grown_and_removed_chats() {
     write_session(&projects, A, &[user(A, "/work/app", "first chat")]);
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
 
     let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
     assert_eq!(keys(&snapshot), vec![format!("claude-code:{A}")]);
@@ -329,7 +350,7 @@ async fn a_reported_transcript_adds_its_root_and_persists() {
     let file = write_session(&odd, B, &[user(B, "/work/app", "odd home chat")]);
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     assert!(keys(&c.ok("_acpmux/chats", json!({})).await).is_empty());
 
     let added = c
@@ -387,7 +408,7 @@ async fn websocket_origins_never_get_chats() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chats_answer_not_ready_before_the_index_starts() {
     let hub = hub();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let reply = c.ok("_acpmux/chats", json!({})).await;
     assert_eq!((reply["ready"].clone(), reply["chats"].clone()), (json!(false), json!([])));
 }
@@ -437,7 +458,7 @@ for line in sys.stdin:
 
     let hub = hub();
     hub.start_chats(sources(&h.0, &[])).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
     assert_eq!(keys(&snapshot), vec![format!("codex:{A}")]);
 

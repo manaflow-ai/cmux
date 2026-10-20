@@ -26,14 +26,6 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
          "roots": .array(roots.map(JSONValue.string)), "managedRoots": .array(managedRoots.map(JSONValue.string))]
     }
 
-    /// Initialize followed by one request, each terminated by a newline.
-    public var request: Data {
-        let initialize: JSONValue = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-chat-settings", "version": "1"], "clientCapabilities": .object([:])]]
-        let update: JSONValue = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/chat_settings", "params": params]
-        return Data((initialize.compactText + "\n" + update.compactText + "\n").utf8)
-    }
-
     static func strings(_ value: JSONValue?) -> [String] { unique(value?.arrayValue?.compactMap(\.stringValue) ?? []) }
     static func unique(_ values: [String]) -> [String] {
         var seen = Set<String>()

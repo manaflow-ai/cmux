@@ -23,6 +23,7 @@ use tokio::sync::mpsc;
 
 const CODEX_ID: &str = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -70,9 +71,19 @@ impl Client {
         let (out_tx, rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
         let mut client = Self { tx, rx, next: 1 };
-        client
+        let initialized = client
             .call(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "t"}}))
             .await;
+        let challenge = &initialized["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = client.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], true, "{proved}");
         client
     }
 
@@ -133,6 +144,7 @@ async fn a_chat_carries_its_live_sessions_attention_and_latest_reply() {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
     hub.set_harness_homes(HarnessHomes { claude: h.0.join(".claude"), codex: h.0.join(".codex") });
     let mut sources = ChatSources {
         home: h.0.clone(),

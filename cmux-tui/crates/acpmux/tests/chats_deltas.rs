@@ -19,6 +19,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const CHATS: usize = 5000;
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -58,12 +59,34 @@ fn hub() -> Arc<Hub> {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    let hub = Hub::new(cfg, store);
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
+    hub
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
+    async fn person(hub: &Arc<Hub>) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        let mut client = Self(in_tx, out_rx, 0);
+        let initialized = client
+            .ok("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "app"}}))
+            .await;
+        let challenge = &initialized["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        client.ok("_acpmux/person_prove", json!({"proof": proof})).await;
+        client
+    }
+
     async fn next(&mut self) -> Value {
         let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
             .await
@@ -119,10 +142,7 @@ async fn five_thousand_chats_one_change_is_one_numbered_delta() {
     })
     .await
     .unwrap();
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    let mut c = Client(in_tx, out_rx, 0);
+    let mut c = Client::person(&hub).await;
 
     // The page: every chat, newest first, each with its brand, and the seq it holds.
     let page = c.ok("_acpmux/chats_watch", json!({"limit": CHATS})).await;
@@ -205,10 +225,7 @@ async fn a_page_cursor_holds_its_place_while_chats_move() {
     })
     .await
     .unwrap();
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
-    let mut c = Client(in_tx, out_rx, 0);
+    let mut c = Client::person(&hub).await;
     let key = |i: usize| format!("claude-code:{}", session_id(i));
     let keys = |page: &Value| -> Vec<String> {
         page["chats"]

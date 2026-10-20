@@ -16,7 +16,7 @@ extension ChatsFeed {
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
         startChiefTurnStates(tag: services.environment.tag)
-        return ChatsFeed(socketPath: environment.socketPath)
+        return ChatsFeed(environment: environment)
     }
 
     /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the

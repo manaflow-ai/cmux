@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 
 const A: &str = "11111111-1111-4111-8111-111111111111";
 const B: &str = "22222222-2222-4222-8222-222222222222";
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 struct Home(PathBuf);
 
@@ -64,7 +65,9 @@ fn hub() -> Arc<Hub> {
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
-    Hub::new(cfg, store)
+    let hub = Hub::new(cfg, store);
+    hub.person.install_spawn_key(PERSON_KEY).unwrap();
+    hub
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -75,6 +78,24 @@ impl Client {
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
+    }
+
+    async fn person(hub: &Arc<Hub>) -> Self {
+        let mut client = Self::new(hub, Origin::Local);
+        let initialized = client
+            .ok("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "app"}}))
+            .await;
+        let challenge = &initialized["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = client.ok("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], true, "{proved}");
+        client
     }
 
     async fn call(&mut self, m: &str, params: Value) -> Value {
@@ -131,7 +152,7 @@ async fn turning_chats_off_hides_every_chat_and_survives_a_restart() {
     claude_session(&h.0.join(".claude"), A, "fix the build");
     let hub = hub();
     hub.start_chats(sources(&h.0)).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let on = c.ok("_acpmux/chats", json!({})).await;
     assert_eq!((on["enabled"].clone(), keys(&on)), (json!(true), vec![format!("claude-code:{A}")]));
 
@@ -167,7 +188,7 @@ async fn with_discovery_off_only_the_listed_roots_are_read() {
     claude_session(&work, B, "work store");
     let hub = hub();
     hub.start_chats(sources(&h.0)).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
 
     // Discovery on: the default store and the listed folder (a Claude home).
     let both = c
@@ -203,7 +224,7 @@ async fn refused_settings_roots_carry_their_reason() {
     std::fs::create_dir_all(&empty).unwrap();
     let hub = hub();
     hub.start_chats(sources(&h.0)).await.unwrap();
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let roots = [
         h.0.display().to_string(),
         h.0.join("Documents/agents").display().to_string(),
@@ -234,7 +255,7 @@ async fn chat_settings_reject_bad_params_and_remote_callers() {
     let h = home("params");
     let hub = hub();
     hub.start_chats(sources(&h.0)).await.unwrap();
-    let mut local = Client::new(&hub, Origin::Local);
+    let mut local = Client::person(&hub).await;
     for bad in [json!({"enabled": "yes"}), json!({"roots": "/x"}), json!({"roots": [1]})] {
         let reply = local.call("_acpmux/chat_settings", bad.clone()).await;
         assert!(reply.get("error").is_some(), "{bad} must fail: {reply}");
@@ -250,7 +271,7 @@ async fn a_watch_that_arrives_before_the_index_starts_is_served_once_it_starts()
     claude_session(&h.0.join(".claude"), A, "fix the build");
     let hub = hub();
     // The app connects at launch, before the daemon has started its index.
-    let mut c = Client::new(&hub, Origin::Local);
+    let mut c = Client::person(&hub).await;
     let early = c.ok("_acpmux/chats_watch", json!({})).await;
     assert_eq!(early["ready"], false, "{early}");
     hub.start_chats(sources(&h.0)).await.unwrap();

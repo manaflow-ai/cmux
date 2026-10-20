@@ -32,19 +32,29 @@ nonisolated enum AcpmuxStatusClient {
 
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
     /// (nil when the answer is not a plan this build reads).
-    @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
+    @concurrent static func chatOpen(environment: AcpmuxEnvironment, key: String, cwd: String? = nil,
                                      deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
         var params: [String: any Sendable] = ["key": key]
         if let cwd { params["cwd"] = cwd }
-        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
+        guard let result = await AcpmuxPersonLine.request(
+            environment,
+            method: "_acpmux/chat_open",
+            params: params,
+            deadline: deadline
+        )?.value else { throw Failure.rpc("acpmux refused the person proof") }
         return AcpmuxChatOpenPlan(result: result)
     }
 
     /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
     /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
-    @concurrent static func chatTranscript(socketPath: String, key: String,
+    @concurrent static func chatTranscript(environment: AcpmuxEnvironment, key: String,
                                            deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
-        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
+        guard let result = await AcpmuxPersonLine.request(
+            environment,
+            method: "_acpmux/chat_transcript",
+            params: ["key": key],
+            deadline: deadline
+        )?.value else { throw Failure.rpc("acpmux refused the person proof") }
         return AgentPanePastTurn.turns(result: result)
     }
 
