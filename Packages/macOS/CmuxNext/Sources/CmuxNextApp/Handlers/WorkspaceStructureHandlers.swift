@@ -55,7 +55,9 @@ enum WorkspaceStructureHandlers {
     /// screens, columns, splits and tabs: new terminals in each terminal's
     /// directory and, with `browsers`, the same pages.
     private static func duplicate(_ context: AppActionContext, _ invocation: ActionInvocation, browsers: Bool) throws {
-        try duplicate(context, context.workspace(invocation).model, browsers: browsers)
+        for workspace in try WindowMembershipHandlers.rowTargets(invocation, context) {
+            try duplicate(context, workspace, browsers: browsers)
+        }
     }
 
     /// `done` gets the new workspace's id once its layout is built (nil when it failed).
