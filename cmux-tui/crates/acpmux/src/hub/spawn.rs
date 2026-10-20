@@ -110,12 +110,8 @@ impl Hub {
             }
         }
         if meta.remote_origin {
-            super::resolve::admit_remote_profile(
-                &self.config.read().await,
-                &meta.harness,
-                &mut p,
-                defaults_env,
-            )?;
+            let cfg = self.config.read().await;
+            super::resolve::admit_remote_profile(&cfg, &meta.harness, &mut p, defaults_env)?;
         }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
