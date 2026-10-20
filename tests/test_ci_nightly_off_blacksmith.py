@@ -113,5 +113,42 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
             self.assertIn("glaeda-trusted-next-nightly", runs_on)
 
 
+    def test_promotion_requests_never_wait_on_blacksmith(self) -> None:
+        """The jobs that start a NEXT nightly are part of the nightly path.
+
+        A feat-cmux-next push asks main to promote nightly-next from
+        cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
+        Blacksmith those requests queued behind its pool like the nightly's own
+        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        """
+        for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
+            text = (WORKFLOWS / name).read_text(encoding="utf-8")
+            if "\n  request-nightly-next:" not in text:
+                continue
+            job = text[text.index("\n  request-nightly-next:") + 1:]
+            following = re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:])
+            job = job[: following.start() + 1] if following else job
+            runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
+            with self.subTest(workflow=name):
+                self.assertNotRegex(runs_on.split(" # ", 1)[0], BLACKSMITH)
+                self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
+
+    @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
+    def test_a_schedule_starts_a_nightly_next_at_least_twice_a_day(self) -> None:
+        """Pushes alone are not a trigger: a red or cancelled push run asks nothing.
+
+        GitHub runs `schedule` only from the default branch, so the tick
+        workflow must exist on main too; it asks for the newest green
+        feat-cmux-next commit and can also be started by hand.
+        """
+        path = WORKFLOWS / "nightly-next-tick.yml"
+        self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
+        text = path.read_text(encoding="utf-8")
+        crons = re.findall(r"^\s+- cron: \"([^\"]+)\"", text, re.MULTILINE)
+        self.assertGreaterEqual(len(crons), 2)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
+        self.assertIn("cancel-in-progress: false", text)
+
 if __name__ == "__main__":
     unittest.main()

@@ -48,6 +48,14 @@ enum TerminalPasteboard {
         return nil
     }
 
+    /// ``pasteText(from:)`` on contents already read (same order).
+    static func pasteText(from contents: TerminalPasteboardContents) -> String? {
+        if !contents.fileURLs.isEmpty { return contents.fileURLs.map { shellEscaped($0.path) }.joined(separator: " ") }
+        if let string = contents.string { return string }
+        if !contents.urls.isEmpty { return contents.urls.map(\.absoluteString).joined(separator: " ") }
+        return nil
+    }
+
     /// Backslash-escapes characters the shell would interpret, matching what
     /// Ghostty inserts for a dropped file.
     static func shellEscaped(_ path: String) -> String {

@@ -266,6 +266,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
     }
 
@@ -295,6 +296,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {

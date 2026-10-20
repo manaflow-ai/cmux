@@ -79,6 +79,12 @@ extension HomeService {
         return directory.chief(for: agent.id)
     }
 
+    /// The one path for managing a DM or group: the group info sheet, the Home row menu and the
+    /// `home.*` group actions (AppActions+HomeGroups) all run it.
+    var groupActions: HomeGroupActions {
+        HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
+    }
+
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
@@ -105,13 +111,13 @@ extension HomeService {
     }
 
     /// Reads the Chief's avatar for its tile (profile.json's picture, else
-    /// its text, else the bundled cat), as the Chief header does.
+    /// its text, else 🫡), as the Chief header does.
     func refreshChiefAvatar() {
         let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         // task-owner: one profile read off the main actor; ends when it is set
         Task { [weak self] in
             let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.directory.chiefAvatar = avatar ?? HomeHostView.defaultTileAvatar
+            self?.directory.chiefAvatar = HomeChiefAvatar.resolved(avatar)
         }
     }
 }

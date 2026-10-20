@@ -5,11 +5,11 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// The tab bar's trailing end (Leo 2026-10-19): the room kept for its controls read as an empty gap,
-/// because the strip's plus and the pane's "…" were invisible until the pointer reached the strip.
-/// They keep their room (an overlay would cover the last tabs and a reveal that pushes them moves the
-/// tabs under the pointer), but now show at rest in a muted tone and brighten on hover. The bar also
-/// gets Chrome's tab search button, Search Tabs (Cmd-Shift-A), before "…".
+/// The tab bar's trailing end. Leo (2026-10-19) had its controls show muted at rest; Lawrence
+/// (2026-10-20) wants the plus and "…" hidden until the pointer is over the tab bar, and the Search Tabs
+/// chevron gone from the bar ("i dont like the down arrow"), its action kept in "…"'s menu. The
+/// controls keep their room, so nothing moves when they appear; "…" slides right into its slot as it
+/// fades in (no slide under Reduce Motion).
 @MainActor @Suite(.serialized) struct TabBarRestingControlsTests {
     private static func strip() -> (TabStripView, NSWindow) {
         let model = TabStripModel(tabs: (0..<4).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }, selectedID: TabID("t0"))
@@ -23,19 +23,19 @@ import Testing
         return (strip, window)
     }
 
-    @Test func theStripsPlusShowsMutedAtRestAndBrightensOnHover() throws {
+    @Test func theStripsPlusHidesAtRestAndShowsOnHover() throws {
         DesignSettings.shared.plusButton = .hover
         let (strip, window) = Self.strip()
         defer { window.orderOut(nil) }
         let reveal = try #require(HoverReveal.owner(of: strip.newTabButton))
-        let rest = TabTunables.restingControlOpacity.value
-        #expect(rest > 0 && rest < 1, "a resting control is muted, never hidden: \(rest)")
+        #expect(TabTunables.restingControlOpacity.value == 0, "tab bar controls hide at rest by default")
         #expect(!reveal.isRevealed)
-        #expect(abs(strip.newTabButton.alphaValue - rest) < 0.01, "plus at rest: \(strip.newTabButton.alphaValue)")
+        #expect(strip.newTabButton.alphaValue == 0, "plus at rest: \(strip.newTabButton.alphaValue)")
+        #expect(!strip.newTabButton.isHidden, "hidden by alpha only: it keeps its room and its accessibility")
         reveal.setPointerInside(true)
+        #expect(reveal.isRevealed)
         reveal.setPointerInside(false)
-        // Back at rest it returns to the muted tone, not to hidden.
-        #expect(abs(reveal.restAlpha - rest) < 0.01)
+        #expect(reveal.restAlpha == 0)
     }
 
     @Test func aRevealsRestAlphaIsWhatItsViewsShowAtRest() {
@@ -53,41 +53,58 @@ import Testing
         #expect(reveal.isRevealed)
     }
 
-    @Test func thePanesMoreShowsMutedAtRest() {
+    @Test func thePanesMoreHidesAtRestAndStaysForItsMenuAndFocus() {
         let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
         toolbar.update(target: "tab0", kind: .terminal)
-        #expect(!toolbar.view.moreButton.isHidden)
-        #expect(abs(toolbar.view.moreButton.alphaValue - TabTunables.restingControlOpacity.value) < 0.01,
-                "\"…\" at rest: \(toolbar.view.moreButton.alphaValue)")
+        let more = toolbar.view.moreButton
+        #expect(!more.isHidden)
+        #expect(more.alphaValue == 0, "\"…\" at rest: \(more.alphaValue)")
+        // An open menu holds the reveal (the pointer leaves the bar for the menu).
+        let hold = toolbar.view.reveal.hold()
+        #expect(toolbar.view.reveal.isRevealed)
+        hold.release()
+        #expect(!toolbar.view.reveal.isRevealed)
     }
 
-    /// Chrome's tab search button: Search Tabs sits in the slot before "…" whatever is selected, and runs
-    /// with no tab target (a tab target only reveals that tab). The bar's room counts it, so nothing moves.
-    @Test func theBarOffersSearchTabsBeforeMore() throws {
+    /// The chevron (Search Tabs) is gone from the bar; "…"'s menu runs it with no tab target (a tab target
+    /// only reveals that tab). The bar keeps room for "…" alone, so the tabs get the chevron's width.
+    @Test func searchTabsMovesFromTheBarIntoMoresMenu() throws {
         let registry = ActionRegistry.standard()
         var invocations: [ActionInvocation] = []
         registry.bind("tab.search", invoke: { invocations.append($0) })
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
         toolbar.update(target: "tab0", kind: .terminal)
-        #expect(toolbar.view.items.map(\.id) == ["tab.search"])
-        #expect(toolbar.view.reservedCount == 2, "Search Tabs and \"…\"")
-        let button = try #require(toolbar.view.buttons.first)
-        _ = button.target?.perform(button.action, with: button)
+        #expect(!toolbar.view.items.map(\.id).contains("tab.search"), "no chevron in the bar")
+        #expect(toolbar.view.buttons.isEmpty)
+        #expect(toolbar.view.reservedCount == 1, "\"…\" only")
+        let menu = try #require(toolbar.view.moreMenu?())
+        let row = try #require(menu.items.first { ActionRegistry.menuRun(of: $0)?.id == "tab.search" }, "Search Tabs in \"…\"")
+        #expect(ActionRegistry.menuRun(of: row)?.target == nil)
+        _ = row.target?.perform(row.action, with: row)
         #expect(invocations.count == 1)
         #expect(invocations.first?.target == nil)
-        toolbar.view.frame = NSRect(x: 0, y: 0, width: toolbar.view.intrinsicContentSize.width, height: 30)
-        toolbar.view.layoutSubtreeIfNeeded()
-        let searchX = button.frame.minX
-        #expect(searchX < toolbar.view.moreButton.frame.minX)
-        // A chat selected in a pane with terminals keeps the room; Search Tabs stays in its slot (no "…").
+        // A chat selected in a pane with terminals keeps "…"'s room; a pane of chats only has no bar.
         toolbar.update(target: "chat", kind: nil, paneKinds: [.terminal])
-        #expect(toolbar.view.items.map(\.id) == ["tab.search"])
-        #expect(toolbar.view.reservedCount == 2)
-        toolbar.view.layoutSubtreeIfNeeded()
-        #expect(toolbar.view.buttons.first?.frame.minX == searchX, "Search Tabs moved when \"…\" hid")
-        // A pane of chats only (no kind anywhere) has no bar at all.
-        toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.items.isEmpty)
+        #expect(toolbar.view.reservedCount == 1)
+        toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.reservedCount == 0)
+    }
+
+    /// "…" slides right into its trailing slot as it fades in; Reduce Motion keeps it in place (fade only).
+    @Test func moreSlidesRightIntoItsSlotOnReveal() {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
+        toolbar.update(target: "tab0", kind: .terminal)
+        let view = toolbar.view
+        view.frame = NSRect(x: 0, y: 0, width: view.intrinsicContentSize.width, height: 30)
+        view.layoutSubtreeIfNeeded()
+        let shown = view.moreFrame(revealed: true), resting = view.moreFrame(revealed: false)
+        #expect(shown.maxX <= view.bounds.width, "\"…\" sits in the trailing slot")
+        #expect(resting.minX < shown.minX, "at rest \"…\" waits left of its slot, so revealing moves it right")
+        #expect(view.moreButton.frame == resting)
+        Motion.reduceMotionOverride = true
+        #expect(view.moreFrame(revealed: false) == view.moreFrame(revealed: true), "Reduce Motion: no slide")
     }
 }

@@ -168,7 +168,7 @@ enum HomeMapping {
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t)
+                let (rendered, runs) = HomeMarkdown.render(t, chips: true)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -215,7 +215,7 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text)
+            let (shown, runs) = HomeMarkdown.render(text, chips: true)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {

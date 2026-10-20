@@ -31,11 +31,8 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
-    /// The Chief's avatar when its profile sets none: the bundled cat
-    /// (160 px, sharp on the 40 pt header disc up to 4x).
-    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
-    /// The same cat for the Chief's tile in the conversation list.
-    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
+    /// The Chief's tile avatar when its profile sets none: 🫡.
+    static let defaultTileAvatar = HomeChiefAvatar.chiefDefault
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -58,7 +55,13 @@ final class HomeHostView: NSView {
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || settings.isShown { return toggleChiefSettings() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -88,6 +91,8 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // A link chip's hover card: the app's one coordinator, the target's live facts.
+        transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
@@ -296,10 +301,11 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            let picture = avatar.picture.flatMap(NSImage.init(data:))
+            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
             transcript.avatarPicture = picture
-            transcript.avatarText = avatar.text
-            settingsView.setAvatar(picture: picture, text: avatar.text)
+            transcript.avatarText = text
+            settingsView.setAvatar(picture: picture, text: text)
         }
     }
 
