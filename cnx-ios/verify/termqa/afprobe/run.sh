@@ -8,7 +8,7 @@ set -euo pipefail
 host=${1:?host} axe=${2:?path to axe on host}
 here=${0:a:h}
 ssh $host 'mkdir -p ~/afprobe/AFProbe.app'
-scp -q $here/main.swift $here/Info.plist $host:afprobe/
+scp -q $here/main.swift $here/Info.plist ${host}:afprobe/
 ssh $host "cd ~/afprobe && cp Info.plist AFProbe.app/ && xcrun -sdk iphonesimulator swiftc -target arm64-apple-ios26.0-simulator -O main.swift -o AFProbe.app/AFProbe 2>/dev/null && codesign -s - --force AFProbe.app 2>/dev/null
 U=\$(xcrun simctl create afprobe 'iPhone 17 Pro' com.apple.CoreSimulator.SimRuntime.iOS-26-5); xcrun simctl boot \$U; xcrun simctl bootstatus \$U -b >/dev/null
 xcrun simctl install \$U AFProbe.app
@@ -20,5 +20,5 @@ for mode in plain fix; do
   xcrun simctl io \$U screenshot --type=png tap-\$mode.png >/dev/null 2>&1
 done
 xcrun simctl delete \$U"
-scp -q "$host:afprobe/tap-*.png" .
+scp -q "${host}:afprobe/tap-*.png" .
 echo "tap-plain.png: AutoFill pill expected; tap-fix.png: none"
