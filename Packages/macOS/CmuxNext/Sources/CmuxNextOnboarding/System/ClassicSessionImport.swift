@@ -5,6 +5,7 @@ public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendabl
     case snapshotTooLarge(actualBytes: Int, maximumBytes: Int)
     /// The file is JSON but not a session object (a damaged or foreign file).
     case notASnapshot
+    case snapshotTooComplex
 
     public var errorDescription: String? {
         switch self {
@@ -12,6 +13,8 @@ public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendabl
             "The classic cmux session snapshot is too large to read."
         case .notASnapshot:
             "The classic cmux session file is not a session snapshot."
+        case .snapshotTooComplex:
+            "The classic cmux session snapshot has too much saved state to import safely."
         }
     }
 }
@@ -25,6 +28,16 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// of 128 workspaces) passes 64 MB at about 150 full terminals, so the
     /// cap sits far above what classic writes in practice.
     public static let maximumSnapshotBytes = 512 * 1024 * 1024
+    static let maximumWindows = 64
+    static let maximumWorkspaces = 128
+    static let maximumPanelsPerWorkspace = 256
+    static let maximumTotalPanels = 4_096
+    static let maximumLayoutDepth = 64
+    static let maximumLayoutNodes = 8_192
+    static let maximumJSONNodes = 100_000
+    static let maximumMetadataStringBytes = 64 * 1024
+    static let maximumScrollbackBytes = 4 * 1024 * 1024
+    static let maximumTotalScrollbackBytes = 16 * 1024 * 1024
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -133,7 +146,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClassicSessionImportError.notASnapshot
         }
-        return decodeSnapshot(root, checkpoints: checkpoints)
+        return try decodeSnapshot(root, checkpoints: checkpoints)
     }
 
     /// Decodes the snapshot with its windows, groups, and each workspace's
@@ -142,15 +155,21 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         try decodeSnapshot(data, checkpoints: nil)
     }
 
-    private func decodeSnapshot(_ root: [String: Any], checkpoints: URL?) -> ClassicSessionSnapshot {
+    private func decodeSnapshot(_ root: [String: Any], checkpoints: URL?) throws -> ClassicSessionSnapshot {
         let windows = (root["windows"] as? [[String: Any]]) ?? []
+        guard windows.count <= Self.maximumWindows else { throw ClassicSessionImportError.snapshotTooComplex }
         let managers = windows.map { window in
             window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
         }
         let perWindow = managers.map { ($0["workspaces"] as? [[String: Any]]) ?? [] }
+        let workspaces = perWindow.flatMap { $0 }
+        guard workspaces.count <= Self.maximumWorkspaces else { throw ClassicSessionImportError.snapshotTooComplex }
+        var budget = DecodeBudget()
+        try Self.validateJSON(root, budget: &budget)
+        for workspace in workspaces { try Self.validate(workspace, budget: &budget) }
         // Classic merges checkpoints only after an unclean exit, whose last
         // save is an autosave: one without any scrollback.
-        let saved = Self.carriesScrollback(perWindow.flatMap { $0 })
+        let saved = Self.carriesScrollback(workspaces)
         let scrollback: (String) -> String? = { panel in
             guard !saved, let checkpoints else { return nil }
             return Self.checkpoint(panel, in: checkpoints)
@@ -204,6 +223,68 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             hash = (hash ^ UInt64(byte)) &* 0x100000001b3
         }
         return "derived:" + String(hash, radix: 16)
+    }
+
+    private struct DecodeBudget {
+        var panels = 0
+        var layoutNodes = 0
+        var jsonNodes = 0
+        var scrollbackBytes = 0
+    }
+
+    /// Applies structural and string ceilings before any topology or
+    /// scrollback transformation allocates from the decoded snapshot.
+    private static func validate(_ workspace: [String: Any], budget: inout DecodeBudget) throws {
+        let panels = (workspace["panels"] as? [[String: Any]]) ?? []
+        guard panels.count <= maximumPanelsPerWorkspace else { throw ClassicSessionImportError.snapshotTooComplex }
+        budget.panels += panels.count
+        guard budget.panels <= maximumTotalPanels else { throw ClassicSessionImportError.snapshotTooComplex }
+
+        guard let root = workspace["layout"] as? [String: Any] else { return }
+        var layouts: [(value: [String: Any], depth: Int)] = [(root, 0)]
+        while let next = layouts.popLast() {
+            guard next.depth <= maximumLayoutDepth else { throw ClassicSessionImportError.snapshotTooComplex }
+            budget.layoutNodes += 1
+            guard budget.layoutNodes <= maximumLayoutNodes else { throw ClassicSessionImportError.snapshotTooComplex }
+            if next.value["type"] as? String == "split" {
+                let split = next.value["split"] as? [String: Any] ?? next.value
+                if let first = split["first"] as? [String: Any] { layouts.append((first, next.depth + 1)) }
+                if let second = split["second"] as? [String: Any] { layouts.append((second, next.depth + 1)) }
+            } else {
+                let pane = next.value["pane"] as? [String: Any] ?? next.value
+                let ids = (pane["panelIds"] as? [String]) ?? (pane["panel_ids"] as? [String]) ?? []
+                guard ids.count <= maximumPanelsPerWorkspace else { throw ClassicSessionImportError.snapshotTooComplex }
+            }
+        }
+    }
+
+    /// Bounds every decoded node and string, including metadata the importer
+    /// does not currently consume.
+    private static func validateJSON(_ root: [String: Any], budget: inout DecodeBudget) throws {
+        var pending: [(value: Any, key: String?)] = [(root, nil)]
+        while let next = pending.popLast() {
+            budget.jsonNodes += 1
+            guard budget.jsonNodes <= maximumJSONNodes else { throw ClassicSessionImportError.snapshotTooComplex }
+            switch next.value {
+            case let text as String:
+                let bytes = text.utf8.count
+                if next.key == "scrollback" {
+                    guard bytes <= maximumScrollbackBytes else { throw ClassicSessionImportError.snapshotTooComplex }
+                    budget.scrollbackBytes += bytes
+                    guard budget.scrollbackBytes <= maximumTotalScrollbackBytes else {
+                        throw ClassicSessionImportError.snapshotTooComplex
+                    }
+                } else if bytes > maximumMetadataStringBytes {
+                    throw ClassicSessionImportError.snapshotTooComplex
+                }
+            case let object as [String: Any]:
+                pending += object.map { (value: $0.value, key: $0.key) }
+            case let array as [Any]:
+                pending += array.map { (value: $0, key: next.key) }
+            default:
+                break
+            }
+        }
     }
 
     private static func directory(_ value: [String: Any]) -> String {
