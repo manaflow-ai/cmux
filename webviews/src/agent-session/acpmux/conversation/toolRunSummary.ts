@@ -2,6 +2,7 @@
 // "Edited a file, read files, ran commands", opened to list the calls.
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { editedPaths } from "../toolPaths";
 
 /// What a call did, in the order a run's summary names them.
 export type ToolRunCategory = "used" | "edited" | "read" | "searched" | "web" | "ran";
@@ -48,10 +49,12 @@ export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCate
 export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): string {
   const tools = items.filter((item) => item.tool);
   const count = (category: ToolRunCategory) =>
-    tools.filter((item) => {
-      const own = toolRunCategory(item.tool!.kind);
-      return own === category || (category === "read" && own === "searched");
-    }).length;
+    category === "edited"
+      ? editedFiles(tools)
+      : tools.filter((item) => {
+          const own = toolRunCategory(item.tool!.kind);
+          return own === category || (category === "read" && own === "searched");
+        }).length;
   const phrase = (category: ToolRunCategory) => {
     const one = count(category) === 1;
     switch (category) {
@@ -73,4 +76,21 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
   // conjunctions in some languages, while the run reads as a plain comma list.
   const text = toolRunCategories(items).map(phrase).join(t("toolRun.separator"));
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/// The files a run's edits changed: one Codex change can edit several, so a call counts each
+/// file its diffs and locations name; one with no diff, each file its input names (a
+/// multi-file patch, toolPaths.ts); or one when it names none.
+function editedFiles(tools: readonly AcpmuxActivity[]): number {
+  const paths = new Set<string>();
+  let unnamed = 0;
+  for (const { tool } of tools) {
+    if (toolRunCategory(tool!.kind) !== "edited") continue;
+    const named = tool!.diffs?.length
+      ? [...tool!.diffs, ...(tool!.locations ?? [])].map((file) => file.path)
+      : editedPaths(tool!);
+    if (named.length === 0) unnamed += 1;
+    for (const path of named) paths.add(path);
+  }
+  return paths.size + unnamed;
 }
