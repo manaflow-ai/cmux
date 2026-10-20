@@ -42,6 +42,7 @@ struct TerminalLinkResolverSecurityTests {
         }
         #expect(local.path == file.path)
         #expect(TerminalLinkResolver.resolve(file.path, cwd: nil) == .file(file, isDirectory: false))
+        #expect(TerminalLinkResolver.resolve(file.absoluteString, cwd: nil, allowsLocalFiles: false) == nil)
 
         var foreign = URLComponents()
         foreign.scheme = "file"
