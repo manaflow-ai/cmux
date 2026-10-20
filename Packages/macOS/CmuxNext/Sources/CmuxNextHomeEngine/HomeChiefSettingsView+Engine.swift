@@ -135,11 +135,35 @@ extension HomeChiefSettingsView {
             pick(sender === model ? "model" : "effort", value)
             return
         }
+        pickHarness(value)
+    }
+
+    /// Sets the harness `value` (nil: Default). A new harness starts on its own default model and
+    /// effort, as the Chief editor's backend picker does: the brain keeps a field it is not sent,
+    /// and another harness's model would not run on this one. On this Mac's brain a new harness
+    /// first passes its backend check (`checkHarness`, one real hello turn), as the editor
+    /// requires; one that fails is not set, and the note says so.
+    @discardableResult
+    func pickHarness(_ value: String?) -> Task<Void, Never> {
         showHarnessHint()
-        // A new harness starts on its own default model and effort, as the Chief editor's
-        // backend picker does: the brain keeps a field it is not sent, and another
-        // harness's model would not run on this one.
-        if Self.keepsHarness(value, shown: shownEngine) { pick("harness", value) } else { pick(["harness": value, "model": nil, "effort": nil]) }
+        if Self.keepsHarness(value, shown: shownEngine) { return pick("harness", value) }
+        let fields: [String: String?] = ["harness": value, "model": nil, "effort": nil]
+        guard let value, source.isLocal else { return pick(fields) }
+        let home = muxHome
+        changeFailed = false
+        for button in [harness, model, effort] { button.isEnabled = false }
+        // task-owner: the check, then one write; ends when its result is shown
+        return Task { [weak self] in
+            guard let self else { return }
+            let passed = await checkHarness(value)
+            guard muxHome == home, source.isLocal else { return }
+            guard passed else {
+                if let shownEngine { show(shownEngine) } else { for button in [harness, model, effort] { button.isEnabled = true } }
+                note(String(format: HomeEngineStrings.harnessCheckFailedFormat, ChiefBackend.title(for: value)), kept: true)
+                return
+            }
+            await pick(fields).value
+        }
     }
 
     /// Whether a harness pick keeps the harness the turns run on: the chosen one again, or, while

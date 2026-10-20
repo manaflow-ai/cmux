@@ -108,6 +108,11 @@ public nonisolated enum HomeEngineStrings {
     static var useDefaultPicture: String {
         String(localized: "home.engine.useDefaultPicture", defaultValue: "Use Default Picture", table: "Home", bundle: .module)
     }
+    /// "%@ did not pass its check…" (the harness's name).
+    static var harnessCheckFailedFormat: String {
+        String(localized: "home.engine.harnessCheckFailed", defaultValue: "%@ did not answer its check, so the Chief stays on what it runs now.",
+               table: "Home", bundle: .module)
+    }
     static var renameRefused: String {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .module)

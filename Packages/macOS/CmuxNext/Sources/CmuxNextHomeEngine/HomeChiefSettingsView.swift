@@ -72,6 +72,9 @@ public final class HomeChiefSettingsView: NSView {
     /// The note says why the person's own change did not take (a pick, a picture): it stays
     /// through refreshes until their next change or another Chief.
     var changeFailed = false
+    /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
+    /// hello turn); true when it passed. The app sets it; unset, every harness passes.
+    public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
     /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
     public var onRename: @MainActor (String) async -> Bool = { _ in true }
     /// The Chief's avatar changed on disk (its picture): read it again.

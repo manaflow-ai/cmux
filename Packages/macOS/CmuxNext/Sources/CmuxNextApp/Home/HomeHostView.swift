@@ -83,6 +83,7 @@ final class HomeHostView: NSView {
         settingsView.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }
+        settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         settingsView.onRename = { [weak service] name in
             // One op; the daemon refusing it (or no daemon) is false, and the card says so.
             guard let connection = service?.connection else { return false }
