@@ -56,7 +56,8 @@ import Testing
         #expect(recorder.performed.allSatisfy { $0.1 == "abc" })
     }
 
-    @Test func pinningKeepsTheBubbleOpenAndManageClosesIt() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await ExtensionsMenuPerformanceTests.hasDisplay() })
+    func pinningKeepsTheBubbleOpenAndManageClosesIt() throws {
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 3)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }
@@ -73,7 +74,8 @@ import Testing
         #expect(recorder.performed.last?.0 == .manage)
     }
 
-    @Test func theArrowKeysWalkTheBubblesButtonsAndWrap() throws {
+    @Test(.enabled("a bubble needs a screen to show") { await ExtensionsMenuPerformanceTests.hasDisplay() })
+    func theArrowKeysWalkTheBubblesButtonsAndWrap() throws {
         let tab = ExtensionsMenuPerformanceTests.tab(extensions: 2)
         let (window, anchor) = ExtensionsMenuPerformanceTests.window()
         defer { window.close() }

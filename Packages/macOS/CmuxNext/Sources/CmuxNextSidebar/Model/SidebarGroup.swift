@@ -20,6 +20,11 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     /// The group's url, tab and app members (sidebar-v2), each placed after
     /// the workspace member it follows in the document (`members`).
     public var items: [SidebarGroupItem] = []
+    /// The group this one sits in (a nested group, remote-groups-DESIGN.md R1); nil at the top level.
+    /// A section lists a tree in document order: a group, then its subgroups.
+    public var parent: GroupID?
+    /// Group levels above this one: 0 at the top level.
+    public var depth = 0
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
@@ -103,7 +108,21 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
         }
     }
 
-    /// Strongest activity among children, shown on a collapsed group header.
+    /// The members' loading, the one state a group header shows by default (Lawrence 2026-10-20:
+    /// "All we care about is the loading"): working or busy when any member is, else idle.
+    public var loadingActivity: StatusIndicatorState {
+        // A spinner: a command or page loading (busy) or an agent working; not paused, waiting or done.
+        let loading = workspaces.filter { member in
+            switch member.activity {
+            case .busy, .working: true
+            case .idle, .paused, .waiting, .error, .success: false
+            }
+        }
+        return StatusStack.resolve(loading.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
+    }
+
+    /// Strongest activity among children, shown on a collapsed group header
+    /// with `sidebar.detailedStatusIcons` on.
     public var aggregateActivity: StatusIndicatorState {
         StatusStack.resolve(workspaces.map { StatusReport(id: $0.id.rawValue, source: .explicit, state: $0.activity, style: $0.activityStyle) }).state
     }

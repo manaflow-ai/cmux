@@ -45,9 +45,9 @@ final class SidebarNoticeCardView: NSView {
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 
-    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.policy`).
+    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
-         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
@@ -67,8 +67,10 @@ final class SidebarNoticeCardView: NSView {
         content.wantsLayer = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
+        // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
+        track.masksToBounds = true
         content.layer?.addSublayer(track)
-        content.layer?.addSublayer(bar)
+        track.addSublayer(bar)
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
@@ -220,8 +222,10 @@ final class SidebarNoticeCardView: NSView {
     }
 
     /// Whether `old` to `new` changes what the card says (not only its progress).
+    /// A download's byte count ticking in the detail is progress, not a new message: it never crossfades.
     static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
-        old.id != new.id || old.title != new.title || old.detail != new.detail || old.symbol != new.symbol
+        let ticking = old.progress != nil && new.progress != nil && old.title == new.title
+        return old.id != new.id || old.title != new.title || (old.detail != new.detail && !ticking) || old.symbol != new.symbol
             || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
             || (old.progress == nil) != (new.progress == nil)
     }
@@ -245,7 +249,9 @@ final class SidebarNoticeCardView: NSView {
         if notice.eyebrow != nil { height += line.caption }
         if notice.detail != nil { height += Metrics.space1 + 2 * line.caption }
         if !notice.lines.isEmpty { height += Metrics.space1 + CGFloat(min(notice.lines.count, maxLines)) * line.caption }
-        if case .fraction = notice.progress { height += Metrics.space2 + barHeight }
+        // Every loading stage keeps the bar's row (Lawrence 2026-10-20: "needs better loading
+        // indicator"): Checking to Downloading to Installing never changes the card's height.
+        if notice.progress != nil { height += Metrics.space2 + barHeight }
         if !notice.actions.isEmpty { height += Metrics.space2 + SidebarUpdateButton.height }
         return ceil(height)
     }
@@ -293,19 +299,12 @@ final class SidebarNoticeCardView: NSView {
             label.frame = NSRect(x: textX, y: y, width: textWidth, height: line.caption)
             y += line.caption
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if case .fraction(let progress) = notice?.progress {
+        if notice?.progress != nil {
             y += Metrics.space2
-            track.isHidden = false
-            bar.isHidden = false
-            track.frame = CGRect(x: textX, y: y, width: textWidth, height: Self.barHeight)
-            bar.frame = CGRect(x: textX, y: y, width: textWidth * CGFloat(min(1, max(0.03, progress))), height: Self.barHeight)
+            layoutProgress(CGRect(x: textX, y: y, width: textWidth, height: Self.barHeight))
         } else {
-            track.isHidden = true
-            bar.isHidden = true
+            layoutProgress(nil)
         }
-        CATransaction.commit()
         let rowY = b.height - pad - SidebarUpdateButton.height
         var x = pad
         for button in actionButtons {
@@ -319,6 +318,87 @@ final class SidebarNoticeCardView: NSView {
         // A window that shows after the card was filled lays it out: the hint is on screen now.
         reportShownIfOnScreen()
         presence.didLayout()
+    }
+
+    /// The bar's last measured fraction, so a new one fills toward it smoothly.
+    private var shownFraction: Double?
+
+    /// Shows the progress row in `frame` (nil hides it): a measured fraction
+    /// fills smoothly from the last one; unmeasured work sweeps a short
+    /// segment across the track (still under Reduce Motion: the spinner
+    /// glyph alone moves then).
+    private func layoutProgress(_ frame: CGRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let frame, let progress = notice?.progress else {
+            track.isHidden = true
+            bar.removeAnimation(forKey: Self.sweepKey)
+            shownFraction = nil
+            return
+        }
+        track.isHidden = false
+        track.frame = frame
+        bar.isHidden = false
+        switch progress {
+        case .fraction(let value):
+            bar.removeAnimation(forKey: Self.sweepKey)
+            let target = CGRect(x: 0, y: 0, width: frame.width * CGFloat(min(1, max(0.03, value))), height: frame.height)
+            bar.anchorPoint = .zero
+            bar.position = .zero
+            if let shown = shownFraction, shown != value, motionPolicy().animatesFades, !isHidden {
+                // Fills toward the new value instead of jumping (a download reports often and unevenly).
+                Motion.overlays.set(bar, "bounds.size.width", to: target.width, fade: .highlight)
+                bar.bounds.size.height = target.height
+            } else {
+                bar.removeAnimation(forKey: "bounds.size.width")
+                bar.frame = target
+            }
+            shownFraction = value
+        case .indeterminate:
+            shownFraction = nil
+            bar.removeAnimation(forKey: "bounds.size.width")
+            bar.anchorPoint = .zero
+            let segment = frame.width * Self.sweepWidth
+            bar.frame = CGRect(x: 0, y: 0, width: segment, height: frame.height)
+            guard motionPolicy().animatesLoops else {
+                bar.removeAnimation(forKey: Self.sweepKey)
+                bar.isHidden = true
+                return
+            }
+            if bar.animation(forKey: Self.sweepKey) != nil, sweptTravel == frame.width { return }
+            guard let sweep = Motion.indicators.sweepAnimation(segment: segment, travel: frame.width, policy: motionPolicy()) else {
+                bar.isHidden = true
+                return
+            }
+            sweptTravel = frame.width
+            bar.add(sweep, forKey: Self.sweepKey)
+        }
+    }
+
+    /// The track width the running sweep crosses.
+    private var sweptTravel: CGFloat = 0
+
+    private static let sweepKey = "notice.progress.sweep"
+    /// The unmeasured segment's share of the track.
+    private static let sweepWidth: CGFloat = 0.32
+
+    /// The progress row as shown, for tests: hidden, sweeping (unmeasured) or the bar's fraction of the track.
+    var progressShown: ProgressShown {
+        guard !track.isHidden else { return .none }
+        if bar.animation(forKey: Self.sweepKey) != nil { return .sweeping }
+        if notice?.progress == .indeterminate { return .still }
+        return .fraction(track.bounds.width > 0 ? Double(bar.frame.width / track.bounds.width) : 0)
+    }
+
+    /// What ``progressShown`` reports.
+    enum ProgressShown: Equatable {
+        case none
+        /// Unmeasured work with Reduce Motion (or motion off): the track alone; the spinner glyph moves.
+        case still
+        /// Unmeasured work: a segment sweeps across the track.
+        case sweeping
+        case fraction(Double)
     }
 
     private func applyColors() {

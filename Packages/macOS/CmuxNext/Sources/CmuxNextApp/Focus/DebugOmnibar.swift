@@ -50,6 +50,9 @@ enum DebugOmnibar {
             "notice_placement": entry(params, services: services)?.chrome.noticePlacement.map(JSONValue.string) ?? .null,
             "notice_dismissal": dismissal,
             "notice_layout": entry(params, services: services)?.chrome.noticeLayout.map { .array($0.map(JSONValue.string)) } ?? .null,
+            // How the field editor draws its selection (omnibar highlight on macOS 15).
+            "editor": .object(bar.debugEditorInfo.mapValues(JSONValue.string)),
+            "field_frame": rect(bar.debugFieldFrameInWindow),
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed, "pointer": entry(params, services: services).flatMap { JSONValue(foundation: $0.chrome.debugPointerObject(probeX: params["probe_x"]?.doubleValue, probeY: params["probe_y"]?.doubleValue)) } ?? .null,
             "card": bar.debugCard.map { card in
