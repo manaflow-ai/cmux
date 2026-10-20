@@ -48,7 +48,7 @@ extension KeyboardShortcutSettings.Action {
              .closeTab, .closeOtherTabsInPane,
              .reopenClosedBrowserPanel,
              .newSurface,
-             .toggleTerminalCopyMode,
+             .copyUnwrapped, .toggleTerminalCopyMode,
              .focusTextBoxInput, .attachTextBoxFile,
              .sendCtrlFToTerminal,
              .pasteLastScreenshot,

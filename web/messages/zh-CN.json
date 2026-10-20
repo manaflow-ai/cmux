@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
+      "copyUnwrappedDescription": "去除折行后复制 (⇧⌘C) 会将终端选区中应用为折行而插入换行符的各行重新连接，移除共有缩进和智能体标记，并保留列表、表格和代码块。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
       "metaDescriptionShort": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找、可配置的键盘操作、搜索流程与窗口导航。",
       "searchPlaceholder": "搜索快捷键...",

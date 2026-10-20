@@ -278,6 +278,7 @@
 		C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */; };
 		C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */; };
 		C0A716920000000000000002 /* AppDelegate+ComputerUseOnboarding.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A716920000000000000001 /* AppDelegate+ComputerUseOnboarding.swift */; };
+		444ED93A99550DFE56CDACE6 /* AppDelegate+CopyUnwrapped.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C3D18CE3BE14E89439CD6B3 /* AppDelegate+CopyUnwrapped.swift */; };
 		C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */; };
 		125E8DF7810040845590360B /* AppDelegate+CurrentWork.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6E67CB4D64F9BB44F1E5794 /* AppDelegate+CurrentWork.swift */; };
 		631406BE1378338CDE24B38F /* AppDelegate+DisplayPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2830130F95FE58F35F5220A8 /* AppDelegate+DisplayPlacement.swift */; };
@@ -5061,6 +5062,7 @@
 		C54860050000000000000002 /* AppDelegate+CmuxNavigationDeepLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxNavigationDeepLinks.swift"; sourceTree = "<group>"; };
 		C3677004000000000000002 /* AppDelegate+CmuxSSHURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CmuxSSHURL.swift"; sourceTree = "<group>"; };
 		C0A716920000000000000001 /* AppDelegate+ComputerUseOnboarding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ComputerUseOnboarding.swift"; sourceTree = "<group>"; };
+		8C3D18CE3BE14E89439CD6B3 /* AppDelegate+CopyUnwrapped.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CopyUnwrapped.swift"; sourceTree = "<group>"; };
 		C65930010000000000000004 /* AppDelegate+CrashSessionSnapshotRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CrashSessionSnapshotRemoval.swift"; sourceTree = "<group>"; };
 		D6E67CB4D64F9BB44F1E5794 /* AppDelegate+CurrentWork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+CurrentWork.swift"; sourceTree = "<group>"; };
 		2830130F95FE58F35F5220A8 /* AppDelegate+DisplayPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+DisplayPlacement.swift"; sourceTree = "<group>"; };
@@ -12441,6 +12443,7 @@
 				899EDFB4688088904AEC67B4 /* RightSidebarMode+ProductFeature.swift */,
 				34F76A7191862A9BFADE3869 /* PostHogContextCalls.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
+				8C3D18CE3BE14E89439CD6B3 /* AppDelegate+CopyUnwrapped.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -15079,6 +15082,7 @@
 				C54860050000000000000001 /* AppDelegate+CmuxNavigationDeepLinks.swift in Sources */,
 				C3677004000000000000001 /* AppDelegate+CmuxSSHURL.swift in Sources */,
 				C0A716920000000000000002 /* AppDelegate+ComputerUseOnboarding.swift in Sources */,
+				444ED93A99550DFE56CDACE6 /* AppDelegate+CopyUnwrapped.swift in Sources */,
 				C65930010000000000000003 /* AppDelegate+CrashSessionSnapshotRemoval.swift in Sources */,
 				125E8DF7810040845590360B /* AppDelegate+CurrentWork.swift in Sources */,
 				631406BE1378338CDE24B38F /* AppDelegate+DisplayPlacement.swift in Sources */,

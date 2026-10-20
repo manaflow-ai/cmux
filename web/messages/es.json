@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Atajos de teclado",
       "description": "Todos los atajos de teclado disponibles en cmux, agrupados por categoría.",
+      "copyUnwrappedDescription": "Copiar sin saltos de línea (⇧⌘C) copia la selección del terminal uniendo las líneas separadas por saltos insertados por la aplicación y eliminando la sangría común y los marcadores del agente. Conserva listas, tablas y bloques de código.",
       "metaDescription": "Todos los atajos de teclado de cmux para workspaces, superficies, paneles divididos, navegador, notificaciones, búsqueda y gestión de ventanas en macOS.",
       "searchPlaceholder": "Buscar atajos...",
       "searchLabel": "Buscar atajos de teclado",

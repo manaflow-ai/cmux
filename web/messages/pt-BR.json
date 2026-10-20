@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
+      "copyUnwrappedDescription": "Copiar sem quebras de linha (⇧⌘C) copia a seleção do terminal, reunindo as linhas separadas por quebras inseridas pelo aplicativo e removendo o recuo comum e os marcadores do agente. Listas, tabelas e blocos de código são preservados.",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",
       "searchPlaceholder": "Buscar atalhos...",
       "searchLabel": "Buscar atalhos de teclado",

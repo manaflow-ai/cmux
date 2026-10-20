@@ -167,7 +167,7 @@ public struct TerminalSoftWrapCopy: Equatable, Sendable {
     /// Coarse terminal-cell width. East Asian Wide/Fullwidth blocks and
     /// common emoji count as two cells; combining marks, zero-width
     /// characters, and variation selectors count as zero.
-    private func cellWidth(_ text: String) -> Int {
+    func cellWidth(_ text: String) -> Int {
         var width = 0
         for scalar in text.unicodeScalars {
             let value = scalar.value

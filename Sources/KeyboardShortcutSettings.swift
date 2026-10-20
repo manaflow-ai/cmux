@@ -154,7 +154,7 @@ enum KeyboardShortcutSettings {
         case toggleFocusedWorkspaceGroupCollapsed
         case reopenClosedWorkspace
         case reopenClosedBrowserPanel
-        case newSurface
+        case newSurface, copyUnwrapped
         case toggleTerminalCopyMode
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
@@ -321,6 +321,7 @@ enum KeyboardShortcutSettings {
             case .reopenClosedWorkspace: return String(localized: "menu.history.reopenClosedWorkspace", defaultValue: "Reopen Closed Workspace")
             case .reopenClosedBrowserPanel: return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
+            case .copyUnwrapped: return String(localized: "shortcut.copyUnwrapped.label", defaultValue: "Copy Unwrapped")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
             case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
@@ -653,10 +654,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "↓", command: true, shift: true, option: true, control: false)
             case .selectSurfaceByNumber:
                 return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
-            case .newSurface:
-                return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
-            case .toggleTerminalCopyMode:
-                return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
+            case .newSurface: return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+            case .copyUnwrapped: return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
+            case .toggleTerminalCopyMode: return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
             case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
             case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)

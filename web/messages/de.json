@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",
       "description": "Alle in cmux verfügbaren Tastaturkürzel, nach Kategorie gruppiert.",
+      "copyUnwrappedDescription": "Ohne Zeilenumbrüche kopieren (⇧⌘C) kopiert die Terminalauswahl, fügt durch eingefügte Zeilenumbrüche getrennte Zeilen wieder zusammen und entfernt den gemeinsamen Einzug sowie Agentenmarkierungen. Listen, Tabellen und Codeblöcke bleiben erhalten.",
       "metaDescription": "Alle cmux-Tastaturkürzel für Workspaces, Oberflächen, geteilte Bereiche, Browser, Benachrichtigungen, Suche und Fensterverwaltung unter macOS.",
       "searchPlaceholder": "Kürzel suchen...",
       "searchLabel": "Tastaturkürzel durchsuchen",

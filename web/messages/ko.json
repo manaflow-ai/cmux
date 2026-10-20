@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
+      "copyUnwrappedDescription": "줄바꿈을 제거하여 복사 (⇧⌘C)는 터미널에서 선택한 텍스트에서 앱이 삽입한 줄바꿈으로 나뉜 줄을 다시 연결하고 공통 들여쓰기와 에이전트 표시를 제거하여 복사합니다. 목록, 표, 코드 블록은 유지합니다.",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
       "searchPlaceholder": "단축키 검색...",
       "searchLabel": "키보드 단축키 검색",

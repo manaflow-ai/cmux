@@ -1,8 +1,66 @@
 import AppKit
 import CmuxTerminal
+import CmuxSettings
 import CmuxTerminalCore
 
 extension GhosttyNSView {
+    /// Joins rows Ghostty marks as soft-wrapped before the selection is published.
+    ///
+    /// Ghostty's clipboard formatter already does this when `unwrap` is on. When
+    /// the emitted plain text still has one line per physical row, the wrap
+    /// flags from a paired screen read finish the join. Hard-wrap reflow runs
+    /// only when `terminal.reflowHardWrapOnCopy` is set.
+    func joinedCopyText(
+        _ text: String,
+        surface: ghostty_surface_t,
+        joiningEnabled: Bool
+    ) -> String {
+        guard joiningEnabled, text.contains("\n") else { return text }
+        let copy = TerminalSoftWrapCopy(
+            hardWrapReflow: TerminalCatalogSection().reflowHardWrapOnCopy.value(in: .standard),
+            terminalColumns: Int(ghostty_surface_size(surface).columns)
+        )
+        return copy.joiningSoftWraps(
+            in: text,
+            wrapFlags: ghosttySelectionRowWrapFlags(
+                surface: surface,
+                matchingLineCount: copy.physicalLineCount(in: text)
+            )
+        )
+    }
+
+    /// Copies the current selection with terminal wrapping removed.
+    @IBAction func copyUnwrapped(_ sender: Any?) {
+        guard let surface,
+              let text = readSelectionSnapshot(surface: surface)?.string,
+              !text.isEmpty else { return }
+        let rectangular = !isKeyboardCopyModeActive && copySelectionMayBeRectangular
+        let copy = TerminalSoftWrapCopy(hardWrapReflow: false)
+        let joined = rectangular ? text : copy.joiningSoftWraps(
+            in: text,
+            wrapFlags: ghosttySelectionRowWrapFlags(
+                surface: surface,
+                matchingLineCount: copy.physicalLineCount(in: text)
+            )
+        )
+        let unwrapped = TerminalUnwrappedCopy(
+            terminalColumns: Int(ghostty_surface_size(surface).columns),
+            rectangular: rectangular
+        ).unwrappedText(joined)
+        GhosttyApp.terminalPasteboard.writeString(unwrapped, to: GHOSTTY_CLIPBOARD_STANDARD)
+    }
+
+    func addCopyUnwrappedMenuItem(to menu: NSMenu) {
+        let item = menu.addItem(
+            withTitle: String(localized: "terminalContextMenu.copyUnwrapped", defaultValue: "Copy Unwrapped"),
+            action: #selector(copyUnwrapped(_:)), keyEquivalent: ""
+        )
+        item.target = self
+        let shortcut = KeyboardShortcutSettings.menuShortcut(for: .copyUnwrapped)
+        item.keyEquivalent = shortcut.menuItemKeyEquivalent ?? ""
+        item.keyEquivalentModifierMask = shortcut.menuItemKeyEquivalent == nil ? [] : shortcut.modifierFlags
+    }
+
     func recordDirectAgentHibernationTerminalInput() {
         guard let terminalSurface else { return }
         GhosttyApp.terminalSurfaceRuntimeDependencies

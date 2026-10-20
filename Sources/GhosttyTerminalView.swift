@@ -4255,7 +4255,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeSelectionKind: KeyboardCopyModeSelectionKind?
     private var keyboardCopyModeVisualActive: Bool { keyboardCopyModeSelectionKind != nil }
     /// Option-drag selections are rectangular. Joining wrapped rows would merge columns.
-    private var copySelectionMayBeRectangular = false
+    var copySelectionMayBeRectangular = false
     private var keyboardCopyModeVisualLineActive: Bool { keyboardCopyModeSelectionKind == .line }
     let keyboardCopyModeCursorOverlayView: NSView = GhosttyFlashOverlayView(frame: .zero)
     let predictionOverlayView = TerminalPredictionOverlayView(frame: .zero)
@@ -5758,7 +5758,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     // Convenience accessor for the ghostty surface
-    private var surface: ghostty_surface_t? {
+    var surface: ghostty_surface_t? {
         terminalSurface?.surface
     }
 
@@ -6287,31 +6287,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return copied
     }
 
-    /// Joins rows Ghostty marks as soft-wrapped before the selection is published.
-    ///
-    /// Ghostty's clipboard formatter already does this when `unwrap` is on. When
-    /// the emitted plain text still has one line per physical row, the wrap
-    /// flags from a paired screen read finish the join. Hard-wrap reflow runs
-    /// only when `terminal.reflowHardWrapOnCopy` is set.
-    private func joinedCopyText(
-        _ text: String,
-        surface: ghostty_surface_t,
-        joiningEnabled: Bool
-    ) -> String {
-        guard joiningEnabled, text.contains("\n") else { return text }
-        let copy = TerminalSoftWrapCopy(
-            hardWrapReflow: TerminalCatalogSection().reflowHardWrapOnCopy.value(in: .standard),
-            terminalColumns: Int(ghostty_surface_size(surface).columns)
-        )
-        return copy.joiningSoftWraps(
-            in: text,
-            wrapFlags: ghosttySelectionRowWrapFlags(
-                surface: surface,
-                matchingLineCount: copy.physicalLineCount(in: text)
-            )
-        )
-    }
-
     /// Joins soft-wrapped rows in the plain-text representations.
     ///
     /// Rich representations (HTML, RTF) pass through unchanged: their row
@@ -6358,7 +6333,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Ghostty's text. One full-span read then decides whether any row is
     /// wrapped, so ordinary multi-line copies do not probe every boundary.
     /// Selections taller than ``maximumSoftWrapJoinRows`` skip the probe.
-    private func ghosttySelectionRowWrapFlags(
+    func ghosttySelectionRowWrapFlags(
         surface: ghostty_surface_t,
         matchingLineCount: Int
     ) -> [Bool]? {
@@ -6847,6 +6822,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         switch item.action {
+        case #selector(copyUnwrapped(_:)):
+            return surface != nil
         case #selector(copy(_:)):
             // Enabled whenever a surface exists, not gated on
             // ghostty_surface_has_selection: that flag can report false while
@@ -9778,6 +9755,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             item.target = self
+            addCopyUnwrappedMenuItem(to: menu)
             addTranslateSelectionMenuItem(to: menu, surface: surface)
         }
         let pasteItem = menu.addItem(

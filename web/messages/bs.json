@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
+      "copyUnwrappedDescription": "Kopiraj bez prijeloma redova (⇧⌘C) kopira odabrani tekst terminala, spaja redove razdvojene prijelomima koje je umetnula aplikacija i uklanja zajedničko uvlačenje i oznake agenta. Liste, tabele i blokovi koda ostaju sačuvani.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
       "searchPlaceholder": "Pretraži prečice...",
       "searchLabel": "Pretraži prečice na tastaturi",

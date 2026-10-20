@@ -99,6 +99,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.newPaneAutoLayout`
 - `shortcuts.bindings.splitRight`
 - `shortcuts.bindings.toggleSplitZoom`
+- `shortcuts.bindings.copyUnwrapped`
 - `shortcuts.bindings.toggleTerminalCopyMode`
 
 ## Canvas

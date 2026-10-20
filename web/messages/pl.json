@@ -2391,6 +2391,7 @@
     "keyboardShortcuts": {
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
+      "copyUnwrappedDescription": "Kopiuj bez zawijania wierszy (⇧⌘C) kopiuje zaznaczenie terminala, łącząc wiersze rozdzielone znakami nowego wiersza wstawionymi przez aplikację i usuwając wspólne wcięcie oraz znaczniki agenta. Listy, tabele i bloki kodu są zachowywane.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",
       "searchPlaceholder": "Szukaj skrótów...",
       "searchLabel": "Szukaj skrótów klawiszowych",

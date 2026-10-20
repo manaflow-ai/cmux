@@ -141,6 +141,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
 
   // "shortcuts": {
   //   "bindings": {
+  //     "copyUnwrapped": "cmd+shift+c",
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
   //     "toggleFileEditorWordWrap": "opt+z",
@@ -440,6 +441,7 @@ working-directory = ~/code`}</CodeBlock>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.
       </p>
+      <p>{shortcutTranslations("copyUnwrappedDescription")}</p>
       {shortcutCategories.map((category) => (
         <section key={category.id}>
           <h4>{shortcutTranslations(`cat.${category.titleKey}` as never)}</h4>

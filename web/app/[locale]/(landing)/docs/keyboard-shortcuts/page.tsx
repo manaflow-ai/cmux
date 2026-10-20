@@ -12,6 +12,7 @@ const shortcutChordExample = `{
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
+      "copyUnwrapped": "cmd+shift+c",
       "toggleSidebar": "cmd+b",
       "toggleFileExplorer": "cmd+opt+b",
       "splitRight": "",
@@ -38,6 +39,7 @@ export default function KeyboardShortcutsPage() {
       <DocsSchema namespace="docs.keyboardShortcuts" path="/docs/keyboard-shortcuts" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("description")}</p>
+      <p>{t("copyUnwrappedDescription")}</p>
       <p>{t("paneResizeDescription")}</p>
 
       <DocsHeading level={2} id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</DocsHeading>

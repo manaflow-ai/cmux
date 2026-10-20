@@ -106,6 +106,7 @@ extension ShortcutAction {
         case .reopenClosedBrowserPanel:
             return String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed")
         case .newSurface: return "New Surface"
+        case .copyUnwrapped: return String(localized: "shortcut.copyUnwrapped.label", defaultValue: "Copy Unwrapped")
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
         case .cycleTextBoxSubmitAction:

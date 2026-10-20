@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
+      "copyUnwrappedDescription": "Kopier uten linjeskift (⇧⌘C) kopierer terminalens markering, slår sammen linjer delt av linjeskift satt inn av appen og fjerner felles innrykk og agentmarkører. Lister, tabeller og kodeblokker bevares.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",
       "searchPlaceholder": "Søk etter snarveier...",
       "searchLabel": "Søk i tastatursnarveier",

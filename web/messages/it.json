@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
+      "copyUnwrappedDescription": "Copia senza interruzioni di riga (⇧⌘C) copia la selezione del terminale ricongiungendo le righe divise dalle interruzioni inserite dall’applicazione e rimuovendo il rientro comune e i marcatori dell’agente. Elenchi, tabelle e blocchi di codice vengono mantenuti.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
       "searchPlaceholder": "Cerca scorciatoie...",
       "searchLabel": "Cerca scorciatoie da tastiera",

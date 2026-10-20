@@ -2390,6 +2390,7 @@
     "keyboardShortcuts": {
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
+      "copyUnwrappedDescription": "Kopiér uden linjeskift (⇧⌘C) kopierer terminalens markering, samler linjer adskilt af linjeskift indsat af appen og fjerner fælles indrykning og agentmarkører. Lister, tabeller og kodeblokke bevares.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",
       "searchPlaceholder": "Søg efter genveje...",
       "searchLabel": "Søg i tastaturgenveje",

@@ -7501,7 +7501,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
+    func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
         if let window = event.window {
             return window
         }
@@ -15928,7 +15928,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if handleAdjacentNavigationShortcut(event: event) { return true }
+        if handleAdjacentNavigationShortcut(event: event) || handleCopyUnwrappedShortcut(event) { return true }
 
         if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             if performFocusedDockShortcut(
