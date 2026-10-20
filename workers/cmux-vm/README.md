@@ -189,8 +189,10 @@ replayed or settled as a finished create, and it keeps its quota slot. Retry
 the create with the same key (or `creationKey`) to grow and commit it;
 reconcile commits it once the VM already meets the requested size. Deleting
 it cancels the creation and frees the slot, including when the delete's own
-answer was lost and it is retried. If the provider deleted it first (for
-example after `autoDeleteSeconds`), a same-key retry never creates another VM:
+answer was lost and it is retried. A same-key retry never creates another VM.
+If the provider deleted it first (for example after `autoDeleteSeconds`), the
+retry answers 503 and keeps the slot until the 10-minute send grace window has
+passed; then, once both its exact slug and its recorded provider VM answer 404,
 the allocation is recorded as deleted, its slot is freed, and the retry answers
 404 like any deleted allocation. A fork that
 retained its snapshot but has not admitted a VM allocation reports unresolved;
