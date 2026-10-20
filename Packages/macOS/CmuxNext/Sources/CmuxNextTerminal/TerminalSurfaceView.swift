@@ -474,8 +474,10 @@ public final class TerminalSurfaceView: NSView {
     @discardableResult
     public func performBindingAction(_ action: String) -> Bool {
         guard let surface else { return false }
-        return action.withCString { pointer in
-            ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+        return clipboardRequests.asUserClipboardWrite {
+            action.withCString { pointer in
+                ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
+            }
         }
     }
 

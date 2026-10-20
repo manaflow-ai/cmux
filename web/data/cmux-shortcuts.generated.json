@@ -541,6 +541,42 @@
           "aliases": []
         },
         {
+          "id": "home.messageChiefFromAnyApp",
+          "title": {
+            "en": "Message the Chief from Any App",
+            "ar": "مراسلة Chief من أي تطبيق",
+            "bs": "Pošalji poruku Chiefu iz bilo koje aplikacije",
+            "da": "Skriv til Chief fra enhver app",
+            "de": "Chief aus jeder App eine Nachricht senden",
+            "es": "Enviar mensaje a Chief desde cualquier app",
+            "fr": "Écrire à Chief depuis n’importe quelle app",
+            "it": "Scrivi a Chief da qualsiasi app",
+            "ja": "どのアプリからでも Chief にメッセージ",
+            "km": "ផ្ញើសារទៅ Chief ពីកម្មវិធីណាមួយ",
+            "ko": "모든 앱에서 Chief에게 메시지 보내기",
+            "no": "Skriv til Chief fra hvilken som helst app",
+            "pl": "Napisz do Chiefa z dowolnej aplikacji",
+            "pt-BR": "Enviar mensagem ao Chief de qualquer app",
+            "ru": "Написать Chief из любого приложения",
+            "th": "ส่งข้อความถึง Chief จากแอปใดก็ได้",
+            "tr": "Herhangi bir uygulamadan Chief'e mesaj gönder",
+            "uk": "Написати Chief з будь-якої програми",
+            "vi": "Nhắn cho Chief từ mọi ứng dụng",
+            "zh-CN": "从任意应用给 Chief 发消息",
+            "zh-TW": "從任何 App 傳訊息給 Chief"
+          },
+          "shortcut": {
+            "key": "c",
+            "modifiers": [
+              "ctrl",
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "home.replyToSelection",
           "title": {
             "en": "Reply to Selection",

@@ -16,9 +16,11 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("tabbing across the tiles previews only the tile you rest on", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
-  const tiles = [...page.container.querySelectorAll<HTMLButtonElement>(
+  const tiles = [
+    ...page.container.querySelectorAll<HTMLButtonElement>(
       '[data-card="backdrop"] .backdrop-tile[aria-pressed]:not(.backdrop-pending)',
-    )];
+    ),
+  ];
   expect(tiles.length).toBeGreaterThanOrEqual(3);
   // Step across three tiles faster than the dwell.
   await act(async () => {
