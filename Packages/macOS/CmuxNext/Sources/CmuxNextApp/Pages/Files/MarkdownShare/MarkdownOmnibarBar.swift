@@ -134,25 +134,25 @@ final class MarkdownOmnibarBar: NSView {
         header.isEnabled = false
         menu.addItem(header)
         menu.addItem(.separator())
-        menu.addItem(MarkdownMenuItem(title: MarkdownShareStrings.copyPath) { Self.copy(file.path) })
+        menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.copyPath) { Self.copy(file.path) })
         if let git = location?.git, let blob = git.blobURL {
             let title = git.blobIsExact ? MarkdownShareStrings.copyGitHubLink : MarkdownShareStrings.copyGitHubLinkLastPushed
-            menu.addItem(MarkdownMenuItem(title: title) { Self.copy(blob.absoluteString) })
+            menu.addItem(MarkdownMenuAction.item(title) { Self.copy(blob.absoluteString) })
         } else if location?.git?.githubRepository != nil {
             let none = NSMenuItem(title: MarkdownShareStrings.noGitHubLink, action: nil, keyEquivalent: "")
             none.isEnabled = false
             menu.addItem(none)
         }
         let actions = actions
-        menu.addItem(MarkdownMenuItem(title: MarkdownShareStrings.copyLiveLink) {
+        menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.copyLiveLink) {
             // task-owner: one link request; ends when the server answers
             Task { if let link = await actions.liveLink(file) { Self.copy(link.absoluteString) } }
         })
-        menu.addItem(MarkdownMenuItem(title: MarkdownShareStrings.openLiveLink) {
+        menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.openLiveLink) {
             // task-owner: one link request; ends when the server answers
             Task { if let link = await actions.liveLink(file) { actions.openInBrowser(link) } }
         })
-        menu.addItem(MarkdownMenuItem(title: MarkdownShareStrings.revealInFinder) {
+        menu.addItem(MarkdownMenuAction.item(MarkdownShareStrings.revealInFinder) {
             NSWorkspace.shared.activateFileViewerSelecting([file])
         })
         menu.addItem(.separator())
