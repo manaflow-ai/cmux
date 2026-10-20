@@ -178,8 +178,28 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
+    public final CloudAttachmentLinkResult cloudAttachmentLink(CloudAttachmentLinkRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ATTACHMENT_LINK, request.toWire());
+        return CloudAttachmentLinkResult.fromWire(result);
+    }
+
+    public final CloudAttachmentReadResult cloudAttachmentRead(CloudAttachmentReadRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ATTACHMENT_READ, request.toWire());
+        return CloudAttachmentReadResult.fromWire(result);
+    }
+
+    public final CloudAttachmentUploadResult cloudAttachmentUpload(CloudAttachmentUploadRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_ATTACHMENT_UPLOAD, request.toWire());
+        return CloudAttachmentUploadResult.fromWire(result);
+    }
+
     public final Object cloudConversationHistory(CloudConversationHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_HISTORY, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudConversationLive(CloudConversationLiveRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_LIVE, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -213,13 +233,38 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationTyping(CloudConversationTypingRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_TYPING, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudHostReplicaClear(CloudHostReplicaClearRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_CLEAR, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudHostReplicaSet(CloudHostReplicaSetRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_SET, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudHostReplicaStatus() throws CmuxException {
+        Object result = execute(Commands.CLOUD_HOST_REPLICA_STATUS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudInboxList(CloudInboxListRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_INBOX_LIST, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudInboxOp(CloudInboxOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_INBOX_OP, request.toWire());
         return Wire.immutableJson(result);
     }
 
@@ -248,6 +293,16 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudParticipantAvatarGet(CloudParticipantAvatarGetRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_PARTICIPANT_AVATAR_GET, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object cloudRequestsList() throws CmuxException {
+        Object result = execute(Commands.CLOUD_REQUESTS_LIST, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudSessionClear() throws CmuxException {
         Object result = execute(Commands.CLOUD_SESSION_CLEAR, Map.of());
         return Wire.immutableJson(result);
@@ -266,6 +321,11 @@ public abstract class GeneratedCmuxClient {
     public final ConversationAgentTokenResult conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
         return ConversationAgentTokenResult.fromWire(result);
+    }
+
+    public final ConversationAttachmentLinkResult conversationAttachmentLink(ConversationAttachmentLinkRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_ATTACHMENT_LINK, request.toWire());
+        return ConversationAttachmentLinkResult.fromWire(result);
     }
 
     public final ConversationAttachmentReadResult conversationAttachmentRead(ConversationAttachmentReadRequest request) throws CmuxException {
@@ -303,6 +363,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationImportResult.fromWire(result);
     }
 
+    public final ConversationInboxOpResult conversationInboxOp(ConversationInboxOpRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_INBOX_OP, request.toWire());
+        return ConversationInboxOpResult.fromWire(result);
+    }
+
     public final ConversationLinkResolveResult conversationLinkResolve(ConversationLinkResolveRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LINK_RESOLVE, request.toWire());
         return ConversationLinkResolveResult.fromWire(result);
@@ -311,6 +376,16 @@ public abstract class GeneratedCmuxClient {
     public final ConversationListResult conversationList() throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LIST, Map.of());
         return ConversationListResult.fromWire(result);
+    }
+
+    public final ConversationLiveResult conversationLive(ConversationLiveRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_LIVE, request.toWire());
+        return ConversationLiveResult.fromWire(result);
+    }
+
+    public final EmptyResult conversationLivePublish(ConversationLivePublishRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_LIVE_PUBLISH, request.toWire());
+        return EmptyResult.fromWire(result);
     }
 
     public final ConversationOpResult conversationOp(ConversationOpRequest request) throws CmuxException {
@@ -538,9 +613,18 @@ public abstract class GeneratedCmuxClient {
         return HistorySearchResult.fromWire(result);
     }
 
-    public final IdentifyResult identify() throws CmuxException {
-        Object result = execute(Commands.IDENTIFY, Map.of());
+    public final HomeInboxResult homeInbox(HomeInboxRequest request) throws CmuxException {
+        Object result = execute(Commands.HOME_INBOX, request.toWire());
+        return HomeInboxResult.fromWire(result);
+    }
+
+    public final IdentifyResult identify(IdentifyRequest request) throws CmuxException {
+        Object result = execute(Commands.IDENTIFY, request.toWire());
         return IdentifyResult.fromWire(result);
+    }
+
+    public final IdentifyResult identify() throws CmuxException {
+        return identify(IdentifyRequest.builder().build());
     }
 
     public final IdsResult ids(IdsRequest request) throws CmuxException {
@@ -803,8 +887,8 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
-    public final Object pageCredential() throws CmuxException {
-        Object result = execute(Commands.PAGE_CREDENTIAL, Map.of());
+    public final Object pageCredential(PageCredentialRequest request) throws CmuxException {
+        Object result = execute(Commands.PAGE_CREDENTIAL, request.toWire());
         return Wire.immutableJson(result);
     }
 

@@ -1,6 +1,104 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
-@@ -412,7 +412,7 @@
+@@ -24,12 +24,14 @@
+         if case .typing = spec.kind { return 0...min(spec.width, 140) }
+         if case .receipt = spec.kind { return max(0, spec.metrics.receiptRight - 170)...spec.width }
+         guard case let .part(p) = spec.kind else { return 0...spec.width }
+-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
++        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: a group's incoming bubbles sit right of the avatar column
+         // Media carry a save button 14 + 28 pt beside them.
+         var media = false
+         if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
+         let extra: CGFloat = media ? 46 : 0
+-        return max(0, x - 36 - (p.outgoing ? extra : 0))...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
++        // cmux: the span starts at the avatar column when the row draws an avatar.
++        let lower = min(x - 36 - (p.outgoing ? extra : 0), p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
++        return max(0, lower)...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
+     }
+ 
+     /// Whether a row's bitmap is the same at every row width: its drawn span is the same size at
+@@ -50,7 +52,7 @@
+         if case .receipt = spec.kind { return fixedSpanKeys && spec.metrics.receiptRight - 170 >= 0 }
+         guard case let .part(p) = spec.kind else { return false }
+         if case .custom = p.part { return false }
+-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
++        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
+         var media = false
+         if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
+         let extra: CGFloat = media ? 46 : 0
+@@ -100,7 +102,7 @@
+     /// Body rect of a part row in row coordinates (window width, margin above).
+     static func bodyRect(_ spec: RowSpec) -> CGRect {
+         guard case let .part(p) = spec.kind else { return .zero }
+-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
++        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
+         return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
+     }
+ 
+@@ -196,9 +198,9 @@
+             }
+         case let .notice(s):
+             // As the unsent notice below (ask 9, HostHooks.swift).
++            // cmux: at the typing bubble's left edge, the row above it (Layout), not centered.
+             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+-            let w = TextDraw.width(s, font: f)
+-            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: m.centerX + 0.1 - w / 2, baseline: top + 12, in: ctx)
++            TextDraw.line(s, font: f, color: Fixture.secondaryText, x: noticeLeft, baseline: top + 12, in: ctx)
+         case let .unsent(outgoing):
+             let s = outgoing ? Strings.unsentMine : Strings.unsentTheirs
+             let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+@@ -207,19 +209,25 @@
+         case let .label(text, outgoing, color):
+             let f = HomeFonts.system(ofSize: 10, weight: .medium) // HomeFonts (cx-qpqs)
+             let c: UIColor = color == .failure ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1)
+-                : color == .link ? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) : Fixture.secondaryText
++                : color == .link ? Fixture.labelLink : Fixture.secondaryText // cmux: themed link tint
+             let w = TextDraw.width(text, font: f)
+             TextDraw.line(text, font: f, color: c, x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 11, in: ctx)
+         case let .replies(count, _, outgoing):
+             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+             let s = Strings.replies(count)
+             let w = TextDraw.width(s, font: f, kern: captionKern)
+-            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
++            TextDraw.line(s, font: f, color: Fixture.repliesTint, // cmux: themed link tint
+                           x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
+         case let .part(p):
+-            let x = p.outgoing ? m.rightEdge - p.size.width : Fixture.leftEdge
+-            PartRenderer.draw(ctx, row: p, body: CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height),
+-                              windowY: windowY, highlight: highlight)
++            let x = p.cmuxBodyX(rightEdge: m.rightEdge) // cmux: group indent
++            let body = CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
++            PartRenderer.draw(ctx, row: p, body: body, windowY: windowY, highlight: highlight)
++            // cmux: a group chat's sender avatar beside the last bubble of their run.
++            if !p.outgoing, let avatar = p.cmuxAvatar { avatar.draw(in: ctx, rect: SenderAvatar.rect(beside: body)) }
++        case let .senderName(name):
++            // cmux: a group chat's sender name, at the indented incoming bubble's text edge (iMessage).
++            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
++            TextDraw.line(name, font: f, color: Fixture.secondaryText, x: senderNameLeft, baseline: top + 11, in: ctx)
+         case let .receipt(bold, rest):
+             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
+         case .typing:
+@@ -258,6 +266,10 @@
+     /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
+     /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
+     static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
++    /// cmux: a group chat's sender name's left edge (row coordinates): the indented incoming bubble's text.
++    static var senderNameLeft: CGFloat { Fixture.leftEdge + SenderAvatar.bubbleInset + Fixture.bubblePadX }
++    /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
++    static var noticeLeft: CGFloat { typingBubble.minX + 1 }
+     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
+     /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
+     static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
+@@ -364,7 +376,7 @@
+     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
+         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
+         // An outgoing link is the bubble's text colour (white; a themed host's own colour).
+-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
++        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
+         let attr = tl.attributed(color: color, linkColor: link)
+         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
+             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
+@@ -433,7 +445,7 @@
              if !p.failed { drawSaveButton(ctx, body: body, outgoing: p.outgoing) }
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -9,7 +107,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -434,7 +434,7 @@
+@@ -455,7 +467,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -18,3 +116,21 @@
              let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
              if a.kind == "contact" {
                  UIColor(white: 0.55, alpha: 1).setFill()
+@@ -615,7 +627,7 @@
+         UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
+         if pv.count >= 2 {
+             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+-            TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
++            TextDraw.line(Strings.replies(pv.count), font: f, color: Fixture.repliesTint, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx, // cmux: themed link tint
+                           kern: RowDraw.captionKern)
+         }
+     }
+@@ -674,7 +686,7 @@
+             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+             let s = Strings.replies(pv.count)
+             let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
+-            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
++            TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
+                           kern: RowDraw.captionKern)
+         }
+     }

@@ -16,11 +16,14 @@ import Testing
         let plain = SidebarWorkspace(id: oneLine, title: "cmux-next", unread: .count(1), activity: .success)
         var noted = SidebarWorkspace(id: twoLines, title: "api", unread: .count(2), activity: .waiting(kind: .question))
         noted.status = "Which branch should I use?"
+        noted.directory = "~/code/api"
         let model = SidebarModel(sections: [
             SidebarSection(kind: .machine(machine), nodes: [.workspace(plain), .workspace(noted)]),
         ])
         // The count badge and the trailing glyph: the row badge style before the corner badge.
         model.rowBadgeStyle = .trailing
+        // The folder on: a one-line status alone sits on the name's line, so the second line is the folder and status.
+        model.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.directory])))
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         sidebar.layoutSubtreeIfNeeded()
@@ -45,6 +48,6 @@ import Testing
             #expect(abs(badge.midY - middle) <= 0.5, "\(id): badge \(badge.midY), row middle \(middle)")
         }
         let two = try Self.marks(sidebar, Self.twoLines).row
-        #expect(!two.subtitle.isHidden && !two.subtitle.stringValue.isEmpty, "the second row draws its status line")
+        #expect(!two.subtitle.isHidden && !two.subtitle.stringValue.isEmpty, "the second row draws its folder and status line")
     }
 }

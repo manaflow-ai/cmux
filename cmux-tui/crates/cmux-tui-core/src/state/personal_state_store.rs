@@ -18,7 +18,7 @@ use crate::workspace_registry::personal_mutations::{
 };
 use crate::workspace_registry::personal_store::{
     PersonalGroup, PersonalPin, PersonalProfile, PersonalWorkspace, read_group, read_groups,
-    read_pins, read_profile, read_profiles, read_workspaces,
+    read_pins, read_profile, read_profiles, read_workspace, read_workspaces,
 };
 
 fn group_value(group: &PersonalGroup) -> Value {
@@ -205,11 +205,10 @@ pub(crate) fn placement_snapshot(
     workspace_key: &str,
 ) -> anyhow::Result<Value> {
     let local = local_registry_id(connection)?;
-    match read_workspaces(connection)?
-        .iter()
-        .find(|row| row.session_id == session_id && row.workspace_key == workspace_key)
-    {
-        Some(row) => placement_value(connection, &local, row, &read_pins(connection)?),
+    // One row by its key and its ordinal by the order index, not a read of
+    // every row: a create and a move publish this for one row at a time.
+    match read_workspace(connection, session_id, workspace_key)? {
+        Some(row) => placement_value(connection, &local, &row, &read_pins(connection)?),
         None => {
             let room = read_pins(connection)?
                 .into_iter()

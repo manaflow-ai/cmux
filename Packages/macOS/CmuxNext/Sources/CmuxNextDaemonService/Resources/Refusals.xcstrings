@@ -525,137 +525,6 @@
         }
       }
     },
-    "handlers.refusal.cloudPaneUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs the Cloud panel as a pane (not in cmux-next yet)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインとしての Cloud パネルが必要です(cmux-next にはまだありません)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب لوحة Cloud كجزء (غير متوفرة في cmux-next بعد)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je Cloud panel kao panel (još nije u cmux-next)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver Cloud-panelet som rude (endnu ikke i cmux-next)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert das Cloud-Panel als Teilfenster (noch nicht in cmux-next)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere el panel de Cloud como panel (aún no está en cmux-next)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite le panneau Cloud en tant que volet (pas encore dans cmux-next)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il pannello Cloud come pannello (non ancora in cmux-next)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការផ្ទាំង Cloud ជាផ្ទាំង (មិនទាន់មានក្នុង cmux-next)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud 패널을 분할 창으로 열어야 함(cmux-next에는 아직 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever Cloud-panelet som rute (ikke i cmux-next ennå)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga panelu Cloud jako panelu (jeszcze nie w cmux-next)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer o painel Cloud como painel (ainda não existe no cmux-next)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна панель Cloud как панель (в cmux-next пока нет)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้แผง Cloud เป็นบานหน้าต่าง (ยังไม่มีใน cmux-next)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud panelinin bölme olarak açılması gerekiyor (cmux-next’te henüz yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна панель Cloud як панель (у cmux-next ще немає)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bảng Cloud dưới dạng khung (chưa có trong cmux-next)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要将 Cloud 面板作为窗格（cmux-next 尚不支持）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要以窗格呈現 Cloud 面板（cmux-next 尚未提供）"
-          }
-        }
-      }
-    },
     "handlers.refusal.colorArgumentRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -20702,6 +20571,137 @@
         }
       }
     },
+    "handlers.refusal.homeTabStays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home stays open in its column."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームはその列で開いたままです。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبقى الصفحة الرئيسية مفتوحة في عمودها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Početna ostaje otvorena u svojoj koloni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem forbliver åben i sin kolonne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home bleibt in seiner Spalte geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicio permanece abierto en su columna."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'accueil reste ouvert dans sa colonne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home resta aperta nella sua colonna."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រដើមនៅតែបើកក្នុងជួរឈររបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "홈은 해당 열에서 계속 열려 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hjem forblir åpen i sin kolonne."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona główna pozostaje otwarta w swojej kolumnie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Início permanece aberto em sua coluna."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Главная остаётся открытой в своей колонке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าหลักยังคงเปิดอยู่ในคอลัมน์ของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana Sayfa kendi sütununda açık kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Головна залишається відкритою у своїй колонці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang chủ luôn mở trong cột của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "主页在其列中保持打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "首頁在其欄中保持開啟。"
+          }
+        }
+      }
+    },
     "handlers.refusal.closeRefused": {
       "extractionState": "manual",
       "localizations": {
@@ -24501,399 +24501,6 @@
         }
       }
     },
-    "handlers.refusal.agentRemoteStart.updateForTrust": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update cmux on %@ to trust folders from here."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここからフォルダを信頼するには、%@ の cmux を更新してください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "حدّث cmux على %@ لتتمكن من الوثوق بالمجلدات من هنا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ažurirajte cmux na %@ da biste odavde označavali foldere kao pouzdane."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opdater cmux på %@ for at stole på mapper herfra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktualisiere cmux auf %@, um Ordnern von hier aus zu vertrauen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Actualiza cmux en %@ para confiar en carpetas desde aquí."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mettez à jour cmux sur %@ pour faire confiance aux dossiers depuis ici."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aggiorna cmux su %@ per considerare attendibili le cartelle da qui."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %@ ដើម្បីទុកចិត្តថតពីទីនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "여기에서 폴더를 신뢰하려면 %@의 cmux를 업데이트하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oppdater cmux på %@ for å stole på mapper herfra."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaktualizuj cmux na %@, aby ufać folderom stąd."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Atualize o cmux em %@ para confiar em pastas daqui."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Обновите cmux на %@, чтобы доверять папкам отсюда."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "อัปเดต cmux บน %@ เพื่อเชื่อถือโฟลเดอร์จากที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klasörlere buradan güvenmek için %@ üzerindeki cmux'u güncelleyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Оновіть cmux на %@, щоб довіряти папкам звідси."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cập nhật cmux trên %@ để tin cậy thư mục từ đây."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "请更新 %@ 上的 cmux，以便从这里信任文件夹。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "請更新 %@ 上的 cmux，以便從這裡信任資料夾。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.agentRemoteStart.homeUnconfirmed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose the home folder on %@ with Use Home Folder first."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先に「ホームフォルダを使用」で %@ のホームフォルダを選んでください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختر مجلد المنزل على %@ عبر «استخدام مجلد المنزل» أولًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prvo odaberite početni folder na %@ pomoću opcije Koristi početni folder."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg først hjemmemappen på %@ med Brug hjemmemappe."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wähle zuerst den Benutzerordner auf %@ mit „Benutzerordner verwenden“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Primero elige la carpeta de inicio en %@ con Usar carpeta de inicio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisissez d’abord le dossier personnel sur %@ avec Utiliser le dossier personnel."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli prima la cartella Inizio su %@ con Usa cartella Inizio."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសថតផ្ទះនៅលើ %@ ដោយប្រើ «ប្រើថតផ្ទះ» ជាមុនសិន។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "먼저 홈 폴더 사용으로 %@의 홈 폴더를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg først hjemmemappen på %@ med Bruk hjemmemappe."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Najpierw wybierz folder domowy na %@ opcją Użyj folderu domowego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Primeiro escolha a pasta pessoal em %@ com Usar pasta pessoal."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сначала выберите домашнюю папку на %@ через «Использовать домашнюю папку»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกโฟลเดอร์บ้านบน %@ ด้วย ใช้โฟลเดอร์บ้าน ก่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Önce %@ üzerindeki ana klasörü Ana Klasörü Kullan ile seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Спершу виберіть домашню папку на %@ через «Використати домашню папку»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy chọn thư mục nhà trên %@ bằng Dùng thư mục nhà trước."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "请先用“使用主文件夹”选择 %@ 上的主文件夹。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "請先用「使用主資料夾」選擇 %@ 上的主資料夾。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.agentRemoteStart.aboveHome": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A chat on %@ never runs in a folder above its home folder."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ のチャットは、ホームフォルダより上のフォルダでは実行されません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا تعمل الدردشة على %@ أبدًا في مجلد أعلى من مجلد المنزل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat na %@ nikada ne radi u folderu iznad početnog foldera."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En chat på %@ kører aldrig i en mappe over hjemmemappen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein Chat auf %@ läuft nie in einem Ordner oberhalb des Benutzerordners."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un chat en %@ nunca se ejecuta en una carpeta por encima de la carpeta de inicio."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une discussion sur %@ ne s’exécute jamais dans un dossier au-dessus du dossier personnel."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una chat su %@ non viene mai eseguita in una cartella sopra la cartella Inizio."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការជជែកនៅលើ %@ មិនដំណើរការក្នុងថតខាងលើថតផ្ទះឡើយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@의 채팅은 홈 폴더보다 위의 폴더에서 실행되지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En chat på %@ kjører aldri i en mappe over hjemmemappen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Czat na %@ nigdy nie działa w folderze powyżej folderu domowego."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um chat em %@ nunca é executado em uma pasta acima da pasta pessoal."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат на %@ никогда не запускается в папке выше домашней."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แชทบน %@ จะไม่ทำงานในโฟลเดอร์ที่อยู่เหนือโฟลเดอร์บ้าน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ üzerindeki bir sohbet asla ana klasörün üstündeki bir klasörde çalışmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чат на %@ ніколи не працює в папці вище за домашню."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộc trò chuyện trên %@ không bao giờ chạy trong thư mục phía trên thư mục nhà."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的聊天绝不会在主文件夹之上的文件夹中运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 上的聊天絕不會在主資料夾之上的資料夾中執行。"
-          }
-        }
-      }
-    },
     "handlers.refusal.agentRemoteStart.agentServiceDown": {
       "extractionState": "manual",
       "localizations": {
@@ -25942,6 +25549,268 @@
         }
       }
     },
+    "handlers.refusal.unknownLocalhostChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown localhost '%@' (use machine, thisMac or setting)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة localhost غير معروفة '%@' (استخدم machine أو thisMac أو setting)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznat localhost '%@' (koristite machine, thisMac ili setting)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt localhost '%@' (brug machine, thisMac eller setting)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Localhost '%@' (verwende machine, thisMac oder setting)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost desconocido '%@' (usa machine, thisMac o setting)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost inconnu '%@' (utilisez machine, thisMac ou setting)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost sconosciuto '%@' (usa machine, thisMac o setting)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な localhost '%@'（machine、thisMac、setting のいずれかを使用）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost មិនស្គាល់ '%@' (ប្រើ machine, thisMac ឬ setting)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 localhost '%@' (machine, thisMac 또는 setting 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent localhost '%@' (bruk machine, thisMac eller setting)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany localhost '%@' (użyj machine, thisMac lub setting)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost desconhecido '%@' (use machine, thisMac ou setting)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестный localhost '%@' (используйте machine, thisMac или setting)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จัก localhost '%@' (ใช้ machine, thisMac หรือ setting)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen localhost '%@' (machine, thisMac veya setting kullanın)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідомий localhost '%@' (використайте machine, thisMac або setting)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost không xác định '%@' (dùng machine, thisMac hoặc setting)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 localhost“%@”（请使用 machine、thisMac 或 setting）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 localhost「%@」（請使用 machine、thisMac 或 setting）"
+          }
+        }
+      }
+    },
+    "handlers.refusal.localhostChoiceNotApproved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not changed: the change was not approved in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التغيير: لم تتم الموافقة على التغيير في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije promijenjeno: promjena nije odobrena u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke ændret: ændringen blev ikke godkendt i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht geändert: Die Änderung wurde in cmux nicht bestätigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin cambios: el cambio no se aprobó en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non modifié : la modification n’a pas été approuvée dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non modificato: la modifica non è stata approvata in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更されませんでした: cmux で変更が承認されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានប្តូរ៖ ការប្តូរមិនត្រូវបានយល់ព្រមនៅក្នុង cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경되지 않음: cmux에서 변경이 승인되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke endret: endringen ble ikke godkjent i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez zmian: zmiana nie została zatwierdzona w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não alterado: a alteração não foi aprovada no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не изменено: изменение не подтверждено в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้เปลี่ยน: การเปลี่ยนแปลงไม่ได้รับการอนุมัติใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirilmedi: değişiklik cmux’ta onaylanmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не змінено: зміну не схвалено в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa thay đổi: thay đổi chưa được chấp thuận trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未更改：此更改未在 cmux 中获得批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未變更：此變更未在 cmux 中獲得核准。"
+          }
+        }
+      }
+    },
     "handlers.refusal.machineIconNotRegistered": {
       "extractionState": "manual",
       "localizations": {
@@ -26200,6 +26069,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此頁面顯示表單送出的結果。它會保持載入，以免再次送出表單。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.updateForTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on %@ to trust folders from here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここからフォルダを信頼するには、%@ の cmux を更新してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث cmux على %@ لتتمكن من الوثوق بالمجلدات من هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažurirajte cmux na %@ da biste odavde označavali foldere kao pouzdane."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdater cmux på %@ for at stole på mapper herfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualisiere cmux auf %@, um Ordnern von hier aus zu vertrauen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualiza cmux en %@ para confiar en carpetas desde aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez à jour cmux sur %@ pour faire confiance aux dossiers depuis ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiorna cmux su %@ per considerare attendibili le cartelle da qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %@ ដើម្បីទុកចិត្តថតពីទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 폴더를 신뢰하려면 %@의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdater cmux på %@ for å stole på mapper herfra."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaktualizuj cmux na %@, aby ufać folderom stąd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualize o cmux em %@ para confiar em pastas daqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновите cmux на %@, чтобы доверять папкам отсюда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดต cmux บน %@ เพื่อเชื่อถือโฟลเดอร์จากที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasörlere buradan güvenmek için %@ üzerindeki cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновіть cmux на %@, щоб довіряти папкам звідси."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cập nhật cmux trên %@ để tin cậy thư mục từ đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新 %@ 上的 cmux，以便从这里信任文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新 %@ 上的 cmux，以便從這裡信任資料夾。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.homeUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the home folder on %@ with Use Home Folder first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に「ホームフォルダを使用」で %@ のホームフォルダを選んでください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر مجلد المنزل على %@ عبر «استخدام مجلد المنزل» أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo odaberite početni folder na %@ pomoću opcije Koristi početni folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg først hjemmemappen på %@ med Brug hjemmemappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle zuerst den Benutzerordner auf %@ mit „Benutzerordner verwenden“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primero elige la carpeta de inicio en %@ con Usar carpeta de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez d’abord le dossier personnel sur %@ avec Utiliser le dossier personnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli prima la cartella Inizio su %@ con Usa cartella Inizio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសថតផ្ទះនៅលើ %@ ដោយប្រើ «ប្រើថតផ្ទះ» ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 홈 폴더 사용으로 %@의 홈 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg først hjemmemappen på %@ med Bruk hjemmemappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw wybierz folder domowy na %@ opcją Użyj folderu domowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro escolha a pasta pessoal em %@ com Usar pasta pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала выберите домашнюю папку на %@ через «Использовать домашнюю папку»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกโฟลเดอร์บ้านบน %@ ด้วย ใช้โฟลเดอร์บ้าน ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce %@ üzerindeki ana klasörü Ana Klasörü Kullan ile seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу виберіть домашню папку на %@ через «Використати домашню папку»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chọn thư mục nhà trên %@ bằng Dùng thư mục nhà trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先用“使用主文件夹”选择 %@ 上的主文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先用「使用主資料夾」選擇 %@ 上的主資料夾。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.aboveHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chat on %@ never runs in a folder above its home folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のチャットは、ホームフォルダより上のフォルダでは実行されません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تعمل الدردشة على %@ أبدًا في مجلد أعلى من مجلد المنزل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat na %@ nikada ne radi u folderu iznad početnog foldera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En chat på %@ kører aldrig i en mappe over hjemmemappen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Chat auf %@ läuft nie in einem Ordner oberhalb des Benutzerordners."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un chat en %@ nunca se ejecuta en una carpeta por encima de la carpeta de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une discussion sur %@ ne s’exécute jamais dans un dossier au-dessus du dossier personnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una chat su %@ non viene mai eseguita in una cartella sopra la cartella Inizio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនៅលើ %@ មិនដំណើរការក្នុងថតខាងលើថតផ្ទះឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 채팅은 홈 폴더보다 위의 폴더에서 실행되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En chat på %@ kjører aldri i en mappe over hjemmemappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czat na %@ nigdy nie działa w folderze powyżej folderu domowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um chat em %@ nunca é executado em uma pasta acima da pasta pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат на %@ никогда не запускается в папке выше домашней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทบน %@ จะไม่ทำงานในโฟลเดอร์ที่อยู่เหนือโฟลเดอร์บ้าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki bir sohbet asla ana klasörün üstündeki bir klasörde çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат на %@ ніколи не працює в папці вище за домашню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện trên %@ không bao giờ chạy trong thư mục phía trên thư mục nhà."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的聊天绝不会在主文件夹之上的文件夹中运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的聊天絕不會在主資料夾之上的資料夾中執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.workspaceHasNoAudio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tab in this workspace plays sound"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースで音を再生しているタブはありません"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد علامة تبويب تشغّل صوتًا في مساحة العمل هذه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan tab u ovom radnom prostoru ne reprodukuje zvuk"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fane i dette arbejdsområde afspiller lyd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Tab in diesem Workspace gibt Ton wieder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna pestaña de este espacio de trabajo reproduce sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun onglet de cet espace de travail ne lit de son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna scheda in questo spazio di lavoro riproduce audio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានថេបណាមួយក្នុងកន្លែងធ្វើការនេះកំពុងចាក់សំឡេងទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간에서 소리를 재생하는 탭이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen fane i dette arbeidsområdet spiller av lyd"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadna karta w tym obszarze roboczym nie odtwarza dźwięku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma aba deste espaço de trabalho reproduz som"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ни одна вкладка в этом рабочем пространстве не воспроизводит звук"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีแท็บใดในพื้นที่ทำงานนี้ที่กำลังเล่นเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanında ses çalan sekme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Жодна вкладка в цьому робочому просторі не відтворює звук"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có tab nào trong không gian làm việc này đang phát âm thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区中没有正在播放声音的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區中沒有正在播放聲音的分頁"
           }
         }
       }

@@ -270,13 +270,14 @@ impl Brain {
         }
     }
 
-    /// The loop guard: a message by another Chief wakes this one only while
-    /// its thread's Chief streak (`cmux_chief::rules::chief_streak`, this
-    /// message included) is under `CHIEF_TURN_BUDGET`, and while the owner
-    /// would still take an agent's reply in the conversation
-    /// (`owner_agent_streak` under `MAX_AGENT_TURNS`, the owner's own guard,
-    /// which is per conversation and lower today). A person's message always
-    /// passes (it resets both).
+    /// The loop guard, the owner's own rule (`cmux_conversation`
+    /// `thread_agent_streak`, `MAX_AGENT_TURNS`): a message by another Chief
+    /// wakes this one only while the thread its reply goes into
+    /// (`membership::thread_target`, else the top level) holds fewer agent
+    /// texts since a person's text there
+    /// than the budget. Past it the owner refuses the reply (`agent_budget`),
+    /// so the Chief stays quiet instead of running that turn. A person's
+    /// message always passes (it resets its thread).
     fn under_chief_budget(
         &self,
         conversation: &str,
@@ -284,28 +285,20 @@ impl Brain {
         read: &[Message],
         message: &Message,
     ) -> bool {
-        use cmux_chief::rules::{CHIEF_TURN_BUDGET, chief_streak, is_chief, owner_agent_streak};
+        use cmux_chief::rules::is_chief;
+        use cmux_conversation::{MAX_AGENT_TURNS, thread_agent_streak};
         if !is_chief(summary, &message.author) {
             return true;
         }
-        // At the newest message read (of the thread, of the conversation):
-        // the reply goes after it.
-        let root = cmux_chief::rules::reply_thread(message);
-        let thread_tail = read
-            .iter()
-            .rev()
-            .find(|m| m.thread_root.as_deref() == Some(root) || m.id == root)
-            .filter(|m| m.seq > message.seq)
-            .unwrap_or(message);
-        let tail = read
-            .last()
-            .filter(|m| m.seq > message.seq)
-            .unwrap_or(message);
-        let streak = chief_streak(summary, read, thread_tail);
-        let owner = owner_agent_streak(summary, read, tail);
-        if streak >= CHIEF_TURN_BUDGET || owner >= cmux_conversation::MAX_AGENT_TURNS {
+        // Where the reply goes (`membership::thread_target`): the message's
+        // thread in a group conversation, else the top level.
+        let target = crate::membership::thread_target(summary, message).map(|(root, _)| root);
+        let newest_first: Vec<Message> = read.iter().rev().cloned().collect();
+        let streak = thread_agent_streak(&summary.participants, &newest_first, target.as_deref());
+        if streak >= MAX_AGENT_TURNS {
+            let place = target.as_deref().unwrap_or("top level");
             (self.log)(&format!(
-                "{conversation}: Chiefs paused ({streak} Chief messages in this thread, {owner} agent messages in the conversation since a person wrote); {} stays quiet",
+                "{conversation}: Chiefs paused ({streak} agent messages in thread {place} since a person wrote there); {} stays quiet",
                 message.id
             ));
             return false;

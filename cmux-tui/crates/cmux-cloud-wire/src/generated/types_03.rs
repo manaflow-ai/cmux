@@ -5,6 +5,42 @@
 use super::*;
 
 wire_enum! {
+    TeamDomainState {
+        Pending = "pending",
+        Verified = "verified",
+        Lost = "lost",
+        Lapsed = "lapsed",
+    }
+}
+
+/// A team; a personal account is a team of one.
+pub type TeamId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationPolicy {
+    pub allowed_providers: Option<Vec<IntegrationProvider>>,
+    pub github: TeamIntegrationPolicyGithub,
+    pub source: TeamIntegrationPolicySource,
+    pub locked: bool,
+    pub updated_at: Option<i64>,
+    pub updated_by: Option<String>,
+}
+
+wire_enum! {
+    TeamIntegrationPolicyGithubScope {
+        LinkingUserRepos = "linking_user_repos",
+        Installation = "installation",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationPolicyGithub {
+    pub scope: TeamIntegrationPolicyGithubScope,
+    pub require_org_admin: bool,
+    pub repo_allowlist: Option<Vec<RepoPattern>>,
+}
+
+wire_enum! {
     TeamIntegrationPolicySource {
         Default = "default",
         Admin = "admin",

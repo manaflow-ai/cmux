@@ -45,6 +45,17 @@ Settings are the `editor` section of the settings store, with Monaco's and VS Co
 | `editor.stickyScroll.enabled`                                               | `true`                                                                          |                                                                                      |
 | `editor.folding`, `editor.guides.indentation`, `editor.renderLineHighlight` | `true`, `true`, `"line"`                                                        |                                                                                      |
 | `editor.scrollBeyondLastLine`, `editor.autoClosingBrackets`                 | `false`, `true`                                                                 |                                                                                      |
+| `editor.autoClosingQuotes`, `editor.linkedEditing`                          | follows `autoClosingBrackets`, `false`                                          |                                                                                      |
+| `editor.letterSpacing`, `editor.renderControlCharacters`                    | `0`, `true`                                                                     |                                                                                      |
+| `editor.guides.bracketPairs`, `editor.matchBrackets`                        | `false`, `"always"`                                                             |                                                                                      |
+| `editor.cursorSmoothCaretAnimation`, `editor.cursorSurroundingLines`        | `"off"`, `0`                                                                    |                                                                                      |
+| `editor.multiCursorModifier`, `editor.mouseWheelZoom`                       | `"alt"`, `false`                                                                | `"ctrlCmd"`: Cmd-click adds a cursor                                                 |
+| `editor.quickSuggestions`, `editor.wordBasedSuggestions`                    | `false`, `true`                                                                 | VS Code's object and string forms work too                                           |
+| `editor.acceptSuggestionOnEnter`, `editor.emptySelectionClipboard`          | `"on"`, `true`                                                                  |                                                                                      |
+| `editor.find.seedSearchStringFromSelection`                                 | `"always"`                                                                      |                                                                                      |
+| `editor.trimTrailingWhitespace`, `editor.insertFinalNewline`                | `false`, `false`                                                                | on Cmd-S, as one undoable edit                                                       |
+| `editor.keybindings`                                                        | `[]`                                                                            | VS Code's `keybindings.json` entries: `{key, command, when}`, `-command` removes     |
+| `editor.importFrom`                                                         | `"auto"`                                                                        | `vscode`, `cursor`, `windsurf`, `vscodium`, `zed`, `none` (below)                    |
 | `editor.formatOnSave`                                                       | `false`                                                                         | runs a registered formatter; none ship yet                                           |
 | `editor.autoSave`, `editor.autoSaveDelay`                                   | `"afterDelay"`, `1000`                                                          | `"off"`: Cmd-S and the host's flush only                                             |
 | `editor.largeFileThreshold`                                                 | `8388608`                                                                       | `0` turns it off                                                                     |
@@ -52,32 +63,43 @@ Settings are the `editor` section of the settings store, with Monaco's and VS Co
 | `editor.toolbar`, `editor.statusBar`                                        | `true`, `true`                                                                  |                                                                                      |
 | `editor.languages.<id>`                                                     | built-in: tabs for `make`, `go`; wrap for `markdown`; ruler 72 for `git-commit` | `tabSize`, `insertSpaces`, `detectIndentation`, `wordWrap`, `rulers`, `formatOnSave` |
 
+Every key except `keybindings` and `languages` is a row in Settings > Code Editor (`EditorSettingsSchema.swift`), so the toolbar's Word Wrap and Minimap toggles and Opt-Z write through the settings store (a key the schema does not list is refused).
+
+### Defaults from VS Code or Zed
+
+`editor.importFrom` (default `auto`: the first of VS Code, Cursor, Windsurf, VSCodium, Zed that has a `settings.json`) gives the editor its defaults from that editor's files: `~/Library/Application Support/<Code|Cursor|Windsurf|VSCodium>/User/settings.json` and `keybindings.json`, or `~/.config/zed/settings.json` and `keymap.json`. The host reads them (`EditorSettingsSources`), maps the keys the editor reads (`EditorSettingsImport`: VS Code's `editor.*`, `files.autoSave`, `files.trimTrailingWhitespace`, `files.insertFinalNewline`, `"[lang]"` blocks, editor command bindings; Zed's `buffer_font_*`, `tab_size`, `hard_tabs`, `soft_wrap`, `wrap_guides`, `cursor_*`, `show_whitespaces`, `autosave`, `languages`, and `Editor` bindings with a Monaco command), watches them, and puts them under the `editor` section of cmux.json: a key set there wins. The other editor's files are never written. **Copy Settings from VS Code or Zed** (palette, Settings > Code Editor, `cmux settings import-editor-settings`) writes the mapped values into cmux.json for every key cmux.json does not set, so they show in Settings and stop following the other editor.
+
 Look: `--cmux-editor-*` custom properties (`settings.ts` `EDITOR_STYLE_DEFAULTS`, the same defaults in `styles.css`), then `<config dir>/editor/theme.css` last. The editor's colors are Monaco theme colors resolved from these properties, so theme.css restyles Monaco in place: `--cmux-editor-background`, `-foreground`, `-line-highlight`, `-selection`, `-cursor`, `-line-number`, `-line-number-active`, `-indent-guide`, `-whitespace`, `-ruler`, `-scrollbar`, `-scrollbar-hover`, `-widget-background`, `-widget-border`; chrome only: `-chrome-font-size`, `-toolbar-height`, `-status-height`, `-banner-background`, `-error-color`. Any Monaco `--vscode-*` color can also be set on `.monaco-editor`.
 
 ## Keys
 
 Monaco handles typing, navigation and its editing chords inside the editor. The app's key dispatcher resolves every chord first, so a chord the app binds without a context never reaches Monaco. App actions reach the page as page commands (`keys.ts`): `save`, `find`, `findNext`, `findPrevious`, `useSelectionForFind`, `hideFind`, `replace`, `gotoLine`, `zoomIn`, `zoomOut`, `zoomReset`, and `editorAction` with a Monaco action id from `EDITOR_ACTIONS`, so an editor-scoped binding can run any of them without a page change.
 
-The editor page sets `codeEditorFocused` (the focused page is `cmux.editor`). While it has the keyboard, the default bindings of the actions in `KeyBindingDefaults.yieldsToCodeEditor` step aside, so their keys reach Monaco (R127); a user binding keeps its own `when`. App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9, Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) stay the app's. Cmd-S, word wrap and the editor actions below need `codeEditorFocused`.
+The editor page sets `codeEditorFocused` (the focused page is `cmux.editor`, or, when the focus model has not caught up, the window's first responder is the editor's web view). While it has the keyboard, the default bindings of the actions in `KeyBindingDefaults.yieldsToCodeEditor` step aside, so their keys reach Monaco (R127); a user binding keeps its own `when`. App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9, Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) stay the app's. Cmd-S, word wrap and the editor actions below need `codeEditorFocused`.
 
-| Key                        | App action (default)                             | In the editor                                                  |
-| -------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
-| Cmd-S                      | `saveFilePreview`                                | the `save` page command                                        |
-| Cmd-F, Cmd-G, Cmd-E        | `find`, `findNext`, `useSelectionForFind`        | the same through page commands                                 |
-| Opt-Cmd-G                  | `findPrevious`                                   | the same through a page command                                |
-| Ctrl-G                     | `fileEditorGotoLine`                             | the `gotoLine` page command                                    |
-| Cmd-=, Cmd--, Cmd-0        | `fileEditorZoomIn`, `ZoomOut`, `ZoomReset`       | the zoom page commands                                         |
-| Shift-Cmd-G                | `groupSelectedWorkspaces` (yields)               | Monaco: previous match                                         |
-| Cmd-D                      | `splitRight` (yields)                            | Monaco: add selection to next match                            |
-| Shift-Cmd-L                | `openBrowser` (yields)                           | Monaco: select all occurrences                                 |
-| Opt-Cmd-Up, Opt-Cmd-Down   | `focusUp`, `focusDown` (yield)                   | Monaco: add cursor above, below                                |
-| Shift-Opt-Cmd-arrows       | `moveSurfaceToPane*` (yield)                     | Monaco: column selection                                       |
-| Opt-Cmd-[, Opt-Cmd-]       | `space.previous`, `space.next` (yield)           | Monaco: fold, unfold                                           |
-| Opt-Cmd-F                  | `globalSearch` (yields)                          | Monaco: replace                                                |
-| Cmd-I                      | `palette.newAgentChat` (yields)                  | Monaco: trigger suggest                                        |
-| Cmd-L                      | `focusLocation` (yields)                         | Monaco: expand line selection                                  |
-| Shift-Cmd-I                | `feed.show`                                      | the app's (Monaco binds nothing there)                         |
-| Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` | the app's; Monaco's insert line below/above via `editorAction` |
-| Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`   | the app's (no symbol providers in the editor)                  |
+| Key                        | App action (default)                                     | In the editor                                                                      |
+| -------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Cmd-S                      | `saveFilePreview`                                        | the `save` page command                                                            |
+| Cmd-F, Cmd-G, Cmd-E        | `find`, `findNext`, `useSelectionForFind`                | the same through page commands                                                     |
+| Opt-Cmd-G                  | `findPrevious`                                           | the same through a page command                                                    |
+| Ctrl-G                     | `fileEditorGotoLine`                                     | the `gotoLine` page command                                                        |
+| Cmd-=, Cmd--, Cmd-0        | `fileEditorZoomIn`, `ZoomOut`, `ZoomReset`               | the zoom page commands                                                             |
+| Shift-Cmd-G                | `groupSelectedWorkspaces` (yields)                       | Monaco: previous match                                                             |
+| Cmd-D                      | `splitRight` (yields)                                    | Monaco: add selection to next match                                                |
+| Shift-Cmd-L                | `openBrowser` (yields)                                   | Monaco: select all occurrences                                                     |
+| Opt-Cmd-Up, Opt-Cmd-Down   | `focusUp`, `focusDown` (yield)                           | Monaco: add cursor above, below                                                    |
+| Shift-Opt-Cmd-arrows       | `moveSurfaceToPane*` (yield)                             | Monaco: column selection                                                           |
+| Opt-Cmd-[, Opt-Cmd-]       | `space.previous`, `space.next` (yield)                   | Monaco: fold, unfold                                                               |
+| Opt-Cmd-F                  | `globalSearch` (yields)                                  | Monaco: replace                                                                    |
+| Cmd-I                      | `palette.newAgentChat` (yields)                          | Monaco: trigger suggest                                                            |
+| Cmd-L                      | `focusLocation` (yields)                                 | Monaco: expand line selection                                                      |
+| Shift-Cmd-I                | `feed.show`                                              | the app's (Monaco binds nothing there)                                             |
+| Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` (yield) | Monaco: insert line below, above                                                   |
+| Opt-Z                      | (none: not a Command chord)                              | the page's `editor.action.toggleWordWrap` (VS Code's id): writes `editor.wordWrap` |
+| Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`           | the app's (no symbol providers in the editor)                                      |
+
+Ghostty's own default keybinds (`super+d=new_split:right`, `super+alt+up=goto_split:up`...) never win in the editor; a keybind the user wrote in their Ghostty config still does. Cmd-[ and Cmd-] are outdent and indent there, never consumed as browser-only Back / Forward.
+
+Key sequences: while Monaco waits for the second key of a sequence (Cmd-K Cmd-0 fold all, Cmd-K Cmd-J unfold all, Cmd-K Cmd-C comment), the page tells the host (`cmux.editor.keySequence {pending}`, from the keybinding service's `inChordMode`), and the dispatcher lets the next key reach the editor (only a system chord such as Quit still runs; a report older than 5 s no longer counts).
 
 Chords bound only under other contexts (Cmd-[ and Cmd-] for `browserFocused`, the Cmd-K chords for `agentPaneFocused`, Ctrl-D/N/P for the diff viewer and palette, Shift-Cmd-K for the terminal) stay Monaco's in the editor. The dev server's dispatcher (`devKeys.ts`) takes the same chords.

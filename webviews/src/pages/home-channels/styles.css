@@ -67,7 +67,8 @@ body,
   font-weight: 600;
   cursor: default;
 }
-.hc-text-button:hover:not(:disabled) {
+/* The quiet hover is for outline buttons only: a filled button keeps its fill under the pointer. */
+.hc-text-button:not(.primary, .danger):hover:not(:disabled) {
   background: var(--page-hover);
 }
 .hc-text-button.primary {
@@ -75,14 +76,22 @@ body,
   background: var(--page-text);
   color: var(--hc-on-text);
 }
-.hc-text-button.primary:disabled {
-  opacity: 0.4;
-}
 .hc-text-button.danger {
   border-color: transparent;
   background: var(--hc-danger);
   /* Danger is fitted against the app theme's window, so that is its ink. */
   color: var(--cmux-app-window, var(--cmux-surface-solid, Canvas));
+}
+/* Hover makes a filled button a little stronger: the same fill with a soft ring of its own color. */
+.hc-text-button.primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--page-text) 28%, transparent);
+}
+.hc-text-button.danger:hover:not(:disabled) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hc-danger) 35%, transparent);
+}
+.hc-text-button.primary:disabled,
+.hc-text-button.danger:disabled {
+  opacity: 0.4;
 }
 .hc-tag {
   padding: 0 5px;
@@ -93,46 +102,6 @@ body,
   color: var(--page-text-2);
   background: var(--hc-fill-strong);
 }
-.hc-add-channel.ui-popover {
-  width: 300px;
-  padding: 14px;
-}
-.hc-add-channel form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.hc-add-title {
-  margin: 0;
-  font-size: var(--text-title);
-  font-weight: 700;
-}
-.hc-add-label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 0;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  font-weight: 600;
-}
-.hc-add-members {
-  max-height: 220px;
-  overflow-y: auto;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.hc-add-members .hc-pick-row input {
-  margin: 0;
-}
-.hc-add-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 /* ---------- Avatar ---------- */
 .hc-avatar {
   font-size: var(--text-caption);
@@ -153,6 +122,17 @@ body,
 }
 .hc-avatar.chief {
   box-shadow: inset 0 0 0 1.5px var(--hc-accent);
+}
+/* A picture fills the tile's shape (circle for people, rounded square for agents). */
+.hc-avatar.picture {
+  background: none;
+}
+.hc-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
 }
 .hc-error {
   display: flex;
@@ -350,12 +330,20 @@ body,
     animation: hc-writing 1.4s ease-in-out infinite;
   }
 }
+/* Static status indicators (cx-sya4n), where a page gets the pane's theme: no pulse. */
+:root[data-status-indicators="static"] .hc-writing {
+  animation: none;
+}
 @keyframes hc-writing {
   50% {
     opacity: 0.45;
   }
 }
 
+/* The row's content, as one right-click target that keeps the row's layout. */
+.hc-msg-menu-host {
+  display: contents;
+}
 /* The hover card: on the row's top edge at the end, over the row above, never in the flow. */
 /* Hidden by opacity only, so Tab still reaches it (one stop per row; the arrows move inside). */
 .hc-msg-actions {
@@ -383,7 +371,7 @@ body,
   border: 1px solid var(--page-separator);
   border-radius: 8px;
   background: var(--surface-popup);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.12);
+  box-shadow: var(--elevation-2);
 }
 .hc-tool.ui-toolbar-button,
 .hc-tool {
@@ -404,6 +392,13 @@ body,
 .hc-tool[aria-pressed="true"] {
   background: var(--hc-fill-strong);
   color: var(--page-text);
+}
+/* The hover-actions experiment's "one" arm: More alone, framed as the card. */
+.hc-tool.hc-msg-more {
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+  background: var(--surface-popup);
+  box-shadow: var(--elevation-2);
 }
 .hc-tool-glyph {
   display: inline-grid;
@@ -749,4 +744,8 @@ body,
 }
 .hc-gate-error {
   color: var(--hc-danger);
+}
+/* The field's right-click menu host adds no box of its own. */
+.hc-composer-field-menu {
+  display: contents;
 }

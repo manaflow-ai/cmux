@@ -8,7 +8,8 @@
 //! environment (`CMUX_AGENT_START_HOST`), which can only make the daemon
 //! stricter than what it detects.
 
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::mpsc;
 
 use serde_json::{Value, json};
 
@@ -16,8 +17,18 @@ use super::*;
 
 #[path = "agent_chat_notices.rs"]
 mod agent_chat_notices;
+#[path = "agent_focus_cli.rs"]
+mod agent_focus_cli;
 #[path = "agent_home_reopen.rs"]
 mod agent_home_reopen;
+#[path = "agents_chat_tools.rs"]
+mod agents_chat_tools;
+#[path = "agents_cli_receipt.rs"]
+mod agents_cli_receipt;
+#[path = "agents_events_cli.rs"]
+mod agents_events_cli;
+#[path = "agents_wait_cli.rs"]
+mod agents_wait_cli;
 
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../acpmux/tests/fake_agent.py");
 /// The app's install key, so one connection can prove itself the verified
@@ -258,7 +269,7 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
         let _ = Command::new(bin())
-            .args(["acp", "daemon", "shutdown"])
+            .args(["acp", "daemon", "shutdown", "--end-agents"])
             .env("HOME", self.dir.join("home"))
             .env("ACPMUX_HOME", self.dir.join("acpmux"))
             .output();
@@ -374,6 +385,81 @@ fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
     assert_eq!(started["ok"], true, "{started}");
     assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
+
+/// An acpmux stand-in on the machine's socket that answers a start's calls
+/// with a trusted folder and an asking session, and hands every `session/new`
+/// params it receives to the test.
+fn fake_acpmux(socket: PathBuf) -> mpsc::Receiver<Value> {
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                let mut writer = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { return };
+                    let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
+                    let Some(id) = message.get("id").cloned() else { continue };
+                    let params = &message["params"];
+                    let modes = json!({"refusedFamilies": [], "families": {"fake": ["ask"]}});
+                    let result = match message["method"].as_str().unwrap_or_default() {
+                        "_acpmux/web_modes" if params.get("sessionId").is_some() => json!({
+                            "refusedFamilies": [], "families": {"fake": ["ask"]},
+                            "session": {"family": "fake", "mode": "ask"},
+                        }),
+                        "_acpmux/web_modes" => modes,
+                        "_acpmux/harnesses" => {
+                            json!({"defaultHarness": "fake", "families": {"fake": {}}})
+                        }
+                        "acp.trust.get" => {
+                            json!({"cwd": params["cwd"], "decided": true, "level": "trusted"})
+                        }
+                        "session/new" => {
+                            let _ = sender.send(params.clone());
+                            json!({"sessionId": "fake-session-1"})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = json!({"jsonrpc": "2.0", "id": id, "result": result});
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    receiver
+}
+
+/// The agent of a chat started on this machine works in the workspace of
+/// its tab (cx-ncc.5): the daemon names that workspace to acpmux on
+/// `session/new` (`_meta.acpmux.workspaceId`, which picks the session's
+/// display), with no session env. The client never names it.
+#[test]
+fn agent_session_start_sends_the_tab_workspace_to_acpmux() {
+    let daemon = Daemon::start_with("wsid", None, None);
+    let new_sessions = fake_acpmux(daemon.dir.join("acpmux/acpmux.sock"));
+    let identity = daemon.rpc(json!({"id": 1, "cmd": "identify"}));
+    let session_id = identity["data"]["session_id"].as_str().unwrap().to_owned();
+    let workspace = daemon.rpc(json!({"id": 2, "cmd": "create-workspace", "name": "wsid"}));
+    assert_eq!(workspace["ok"], true, "{workspace}");
+    let key = workspace["data"]["key"].as_str().unwrap().to_owned();
+    let tab = daemon.rpc(json!({"id": 3, "cmd": "new-conversation-tab",
+                               "workspace": workspace["data"]["workspace"],
+                               "agent_session": {"host": format!("registry:{session_id}")}}));
+    assert_eq!(tab["ok"], true, "{tab}");
+    let surface = tab["data"]["surface"].as_u64().unwrap();
+    let started = daemon.start_chat(surface);
+    assert_eq!(started["ok"], true, "{started}");
+    let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
+    let acpmux = &new["_meta"]["acpmux"];
+    assert_eq!(acpmux["workspaceId"], json!(key), "{new}");
+    assert_eq!(acpmux.get("env"), None, "{new}");
+    assert_eq!(acpmux["policy"], "ask", "{new}");
+    let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 
 /// The person answers the folder trust question of a chat of this machine
@@ -507,4 +593,214 @@ fn only_the_agent_page_reads_folder_trust_and_its_answer_needs_the_persons_gestu
         unknown["error"]["details"]["extra"]["code"], "agent_session.unknown_tab",
         "{unknown}"
     );
+}
+
+/// A person key as `acp daemon start --person-key-fd 0` reads it (test value).
+const PERSON_KEY_HEX: &str = "5a0d1c2b3a4958677665544332211000ffeeddccbbaa99887766554433221109";
+
+impl Daemon {
+    /// `agent-session-start` as an app that signs relayed allows sends it
+    /// (cx-0w0jj): it needs a person key for `instance` in acpmux.
+    fn keyed_start(&self, surface: u64, instance: Option<&str>) -> Value {
+        let work = self.dir.join("work");
+        let mut request = json!({"id": 30, "cmd": "agent-session-start", "surface": surface,
+                                 "cwd": work.to_str().unwrap(), "require_person_key": true});
+        if let Some(instance) = instance {
+            request["person_instance"] = json!(instance);
+        }
+        self.rpc(request)
+    }
+
+    fn acpmux_status(&self) -> Value {
+        self.acpmux_call("_acpmux/status", json!({}))["result"].clone()
+    }
+
+    /// Polls this machine's acpmux status until `done` holds (bounded).
+    fn acpmux_status_until(&self, done: impl Fn(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let status = self.acpmux_status();
+            if done(&status) || Instant::now() > deadline {
+                return status;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// The typed refusal of a start that needs this app's person key: its code
+/// and the facts the daemon read; never a run id or any key material.
+fn needs_keyed_start(reply: &Value, safe: bool, live: u64, remote: u64) {
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "agent_session.needs_keyed_start", "{reply}");
+    assert_eq!(
+        reply["data"],
+        json!({"reason": "needs_keyed_start", "safe_to_restart": safe,
+               "live_agents": live, "remote_sessions": remote}),
+        "{reply}"
+    );
+    assert!(!reply.to_string().contains(PERSON_KEY_HEX), "{reply}");
+}
+
+/// cx-0w0jj (hq-6d): the daemon decides whether a keyed restart of its
+/// acpmux can lose nothing. No key and acpmux down or idle: safe, and the
+/// check never starts an acpmux without a key; no key and a live agent: not
+/// safe. A start without `require_person_key` runs as before.
+#[test]
+fn a_start_that_needs_the_person_key_says_whether_a_restart_is_safe() {
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("keyed", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let identity = daemon.rpc(json!({"id": 20, "cmd": "identify"}));
+    let capabilities = identity["data"]["capabilities"].to_string();
+    assert!(capabilities.contains("agent-session-start-keyed-reason-v1"), "{identity}");
+    let socket = daemon.dir.join("acpmux/acpmux.sock");
+    // acpmux does not run: safe, and the check leaves it down.
+    needs_keyed_start(&daemon.keyed_start(surface, None), true, 0, 0);
+    assert!(UnixStream::connect(&socket).is_err(), "the keyed check started acpmux");
+    // A plain start brings acpmux up without a key (the folder is not trusted yet).
+    let untrusted = daemon.start_chat(surface);
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    let status = daemon.acpmux_status_until(|status| status["ready"] == true);
+    assert_eq!(status["personKey"], false, "{status}");
+    let idle = daemon.keyed_start(surface, Some("not-this-run"));
+    needs_keyed_start(&idle, true, 0, 0);
+    let instance = status["personInstance"].as_str().unwrap();
+    assert!(!idle.to_string().contains(instance), "{idle}");
+    // A live agent: not safe.
+    let work = daemon.dir.join("work");
+    let trust = daemon.acpmux_call("acp.trust.set", json!({"cwd": work, "level": "trusted"}));
+    assert!(trust.get("error").is_none(), "{trust}");
+    let started = daemon.start_chat(surface);
+    assert_eq!(started["ok"], true, "{started}");
+    let status = daemon.acpmux_status_until(|status| status["liveAgents"] == 1);
+    assert_eq!(status["liveAgents"], 1, "{status}");
+    let other = daemon.own_agent_tab();
+    needs_keyed_start(&daemon.keyed_start(other, None), false, 1, 0);
+}
+
+/// cx-0w0jj: a session proxied from a peer acpmux makes a keyed restart
+/// unsafe too (a restart would end the peer link the person uses).
+#[test]
+fn a_peer_session_makes_the_keyed_restart_unsafe() {
+    let daemon = Daemon::start("keyedpeer", None);
+    let surface = daemon.own_agent_tab();
+    // The peer: a second acpmux of the same user with one session, on a loopback listener.
+    let peer_home = daemon.dir.join("peer");
+    fs::create_dir_all(&peer_home).unwrap();
+    fs::set_permissions(&peer_home, fs::Permissions::from_mode(0o700)).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let configured = "p".repeat(32);
+    let config = json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE_AGENT], "family": "fake"}},
+        "defaultHarness": "fake",
+        "websocket": {"listen": format!("127.0.0.1:{port}"), "token": configured},
+    });
+    fs::write(peer_home.join("config.json"), config.to_string()).unwrap();
+    let peer = PeerAcpmux { home: daemon.dir.join("home"), acpmux: peer_home.clone() };
+    let up = peer.command(&["acp", "--json", "daemon", "start"]).output().unwrap();
+    assert!(up.status.success(), "{}", String::from_utf8_lossy(&up.stderr));
+    // The peer's dashboard token as the daemon reports it (its web URL).
+    let peer_status = peer.call("_acpmux/status", json!({}));
+    let web_url = peer_status["result"]["webUrl"].as_str().expect("the peer's web URL").to_owned();
+    let token = web_url.split("token=").nth(1).expect("a token in the web URL").to_owned();
+    let listen = peer_status["result"]["listen"].as_str().expect("the peer's listen").to_owned();
+    let work = daemon.dir.join("work");
+    let created = peer.call("session/new", json!({"cwd": work, "mcpServers": []}));
+    assert!(created["result"]["sessionId"].is_string(), "{created}");
+    // This machine's acpmux, up without a key, mirrors the peer's session.
+    let untrusted = daemon.start_chat(surface);
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    let peer_token = fs::read_to_string(peer_home.join("run/peer.token")).unwrap();
+    let added = daemon.acpmux_call(
+        "_acpmux/peer_add",
+        json!({"name": "other", "url": format!("ws://{listen}"), "token": token,
+               "peerToken": peer_token.trim(), "wait": true}),
+    );
+    assert!(added.get("error").is_none(), "{added}");
+    let status = daemon.acpmux_status_until(|status| status["remoteSessions"] == 1);
+    assert_eq!(status["remoteSessions"], 1, "{status}");
+    assert_eq!(status["liveAgents"], 0, "{status}");
+    needs_keyed_start(&daemon.keyed_start(surface, None), false, 0, 1);
+}
+
+/// cx-0w0jj: a caller that holds the key of the running acpmux passes the
+/// keyed check (the start goes on to the folder trust check); the same
+/// daemon run named wrongly, or not at all, is refused, and the refusal
+/// names neither the run nor the key.
+#[test]
+fn a_keyed_caller_passes_the_keyed_check() {
+    let daemon = Daemon::start("keyedok", None);
+    let surface = daemon.own_agent_tab();
+    let acpmux = PeerAcpmux { home: daemon.dir.join("home"), acpmux: daemon.dir.join("acpmux") };
+    let mut child = acpmux
+        .command(&["acp", "--json", "daemon", "start", "--person-key-fd", "0"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(format!("{PERSON_KEY_HEX}\n").as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let status = daemon.acpmux_status_until(|status| status["ready"] == true);
+    assert_eq!(status["personKey"], true, "{status}");
+    let instance = status["personInstance"].as_str().unwrap().to_owned();
+    let passed = daemon.keyed_start(surface, Some(&instance));
+    assert_eq!(passed["error_code"], "agent_session.untrusted_folder", "{passed}");
+    let wrong = daemon.keyed_start(surface, Some("another-run"));
+    needs_keyed_start(&wrong, true, 0, 0);
+    let unnamed = daemon.keyed_start(surface, None);
+    needs_keyed_start(&unnamed, true, 0, 0);
+    assert!(!wrong.to_string().contains(&instance), "{wrong}");
+    // A bad run id is a bad request.
+    let bad = daemon.keyed_start(surface, Some("no spaces"));
+    assert_eq!(bad["error_code"], "agent_session.bad_request", "{bad}");
+}
+
+/// An acpmux of this test's user other than the daemon's own (a peer), or
+/// the daemon's own acpmux driven through the CLI; stopped on drop.
+struct PeerAcpmux {
+    home: PathBuf,
+    acpmux: PathBuf,
+}
+
+impl PeerAcpmux {
+    fn command(&self, args: &[&str]) -> Command {
+        let mut command = Command::new(bin());
+        command
+            .args(args)
+            .env("HOME", &self.home)
+            .env("ACPMUX_HOME", &self.acpmux)
+            .env_remove("ACPMUX_SOCKET")
+            .stdin(Stdio::null());
+        command
+    }
+
+    fn call(&self, method: &str, params: Value) -> Value {
+        let stream = UnixStream::connect(self.acpmux.join("acpmux.sock")).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut reader = BufReader::new(stream);
+        let request = json!({"jsonrpc": "2.0", "id": 9, "method": method, "params": params});
+        writeln!(reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(reader.read_line(&mut line).unwrap(), 0, "acpmux closed the connection");
+            let message: Value = serde_json::from_str(&line).unwrap();
+            if message["id"] == 9 {
+                return message;
+            }
+        }
+    }
+}
+
+impl Drop for PeerAcpmux {
+    fn drop(&mut self) {
+        let _ = self.command(&["acp", "daemon", "shutdown", "--end-agents"]).output();
+    }
 }

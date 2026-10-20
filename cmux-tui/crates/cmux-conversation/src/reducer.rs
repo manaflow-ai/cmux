@@ -217,6 +217,7 @@ pub fn create(request: &CreateRequest<'_>) -> Result<ConversationHead, Reject> {
         read_cursors: Default::default(),
         agent_text_streak: 0,
         last_agent_text_at: None,
+        thread_agent_streaks: Default::default(),
     })
 }
 
@@ -314,14 +315,11 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
             // The loop guard counts text only; a work card neither counts nor resets it.
+            // It counts in the thread the message joins (budget.rs).
             if parts.iter().any(Part::counts_as_turn) {
                 let author = head.participant(request.actor);
-                if author.is_some_and(|p| p.kind == ParticipantKind::Agent) {
-                    next.agent_text_streak = head.agent_text_streak.saturating_add(1);
-                    next.last_agent_text_at = Some(now.to_string());
-                } else {
-                    next.agent_text_streak = 0;
-                }
+                let agent = author.is_some_and(|p| p.kind == ParticipantKind::Agent);
+                crate::budget::with_turn(&mut next, thread_root.as_deref(), agent, now, None);
             }
             let message = Message {
                 id: request.new_message_id.to_string(),
@@ -461,8 +459,10 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 return Err(Reject::InvalidPartIndex);
             };
             crate::question::answer(question, answer, actor, now)?;
-            // A person's answer is a human turn: the agent may go on.
-            next.agent_text_streak = 0;
+            // A person's answer (human only) is a person's turn in the
+            // question's thread: agents may go on there.
+            let thread_root = message.thread_root.clone();
+            crate::budget::with_turn(&mut next, thread_root.as_deref(), false, now, None);
             updated(message)
         }
         // A thread object lives on its root (conversation-thread-objects-v1).

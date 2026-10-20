@@ -103,6 +103,160 @@ import Testing
         #expect(players.count == 0, "a closed window keeps its video decoder")
     }
 
+    /// Waits up to `seconds` for `condition` (AVFoundation readies items on its own schedule).
+    func eventually(_ seconds: Double = 5, _ condition: () -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            if Date() > deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
+    /// A video no one can see for a minute frees its decoder and frame buffers, and comes back at
+    /// the exact frame it held. One held for Low Power Mode or Reduce Motion is still on screen:
+    /// it keeps them, so its frame never drops to the poster in front of someone.
+    @Test func aVideoNoOneCanSeeGivesBackItsDecoderAndPicksUpWhereItWas() async throws {
+        let clip = try await Self.clip()
+        let players = BackdropVideoPlayers()
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        let url = try #require(h.video.url)
+        let player = try #require(h.video.playerLayer.player as? AVQueuePlayer)
+        #expect(!player.items().isEmpty && h.video.isPlaying)
+        h.video.lowPowerOverride = true
+        #expect(!h.video.isPlaying && h.video.canBeSeen)
+        players.releaseIfUnseen(url)
+        #expect(!players.isReleased(url) && !player.items().isEmpty, "a paused video someone can see lost its frame")
+        h.video.lowPowerOverride = false
+        // Held one second in, then hidden and released.
+        h.video.visibleOverride = false
+        #expect(try await eventually { player.currentItem?.status == .readyToPlay })
+        await player.seek(to: CMTime(seconds: 1, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        #expect(!h.video.canBeSeen)
+        players.releaseIfUnseen(url)
+        #expect(players.isReleased(url) && player.items().isEmpty, "a video no one can see keeps its decoder")
+        #expect(players.count == 1, "the released player left the shared set")
+        // Seen again, held still (Low Power) so a restart from 0 cannot pass by playing up to the
+        // mark: the same player, new items, back at the second it held.
+        h.video.lowPowerOverride = true
+        h.video.visibleOverride = true
+        #expect(!players.isReleased(url) && !player.items().isEmpty, "the video does not come back when seen again")
+        #expect(h.video.playerLayer.player === player, "the window's layer lost its player")
+        #expect(try await eventually { !players.isRestoring(url) }, "the restored item never became ready")
+        #expect(try await eventually { player.currentTime().seconds > 0.95 }, "the restored video never sought back")
+        let resumed = player.currentTime().seconds
+        #expect(!h.video.isPlaying && resumed > 0.95 && resumed < 1.05, "the video came back at \(resumed)s, not at the second it held")
+        h.video.lowPowerOverride = false
+        #expect(h.video.isPlaying)
+    }
+
+    @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
+        let clip = try await Self.clip()
+        let clock = ManualClock()
+        let players = BackdropVideoPlayers(clock: clock)
+        let h = make(.file(path: clip.path), players: players)
+        defer { h.close() }
+        let url = try #require(h.video.url)
+        h.video.visibleOverride = false
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(40))
+        // Updates while hidden do not push the deadline back.
+        h.video.lowPowerOverride = true
+        h.video.lowPowerOverride = false
+        clock.advance(by: .seconds(15))
+        #expect(!players.isReleased(url), "the decoder went before the minute was up")
+        clock.advance(by: .seconds(6))
+        #expect(try await eventually(2) { players.isReleased(url) }, "the deadline moved with the updates, or never came")
+        // Seen again before a new minute: nothing is released.
+        h.video.visibleOverride = true
+        #expect(!players.isReleased(url))
+        clock.advance(by: .seconds(120))
+        #expect(!players.isReleased(url), "a video someone can see was released")
+    }
+
+    @Test func aVideoRestsWhileOtherWindowsHideNearlyAllOfItsWindow() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = []
+        h.video.windowsAboveOverride = { above }
+        // A browser over all but a 3% sliver: AppKit still calls the window visible.
+        let browser = CGRect(x: frame.minX - 50, y: frame.minY - 50, width: frame.width * 0.97 + 50, height: frame.height + 100)
+        above = [.init(bounds: browser, owner: "Safari")]
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "one sample rested the video; a window passing over must not")
+        h.video.sampleCoverage()
+        #expect(!h.video.isPlaying, "a window hidden but for a sliver still decodes its video")
+        // Half of it shows again: the video resumes after two samples agree.
+        above = [.init(bounds: CGRect(x: browser.minX, y: browser.minY, width: frame.width / 2 + 50, height: browser.height), owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "the video does not resume once the window shows again")
+        // A translucent window or the Dock over it hides nothing.
+        above = [.init(bounds: browser, alpha: 0.9, owner: "Terminal"), .init(bounds: browser, owner: "Dock")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a translucent window or the Dock rested the video")
+    }
+
+    /// The window's own overlay panel (a clear, full-size child window over any browser page or
+    /// toast) and floating windows hide nothing, and a window brought to the front plays at once.
+    @Test func theWindowsOwnPanelsAndFloatingWindowsNeverRestTheVideo() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        defer { h.close() }
+        let panel = NSPanel(contentRect: h.window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        panel.isReleasedWhenClosed = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        h.window.addChildWindow(panel, ordered: .above)
+        panel.orderFrontRegardless()
+        defer { h.window.removeChildWindow(panel); panel.close() }
+        let frame = BackdropVideoView.screenFrame(h.window.frame)
+        var above: [BackdropCoverage.Window] = []
+        h.video.windowsAboveOverride = { above }
+        // The window server numbers windows only on a host with a display; elsewhere the panel stays
+        // unnumbered, and the browser below must still rest the video past it.
+        if panel.windowNumber > 0 {
+            above = [.init(bounds: frame, number: panel.windowNumber)]
+            h.video.sampleCoverage()
+            h.video.sampleCoverage()
+            #expect(h.video.isPlaying, "the window's own overlay panel rested its video")
+        }
+        above = [.init(bounds: frame, layer: Int(CGWindowLevelForKey(.floatingWindow)))]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        #expect(h.video.isPlaying, "a floating window rested the video")
+        above = [.init(bounds: frame, owner: "Safari")]
+        h.video.sampleCoverage()
+        h.video.sampleCoverage()
+        try #require(!h.video.isPlaying, "a browser over the whole window did not rest the video")
+        h.window.becomeMain()
+        #expect(h.video.isPlaying, "a window brought to the front waits for coverage samples to play")
+    }
+
+    @Test func turningAnimationsOffHoldsTheVideoAtOnce() async throws {
+        let clip = try await Self.clip()
+        let h = make(.file(path: clip.path), players: BackdropVideoPlayers())
+        let speed = DesignSettings.shared.animationSpeed
+        defer {
+            DesignSettings.shared.animationSpeed = speed
+            h.close()
+        }
+        // The system's Reduce Motion stays pinned off; only ui.animationSpeed changes.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        h.video.reduceMotionOverride = nil
+        DesignSettings.shared.animationSpeed = .fast
+        #expect(h.video.isPlaying)
+        DesignSettings.shared.animationSpeed = .off
+        #expect(!h.video.isPlaying, "the video loops on after animations were turned off")
+        DesignSettings.shared.animationSpeed = .normal
+        #expect(h.video.isPlaying, "the video stays still after animations were turned back on")
+    }
+
     /// A Mac with Apple's moving wallpaper in a light, a dark and a portrait cut, and one downloaded aerial.
     func mac() async throws -> (pictures: URL, aerials: URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-moving-wallpapers-\(UUID().uuidString)", isDirectory: true)

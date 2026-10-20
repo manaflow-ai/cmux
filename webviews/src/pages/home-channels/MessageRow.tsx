@@ -6,13 +6,14 @@
 import { memo, useState, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
+import { MessageAttachments } from "./AttachmentViews";
 import { Avatar } from "./Avatar";
 import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
 import { MessageRuns } from "./RunCard";
-import type { HomeMessage, HomeParticipant, HomePart } from "./types";
+import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
   message: HomeMessage;
@@ -78,13 +79,8 @@ export const MessageRow = memo(function MessageRow({
   const textOnly = message.parts.length > 0 && message.parts.every((part) => part.type === "text");
   const own = !message.retracted && message.author === me && pending === undefined;
   const canEdit = own && textOnly && onEdit !== undefined && onEditStart !== undefined;
-  return (
-    <article
-      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
-      aria-label={`${author?.name ?? message.author}, ${time}`}
-      aria-current={focused ? "true" : undefined}
-      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
-    >
+  const body = (
+    <>
       <div className="hc-msg-gutter">
         {head ? <Avatar participant={author} size={20} /> : <time className="hc-msg-hover-time">{time}</time>}
       </div>
@@ -112,7 +108,18 @@ export const MessageRow = memo(function MessageRow({
             }}
           />
         ) : (
-          message.parts.map((part, index) => <Part key={index} part={part} strings={strings} />)
+          <>
+            {message.parts.map((part, index) => (
+              <Part key={index} part={part} strings={strings} />
+            ))}
+            {message.parts.some((part) => part.type === "attachment") && (
+              <MessageAttachments
+                conversation={message.conversation}
+                parts={message.parts.filter((part): part is HomeAttachment => part.type === "attachment")}
+                strings={strings}
+              />
+            )}
+          </>
         )}
         {message.editedAt && !message.retracted && !editing && (
           <span className="hc-msg-edited">{t("message.edited")}</span>
@@ -150,20 +157,31 @@ export const MessageRow = memo(function MessageRow({
           </div>
         )}
       </div>
-      {!message.retracted && !editing && pending === undefined && (
-        <MessageActions
-          strings={strings}
-          canEdit={canEdit}
-          canDelete={own && onRetract !== undefined}
-          onReact={(value) => onReact(message, value)}
-          onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
-          replyLabel={onReply ? t("action.replyTo") : undefined}
-          onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
-          onEdit={() => onEditStart?.(message)}
-          onDelete={() => setConfirmDelete(true)}
-          onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
-        />
-      )}
+    </>
+  );
+  return (
+    <article
+      className={`hc-msg lg-msg${head ? " head" : ""}${mentionsMe(message, me) ? " mention" : ""}${editing ? " editing" : ""}${highlighted ? " highlighted" : ""}${focused ? " focused" : ""}${pending ? ` pending ${pending}` : ""}`}
+      aria-label={`${author?.name ?? message.author}, ${time}`}
+      aria-current={focused ? "true" : undefined}
+      data-depth={depth > 0 ? Math.min(depth, MAX_THREAD_INDENT) : undefined}
+    >
+      {/* One wrapper whether or not the actions show, so editing never remounts the body. */}
+      <MessageActions
+        active={!message.retracted && !editing && pending === undefined}
+        strings={strings}
+        canEdit={canEdit}
+        canDelete={own && onRetract !== undefined}
+        onReact={(value) => onReact(message, value)}
+        onReply={onReply ? () => onReply(message) : onOpenThread ? () => onOpenThread(message.id) : undefined}
+        replyLabel={onReply ? t("action.replyTo") : undefined}
+        onCopyLink={onCopyLink ? () => onCopyLink(message) : undefined}
+        onEdit={() => onEditStart?.(message)}
+        onDelete={() => setConfirmDelete(true)}
+        onCopy={() => void navigator.clipboard?.writeText(messageText(message))}
+      >
+        {body}
+      </MessageActions>
     </article>
   );
 });
@@ -228,12 +246,8 @@ function Part({ part, strings }: { part: HomePart; strings: Strings }) {
         </div>
       );
     case "attachment":
-      return (
-        <div className="hc-chip attachment">
-          <span className="hc-chip-title">{part.name}</span>
-          <span className="hc-chip-preview">{formatBytes(part.byteCount)}</span>
-        </div>
-      );
+      // Shown together, after the text (MessageAttachments).
+      return null;
     case "other":
       return <p className="hc-msg-other">{part.text}</p>;
   }
@@ -265,6 +279,7 @@ function Reactions({
           type="button"
           className={`hc-reaction${entry.mine ? " mine" : ""}`}
           aria-pressed={entry.mine}
+          // tooltip-allow: who reacted, shown nowhere else
           title={entry.authors.join(", ")}
           onClick={() => onReact(message, value)}
         >
@@ -274,15 +289,4 @@ function Reactions({
       ))}
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }

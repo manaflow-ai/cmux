@@ -105,6 +105,7 @@ impl Hub {
             .map_err(|e| RpcError::invalid_params(format!("parse session.json: {e}")))?;
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
+        super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
             return Err(RpcError::invalid_params(format!(
@@ -151,6 +152,8 @@ impl Hub {
             return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": meta.cwd})));
         }
         meta.status = SessionStatus::Idle;
+        // A family lives on one daemon: a moved-in sub-session is a root here.
+        meta.subsession = None;
         let session = self.make_session(meta.clone());
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
@@ -188,6 +191,7 @@ impl Hub {
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         }
         self.sessions.lock().unwrap().insert(meta.id.clone(), session.clone());
+        self.offers.forget(&meta.id);
         self.append(
             &session,
             "mux",

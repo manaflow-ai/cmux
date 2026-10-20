@@ -84,11 +84,13 @@ pub(super) fn run(mut session: Session) -> i32 {
                 EditorAction::Quit => break,
                 EditorAction::Interrupt => {
                     let m = messages();
-                    let note = match chat.busy.then(|| session.stop()) {
+                    let refused = super::registry::agent_control_refusal("Ctrl+C", "stop");
+                    let note = match chat.busy.then(|| refused.is_none().then(|| session.stop())) {
+                        Some(None) => agent_note(refused.as_ref()),
                         None => m.stop_idle.to_owned(),
-                        Some(Ok(true)) => m.stop_sent.to_owned(),
-                        Some(Ok(false)) => m.stop_idle.to_owned(),
-                        Some(Err(error)) => super::control::refusal(&error),
+                        Some(Some(Ok(true))) => m.stop_sent.to_owned(),
+                        Some(Some(Ok(false))) => m.stop_idle.to_owned(),
+                        Some(Some(Err(error))) => super::control::refusal(&error),
                     };
                     lines.extend(chat.note(&note));
                 }
@@ -128,6 +130,15 @@ pub(super) enum Slash {
     Note(String),
 }
 
+/// The chat note of an agent-caller refusal: its message.
+fn agent_note(refusal: Option<&serde_json::Value>) -> String {
+    refusal
+        .and_then(|value| value.get("message"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
 /// A `/command` typed in the chat.
 pub(super) fn slash(command: &str, chat: &mut Chat, session: &mut Session) -> Slash {
     let m = messages();
@@ -145,6 +156,12 @@ pub(super) fn slash(command: &str, chat: &mut Chat, session: &mut Session) -> Sl
                 .nth(1)
                 .map(|value| vec![(name.to_owned(), value.to_owned())])
                 .unwrap_or_default();
+            if !changes.is_empty()
+                && let Some(refusal) =
+                    super::registry::agent_control_refusal(&format!("/{name}"), "engine")
+            {
+                return Slash::Note(agent_note(Some(&refusal)));
+            }
             Slash::Note(match session.engine(&changes) {
                 Ok(report) => super::control::engine_line(&report),
                 Err(error) => super::control::refusal(&error),

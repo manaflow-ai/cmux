@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
@@ -129,6 +133,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
@@ -208,6 +224,10 @@
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.avatar.get": {
       "scope": "chief:read",
@@ -993,6 +1013,14 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "scope": "participant:read",
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "scope": "participant:write",
+      "class": "mutation"
+    },
     "participants.add": {
       "scope": "participants:write",
       "class": "mutation"
@@ -1373,6 +1401,10 @@
       "scope": "sidebar:write",
       "class": "mutation"
     },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "sidebar.item.update": {
       "scope": "sidebar:write",
       "class": "mutation"
@@ -1382,6 +1414,10 @@
       "class": "mutation"
     },
     "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
       "scope": "sidebar:write",
       "class": "mutation"
     },
@@ -1419,6 +1455,26 @@
     },
     "slack.post_as_bot": {
       "scope": "slack:external",
+      "class": "mutation"
+    },
+    "stash.create": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.import": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.list": {
+      "scope": "stash:read",
+      "class": "read"
+    },
+    "stash.restore": {
+      "scope": "stash:write",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
@@ -1805,7 +1861,9 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",

@@ -18,8 +18,8 @@ public nonisolated enum SidebarEdits {
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
         case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
-             .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .layout, .toggleLayoutSection,
-             .dropOnLayoutSection, .groupEditorEnded:
+             .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
+             .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio:
             return false
         case let .setGroupPinned(id, pinned):
             return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
@@ -93,6 +93,7 @@ public nonisolated enum SidebarEdits {
         switch sections[loc.section].nodes[loc.node] {
         case let .workspace(ws): return ws
         case let .group(group): return loc.child.map { group.workspaces[$0] }
+        case .item: return nil
         }
     }
 
@@ -111,8 +112,10 @@ public nonisolated enum SidebarEdits {
     public static func position(of id: WorkspaceID, in sections: [SidebarSection]) -> DropPosition? {
         guard let loc = locate(id, in: sections) else { return nil }
         let section = sections[loc.section]
-        if let child = loc.child, case let .group(group) = section.nodes[loc.node] {
-            return DropPosition(section: section.id, group: group.id, index: child)
+        if loc.child != nil, case let .group(group) = section.nodes[loc.node] {
+            // A group's index counts its member rows: workspaces and link, tab and app items.
+            let member = group.members.firstIndex { if case let .workspace(ws) = $0 { ws.id == id } else { false } } ?? 0
+            return DropPosition(section: section.id, group: group.id, index: member)
         }
         return DropPosition(section: section.id, index: loc.node)
     }
@@ -134,7 +137,7 @@ public nonisolated enum SidebarEdits {
     /// Whether a workspace may live in a section.
     public static func canPlace(_ ws: SidebarWorkspace, in section: SidebarSection) -> Bool {
         switch section.kind {
-        case .pinned: true
+        case .pinned, .custom: true
         case let .machine(machine): machine.id == ws.machineID
         }
     }
@@ -163,7 +166,7 @@ public nonisolated enum SidebarEdits {
         guard let (s, n) = locateGroup(group, in: sections),
               case let .group(g) = sections[s].nodes[n] else { return false }
         let moving = Set(ids)
-        let remaining = g.workspaces.count(where: { !moving.contains($0.id) })
+        let remaining = g.members.count(where: { if case let .workspace(ws) = $0 { !moving.contains(ws.id) } else { true } })
         return reorder(ids, to: DropPosition(section: sections[s].id, group: group, index: remaining), in: &sections)
     }
 
@@ -283,8 +286,12 @@ public nonisolated enum SidebarEdits {
                     if ids.contains(ws.id) { removed.append(ws) } else { kept.append(node) }
                 case var .group(group):
                     removed.append(contentsOf: group.workspaces.filter { ids.contains($0.id) })
-                    group.workspaces.removeAll { ids.contains($0.id) }
+                    // The link, tab and app members keep their rows: one after a leaving workspace follows the
+                    // workspace member before it now.
+                    group.setMembers(group.members.filter { if case let .workspace(ws) = $0 { !ids.contains(ws.id) } else { true } })
                     kept.append(.group(group))
+                case .item:
+                    kept.append(node)
                 }
             }
             sections[s].nodes = kept
@@ -297,8 +304,10 @@ public nonisolated enum SidebarEdits {
         if let group = position.group,
            let n = sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),
            case var .group(g) = sections[s].nodes[n] {
-            let index = max(0, min(position.index, g.workspaces.count))
-            g.workspaces.insert(contentsOf: workspaces, at: index)
+            // The index counts member rows (workspaces and link, tab and app items).
+            var members = g.members
+            members.insert(contentsOf: workspaces.map(SidebarGroupMember.workspace), at: max(0, min(position.index, members.count)))
+            g.setMembers(members)
             sections[s].nodes[n] = .group(g)
         } else {
             let index = max(0, min(position.index, sections[s].nodes.count))
@@ -311,7 +320,7 @@ public nonisolated enum SidebarEdits {
         for s in sections.indices {
             sections[s].nodes.removeAll { node in
                 if case let .group(group) = node {
-                    return group.workspaces.isEmpty && !group.isPinned && group.id != keeping
+                    return group.workspaces.isEmpty && group.items.isEmpty && !group.isPinned && group.id != keeping
                 }
                 return false
             }
@@ -340,6 +349,8 @@ public nonisolated enum SidebarEdits {
                 guard let c = loc.child else { continue }
                 body(&group.workspaces[c])
                 sections[loc.section].nodes[loc.node] = .group(group)
+            case .item:
+                continue
             }
             changed = true
         }

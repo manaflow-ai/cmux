@@ -6,14 +6,26 @@ use super::*;
 use serde_json::{Value, json};
 use std::os::fd::FromRawFd;
 
+#[path = "chief_adopt.rs"]
+mod adopt;
 #[path = "chief_autostart.rs"]
 mod autostart;
+#[cfg(unix)]
+#[path = "chief_brains.rs"]
+mod brains;
 #[path = "chief_build_homes.rs"]
 mod build_homes;
+#[cfg(unix)]
+#[path = "chief_chat_kind.rs"]
+mod chat_kind;
 #[path = "conversation_link_preview.rs"]
 mod link_preview;
+#[path = "participant_avatars.rs"]
+mod participant_avatars;
 #[path = "chief_registry.rs"]
 mod registry;
+#[path = "chief_registry_errors.rs"]
+mod registry_errors;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.

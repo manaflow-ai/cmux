@@ -142,6 +142,63 @@ enum SoftBalloon {
         return Mask(image: t.image, frame: frame, center: t.center)
     }
 
+    /// Clips `ctx` (a y-down row drawing context at `scale`) to the soft mask of the outgoing text part with body frame
+    /// `f`, the pixels the cell's mask layer shows (cx-3cb soft-copies: the row copies with a window y, as the thread
+    /// view and the highlight, draw the resting balloon's soft edge). false (ctx unchanged): no soft mask for this part
+    /// (the caller draws the crisp shape). The caller saves and restores the state around it.
+    static func clip(_ ctx: CGContext, frame f: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> Bool {
+        guard !crispCopy, let m = mask(frame: f, row: p, scale: scale), let gray = image(of: m, scale: scale) else { return false }
+        // The mask image's first row is the frame's top: in a y-down context the image is drawn flipped about the frame.
+        let r = m.frame
+        let flipped = ctx.ctm.d < 0
+        let flip = CGAffineTransform(translationX: 0, y: r.minY + r.maxY).scaledBy(x: 1, y: -1)
+        if flipped { ctx.concatenate(flip) }
+        ctx.clip(to: r, mask: gray)
+        if flipped { ctx.concatenate(flip.inverted()) }
+        return true
+    }
+
+    /// Main thread: inside `withCrispCopy(true)` `clip` returns false (a copy of a just-sent row: RowCell.crispEdge).
+    private static var crispCopy = false
+    static func withCrispCopy(_ on: Bool, _ body: () -> Void) {
+        let was = crispCopy; crispCopy = on; defer { crispCopy = was }
+        body()
+    }
+
+    /// The mask as one unstretched DeviceGray image (no alpha: CGContext.clip(to:mask:)), its caps 1:1 and its stretched
+    /// column and row repeated as Core Animation stretches them (`contentsCenter`; a 3+ line balloon's stretched row
+    /// lies in its flat sides, so either count of the unit rect gives these pixels).
+    private static func image(of m: Mask, scale s: CGFloat) -> CGImage? {
+        let src = m.image
+        let sw = src.width, sh = src.height
+        // Larger than a bitmap may be: no soft copy (the caller draws the crisp shape).
+        let fw = (m.frame.width * s).rounded(), fh = (m.frame.height * s).rounded()
+        guard fw >= 1, fh >= 1, fw <= 16_384, fh <= 16_384 else { return nil }
+        let W = CrashGuard.int(fw, in: 1...16_384), H = CrashGuard.int(fh, in: 1...16_384)
+        // The stretched px: `center` is (index / size), so the nearest index (a floor could land one px early).
+        let cx = CrashGuard.int((m.center.minX * CGFloat(sw)).rounded(), in: 0...max(0, sw - 1))
+        let cy = CrashGuard.int((m.center.minY * CGFloat(sh)).rounded(), in: 0...max(0, sh - 1))
+        guard W >= sw - 1, H >= sh - 1,
+              let g = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: W,
+                                space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return nil }
+        g.interpolationQuality = .none
+        g.setFillColor(gray: 0, alpha: 1)
+        g.fill(CGRect(x: 0, y: 0, width: W, height: H))
+        // Source spans (top-left px) and their destination spans: before the stretched px, it (repeated), after it.
+        func spans(_ n: Int, _ c: Int, _ out: Int) -> [(Int, Int, Int, Int)] { // (src start, src len, dst start, dst len)
+            let rep = out - (n - 1)
+            return [(0, c, 0, c), (c, 1, c, max(0, rep)), (c + 1, n - c - 1, c + max(0, rep), n - c - 1)].filter { $0.1 > 0 && $0.3 > 0 }
+        }
+        for (sx, sl, dx, dl) in spans(sw, cx, W) {
+            for (sy, sk, dy, dk) in spans(sh, cy, H) {
+                guard let piece = src.cropping(to: CGRect(x: sx, y: sy, width: sl, height: sk)) else { continue }
+                // CG's y is up: a destination span dk rows from the top starts H - dy - dk rows from the bottom.
+                g.draw(piece, in: CGRect(x: dx, y: H - dy - dk, width: dl, height: dk))
+            }
+        }
+        return g.makeImage()
+    }
+
     /// `f`: the body frame relative to its whole-px left edge and its top (used only for a narrow balloon).
     /// `circularEnds`: a 1-line balloon with half-circle ends (BubblePath.make, RowDraw.circularEnds).
     private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect, circularEnds: Bool) -> Template? {
@@ -216,7 +273,7 @@ enum TextDraw {
             attr.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: NSRange(range, in: s))
         }
         if let l = link, let range = s.range(of: l) {
-            attr.addAttributes([.foregroundColor: UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1),
+            attr.addAttributes([.foregroundColor: Fixture.incomingLink, // cmux: themed link tint
                                 .underlineStyle: NSUnderlineStyle.single.rawValue], range: NSRange(range, in: s))
         }
         let line = CTLineCreateWithAttributedString(attr)

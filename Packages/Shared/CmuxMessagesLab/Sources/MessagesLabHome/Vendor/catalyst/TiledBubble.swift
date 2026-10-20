@@ -23,6 +23,7 @@ enum TiledBubble {
         body.attach(cell)
         body.set(spec: spec, row: p, layout: LongTextStore.shared.layout(t, width: spec.width, message: p.ref.messageId, markdown: p.markdownFormat), cell: cell)
         cell.bitmap.contents = emptyImage
+        cell.bitmapCleared()
         cell.bitmap.isHidden = true
         body.update(cell)
     }
@@ -227,7 +228,7 @@ final class TiledBody {
         cell.fillContainer.backgroundColor = nil
         cell.fillGradient.isHidden = false
         cell.bitmap.isHidden = false
-        if let empty = TiledBubble.emptyImage, cell.bitmap.contents as AnyObject? === empty as AnyObject { cell.bitmap.contents = nil }
+        if let empty = TiledBubble.emptyImage, cell.bitmap.contents as AnyObject? === empty as AnyObject { cell.bitmap.contents = nil; cell.bitmapCleared() }
         CATransaction.commit()
         spec = nil; row = nil; layout = nil
     }
@@ -254,8 +255,15 @@ final class TiledBody {
         let outline = RowDraw.balloon(body, row: p, scale: s) // an outgoing text balloon is drawn inside its frame
         let x0 = floor((outline.minX - BubbleSlices.pad) * s) / s
         let phase = outline.minX - BubbleSlices.pad - x0
-        // a slice image that could not be allocated leaves the bubble outline undrawn.
-        if let img = BubbleSlices.image(bodyWidth: outline.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+        if !cell.crispEdge, let m = SoftBalloon.mask(frame: body, row: p, scale: s) {
+            // My long balloon has the soft edge of my other text balloons (macOS 27; cx-3cb soft-copies): the cell's
+            // 3+ line mask image, its flat middle row stretched over the tiles' height.
+            shape.contents = m.image
+            shape.contentsScale = s
+            shape.contentsCenter = m.center
+            shape.frame = m.frame
+        } else if let img = BubbleSlices.image(bodyWidth: outline.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+            // (a slice image that could not be allocated leaves the bubble outline undrawn.)
             let ih = CGFloat(img.height) / s
             shape.contents = img
             shape.contentsScale = s
@@ -350,7 +358,7 @@ final class TiledBody {
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
         defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
-        let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
         Reclaimer.release(band.contents)
         band.contentsScale = s

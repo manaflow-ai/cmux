@@ -2,12 +2,18 @@
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
-// it) shows < n/m > before them, always (branches.ts, cx-ncc.61).
-import { useContext, useLayoutEffect, useRef, useState } from "react";
-import type { AcpmuxRow } from "../model";
+// it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Copy is on the prompt's right-click
+// menu (Copy Message; Leo dogfood 2026-10-13: one hover action); the `hover-actions` experiment's
+// "all" arm keeps it under the bubble. The images a prompt sent show above its bubble, each opening
+// the image viewer (Leo, 2026-10-13: they vanished once sent).
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AcpmuxRow, PromptImage } from "../model";
+import { experimentArm } from "../../../experiments/experiment";
+import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useT } from "../i18n";
 import { copyText } from "./clipboard";
 import { ChevronLeft, ChevronRight, Copy, Pencil } from "./icons";
+import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
@@ -17,6 +23,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [editing, setEditing] = useState(false);
   const [copied, setCopied] = useState(false);
   const through = edit?.seqs.get(row.id);
+  const copies = experimentArm(hoverActions) === "all";
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -35,8 +42,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   }
   return (
     <>
+      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">{text}</div>
-      {text && !row.failed && !row.queued && (
+      {text && !row.failed && !row.queued && (copies || branch || through !== undefined) && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
@@ -68,20 +76,22 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(row.text ?? text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
+          {copies && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={copied ? t("turn.copied") : t("turn.copy")}
+              title={copied ? t("turn.copied") : t("turn.copy")}
+              onClick={() =>
+                void copyText(row.text ?? text).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }
+            >
+              <Copy size={14} />
+            </button>
+          )}
           {through !== undefined && (
             <button
               type="button"
@@ -96,6 +106,66 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
         </div>
       )}
     </>
+  );
+}
+
+function SentImages({ images }: { images: readonly PromptImage[] }) {
+  return (
+    <div className="cv-user__images">
+      {images.map((image) => (
+        <SentImage key={image.id} image={image} />
+      ))}
+    </div>
+  );
+}
+
+/// One sent image, read from acpmux by its id; nothing shows until it is read, or when it cannot be.
+function SentImage({ image }: { image: PromptImage }) {
+  const t = useT();
+  const { promptImage } = useContext(TurnActionsContext);
+  const openImage = useContext(ImageViewerContext);
+  const [src, setSrc] = useState<string>();
+  const [state, setState] = useState<"loading" | "ready" | "missing">(() => (promptImage ? "loading" : "missing"));
+  useEffect(() => {
+    let live = true;
+    setSrc(undefined);
+    if (!promptImage) {
+      setState("missing");
+      return;
+    }
+    setState("loading");
+    void promptImage(image.id).then(
+      (url) => {
+        if (!live) return;
+        if (url) {
+          setSrc(url);
+          setState("ready");
+        } else setState("missing");
+      },
+      () => {
+        // Attachment reads can fail after a reconnect or session switch. Clear the reserved
+        // slot and treat it like a missing attachment; never leave an unhandled rejection or
+        // stale thumbnail from the previous image id on screen.
+        if (!live) return;
+        setSrc(undefined);
+        setState("missing");
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [promptImage, image.id]);
+  // Keep the thumbnail's 72px row slot while the host reads the attachment. Without this,
+  // the sent-image band appears after the transcript row has already been placed and pushes
+  // the prompt and everything below it down by a frame. A missing image keeps the old behavior.
+  if (!src) return state === "loading" ? <span className="cv-user__image-placeholder" aria-hidden="true" /> : null;
+  const alt = image.name ?? "";
+  const thumbnail = <img className="cv-user__image cv-enter" src={src} alt={alt} decoding="async" />;
+  if (!openImage) return thumbnail;
+  return (
+    <button type="button" aria-label={alt || t("image.view")} onClick={() => openImage(src, alt)}>
+      {thumbnail}
+    </button>
   );
 }
 

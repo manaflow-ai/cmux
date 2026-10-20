@@ -9,12 +9,12 @@ import { useMemo, useRef, useState } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
 import type { Strings } from "../shared/i18n";
-import { Composer } from "./Composer";
+import { Composer, type ComposerProps } from "./Composer";
 import { HomeIcon } from "./icons";
 import { replyCount, threadMessages, threadTree, type TimelineRow } from "./model";
 import type { ThreadObject } from "./threads";
 import { Timeline } from "./Timeline";
-import type { HomeMessage, HomeParticipant, HomeThreadStats } from "./types";
+import type { HomeAttachment, HomeMessage, HomeParticipant, HomeThreadStats } from "./types";
 
 export interface ThreadSheetProps {
   root: string;
@@ -42,7 +42,9 @@ export interface ThreadSheetProps {
   onSetOwner(owner: string): void;
   /** Sets the title; "" clears it. Resolves true when the owner took it. */
   onRename(title: string): Promise<boolean>;
-  onSend(text: string, parent?: string): Promise<boolean>;
+  onSend(text: string, parent?: string, attachments?: readonly HomeAttachment[]): Promise<boolean>;
+  /** Files upload through this (absent: no attach in the thread composer). */
+  attachments?: ComposerProps["attachments"];
   onCopyLink(message: HomeMessage): void;
   onReact(message: HomeMessage, value: string): void;
   onEditStart?(message: HomeMessage): void;
@@ -76,6 +78,7 @@ export function ThreadSheet({
   onSetOwner,
   onRename,
   onSend,
+  attachments,
   onCopyLink,
   onReact,
   onEditStart,
@@ -86,6 +89,8 @@ export function ThreadSheet({
   onRetry,
   onDiscard,
 }: ThreadSheetProps) {
+  /** Files dropped on the sheet go to the thread's composer (not the conversation's). */
+  const sheet = useRef<HTMLElement | null>(null);
   const { t, format } = strings;
   const [replyTo, setReplyTo] = useState<HomeMessage | undefined>();
   const [renaming, setRenaming] = useState<string | undefined>();
@@ -131,13 +136,20 @@ export function ThreadSheet({
   };
   const resolved = thread?.status === "resolved";
   return (
-    <aside className="lg-sheet" data-status={thread?.status ?? "open"} aria-label={thread?.title || t("thread.title")}>
+    <aside
+      ref={sheet}
+      className="lg-sheet"
+      data-drop-zone
+      data-status={thread?.status ?? "open"}
+      aria-label={thread?.title || t("thread.title")}
+    >
       <header className="lg-sheet-header">
         <div className="lg-sheet-bar">
           <button
             type="button"
             className={`lg-status-button${resolved ? " resolved" : ""}`}
             onClick={onToggleStatus}
+            /* tooltip-allow: the button shows the status; the tooltip names what a click does */
             title={t(resolved ? "thread.reopen" : "thread.resolve")}
             aria-keyshortcuts="E"
           >
@@ -198,6 +210,7 @@ export function ThreadSheet({
             <button
               type="button"
               className="lg-sheet-title-button"
+              /* tooltip-allow: the button shows the title; the tooltip says a click renames it */
               title={t("thread.rename")}
               disabled={!thread}
               onClick={startRename}
@@ -277,8 +290,10 @@ export function ThreadSheet({
           label={t("composer.thread")}
           disabled={!canSend}
           people={mentionable}
-          onSend={async (text) => {
-            const sent = await onSend(text, replyTo?.id);
+          attachments={attachments}
+          dropZone={sheet}
+          onSend={async (text, files) => {
+            const sent = await onSend(text, replyTo?.id, files);
             if (sent) setReplyTo(undefined);
             return sent;
           }}

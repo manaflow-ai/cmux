@@ -13,11 +13,18 @@
 //! written back to the old personal rows and groups
 //! ([`crate::state::sidebar_doc_sync::write_back`]) and `personal_revision`
 //! advances, so clients of `sidebar-layout-v1` and `profiles-v1` follow.
+//!
+//! `reset` also closes this machine's placed workspaces that are no longer
+//! open ([`closes_for_reset`]): Pinned and custom sections kept them, and
+//! the machine sections a reset moves them into do not.
 
+use std::collections::HashSet;
+
+use rusqlite::Connection;
 use serde_json::{Map, json};
 
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied};
-use cmux_layout_reducer::sidebar_doc::{Item, Op, PINNED_SECTION_ID};
+use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, PINNED_SECTION_ID, WorkspaceRef};
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
@@ -51,6 +58,39 @@ pub(crate) fn ops_of(operation: &str, fields: &Map<String, Value>) -> anyhow::Re
     let op: Op = serde_json::from_value(Value::Object(object))
         .map_err(|error| anyhow::anyhow!("bad request: {error}"))?;
     Ok(vec![op])
+}
+
+/// When `ops` hold a `reset`, append a `close` of this machine's placed
+/// workspaces that are not open (a reset moves them from Pinned or a custom
+/// section into their machine section, which does not keep closed items).
+pub(crate) fn closes_for_reset(
+    connection: &Connection,
+    doc: &Doc,
+    ops: &mut Vec<Op>,
+) -> anyhow::Result<()> {
+    if !ops.iter().any(|op| matches!(op, Op::Reset))
+        || !crate::state::store::state_tables_ready(connection)?
+    {
+        return Ok(());
+    }
+    let local = crate::state::values::local_registry_id(connection)?;
+    let open: HashSet<String> = {
+        let mut statement = connection
+            .prepare("SELECT public_id FROM resource_workspaces WHERE deleted_revision IS NULL")?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<_, _>>()?
+    };
+    let refs: Vec<WorkspaceRef> = doc
+        .items_unordered()
+        .filter_map(|item| item.body.workspace())
+        .filter(|reference| {
+            reference.session_id == local && !open.contains(&reference.workspace_id)
+        })
+        .cloned()
+        .collect();
+    if !refs.is_empty() {
+        ops.push(Op::Close { refs });
+    }
+    Ok(())
 }
 
 /// Whether a commit changed what Pinned shows (an item that is in Pinned,
@@ -91,6 +131,8 @@ impl Mux {
                     "sidebar document unavailable: its migration did not complete"
                 );
                 store::with_doc_mut(transaction, |doc| {
+                    let mut ops = ops.clone();
+                    closes_for_reset(transaction, doc, &mut ops)?;
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),
                         "bad request: {}",

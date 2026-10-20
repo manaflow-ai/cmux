@@ -8,9 +8,9 @@ use crate::config::{StoreConfig, StoreMode, write_atomic};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -111,6 +111,15 @@ pub struct SessionMeta {
     pub permission_policy: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
+    /// `harness` (its own `session_info_update`), `asked` (a generated title
+    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// None: a chat titled before acpmux generated titles; kept as is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<String>,
+    /// The first prompt a `prompt` title came from, until a title is asked for.
+    #[serde(skip)]
+    pub title_prompt: Option<String>,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -157,6 +166,12 @@ pub struct SessionMeta {
     /// every spawn. Never copied to a fork or a handoff.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub session_env: BTreeMap<String, String>,
+    /// The cmux workspace this session works in, as the client named it
+    /// (`_meta.acpmux.workspaceId` on session/new or session/fork; a fork
+    /// keeps its parent's). It picks the computer use display in
+    /// per-workspace display mode (`agent_displays.rs`). Lowercase UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
     /// The harness store of an adopted chat that no profile's store holds
     /// (a subrouter account home, a root the person added; cx-vx54). acpmux
     /// found it in its own chat index, never in a request; every spawn runs
@@ -175,6 +190,165 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// The session took its mode from the person's approval of its preset
+    /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
+    /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_mode_approval: Option<String>,
+    /// The seqs of this chat's `user_message` records the person bookmarked (the pane's thread
+    /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub bookmarks: BTreeSet<u64>,
+    /// The tools the chat has (`hub/tools.rs`).
+    #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
+    pub tools: ToolInventory,
+    /// The branch checked out in `cwd` when the session started (session/new,
+    /// or a fork at fork time; `git_state.rs`). `None` on a detached HEAD or
+    /// outside a repository. Never updated after: it joins the session to the
+    /// pull request it produced (hq#1920).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// The full HEAD commit of `cwd` when the session started, as `git_branch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_head: Option<String>,
+    /// The sum of what this session's turns reported (`hub/turn_usage.rs`).
+    /// `None` until a harness reports any; a fork starts its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totals: Option<TurnUsage>,
+    /// The harness's own running cost after the last turn (Claude Code's
+    /// `total_cost_usd`), which the next turn's cost is measured from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_cost_usd: Option<f64>,
+    /// The session whose agent started this one with its `start_session`
+    /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
+    /// for a session a person or client started. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsession: Option<SubsessionLink>,
+    /// This session's own sub-session limits, set at runtime by the person
+    /// or by an ancestor within its budget; unset fields inherit.
+    #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
+    pub subsession_limits: SubsessionLimits,
+}
+
+/// A sub-session's place in its family (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLink {
+    /// The parent session's id.
+    pub started_by: String,
+    /// Its name among its parent's children (unique there), e.g. `tests`.
+    pub short_name: String,
+    /// 1 for a child of a root session, 2 for a grandchild, and so on.
+    pub depth: u32,
+    /// The person started it from its parent's suggested task
+    /// (`hub/offers.rs`), in a mode they chose: the parent's agent reads
+    /// it but does not prompt, stop or close it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub offered: bool,
+}
+
+/// Limit overrides of one session; `None` inherits its parent's, then the
+/// settings, then the defaults (`hub/subsessions.rs`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsessionLimits {
+    /// Most children this session may have open at once (not closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_children: Option<u32>,
+    /// The deepest level a session under this one may be started at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_depth: Option<u32>,
+}
+
+impl SubsessionLimits {
+    pub fn is_empty(&self) -> bool {
+        self.max_children.is_none() && self.max_depth.is_none()
+    }
+}
+
+/// What one turn, or a session's turns together, cost (`hub/turn_usage.rs`).
+/// A field the harness never reported stays absent rather than 0.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_tokens: Option<u64>,
+}
+
+impl TurnUsage {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// Adds `turn` in, field by field; a field neither reported stays absent.
+    pub fn add(&mut self, turn: &TurnUsage) {
+        fn sum(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+            a.zip(b).map(|(a, b)| a.saturating_add(b)).or(a).or(b)
+        }
+        self.cost_usd = self
+            .cost_usd
+            .zip(turn.cost_usd)
+            .map(|(a, b)| a + b)
+            .or(self.cost_usd)
+            .or(turn.cost_usd);
+        self.input_tokens = sum(self.input_tokens, turn.input_tokens);
+        self.output_tokens = sum(self.output_tokens, turn.output_tokens);
+        self.cache_read_tokens = sum(self.cache_read_tokens, turn.cache_read_tokens);
+        self.cache_write_tokens = sum(self.cache_write_tokens, turn.cache_write_tokens);
+    }
+}
+
+/// The tools a chat has (`hub/tools.rs`): cmux's own, recorded at each
+/// spawn, then what Claude Code's system/init reports.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolInventory {
+    #[serde(default)]
+    pub rows: Vec<ToolRow>,
+    /// The chat can turn MCP servers off (Claude Code, through
+    /// `--disallowedTools` at each start); ACP harnesses take their tools at
+    /// session start only.
+    #[serde(default)]
+    pub mutable: bool,
+    /// The rows (`mcp:<server>`) this chat turned off. Every start of its
+    /// Claude Code disallows their tools; a fork keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
+}
+
+impl ToolInventory {
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty() && !self.mutable && self.off.is_empty()
+    }
+}
+
+/// One row of a chat's tool list (the summary's `tools`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolRow {
+    /// `mcp:<server>`, `skill:<name>` or `plugin:<name>`, unique in the chat.
+    pub id: String,
+    pub name: String,
+    /// `mcp`, `skill`, `plugin`, or `cmux` for cmux's own tools.
+    pub kind: String,
+    /// What gives it: `cmux`, or the harness that reported it (`claude`).
+    pub source: String,
+    pub enabled: bool,
+    /// `_acpmux/set_tools` can turn it on or off in this chat.
+    pub can_toggle: bool,
+    /// An MCP server's status in the harness's own word (Claude Code's
+    /// `connected`, `failed`, `pending`, `needs-auth`, `disabled`), as its
+    /// last report gave it; none for a server no harness reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 impl SessionMeta {
@@ -364,7 +538,8 @@ struct SegmentWriter {
 
 impl LocalStore {
     pub fn new(root: PathBuf, segment_bytes: u64) -> Result<Self> {
-        std::fs::create_dir_all(&root).with_context(|| format!("create {}", root.display()))?;
+        crate::config::private_state_dir(&root)
+            .with_context(|| format!("create private store {}", root.display()))?;
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
@@ -382,7 +557,8 @@ impl LocalStore {
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
+        for entry in rd {
+            let entry = entry?;
             let name = entry.file_name().to_string_lossy().into_owned();
             if let Some(stem) = name.strip_suffix(".ndjson")
                 && let Ok(idx) = stem.parse::<u32>()
@@ -396,13 +572,14 @@ impl LocalStore {
 
     fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
         let dir = self.dir(id).join("events");
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&self.dir(id))?;
+        crate::config::private_state_dir(&dir)?;
         let segs = self.segments(id)?;
         let (index, path) = match segs.last() {
             Some((i, p)) => (*i, p.clone()),
             None => (1, dir.join("000001.ndjson")),
         };
-        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let file = open_private_append(&path)?;
         let written = file.metadata().map(|m| m.len()).unwrap_or(0);
         Ok(SegmentWriter { index, file, written })
     }
@@ -410,7 +587,7 @@ impl LocalStore {
 
 /// The seq of a segment's first readable record.
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    for line in BufReader::new(File::open(path)?).lines() {
+    for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
         let line = line?;
         if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
             return Ok(Some(rec.seq));
@@ -425,9 +602,27 @@ impl Store for LocalStore {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
             return Ok(out);
         };
-        for entry in rd.flatten() {
-            let path = entry.path().join("session.json");
-            if let Ok(text) = std::fs::read_to_string(&path) {
+        for entry in rd {
+            let entry = entry?;
+            let kind = entry.file_type()?;
+            if kind.is_symlink() {
+                anyhow::bail!("session entry {} is a link", entry.path().display());
+            }
+            if !kind.is_dir() {
+                continue;
+            }
+            let session = entry.path();
+            crate::config::private_state_dir(&session)?;
+            let events = session.join("events");
+            match std::fs::symlink_metadata(&events) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+                Ok(_) => crate::config::private_state_dir(&events)?,
+            }
+            let path = session.join("session.json");
+            if let Ok(file) = crate::config::private_state_file(&path) {
+                let mut text = String::new();
+                BufReader::new(file).read_to_string(&mut text)?;
                 match serde_json::from_str::<SessionMeta>(&text) {
                     Ok(meta) => out.push(meta),
                     Err(e) => tracing::warn!("skip {}: {e}", path.display()),
@@ -442,13 +637,14 @@ impl Store for LocalStore {
         if !path.exists() {
             return Ok(None);
         }
-        let text = std::fs::read_to_string(&path)?;
+        let mut text = String::new();
+        BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
         Ok(Some(serde_json::from_str(&text)?))
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
         let dir = self.dir(&meta.id);
-        std::fs::create_dir_all(&dir)?;
+        crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
@@ -461,7 +657,7 @@ impl Store for LocalStore {
         if w.written >= self.segment_bytes {
             let index = w.index + 1;
             let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = OpenOptions::new().create(true).append(true).open(&path)?;
+            let file = open_private_append(&path)?;
             *w = SegmentWriter { index, file, written: 0 };
         }
         let mut line = serde_json::to_string(record)?;
@@ -473,7 +669,7 @@ impl Store for LocalStore {
 
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -502,7 +698,8 @@ impl Store for LocalStore {
             if first_seq(&path)?.is_some_and(|first| first >= before) {
                 continue;
             }
-            let text = std::fs::read_to_string(&path)?;
+            let mut text = String::new();
+            BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
             for line in text.lines().rev() {
                 if line.trim().is_empty() {
                     continue;
@@ -529,7 +726,7 @@ impl Store for LocalStore {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
         for (_, path) in self.segments(id)? {
-            let file = File::open(&path)?;
+            let file = crate::config::private_state_file(&path)?;
             for line in BufReader::new(file).lines() {
                 let line = line?;
                 if line.trim().is_empty() {
@@ -579,5 +776,132 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+}
+
+/// Open one event segment for append, owner-only from creation and after an
+/// older build left it with wider permissions.
+#[cfg(unix)]
+fn open_private_append(path: &Path) -> Result<File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_private_append(path: &Path) -> Result<File> {
+    Ok(crate::owner_only::open_append(path)?)
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "acpmux-store-permissions-{}-{}",
+                std::process::id(),
+                uuid::Uuid::now_v7()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn mode(path: &Path) -> u32 {
+        std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn local_store_makes_existing_state_private_and_writes_private_events() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let session = root.join("session-1");
+        let events = session.join("events");
+        std::fs::create_dir_all(&events).unwrap();
+        let metadata = session.join("session.json");
+        let first = events.join("000001.ndjson");
+        let second = events.join("000002.ndjson");
+        std::fs::write(&metadata, "{}").unwrap();
+        std::fs::write(&first, "").unwrap();
+        std::fs::write(&second, "").unwrap();
+        for directory in [&root, &session, &events] {
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        for file in [&metadata, &first, &second] {
+            std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let store = LocalStore::new(root.clone(), 64 * 1024).unwrap();
+        let _ = store.list().unwrap();
+        store
+            .append(
+                "session-1",
+                &EventRecord {
+                    seq: 1,
+                    at: 1,
+                    dir: "mux".into(),
+                    kind: "test".into(),
+                    msg: serde_json::json!({"text": "private"}),
+                    host_seq: None,
+                },
+            )
+            .unwrap();
+        // Old segments are authenticated and narrowed when a read reaches
+        // them. Merely finding their names stays lazy so a tail page never
+        // opens an older segment it does not need.
+        store.events("session-1", 0, usize::MAX).unwrap();
+
+        assert_eq!(mode(&root), 0o700, "the sessions root contains every chat");
+        assert_eq!(mode(&session), 0o700);
+        assert_eq!(mode(&events), 0o700);
+        assert_eq!(mode(&metadata), 0o600);
+        assert_eq!(mode(&first), 0o600);
+        assert_eq!(mode(&second), 0o600);
+    }
+
+    #[test]
+    fn local_store_refuses_a_symlinked_existing_session() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        let outside = temp.0.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linked-session")).unwrap();
+        let store = LocalStore::new(root, 64 * 1024).unwrap();
+        assert!(store.list().is_err());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn local_store_refuses_a_state_root_with_an_extended_acl() {
+        let temp = TempDir::new();
+        let root = temp.0.join("sessions");
+        std::fs::create_dir_all(&root).unwrap();
+        let status = std::process::Command::new("/bin/chmod")
+            .args(["+a", "group:staff allow read", root.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(LocalStore::new(root, 64 * 1024).is_err());
     }
 }

@@ -2,16 +2,16 @@
 
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
-For the local backend used by outside contributors:
-
 ```bash
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --launch
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --build-only
+./scripts/reload.sh --tag <tag>
+./scripts/reload.sh --tag <tag> --launch
+./scripts/reload.sh --tag <tag> --build-only
 ```
 
-Without `CMUX_DEV_BACKEND_MODE=local`, tagged builds require the shared dev backend
-from a cmuxterm-hq checkout. See [contributor setup](../../../CONTRIBUTING.md#getting-started).
+cmux-next reads no web API origin, so `reload.sh` defaults to
+`CMUX_DEV_BACKEND_MODE=local` and provisions no shared backend. An explicit
+`CMUX_DEV_BACKEND_MODE` or `CMUX_DEV_BACKEND_URL` (the fleet passes one) still
+wins. See [contributor setup](../../../CONTRIBUTING.md#getting-started).
 
 A normal reload builds, then terminates the running app with the same tag; `--launch`
 also opens the replacement. `--build-only` validates a separately staged bundle
@@ -62,7 +62,7 @@ CMUX_TAG=<tag> scripts/cmux-debug-cli.sh terminal current screen read
 
 `current` is the tagged app's focused terminal; pass a `term_…` id from `terminal list` when more than one is open.
 
-The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, legacy workspace/surface/tab/panel IDs, cmuxd and mux sockets, every `CMUX_TUI_*` variable, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
+The helper refuses to run without `CMUX_TAG`, targets the tag's socket (cmux NEXT: `~/.local/state/cmux/cmux-debug-<tag>.sock`, else `/tmp/cmux-debug-<tag>.sock`), uses the matching tagged CLI from DerivedData (or, for a fleet build restored with `publish-hq`, from `~/Library/Application Support/cmux/tag-app-cache`), scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, legacy workspace/surface/tab/panel IDs, cmuxd and mux sockets, every `CMUX_TUI_*` variable, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for that tag.
 
 `/tmp/cmux-cli` points at the most recently reloaded build and can target the user's main app socket, so it is never safe for tagged dogfood.
 

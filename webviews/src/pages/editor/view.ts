@@ -19,7 +19,8 @@ import { createOnigurumaEngine } from "shiki/engine/oniguruma";
 import { EXTENSION_TO_FILE_FORMAT } from "cmux:pierre-filetypes";
 import { hostTerminalTheme, type DiffViewerAppearance } from "../../appearance";
 import { PLAIN_TEXT_LANGUAGE } from "../../diff-languages/detect";
-import { editorAction, isEditorAction, type EditorCommand } from "./keys";
+import { editorAction, isEditorAction, MONACO_QUICK_COMMAND, type EditorCommand } from "./keys";
+import { keybindingRules } from "./vscodeKeys";
 import type { CodeView, EditorDocument } from "./store";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
@@ -231,7 +232,20 @@ export interface ViewCallbacks {
   onStatus(status: ViewStatus): void;
   /** A link the user followed. */
   openLink(href: string): void;
-  label(key: "editor" | "readOnly", path: string): string;
+  label(key: "editor" | "readOnly" | "wordWrap", path: string): string;
+  /** Opt-Z (VS Code's Toggle Word Wrap): flips `editor.wordWrap` through the settings store. */
+  toggleWordWrap?(): void;
+  /**
+   * Opens the app's native command palette (`cmux.app.action.run {action: "commandPalette"}`).
+   * Monaco's own command palette (F1, the context menu's Command Palette) runs this instead: the
+   * editor never shows a palette of its own (Lawrence 2026-10-19).
+   */
+  openCommandPalette?(): void;
+  /**
+   * Monaco started or ended a key sequence (Cmd-K, then a second key): while one is pending the
+   * app's key dispatcher lets the next key reach the editor (`cmux.editor.keySequence`).
+   */
+  onKeySequence?(pending: boolean): void;
 }
 
 export interface ViewStatus {
@@ -306,6 +320,67 @@ export class MonacoView implements CodeView {
       },
     );
     this.scheme.addEventListener("change", this.onSchemeChange);
+    this.disposables.push(
+      // VS Code's Opt-Z. Monaco has no word wrap toggle of its own; the id is VS Code's, so an
+      // `editor.keybindings` rule can move it.
+      this.editor.addAction({
+        id: TOGGLE_WORD_WRAP,
+        label: this.callbacks.label("wordWrap", ""),
+        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+        run: () => this.callbacks.toggleWordWrap?.(),
+      }),
+    );
+    this.disposables.push(
+      // Monaco's quick command (F1, the context menu's Command Palette) is the app's native palette:
+      // no web view has a palette of its own. Keys and menus run commands through Monaco's command
+      // registry, where the latest registration of an id wins, so this replaces Monaco's widget.
+      monaco.editor.registerCommand(MONACO_QUICK_COMMAND, () => this.callbacks.openCommandPalette?.()),
+    );
+    this.applyKeybindings();
+    this.watchKeySequences(container);
+  }
+
+  /** The `editor.keybindings` rules applied now (and their key), so a look change re-applies them once. */
+  private keybindingDisposable: monaco.IDisposable | null = null;
+  private keybindingsKey = "";
+
+  private applyKeybindings(): void {
+    const entries = this.look.settings.keybindings;
+    const key = JSON.stringify(entries);
+    if (key === this.keybindingsKey) return;
+    this.keybindingsKey = key;
+    this.keybindingDisposable?.dispose();
+    const rules = keybindingRules(entries, monaco as never);
+    this.keybindingDisposable = rules.length > 0 ? monaco.editor.addKeybindingRules(rules) : null;
+  }
+
+  /**
+   * Tells the host when Monaco waits for the second key of a sequence (Cmd-K Cmd-0): the app's
+   * dispatcher resolves every Command chord first, so without this it took the second key (Cmd-0
+   * reset the zoom, Cmd-J opened the app's leader) and the sequence never finished.
+   */
+  private watchKeySequences(container: HTMLElement): void {
+    let pending = false;
+    const check = () => {
+      const service = (this.editor as unknown as { _standaloneKeybindingService?: { inChordMode?: boolean } })
+        ._standaloneKeybindingService;
+      const now = service?.inChordMode === true;
+      if (now === pending) return;
+      pending = now;
+      this.callbacks.onKeySequence?.(now);
+    };
+    // After Monaco's own keydown handler (on the editor's node) has run.
+    const onKeyDown = () => setTimeout(check, 0);
+    // ui-allow: reads Monaco's chord state after its keydown; Monaco owns the keys.
+    container.addEventListener("keydown", onKeyDown);
+    const onBlur = () => setTimeout(check, 0);
+    container.addEventListener("focusout", onBlur);
+    this.disposables.push({
+      dispose: () => {
+        container.removeEventListener("keydown", onKeyDown);
+        container.removeEventListener("focusout", onBlur);
+      },
+    });
   }
 
   private onSchemeChange = () => this.applyTheme();
@@ -455,6 +530,7 @@ export class MonacoView implements CodeView {
     this.look = look;
     if (languagesChanged) this.syntax.installLanguages(look.languages);
     this.editor.updateOptions(this.editorOptions());
+    this.applyKeybindings();
     if (themesKey !== this.themesKey) {
       this.themesKey = themesKey;
       void this.syntax
@@ -517,6 +593,28 @@ export class MonacoView implements CodeView {
     this.editor.updateOptions(this.editorOptions());
   }
 
+  /**
+   * VS Code's save options on an explicit save (as format on save): trailing spaces removed and a
+   * final newline added, as one undoable edit. Off by default; the file is otherwise never rewritten.
+   */
+  async prepareSave(options: { trimTrailingWhitespace: boolean; insertFinalNewline: boolean }): Promise<void> {
+    const model = this.model;
+    if (!model || this.documentInfo?.readOnly) return;
+    if (options.trimTrailingWhitespace) {
+      const action = this.editor.getAction("editor.action.trimTrailingWhitespace");
+      if (action?.isSupported()) await action.run();
+    }
+    if (options.insertFinalNewline) {
+      const last = model.getLineCount();
+      if (model.getLineContent(last) !== "") {
+        const column = model.getLineMaxColumn(last);
+        this.editor.executeEdits("cmux-save", [
+          { range: new monaco.Range(last, column, last, column), text: model.getEOL() },
+        ]);
+      }
+    }
+  }
+
   async format(): Promise<void> {
     const action = this.editor.getAction("editor.action.formatDocument");
     if (action?.isSupported()) await action.run();
@@ -550,10 +648,14 @@ export class MonacoView implements CodeView {
     this.scheme.removeEventListener("change", this.onSchemeChange);
     for (const disposable of this.disposables) disposable.dispose();
     this.modelListener?.dispose();
+    this.keybindingDisposable?.dispose();
     this.model?.dispose();
     this.editor.dispose();
   }
 }
+
+/** VS Code's command id for Opt-Z; `keys.ts` lists it so an app binding can run it too. */
+const TOGGLE_WORD_WRAP = "editor.action.toggleWordWrap";
 
 /// What the editor's Shiki themes are built from: the syntax theme setting, the page's appearance
 /// and the host's terminal theme (literal colors in Monaco, so a palette change rebuilds them).

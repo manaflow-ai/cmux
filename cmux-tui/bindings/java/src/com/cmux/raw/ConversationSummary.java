@@ -15,8 +15,11 @@ public final class ConversationSummary implements WireValue {
     private final String id;
     private final Field<ConversationMessage> lastMessage;
     private final UInt64 lastSeq;
+    private final Field<Boolean> markedUnread;
     private final String owner;
     private final List<ConversationParticipant> participants;
+    private final Field<UInt64> pinPosition;
+    private final Field<Boolean> pinned;
     private final Map<String, UInt64> readCursors;
     private final UInt64 rev;
     private final String title;
@@ -30,10 +33,13 @@ public final class ConversationSummary implements WireValue {
         this.lastMessage = builder.lastMessage;
         if (!builder.lastSeqSet) throw new IllegalArgumentException("last_seq is required");
         this.lastSeq = Wire.nonNull(builder.lastSeq, "last_seq");
+        this.markedUnread = builder.markedUnread;
         if (!builder.ownerSet) throw new IllegalArgumentException("owner is required");
         this.owner = Wire.nonNull(builder.owner, "owner");
         if (!builder.participantsSet) throw new IllegalArgumentException("participants is required");
         this.participants = List.copyOf(Wire.nonNull(builder.participants, "participants"));
+        this.pinPosition = builder.pinPosition;
+        this.pinned = builder.pinned;
         if (!builder.readCursorsSet) throw new IllegalArgumentException("read_cursors is required");
         this.readCursors = Collections.unmodifiableMap(new LinkedHashMap<>(Wire.nonNull(builder.readCursors, "read_cursors")));
         if (!builder.revSet) throw new IllegalArgumentException("rev is required");
@@ -50,8 +56,11 @@ public final class ConversationSummary implements WireValue {
     public String id() { return id; }
     public Field<ConversationMessage> lastMessage() { return lastMessage; }
     public UInt64 lastSeq() { return lastSeq; }
+    public Field<Boolean> markedUnread() { return markedUnread; }
     public String owner() { return owner; }
     public List<ConversationParticipant> participants() { return participants; }
+    public Field<UInt64> pinPosition() { return pinPosition; }
+    public Field<Boolean> pinned() { return pinned; }
     public Map<String, UInt64> readCursors() { return readCursors; }
     public UInt64 rev() { return rev; }
     public String title() { return title; }
@@ -70,10 +79,22 @@ public final class ConversationSummary implements WireValue {
         }
         Object rawLastSeq = Wire.required(object, "last_seq");
         builder.lastSeq(Wire.uint64(rawLastSeq, "ConversationSummary.last_seq"));
+        Object rawMarkedUnread = Wire.optional(object, "marked_unread");
+        if (!Wire.isMissing(rawMarkedUnread)) {
+            builder.markedUnread(Wire.bool(rawMarkedUnread, "ConversationSummary.marked_unread"));
+        }
         Object rawOwner = Wire.required(object, "owner");
         builder.owner(Wire.string(rawOwner, "ConversationSummary.owner"));
         Object rawParticipants = Wire.required(object, "participants");
         builder.participants(Wire.array(rawParticipants, "ConversationSummary.participants", item -> ConversationParticipant.fromWire(item)));
+        Object rawPinPosition = Wire.optional(object, "pin_position");
+        if (!Wire.isMissing(rawPinPosition)) {
+            builder.pinPosition(Wire.uint64(rawPinPosition, "ConversationSummary.pin_position"));
+        }
+        Object rawPinned = Wire.optional(object, "pinned");
+        if (!Wire.isMissing(rawPinned)) {
+            builder.pinned(Wire.bool(rawPinned, "ConversationSummary.pinned"));
+        }
         Object rawReadCursors = Wire.required(object, "read_cursors");
         builder.readCursors(Wire.map(rawReadCursors, "ConversationSummary.read_cursors", item -> Wire.uint64(item, "ConversationSummary.read_cursors value")));
         Object rawRev = Wire.required(object, "rev");
@@ -92,8 +113,11 @@ public final class ConversationSummary implements WireValue {
         Wire.put(object, "id", id);
         Wire.put(object, "last_message", lastMessage);
         Wire.put(object, "last_seq", lastSeq);
+        Wire.put(object, "marked_unread", markedUnread);
         Wire.put(object, "owner", owner);
         Wire.put(object, "participants", participants);
+        Wire.put(object, "pin_position", pinPosition);
+        Wire.put(object, "pinned", pinned);
         Wire.put(object, "read_cursors", readCursors);
         Wire.put(object, "rev", rev);
         Wire.put(object, "title", title);
@@ -104,11 +128,11 @@ public final class ConversationSummary implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ConversationSummary that)) return false;
-        return Objects.equals(createdAt, that.createdAt) && Objects.equals(id, that.id) && Objects.equals(lastMessage, that.lastMessage) && Objects.equals(lastSeq, that.lastSeq) && Objects.equals(owner, that.owner) && Objects.equals(participants, that.participants) && Objects.equals(readCursors, that.readCursors) && Objects.equals(rev, that.rev) && Objects.equals(title, that.title) && Objects.equals(updatedAt, that.updatedAt);
+        return Objects.equals(createdAt, that.createdAt) && Objects.equals(id, that.id) && Objects.equals(lastMessage, that.lastMessage) && Objects.equals(lastSeq, that.lastSeq) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(owner, that.owner) && Objects.equals(participants, that.participants) && Objects.equals(pinPosition, that.pinPosition) && Objects.equals(pinned, that.pinned) && Objects.equals(readCursors, that.readCursors) && Objects.equals(rev, that.rev) && Objects.equals(title, that.title) && Objects.equals(updatedAt, that.updatedAt);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(createdAt, id, lastMessage, lastSeq, owner, participants, readCursors, rev, title, updatedAt); }
+    public int hashCode() { return Objects.hash(createdAt, id, lastMessage, lastSeq, markedUnread, owner, participants, pinPosition, pinned, readCursors, rev, title, updatedAt); }
 
     @Override
     public String toString() { return "ConversationSummary" + toWire(); }
@@ -121,10 +145,13 @@ public final class ConversationSummary implements WireValue {
         private Field<ConversationMessage> lastMessage = Field.omitted();
         private UInt64 lastSeq;
         private boolean lastSeqSet;
+        private Field<Boolean> markedUnread = Field.omitted();
         private String owner;
         private boolean ownerSet;
         private List<ConversationParticipant> participants;
         private boolean participantsSet;
+        private Field<UInt64> pinPosition = Field.omitted();
+        private Field<Boolean> pinned = Field.omitted();
         private Map<String, UInt64> readCursors;
         private boolean readCursorsSet;
         private UInt64 rev;
@@ -153,6 +180,10 @@ public final class ConversationSummary implements WireValue {
             this.lastSeqSet = true;
             return this;
         }
+        public Builder markedUnread(Boolean value) {
+            this.markedUnread = Field.of(value);
+            return this;
+        }
         public Builder owner(String value) {
             this.owner = value;
             this.ownerSet = true;
@@ -161,6 +192,14 @@ public final class ConversationSummary implements WireValue {
         public Builder participants(List<ConversationParticipant> value) {
             this.participants = value;
             this.participantsSet = true;
+            return this;
+        }
+        public Builder pinPosition(UInt64 value) {
+            this.pinPosition = Field.of(value);
+            return this;
+        }
+        public Builder pinned(Boolean value) {
+            this.pinned = Field.of(value);
             return this;
         }
         public Builder readCursors(Map<String, UInt64> value) {

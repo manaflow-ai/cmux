@@ -1,5 +1,5 @@
 public import CmuxAppAttest
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextSettings
 import DeviceCheck
 public import Foundation
@@ -16,24 +16,24 @@ import os
 /// drops the free token at once):
 ///
 /// ```swift
-/// FreeTierAttestStarter(tag: tag, bundle: .main, apiBaseURL: url, settings: settings,
+/// FreeTierAttestStarter(build: build, bundle: .main, apiBaseURL: url, settings: settings,
 ///                       signedIn: { cloud.isSignedIn || cloud.auth.isRestoring }).start()
 /// ```
 @MainActor public struct FreeTierAttestStarter {
-    private let tag: String?
+    private let build: BuildIdentity?
     private let bundle: Bundle
     private let apiBaseURL: URL
     private let settings: SettingsController?
     private let signedIn: @MainActor () -> Bool
 
-    /// - Parameter tag: the app's tag (its acpmux home).
+    /// - Parameter build: the app's build (its acpmux home, per-build isolation cx-is1kf).
     /// - Parameter bundle: the app bundle (bundled acpmux, bundle id for the keychain item).
     /// - Parameter apiBaseURL: the cmux API base URL; the relay sends the free token only to its origin.
     /// - Parameter settings: `freeModel.enabled` and its managed lock.
     /// - Parameter signedIn: an account is signed in, or a session is still restoring.
-    public init(tag: String?, bundle: Bundle, apiBaseURL: URL, settings: SettingsController?,
+    public init(build: BuildIdentity?, bundle: Bundle, apiBaseURL: URL, settings: SettingsController?,
                 signedIn: @escaping @MainActor () -> Bool) {
-        self.tag = tag
+        self.build = build
         self.bundle = bundle
         self.apiBaseURL = apiBaseURL
         self.settings = settings
@@ -44,7 +44,7 @@ import os
     /// app's lifetime. Does nothing without acpmux or an API origin.
     public func start() {
         let bin = bundle.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin,
+        guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment),
               let scheme = apiBaseURL.scheme, let host = apiBaseURL.host else { return }
         // Scheme, host and port only; the relay accepts only a known cmux API origin.

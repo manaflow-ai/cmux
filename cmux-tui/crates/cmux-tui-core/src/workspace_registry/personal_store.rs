@@ -660,6 +660,49 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
     Ok(workspaces)
 }
 
+/// One personal row with its ordinal in the personal order (the order of
+/// [`read_workspaces`]), read by its key and the order index.
+pub(crate) fn read_workspace(
+    connection: &Connection,
+    session_id: &str,
+    workspace_key: &str,
+) -> anyhow::Result<Option<PersonalWorkspace>> {
+    let Some((position, group, browser_profile_id, theme, remote_localhost)) = connection
+        .query_row(
+            "SELECT position, group_id, browser_profile_id, theme, remote_localhost
+             FROM personal_workspaces WHERE session_id = ?1 AND workspace_key = ?2",
+            params![session_id, workspace_key],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<bool>>(4)?,
+                ))
+            },
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let before: i64 = connection.query_row(
+        "SELECT COUNT(*) FROM personal_workspaces
+         WHERE (position, session_id, workspace_key) < (?1, ?2, ?3)",
+        params![position, session_id, workspace_key],
+        |row| row.get(0),
+    )?;
+    Ok(Some(PersonalWorkspace {
+        session_id: session_id.to_string(),
+        workspace_key: workspace_key.to_string(),
+        index: usize::try_from(before)?,
+        group,
+        browser_profile_id,
+        theme,
+        remote_localhost,
+    }))
+}
+
 pub(crate) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
     Ok(PersonalSnapshot {
         personal_revision: personal_revision(connection)?,

@@ -16,7 +16,14 @@
 //!    selected tab; the keyboard focus stays. A frontend-rendered tab
 //!    navigates through its frontend record (`update-frontend-browser-tab`
 //!    URL semantics: the hosting app loads the new URL), a daemon-rendered
-//!    one through `browser.navigate`.
+//!    one through the browser's navigation queue (raw `browser-navigate`
+//!    semantics). The answer means the navigation is queued, not that the
+//!    page loaded, so a slow or stuck page cannot hold the caller (the CLI
+//!    gives up after 10 seconds). A browser still starting loads the link
+//!    when it attaches; a navigation that fails after the answer shows as
+//!    the browser's status, not as an error of this request; a newer
+//!    open-url or navigation of the same browser supersedes one still
+//!    pending (latest wins).
 //! 4. Else a new browser tab in the first of those panes. When a connected
 //!    client renders browser tabs itself (it declared
 //!    `frontend-browser-tabs-v1`: the cmux app), the daemon makes a frontend
@@ -36,10 +43,14 @@
 //! a retry with the same key and request answers the first result (the
 //! same tab, no second navigation) even after the selection changed, and the
 //! same key with another workspace or URL is `idempotency.conflict`. Each
-//! step also runs under a key derived from the request's key, so a retry
-//! after a step that committed before the ledger did replays that step.
+//! creation, split, focus and tab selection step also runs under a key
+//! derived from the request's key, so a retry after a step that committed
+//! before the ledger did replays that step. The daemon navigation has no
+//! step key: a retry after a queued navigation that the ledger missed
+//! queues the same URL again.
 //! Errors of a step (`engine_unavailable` with no browser provider, a
-//! browser still starting) are returned as they are and record nothing.
+//! browser that failed for good) are returned as they are and record
+//! nothing.
 
 use std::cmp::Reverse;
 use std::sync::Arc;
@@ -141,7 +152,7 @@ fn open(
 /// An http(s) URL with a host and no credentials (the guest URL opener's
 /// rule, url_open.rs, plus invisible characters and user info: a link must
 /// look like the page it opens).
-fn is_web_url(raw: &str) -> bool {
+pub(crate) fn is_web_url(raw: &str) -> bool {
     raw.len() <= MAX_URL_BYTES
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace() || is_invisible_format(c))
         && url::Url::parse(raw).is_ok_and(|url| {
@@ -198,7 +209,6 @@ fn target_workspace(
 /// never replays this one.
 struct StepKeys {
     create: String,
-    navigate: String,
     select: String,
 }
 
@@ -213,7 +223,6 @@ impl StepKeys {
         let hash: String = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect();
         Self {
             create: format!("open-url-create-{hash}"),
-            navigate: format!("open-url-navigate-{hash}"),
             select: format!("open-url-select-{hash}"),
         }
     }
@@ -225,6 +234,36 @@ struct RightPane {
     id: PanePublicId,
     active: Option<SurfaceId>,
     tabs: Vec<(SurfaceId, Arc<Surface>)>,
+}
+
+/// The pane a new tab of `workspace` goes to when the request names no pane
+/// or screen and the workspace's focused pane is its left chat dock: the
+/// right-side pane a link would open in (focused most recently, then layout
+/// order), so a tab never lands in the chat dock (cx-ebm.59.5). `None` keeps
+/// the focused pane (no dock focused, no right side, or a request that names
+/// anything below the workspace).
+pub(crate) fn right_pane_beside_focused_dock(
+    mux: &Mux,
+    selectors: &ResourceSelectors,
+) -> Option<PanePublicId> {
+    let below = [
+        &selectors.screen,
+        &selectors.pane,
+        &selectors.tab,
+        &selectors.terminal,
+        &selectors.browser,
+        &selectors.frontend_projection,
+    ];
+    if selectors.workspace.is_none() || below.iter().any(|selector| selector.is_some()) {
+        return None;
+    }
+    let workspace =
+        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
+    mux.with_state(|state| {
+        let side = right_side(state, &workspace)?;
+        let dock_focused = side.dock.is_some() && side.dock == side.focused;
+        dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
+    })
 }
 
 /// The target screen's right side, best pane first, its dock pane, and the
@@ -437,7 +476,7 @@ impl Call<'_> {
         steps: &StepKeys,
     ) -> Result<Value, ResourceError> {
         let record = self.frontend_record();
-        let placement = FrontendTabPlacement { activate: true, after: pane.active };
+        let placement = FrontendTabPlacement { activate: true, after: pane.active, index: None };
         let outcome = self
             .mux
             .new_frontend_browser_tab_keyed_as(
@@ -598,12 +637,20 @@ impl Call<'_> {
                 )
                 .map_err(resource_operation_error)?;
         } else {
-            self.inner(
-                ResourceOperation::BrowserNavigate,
-                Map::from_iter([("browser".to_string(), json!(reuse.browser.as_str()))]),
-                json!({"url": self.url}),
-                Some(&steps.navigate),
-            )?;
+            // Queued, not confirmed: a confirmed `browser.navigate` waits for
+            // the page's answer (up to the CDP timeout), longer than any
+            // caller waits for this request.
+            let surface = self
+                .mux
+                .surface(reuse.surface)
+                .ok_or_else(|| ResourceError::not_found("browser", reuse.browser.as_str()))?;
+            self.mux.navigate_browser_surface(&surface, self.url).map_err(|error| {
+                ResourceError::operation_failed(
+                    "browser.navigate",
+                    error.to_string(),
+                    json!({"browser_id": reuse.browser.as_str()}),
+                )
+            })?;
         }
         let selectors = ResourceSelectors {
             machine: self.request.selectors.machine.clone(),

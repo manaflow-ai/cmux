@@ -177,12 +177,34 @@ final class LineTransport: Sendable {
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
+        #if DEBUG
+        // A traced new terminal: the request naming its id, and that request's reply.
+        var traced: String?
+        let submitted: Result<UInt64, any Error>
+        if NewTerminalTrace.shared.isArmed {
+            submitted = submit(.reply(cmd: cmd, slot), { id in
+                let line = try body(id)
+                traced = NewTerminalTrace.shared.requestSent(line)
+                return line
+            })
+        } else {
+            submitted = submit(.reply(cmd: cmd, slot), body)
+        }
+        #else
+        let submitted = submit(.reply(cmd: cmd, slot), body)
+        #endif
         // A failed submit resolved the slot already.
-        guard case .success(let id) = submit(.reply(cmd: cmd, slot), body) else { return try await slot.value() }
+        guard case .success(let id) = submitted else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
         if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
+        #if DEBUG
+        let response = try await slot.value()
+        if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
+        return response
+        #else
         return try await slot.value()
+        #endif
     }
 
     /// Fails a still-pending request with `timedOut`.

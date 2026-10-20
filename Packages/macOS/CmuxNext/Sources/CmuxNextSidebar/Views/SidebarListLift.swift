@@ -61,8 +61,8 @@ import AppKit
         content.targetSize = list.frame(for: row).size
         list.configure(content, row: row, animated: false)
         content.isHovered = false
-        content.isSelected = false // The lifted card is its own raised surface: no selection fill on it.
-        (content as? WorkspaceRowView)?.isSecondarySelected = false
+        // A selected row keeps its selection fill on the card, so it reads the same lifted as in the list
+        // before and after the drag (Leo 2026-10-18). The card shows no row to VoiceOver (DragLiftView).
         // The lifted header shows no hover-only buttons and no focus ring.
         (content as? GroupHeaderRowView)?.isKeyboardFocused = false
         (content as? GroupHeaderRowView)?.isEditing = false
@@ -73,6 +73,6 @@ import AppKit
 /// The lifted content of a block drag: a group's header and member rows, or
 /// a workspace and its tab rows.
 final class SidebarLiftBlockView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

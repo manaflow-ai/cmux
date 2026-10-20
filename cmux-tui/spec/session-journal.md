@@ -132,8 +132,10 @@ authorizes the event. It contains principal, lease, generation, and role.
 groups one operation or flow. `causation_depth` bounds recursive automation.
 
 `subjects` is a deduplicated set. A pane event includes the pane and every
-known ancestor. A move includes source and destination subjects. Consumers
-filter subjects rather than scraping IDs from payloads.
+known ancestor. A move includes source and destination subjects. A workspace
+is a subject when its own value changes (created, moved, renamed, selected,
+closed), not when a workspace order change only shifts its position.
+Consumers filter subjects rather than scraping IDs from payloads.
 
 `sensitivity` is `public`, `metadata`, `sensitive`, or `secret`. Subscription
 authority and export redaction use this field before payload delivery.
@@ -441,6 +443,13 @@ directory, then atomically merges command-hook configuration or installs one
 owned plugin file. Existing unrelated hooks remain in place. Reinstallation is
 idempotent, legacy cmux-tui journal shims are migrated, and an unrecognized
 file at an owned plugin path is never overwritten.
+
+`status` reports each provider as `installed`, `partial` or `absent`, or as
+`conflict` when the target exists in a form installation refuses (a symlink,
+a non-file, or a plugin file cmux-tui did not write) and `unavailable` when it
+cannot be inspected. Those two states carry a machine-readable `reason`
+(`symlink`, `not_a_file`, `not_a_directory`, `not_owned` or `unreadable`) and
+a human-readable `detail`; `cmux --json agent hook status` emits them.
 
 Command-hook providers wait for only the helper's bounded durable receipt.
 Plugin providers return from their callback immediately and let an external

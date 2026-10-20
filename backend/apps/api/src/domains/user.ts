@@ -229,6 +229,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
       confirm && !homeUser.authorizeUserConfirm(op, withInstallKind(state, principal), confirmEnv(state, appIdHash, Date.now())) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
     if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
+    // A Chief's create or rename from its Cloud brain (UserDO.chiefManage, server code only); user-chief.ts narrows the params.
+    if (principal.kind === "agent" && principal.identity === `agent:${principal.agent} via chief`) return (op === "chief.create" || op === "chief.update") && principal.agent !== undefined && chiefActive(state, principal.agent) ? undefined : { code: "auth.forbidden", message: "a Chief creates chiefs and renames other chiefs only" }
     if (!userPathAllowed(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
     return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },

@@ -66,6 +66,25 @@ final class TerminalEventQueue: @unchecked Sendable {
         condition.unlock()
     }
 
+    /// Any thread. Queues a small, non-output event without the backpressure wait, so a caller may
+    /// hold its own lock across it (a size state is pushed under the lock that orders generations).
+    func pushWithoutWaiting(_ event: TerminalChannelEvent) {
+        condition.lock()
+        guard !finished else {
+            condition.unlock()
+            return
+        }
+        if let waiter {
+            self.waiter = nil
+            condition.unlock()
+            waiter.resume(returning: event)
+            return
+        }
+        items.append(event)
+        outputBytes += Self.outputSize(event)
+        condition.unlock()
+    }
+
     /// Ends the stream after `last` (if any) and anything already queued.
     /// Unblocks a waiting reader.
     func finish(_ last: TerminalChannelEvent? = nil) {

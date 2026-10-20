@@ -38,7 +38,7 @@ public nonisolated enum ChiefHostStop {
 
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)
-        let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBin,
+        let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The daemon exits (Quit Everything's own end); the Chief's sessions stay on disk.
         _ = await AcpmuxQuit.endAgents(environment, keep: endSessionsKeep)
@@ -47,7 +47,30 @@ public nonisolated enum ChiefHostStop {
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        return String(cString: buffer).hasSuffix("/" + HomeBrainHost.bundledChiefName)
+        let path = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+        return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// Whether a process with executable `path` (nil: `proc_pidpath` failed) and kernel process
+    /// name `processName` is a Chief host. `proc_pidpath` fails once the executable's file is
+    /// gone: an update replaced the bundle the host ran from. Such a host still holds the Chief
+    /// home's lock and runs the old acpmux, so it must stay stoppable (the Chief acpmux handoff
+    /// after an update); its process name is then the only fact left. Only a pid the held lock
+    /// names reaches this check, and only one of this user's processes (`processName`).
+    static func isChiefHost(path: String?, processName: String?) -> Bool {
+        if let path { return path.hasSuffix("/" + HomeBrainHost.bundledChiefName) }
+        return processName == HomeBrainHost.bundledChiefName
+    }
+
+    /// The kernel's name of `pid` (`pbi_name`, else `pbi_comm`) when it is one of this user's
+    /// processes; nil otherwise.
+    static func processName(_ pid: pid_t) -> String? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
+        let name = withUnsafeBytes(of: info.pbi_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        if !name.isEmpty { return name }
+        let command = withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return command.isEmpty ? nil : command
     }
 }

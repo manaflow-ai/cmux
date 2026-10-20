@@ -65,9 +65,23 @@ struct WindowRegistry: Equatable, Sendable {
         var isEmpty: Bool { emptied.isEmpty && moved.isEmpty && discarded.isEmpty }
     }
 
-    /// Creation order.
-    private(set) var windows: [Window] = []
-    /// Window ids, most recently active first.
+    /// Creation order. A write that changes membership rebuilds `owners`
+    /// (O(n)); loops that touch several windows write a local copy back once.
+    /// A frame or open-state change compares O(windows) (equal arrays share
+    /// storage) and rebuilds nothing.
+    private(set) var windows: [Window] = [] {
+        didSet {
+            let same = windows.count == oldValue.count
+                && zip(windows, oldValue).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+            if !same { owners = Self.ownerIndex(windows) }
+        }
+    }
+    /// Owning window by workspace id (the first window that lists it), so
+    /// `owner(of:)` is O(1): reconcile asks it once per live workspace, which
+    /// was O(n²) at 1,000 workspaces (a watchdog trip). Derived from
+    /// `windows`; not part of `==`.
+    private var owners: [String: String] = [:]
+    /// Window ids, front first: key changes and `WindowActivation` orders keep it (`WindowManager.windowDidOrder`).
     private(set) var recency: [String] = []
     /// Incognito windows, registered or about to be (New Incognito Window
     /// marks the id before its workspace is reported).
@@ -78,16 +92,29 @@ struct WindowRegistry: Equatable, Sendable {
 
     init(windows: [Window] = []) {
         self.windows = windows
+        owners = Self.ownerIndex(windows)
         recency = windows.map(\.id)
+    }
+
+    static func == (lhs: WindowRegistry, rhs: WindowRegistry) -> Bool {
+        lhs.windows == rhs.windows && lhs.recency == rhs.recency && lhs.incognito == rhs.incognito
+            && lhs.discarding == rhs.discarding
+    }
+
+    private static func ownerIndex(_ windows: [Window]) -> [String: String] {
+        var owners: [String: String] = [:]
+        owners.reserveCapacity(windows.reduce(0) { $0 + $1.workspaceIDs.count })
+        for window in windows {
+            for id in window.workspaceIDs where owners[id] == nil { owners[id] = window.id }
+        }
+        return owners
     }
 
     // MARK: Queries
 
     func window(_ id: String) -> Window? { windows.first { $0.id == id } }
 
-    func owner(of workspaceID: String) -> String? {
-        windows.first { $0.workspaceIDs.contains(workspaceID) }?.id
-    }
+    func owner(of workspaceID: String) -> String? { owners[workspaceID] }
 
     var openWindows: [Window] { windows.filter(\.isOpen) }
 
@@ -233,6 +260,9 @@ struct WindowRegistry: Equatable, Sendable {
         recency.insert(id, at: 0)
     }
 
+    /// Window `id` was ordered in behind the app's other windows.
+    mutating func moveToBack(_ id: String) { if window(id) != nil { recency.removeAll { $0 == id }; recency.append(id) } }
+
     mutating func setGeometry(_ id: String, frame: CGRect?, display: String?) {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
         windows[index].frame = frame
@@ -273,17 +303,30 @@ struct WindowRegistry: Equatable, Sendable {
                             behind: Set<String> = [], fallbackWindow: @autoclosure () -> String) -> Changes {
         var changes = Changes()
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        for index in windows.indices {
-            windows[index].workspaceIDs = windows[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
+        var pruned = windows
+        for index in pruned.indices {
+            pruned[index].workspaceIDs = pruned[index].workspaceIDs.filter { !dead.contains($0) }.merged(adding: [], rank: rank)
         }
+        windows = pruned
         discarding = discarding.intersection(live).subtracting(dead)
-        let owned = Set(windows.flatMap(\.workspaceIDs)).union(discarding)
+        let owned = Set(owners.keys).union(discarding)
+        // Each heir takes its orphans in one merge (one sort per window, not
+        // one per orphan); the result is the same, every orphan is ranked.
+        var heirs: [String] = []
         for orphan in live where !owned.contains(orphan) && !held.contains(orphan) {
             let claimed = placements[orphan].flatMap { placementWindow($0, behind: behind.contains($0)) }
             let heir = claimed ?? mostRecentOpen() ?? recency.first { !isIncognito($0) } ?? register(fallbackWindow())
-            guard let index = windows.firstIndex(where: { $0.id == heir }) else { continue }
-            windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [orphan], rank: rank)
+            guard window(heir) != nil else { continue }
+            if changes.moved[heir] == nil { heirs.append(heir) }
             changes.moved[heir, default: []].append(orphan)
+        }
+        if !heirs.isEmpty {
+            var grown = windows
+            for heir in heirs {
+                guard let index = grown.firstIndex(where: { $0.id == heir }), let orphans = changes.moved[heir] else { continue }
+                grown[index].workspaceIDs = grown[index].workspaceIDs.merged(adding: orphans, rank: rank)
+            }
+            windows = grown
         }
         changes.emptied = closeEmptied()
         return changes
@@ -293,7 +336,9 @@ struct WindowRegistry: Equatable, Sendable {
     /// workspaces not in it keep their place after the ordered ones.
     mutating func order(like live: [String]) {
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        for index in windows.indices { windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [], rank: rank) }
+        var ordered = windows
+        for index in ordered.indices { ordered[index].workspaceIDs = ordered[index].workspaceIDs.merged(adding: [], rank: rank) }
+        if ordered != windows { windows = ordered }
     }
 
     // MARK: Internals
@@ -302,9 +347,11 @@ struct WindowRegistry: Equatable, Sendable {
     /// without duplicates.
     private mutating func detach(_ ids: [String]) -> [String] {
         var unique: [String] = []
-        for id in ids where !unique.contains(id) { unique.append(id) }
-        let set = Set(unique)
-        for index in windows.indices { windows[index].workspaceIDs.removeAll { set.contains($0) } }
+        var set = Set<String>()
+        for id in ids where set.insert(id).inserted { unique.append(id) }
+        var detached = windows
+        for index in detached.indices { detached[index].workspaceIDs.removeAll { set.contains($0) } }
+        windows = detached
         return unique
     }
 

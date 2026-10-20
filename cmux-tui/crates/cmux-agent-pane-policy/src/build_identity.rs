@@ -78,6 +78,78 @@ pub struct BuildIdentity {
     tag: Option<String>,
     kind: BuildKind,
     key: String,
+    /// The app names this build keeps from before per-build isolation
+    /// ([`Self::app_session`]); `None`: names of its key.
+    kept: Option<KeptNames>,
+}
+
+/// The app daemon session tag (`cmux-app[-<tag>]`) and control socket name
+/// (`/tmp/cmux-<name>.sock`; `None`: release's `~/.local/state/cmux/cmux.sock`)
+/// of a build that keeps the names it had before per-build isolation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct KeptNames {
+    session_tag: Option<String>,
+    socket: Option<String>,
+}
+
+/// The untagged channel builds and the channel name in their app names.
+const CHANNELS: [(&str, &str); 3] = [
+    ("com.cmuxterm.app.nightly", "nightly"),
+    ("com.cmuxterm.app.rc", "rc"),
+    ("com.cmuxterm.app.staging", "staging"),
+];
+/// cmux NEXT, shipped (`nightly-next`): it keeps its names, so its installs
+/// keep their daemon state.
+const CMUX_NEXT_BUNDLE_ID: &str = "com.cmuxterm.app.nightly.cmux-next";
+/// DEV tags whose names a shipped build owns (`cmux-app-nightly`, …): a DEV
+/// build with one of them gets names of its key.
+const OWNED_TAGS: [&str; 4] = ["nightly", "rc", "staging", "cmux-next"];
+
+impl KeptNames {
+    /// The names `bundle_id` (suffix `suffix` after its kind's prefix, shipped
+    /// tag `shipped`) keeps: the ones that belong to exactly one build, so no
+    /// state moves. Release, the untagged channels, cmux NEXT, a
+    /// `scripts/reload.sh` DEV build `com.cmuxterm.app.debug.<a.b>` whose
+    /// suffix is its tag, and the plain DEV bundle with a tag. A bundle that
+    /// ships another tag than its id keeps nothing; neither does a DEV tag a
+    /// shipped build owns, nor the untagged DEV build.
+    fn of(bundle_id: &str, suffix: Option<&str>, shipped: Option<&str>) -> Option<Self> {
+        // The plain DEV bundle with a tag (shipped, or from its `cmux DEV
+        // <tag>.app` name) keeps that tag's names, as before; untagged: none.
+        if bundle_id == "com.cmuxterm.app.debug" {
+            let tag = shipped.filter(|tag| !OWNED_TAGS.contains(tag))?;
+            return Some(Self {
+                session_tag: Some(tag.to_owned()),
+                socket: Some(format!("debug-{tag}")),
+            });
+        }
+        let suffix_tag = suffix.and_then(tag_slug);
+        if shipped.is_some() && shipped != suffix_tag.as_deref() {
+            return None;
+        }
+        let names = |tag: Option<&str>, socket: Option<String>| {
+            Some(Self { session_tag: tag.map(str::to_owned), socket })
+        };
+        if bundle_id == "com.cmuxterm.app" {
+            return names(None, None);
+        }
+        if let Some((_, channel)) = CHANNELS.iter().find(|(id, _)| *id == bundle_id) {
+            return names(Some(*channel), Some((*channel).to_owned()));
+        }
+        if bundle_id == CMUX_NEXT_BUNDLE_ID {
+            return names(Some("cmux-next"), Some("nightly-cmux-next".into()));
+        }
+        let suffix = bundle_id.strip_prefix("com.cmuxterm.app.debug.")?;
+        let reload_form = suffix.split('.').all(|segment| {
+            !segment.is_empty()
+                && segment.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        });
+        let tag = suffix_tag?;
+        if !reload_form || OWNED_TAGS.contains(&tag.as_str()) {
+            return None;
+        }
+        names(Some(&tag), Some(format!("debug-{tag}")))
+    }
 }
 
 impl BuildIdentity {
@@ -93,6 +165,7 @@ impl BuildIdentity {
                 tag: None,
                 kind: BuildKind::Unbundled,
                 key: UNBUNDLED_KEY.into(),
+                kept: None,
             };
         };
         let (kind, suffix) = KINDS
@@ -133,7 +206,8 @@ impl BuildIdentity {
         if let Some(shipped) = shipped.as_deref().filter(|s| suffix_tag.as_deref() != Some(*s)) {
             key = format!("{key}--{shipped}");
         }
-        Self { bundle_id: Some(bundle_id.to_owned()), tag, kind, key }
+        let kept = KeptNames::of(bundle_id, suffix, shipped.as_deref());
+        Self { bundle_id: Some(bundle_id.to_owned()), tag, kind, key, kept }
     }
 
     pub fn bundle_id(&self) -> Option<&str> {
@@ -197,6 +271,45 @@ impl BuildIdentity {
         } else {
             base.join("builds").join(&self.key)
         }
+    }
+
+    /// The session of this build's app daemon: the name it had before
+    /// per-build isolation where that name belongs to exactly one build
+    /// (`cmux-app` for release, `cmux-app-<channel>`, `cmux-app-cmux-next`,
+    /// `cmux-app-<tag>` for a `scripts/reload.sh` DEV build), else
+    /// `cmux-app--<key hash>` (`--` never occurs in a tag). `None` outside
+    /// any bundle.
+    pub fn app_session(&self) -> Option<String> {
+        if self.kind == BuildKind::Unbundled {
+            return None;
+        }
+        Some(match &self.kept {
+            Some(KeptNames { session_tag: None, .. }) => "cmux-app".into(),
+            Some(KeptNames { session_tag: Some(tag), .. }) => format!("cmux-app-{tag}"),
+            None => format!("cmux-app--{}", self.key_hash()),
+        })
+    }
+
+    /// The control socket of this build's app (CmuxNext `ControlSocketPath`):
+    /// the path it had before per-build isolation where that path belongs to
+    /// exactly one build (`/tmp/cmux-<channel>.sock`,
+    /// `/tmp/cmux-nightly-cmux-next.sock`, `/tmp/cmux-debug-<tag>.sock`,
+    /// release's `~/.local/state/cmux/cmux.sock`), else
+    /// `/tmp/cmux-<kind>--<key hash>.sock` (`debug` for DEV). `None` outside
+    /// any bundle.
+    pub fn control_socket(&self, user_home: &Path) -> Option<PathBuf> {
+        let word = match self.kind {
+            BuildKind::Unbundled => return None,
+            BuildKind::Dev => "debug",
+            kind => kind.name(),
+        };
+        Some(match &self.kept {
+            Some(KeptNames { socket: None, .. }) => user_home.join(".local/state/cmux/cmux.sock"),
+            Some(KeptNames { socket: Some(name), .. }) => {
+                PathBuf::from(format!("/tmp/cmux-{name}.sock"))
+            }
+            None => PathBuf::from(format!("/tmp/cmux-{word}--{}.sock", self.key_hash())),
+        })
     }
 
     /// This build's directory under `~/Library/Application Support/cmux`

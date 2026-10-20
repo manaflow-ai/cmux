@@ -111,6 +111,11 @@ enum ControlTopologyMapper {
     static func applyAppFacts(_ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
                               selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> ControlWorkspaceInfo? {
         guard info.screens.count == slots.count else { return nil }
+        // Most workspaces are not shown and have no page tabs: their app facts
+        // equal the cached value, which is returned without copying its
+        // screens (every publish maps every workspace; 1,000 copies were most
+        // of the main-thread stalls in the 2026-10-14 stress bench).
+        if appFactsUnchanged(info, slots: slots, selectedTab: selectedTab, pages: pages) { return info }
         var aligned = true
         var info = info
         info.screens = zip(info.screens, slots).map { screen, panes in
@@ -133,6 +138,29 @@ enum ControlTopologyMapper {
             return screen
         }
         return aligned ? info : nil
+    }
+
+    /// True when `applyAppFacts` would change nothing in `info` (false also
+    /// when `slots` does not line up, so the full path decides).
+    private static func appFactsUnchanged(_ info: ControlWorkspaceInfo, slots: [[ControlPaneSlot]],
+                                          selectedTab: (PaneModel) -> String?, pages: ControlPageFacts) -> Bool {
+        // Index loops, not zip: a debug build does not specialize zip and paid
+        // generic metadata lookups per element on every publish.
+        for screenIndex in info.screens.indices {
+            guard let screen = info.screens[checked: screenIndex], let paneSlots = slots[checked: screenIndex],
+                  screen.panes.count == paneSlots.count else { return false }
+            for paneIndex in paneSlots.indices {
+                guard let pane = screen.panes[checked: paneIndex], let slot = paneSlots[checked: paneIndex],
+                      pane.selectedTabID == selectedTab(slot.pane), pane.pageTabs == pages.appOnlyTabs(slot.pane) else { return false }
+                guard !slot.pageTabs.isEmpty else { continue }
+                guard pane.tabs.count == slot.pageTabs.count else { return false }
+                for tabIndex in slot.pageTabs.indices {
+                    guard let model = slot.pageTabs[checked: tabIndex] ?? nil, let title = pages.title(model) else { continue }
+                    if title != pane.tabs[checked: tabIndex]?.title { return false }
+                }
+            }
+        }
+        return true
     }
 
     static func workspace(from model: WorkspaceModel, selectedTab: (PaneModel) -> String?,
@@ -227,11 +255,13 @@ enum ControlTopologyMapper {
             gitBranch: model.gitBranch,
             isPinned: model.pinned,
             isDead: model.dead,
-            hasUnread: model.hasUnread,
+            hasUnread: model.showsUnread,
             tabGroupID: model.tabGroup?.rawValue,
             agentState: model.agent?.state.rawValue
         ).withTerminalResource(model.terminalResourceID?.rawValue)
         info.agent = model.agent?.agent
+        // Hook bookkeeping values (`cmux-hook-sequence:`, `cmux-hook-ended:`) are not a session.
+        info.agentHarnessSessionID = model.agent?.session.flatMap { $0.isEmpty || $0.hasPrefix("cmux-hook-") ? nil : $0 }
         info.remoteSessionID = model.remote?.sessionID
         info.remoteTerminalID = model.remote?.terminalID.rawValue
         if model.kind == .browser { info.browserProfileID = model.browserProfileID ?? "default" }  // tracked: a move re-publishes

@@ -72,8 +72,11 @@ const fn access(operation: Op) -> Access {
         | Op::BrowserInputKey
         | Op::BrowserInputMouse
         | Op::BrowserInputWheel
-        // A message becomes an agent's input at its next turn.
-        | Op::AgentMessageSend => Access::Denied(Denied::Input),
+        // A message becomes an agent's input at its next turn; a release
+        // lets a held one through, and an unsend sends the agent a notice.
+        | Op::AgentMessageSend
+        | Op::AgentMessageRelease
+        | Op::AgentMessageUnsend => Access::Denied(Denied::Input),
         Op::TerminalScreenRead
         | Op::TerminalHistoryRead
         | Op::TerminalHistoryClear
@@ -236,6 +239,11 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedList
         | Op::ClosedDelete
         | Op::ClosedReopen
+        | Op::StashCreate
+        | Op::StashList
+        | Op::StashRestore
+        | Op::StashDelete
+        | Op::StashImport
         | Op::WindowRecordList
         | Op::SettingsSchema
         | Op::SettingsList
@@ -259,6 +267,7 @@ const fn access(operation: Op) -> Access {
         | Op::SidebarItemAdd
         | Op::SidebarItemRemove
         | Op::SidebarItemUpdate
+        | Op::SidebarItemRemoveRef
         | Op::SidebarSectionAdd
         | Op::SidebarSectionUpdate
         | Op::SidebarSectionMove
@@ -268,12 +277,16 @@ const fn access(operation: Op) -> Access {
         | Op::SidebarGroupUngroup
         | Op::SidebarAdopt
         | Op::SidebarApply
+        | Op::SidebarReset
         | Op::BrowserDevicesList
         | Op::BrowserDevicesAddCustom
         | Op::BrowserDevicesRemoveCustom
         | Op::BrowserTabEmulate
         | Op::BrowserTabEmulateClear
         | Op::BrowserTabSetProfile
+        | Op::BrowserProfileList
+        | Op::BrowserProfileCreate
+        | Op::BrowserProfileOpen
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
@@ -340,7 +353,10 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet
         | Op::ChiefStop
-        // A page never reads or edits the person's Chiefs.
+        // A page reads and edits the person's Chiefs only where its
+        // page-router entry lists the operation (home-channels,
+        // chief-profile-ws-v1); create, delete, the grant, instructions and
+        // personality need a gesture.
         | Op::ChiefProfileList
         | Op::ChiefProfileGet
         | Op::ChiefProfileCreate
@@ -348,6 +364,13 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        // Adopting an agent as a Chief: no page route at all (owner only,
+        // from a terminal; chief_registry_resource.rs refuses any page).
+        | Op::ChiefProfileAdopt
+        // Avatars: a page reads them only through its allow list
+        // (page-router.json: home-channels reads participant.avatar.get).
+        | Op::ParticipantAvatarSet
+        | Op::ParticipantAvatarGet
         // A page never reads or writes the person's conversations.
         | Op::ConversationList
         | Op::ConversationGet
@@ -399,12 +422,26 @@ pub(super) fn page_refusal(
         error.details["derived"] = json!(origin.wire_name());
         return Some(error);
     }
-    let grant = page_router_table::grant(page, operation.wire_name());
+    let grant = match page_router_table::grant(page, operation.wire_name()) {
+        // A Chief edit that names a gesture field (the grant, instructions,
+        // personality) needs the person's gesture even where the page may
+        // edit Chiefs (chief-profile-ws-v1).
+        PageGrant::Read if writes_chief_gesture_field(operation, params) => PageGrant::Gesture,
+        grant => grant,
+    };
     if matches!(grant, PageGrant::Gesture | PageGrant::Confirm) && origin == RequestOrigin::User {
         return None;
     }
     let reason = page_router_table::missing_confirmation_reason(grant)?;
     Some(page_forbidden(page, operation.wire_name(), reason, origin))
+}
+
+/// Whether `operation` is a Chief create or edit whose params name a gesture
+/// field (chief_registry.rs `GESTURE_FIELDS`). Create and delete are on the
+/// page's gesture list themselves (page-router.json).
+fn writes_chief_gesture_field(operation: Op, params: &Value) -> bool {
+    matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileUpdate)
+        && params.as_object().is_some_and(crate::chief_registry::names_gesture_field)
 }
 
 /// `origin.forbidden` for page `page`: `page_not_allowed` (not on its

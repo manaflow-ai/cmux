@@ -13,26 +13,45 @@ struct SidebarRowViewPool {
     /// Parked keys, oldest first, for eviction.
     private var order: [SidebarRowKey] = []
 
-    /// `key`'s parked view, reset; else a new one.
-    mutating func take(for key: SidebarRowKey) -> SidebarRowView {
+    /// `key`'s parked view, reset; else, when `rebinding`, the oldest parked
+    /// view of the same kind, reset for `key` (scroll realization: a long
+    /// scroll makes no new views); else a new one.
+    mutating func take(for key: SidebarRowKey, rebinding: Bool = false) -> SidebarRowView {
         if let parked = views.removeValue(forKey: key) {
             order.removeAll { $0 == key }
             parked.prepareForReuse(key: key)
             return parked
         }
-        return Self.rowClass(for: key).init(key: key)
+        let rowClass = Self.rowClass(for: key)
+        if rebinding, let index = order.firstIndex(where: { views[$0].map { type(of: $0) == rowClass } ?? false }),
+           let parked = views.removeValue(forKey: order[index]) {
+            order.remove(at: index)
+            parked.prepareForReuse(key: key)
+            return parked
+        }
+        return rowClass.init(key: key)
     }
 
-    /// Parks a view that left the list (already removed from its superview)
-    /// under its own row's key.
-    mutating func put(_ view: SidebarRowView) {
-        if views.updateValue(view, forKey: view.key) == nil { order.append(view.key) }
-        while order.count > Self.limit { views[order.removeFirst()] = nil }
+    /// Parks a view that left the list (hidden in it, or removed from its
+    /// superview) under its own row's key; returns the views it evicted.
+    @discardableResult
+    mutating func put(_ view: SidebarRowView) -> [SidebarRowView] {
+        if let replaced = views.updateValue(view, forKey: view.key) {
+            return replaced === view ? [] : [replaced]
+        }
+        order.append(view.key)
+        var evicted: [SidebarRowView] = []
+        while order.count > Self.limit {
+            if let old = views.removeValue(forKey: order.removeFirst()) { evicted.append(old) }
+        }
+        return evicted
     }
 
     private static func rowClass(for key: SidebarRowKey) -> SidebarRowView.Type {
         switch key {
         case .workspace: WorkspaceRowView.self
+        case .item: SidebarItemListRowView.self
+        case .block: SidebarBlockRowView.self
         case .tab: SidebarTabRowView.self
         case .group: GroupHeaderRowView.self
         case .section: SectionHeaderRowView.self

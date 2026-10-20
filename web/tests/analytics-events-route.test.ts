@@ -187,7 +187,7 @@ describe("iOS analytics events route", () => {
     const [event] = forwardedPostHogBatch();
     expect(event.distinct_id).not.toBe(deletedUserID);
     expect(event.distinct_id).toStartWith("ios-anon-sha256:");
-    expect(event.properties).toEqual({});
+    expect(event.properties).toEqual({ channel: "unknown" });
   });
 
   test("namespaces the anonymous alias on an authenticated identify event", async () => {

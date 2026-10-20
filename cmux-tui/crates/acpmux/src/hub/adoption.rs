@@ -80,7 +80,7 @@ impl Hub {
         }
         // The store the resuming harness reads: its spawn env's home, else
         // the daemon's, else a store the chat index holds the chat in. The
-        // store walk, the record read and the process table are blocking I/O.
+        // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (fam, id, check) =
@@ -88,19 +88,22 @@ impl Hub {
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
+            // The holder the harness records in the store that holds the chat; one that has
+            // exited does not count (hq#2569 item 7).
             let live = check
-                .then(|| {
-                    let procs = crate::adopt_live::processes();
-                    if fam == "opencode" {
-                        return crate::adopt_live::named_use(&id, &procs);
+                .then(|| match fam.as_str() {
+                    "opencode" => {
+                        crate::adopt_live::named_use(&id, &crate::adopt_live::processes())
                     }
-                    crate::adopt_live::live_use(
-                        &id,
-                        &found.file,
-                        found.cwd.as_deref(),
-                        &procs,
-                        std::time::SystemTime::now(),
-                    )
+                    "claude" => {
+                        let root = store.clone().unwrap_or_else(|| homes.claude.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    "codex" => {
+                        let root = store.clone().unwrap_or_else(|| homes.codex.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    _ => None,
                 })
                 .flatten();
             Ok::<_, String>(((found, store), live))
@@ -136,6 +139,9 @@ impl Hub {
         adopt: &AdoptRequest,
         agent: &str,
     ) -> Result<(), RpcError> {
+        super::titles::keep_adopted_title(
+            &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }
@@ -244,6 +250,20 @@ pub(super) fn session_cwd(
         return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
     Ok((cwd, remapped_from))
+}
+
+/// `session_cwd` and that folder's git branch and HEAD as the session starts
+/// (`git_state.rs`). Both read the disk, so `session/new` runs this off the
+/// async runtime.
+pub(super) fn start_folder(
+    cwd: Option<PathBuf>,
+    recorded: Option<PathBuf>,
+    family: &str,
+    cwd_map: &[(PathBuf, PathBuf)],
+) -> Result<(PathBuf, Option<PathBuf>, crate::git_state::GitState), RpcError> {
+    let (cwd, remapped_from) = session_cwd(cwd, recorded, family, cwd_map)?;
+    let git = crate::git_state::GitState::read(&cwd);
+    Ok((cwd, remapped_from, git))
 }
 
 /// Ok when `given` stands in for the gone `recorded` folder of a chat moved

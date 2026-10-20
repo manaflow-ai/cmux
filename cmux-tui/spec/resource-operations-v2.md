@@ -7,13 +7,14 @@ selectors, fields, results, errors, constraints, or stream types.
 ## Transported operations
 
 `cmux.protocol/2` transports the operations in `resource-operations-v2.json` for one local mux
-session. Cross-machine aggregation and provider lifecycle require a later
-broker protocol.
+session. `machine.list/get` can explicitly opt in to admitted remote metadata
+with `catalog:true`; this supplies no remote execution route. Cross-machine
+session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 85 | Reads state and forbids an idempotency key |
-| `mutation` | 185 | Requires an idempotency key and returns a mutation result |
+| `read` | 88 | Reads state and forbids an idempotency key |
+| `mutation` | 197 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
@@ -28,10 +29,11 @@ correlation, and idempotency metadata.
 
 | Target | Count | Operations |
 | --- | ---: | --- |
-| `agent` | 5 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.send`, `agent.report` |
+| `agent` | 7 | `agent.list`, `agent.message.list`, `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report` |
 | `browser` | 15 | `browser.activate`, `browser.attach`, `browser.back`, `browser.close`, `browser.forward`, `browser.get`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.list`, `browser.navigate`, `browser.reload`, `browser.viewer.release`, `browser.viewer.resize` |
 | `browser_device` | 3 | `browser.devices.add_custom`, `browser.devices.list`, `browser.devices.remove_custom` |
-| `chief` | 10 | `chief.engine.get`, `chief.engine.set`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.list`, `chief.profile.update`, `chief.stop` |
+| `browser_profile` | 2 | `browser.profile.create`, `browser.profile.list` |
+| `chief` | 11 | `chief.engine.get`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.get`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.get`, `chief.profile.list`, `chief.profile.update`, `chief.stop` |
 | `client` | 8 | `client.cell_pixels.set`, `client.detach`, `client.get`, `client.list`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue` |
 | `closed` | 3 | `closed.delete`, `closed.list`, `closed.reopen` |
 | `conversation` | 8 | `conversation.draft`, `conversation.events`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `conversation.send`, `conversation.typing` |
@@ -44,18 +46,20 @@ correlation, and idempotency metadata.
 | `pairing_request` | 2 | `pairing_request.list`, `pairing_request.resolve` |
 | `palette_usage` | 5 | `palette_usage.forget`, `palette_usage.get`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record` |
 | `pane` | 14 | `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.get`, `pane.list`, `pane.neighbor.get`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom` |
+| `participant` | 2 | `participant.avatar.get`, `participant.avatar.set` |
 | `request` | 1 | `request.cancel` |
 | `room` | 8 | `room.create`, `room.delete`, `room.follow`, `room.list`, `room.move`, `room.pin`, `room.unpin`, `room.update` |
 | `saved_tab_group` | 4 | `saved_tab_group.delete`, `saved_tab_group.list`, `saved_tab_group.reopen`, `saved_tab_group.save` |
 | `screen` | 11 | `column.update`, `screen.close`, `screen.create`, `screen.focus`, `screen.get`, `screen.layout.export`, `screen.layout.undo`, `screen.list`, `screen.move`, `screen.rename`, `screen.update` |
 | `screen_group` | 7 | `screen_group.add_screens`, `screen_group.create`, `screen_group.get`, `screen_group.list`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update` |
 | `session` | 25 | `layout.bulk`, `session.creation.resolve`, `session.events`, `session.get`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.hook.put`, `session.journal.producer.list`, `session.journal.producer.put`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.journal.segment.seal`, `session.journal.subscribe`, `session.list`, `session.open`, `session.ping`, `session.reload_config`, `session.shutdown`, `session.snapshot`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `workspace_status.list` |
-| `sidebar_layout` | 18 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
+| `sidebar_layout` | 20 | `sidebar.adopt`, `sidebar.apply`, `sidebar.get`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.get`, `sidebar_layout.update` |
 | `project` | 6 | `project.add`, `project.list`, `project.observe`, `project.remove`, `project.sync`, `project.update` |
 | `setting` | 7 | `settings.get`, `settings.list`, `settings.reset`, `settings.reset_all`, `settings.schema`, `settings.set`, `settings.snapshot` |
 | `sidebar_view` | 6 | `sidebar_view.attach`, `sidebar_view.ensure`, `sidebar_view.get`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize` |
+| `stash` | 5 | `stash.create`, `stash.delete`, `stash.import`, `stash.list`, `stash.restore` |
 | `stream` | 1 | `stream.cancel` |
-| `tab` | 14 | `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
+| `tab` | 15 | `browser.profile.open`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.get`, `tab.list`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update` |
 | `tab_group` | 9 | `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.get`, `tab_group.list`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update` |
 | `terminal` | 23 | `terminal.attach`, `terminal.close`, `terminal.copy`, `terminal.get`, `terminal.history.clear`, `terminal.history.read`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.list`, `terminal.move`, `terminal.output_read`, `terminal.process.get`, `terminal.project`, `terminal.renderer_grant.create`, `terminal.screen.read`, `terminal.state.read`, `terminal.viewer.release`, `terminal.viewer.resize`, `terminal.viewport.scroll`, `terminal.wait`, `terminal.wait_exit` |
 | `window_record` | 3 | `window_record.delete`, `window_record.list`, `window_record.put` |

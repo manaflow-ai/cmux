@@ -46,6 +46,7 @@ const personalBillingSchema = z.object({
     billingManagement: billingManagementSchema,
     billingSource: z.enum(["stripe", "apple", "none"]),
     manageUrl: z.string().nullable(),
+    foundersEdition: z.boolean(),
   }),
   subscription: z.object({
     plan: z.string().nullable(),

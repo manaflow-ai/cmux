@@ -29,6 +29,15 @@ public actor AgentSessionAttachClient {
     private var servesStart = false
     /// The connected daemon serves `agent-session-trust-v1`.
     private var servesTrust = false
+    /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
+    private var servesKeyedReason = false
+
+    /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
+    /// is the acpmux run the app holds a key for, nil when it holds none.
+    public struct PersonKey: Sendable, Equatable {
+        public var instance: String?
+        public init(instance: String?) { self.instance = instance }
+    }
 
     /// `surface`: the tab's surface id in the daemon's store.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), endpoint: @escaping EndpointProvider) {
@@ -52,7 +61,11 @@ public actor AgentSessionAttachClient {
     /// in its own machine's acpmux (policy `ask`) and binds it; returns the new session id. A
     /// daemon that does not serve the verb is refused here (`agent_session.start_unsupported`),
     /// so no start ever falls back to another machine.
-    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false) async throws -> String {
+    ///
+    /// With `personKey` the daemon starts only when its acpmux holds that key, else it refuses with
+    /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
+    /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
+    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false, personKey: PersonKey? = nil) async throws -> String {
         _ = try await liveTransport()
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
@@ -60,6 +73,10 @@ public actor AgentSessionAttachClient {
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
         if homeConfirmed { params["home_confirmed"] = true }
+        if let personKey, servesKeyedReason {
+            params["require_person_key"] = true
+            if let instance = personKey.instance { params["person_instance"] = instance }
+        }
         let data = try await call("agent-session-start", params)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {
@@ -142,8 +159,8 @@ public actor AgentSessionAttachClient {
             response = try await transport.request(cmd: cmd, timeout: requestTimeout) { id in
                 Data(#"{"id":\#(id),"#.utf8) + fields.dropFirst()
             }
-        } catch DaemonError.command(_, let message, let code, _, _) {
-            throw AgentSessionAttachError(code: code ?? "agent_session.refused", message: message)
+        } catch DaemonError.command(_, let message, let code, let details, _) {
+            throw AgentSessionAttachError(code: code ?? "agent_session.refused", message: message, details: details)
         }
         return Self.data(of: response.line)
     }
@@ -190,6 +207,7 @@ public actor AgentSessionAttachClient {
             }
             servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
             servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
+            servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: "cmux-next agent attach", kind: "agent-session-attach", capabilities: []),
                 on: transport, timeout: requestTimeout)
@@ -217,6 +235,23 @@ public actor AgentSessionAttachClient {
 public struct AgentSessionAttachError: Error, Sendable, Equatable {
     public var code: String
     public var message: String
+    /// A typed refusal's facts (the response's `data`), when it has them.
+    public var details: JSONValue? = nil
+
+    public init(code: String, message: String, details: JSONValue? = nil) {
+        self.code = code
+        self.message = message
+        self.details = details
+    }
+
+    /// `agent_session.needs_keyed_start`: whether that machine's daemon says a keyed restart of
+    /// its acpmux loses nothing (`safe_to_restart`); nil for any other refusal.
+    public var keyedRestartSafe: Bool? {
+        guard code == Self.needsKeyedStart else { return nil }
+        return details?["safe_to_restart"]?.boolValue ?? false
+    }
+
+    public static let needsKeyedStart = "agent_session.needs_keyed_start"
 }
 
 /// The current push handler, read on the transport's reader thread.

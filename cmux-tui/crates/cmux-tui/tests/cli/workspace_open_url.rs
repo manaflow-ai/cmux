@@ -8,8 +8,8 @@
 //! the create path fails with the same `engine_unavailable` error that
 //! `tab.create_browser` returns. With a stand-in provider that publishes no
 //! target, a created tab stays `starting`: the first link creates it, and the
-//! second link reuses that tab (its `browser.navigate` answers that the
-//! browser is still starting) instead of a second tab.
+//! second link reuses that tab (its navigation waits for the browser to
+//! attach) instead of a second tab.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -261,7 +261,9 @@ fn focus(server: &HeadlessServer, pane: &Value, key: &str) {
 #[test]
 fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     let server = HeadlessServer::start("open-url-dock");
-    let _provider = browser_provider(&server);
+    let (endpoint, navigations) = wedged_cdp_endpoint("https://example.com/one");
+    let mut provider = Line::open(&server);
+    register_provider(&mut provider, 1, &endpoint, json!([]));
     let (workspace, dock, right_panes) = docked_workspace(
         &server,
         "open-url-dock",
@@ -316,22 +318,39 @@ fn open_url_opens_right_of_the_agent_chat_dock_and_reuses_that_tab() {
     assert_eq!(value(&replayed)["tab_id"], first_open["tab_id"], "{replayed}");
     assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a replay made a tab");
 
-    // The next link reuses that browser tab: it navigates it (the stand-in
-    // provider never gives it a page, so the navigation answers that the
-    // browser is still starting) and makes no second tab.
-    let again = v2(
-        &server,
-        "workspace.open_url",
-        json!({"workspace": workspace, "url": "https://example.com/two"}),
-        Some("open-url-dock-2"),
-    );
-    let refusal = error(&again);
-    assert_eq!(refusal["code"], "operation.failed", "{again}");
-    assert_eq!(refusal["details"]["operation"], "browser.navigate", "{again}");
-    assert_eq!(refusal["details"]["extra"]["status"], "starting", "{again}");
+    // The next links reuse that browser tab while it is still starting (the
+    // provider has not published its page): each navigation is queued, no
+    // second tab is made, and the newer link supersedes the older one.
+    for (url, key) in [
+        ("https://example.com/two", "open-url-dock-2"),
+        ("https://example.com/three", "open-url-dock-3"),
+    ] {
+        let again = v2(
+            &server,
+            "workspace.open_url",
+            json!({"workspace": workspace, "url": url}),
+            Some(key),
+        );
+        assert_eq!(value(&again)["reused"], true, "{again}");
+        assert_eq!(value(&again)["tab_id"], first_open["tab_id"], "{again}");
+    }
     let last = screen(&server, &workspace);
-    assert_eq!(tab_count(&last), tab_count(&after), "the second link made a tab: {last}");
+    assert_eq!(tab_count(&last), tab_count(&after), "a later link made a tab: {last}");
     assert_eq!(last["active_pane"], dock["id"], "the keyboard focus left the chat: {last}");
+
+    // The provider publishes the page: the browser attaches and loads the
+    // newest pending link, never the superseded one.
+    let tab = first_open["tab_id"].clone();
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
+    assert_eq!(next_navigation(&navigations), "https://example.com/three");
+    let later = navigations.recv_timeout(Duration::from_millis(500)).ok();
+    assert_ne!(later.as_deref(), Some("https://example.com/two"), "a superseded link loaded");
 }
 
 /// A left-edge dock without the agent chat role is not the right side either.
@@ -591,4 +610,187 @@ fn open_url_in_an_empty_home_makes_a_frontend_tab() {
     assert_eq!(value(&again)["reused"], true, "{again}");
     assert_eq!(value(&again)["tab_id"], first["tab_id"], "{again}");
     assert_eq!(tab_count(&screen(&server, &home)), 1, "the second link made a tab");
+}
+
+/// The page the wedged browser below shows when it attaches.
+const WEDGED_PAGE: &str = "https://example.com/wedged";
+
+/// A stand-in cmux-browser endpoint whose page shows `page` when it attaches
+/// and never answers `Page.navigate` (a slow site, or a stuck renderer): it
+/// answers the attach steps, holds every navigation and reports its URL.
+fn wedged_cdp_endpoint(page: &'static str) -> (String, mpsc::Receiver<String>) {
+    let (navigations, reported) = mpsc::channel();
+    use tokio_tungstenite::tungstenite::{self, Message};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            let navigations = navigations.clone();
+            std::thread::spawn(move || {
+                let Ok(mut socket) = tungstenite::accept(stream) else { return };
+                let mut held = Vec::new();
+                loop {
+                    let request: Value = match socket.read() {
+                        Ok(Message::Text(text)) => serde_json::from_str(&text).unwrap_or_default(),
+                        Ok(Message::Close(_)) | Err(_) => return,
+                        Ok(_) => continue,
+                    };
+                    let id = request["id"].clone();
+                    let result = match request["method"].as_str().unwrap_or_default() {
+                        "Page.navigate" => {
+                            let url = request["params"]["url"].as_str().unwrap_or_default();
+                            let _ = navigations.send(url.to_string());
+                            held.push(id);
+                            continue;
+                        }
+                        "Target.attachToTarget" => json!({"sessionId": "session-1"}),
+                        "Page.getFrameTree" => json!({"frameTree": {"frame": {
+                            "id": "main-frame", "loaderId": "loader-1", "url": page,
+                        }}}),
+                        _ => json!({}),
+                    };
+                    let reply = json!({"id": id, "result": result}).to_string();
+                    if socket.send(Message::Text(reply.into())).is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (format!("ws://{address}/devtools/browser/wedged"), reported)
+}
+
+/// The next navigation the endpoint reports, within 10 seconds.
+fn next_navigation(navigations: &mpsc::Receiver<String>) -> String {
+    navigations.recv_timeout(Duration::from_secs(10)).expect("no Page.navigate reached the page")
+}
+
+/// `register-browser-provider` for `endpoint` on the provider's connection
+/// (its lease lasts as long as the connection), publishing `targets`.
+fn register_provider(provider: &mut Line, id: u64, endpoint: &str, targets: Value) {
+    let reply = provider.send(&json!({"id": id, "cmd": "register-browser-provider",
+                                      "provider_id": "open-url-cdp", "endpoint": endpoint,
+                                      "authentication": "none", "targets": targets}));
+    assert_eq!(reply["ok"], true, "{reply}");
+}
+
+/// Wait until the browser tab `tab` of `workspace` is live.
+fn wait_live(server: &HeadlessServer, workspace: &str, tab: &Value) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let shown = screen(server, workspace);
+        if tab_by_resource(&shown, tab)["browser_status"] == "live" {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the browser never went live: {shown}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A link into a daemon-rendered browser tab whose page never answers a
+/// navigation: `cmux workspace open-url` answers at once (the tab is
+/// reused and loads the link), instead of waiting on the page until the
+/// CLI gives up with no answer.
+#[test]
+fn open_url_into_a_browser_whose_page_never_answers_returns_at_once() {
+    let server = HeadlessServer::start("open-url-wedged");
+    let (endpoint, navigations) = wedged_cdp_endpoint(WEDGED_PAGE);
+    let mut provider = Line::open(&server);
+    register_provider(&mut provider, 1, &endpoint, json!([]));
+    let created = v2(
+        &server,
+        "workspace.create",
+        json!({"initial_content": "terminal", "name": "wedged"}),
+        Some("open-url-wedged-ws"),
+    );
+    let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
+    let open = |url: &str| {
+        let started = Instant::now();
+        let output = json_cli(&server, &["workspace", &workspace, "open-url", "--url", url]);
+        (output, started.elapsed())
+    };
+
+    let (first, _) = open(WEDGED_PAGE);
+    assert_success(&first);
+    let first = json_output(&first)["value"].clone();
+    assert_eq!(first["reused"], false, "{first}");
+    let tab = first["tab_id"].clone();
+    // The provider publishes the tab's page: the browser goes live.
+    register_provider(
+        &mut provider,
+        2,
+        &endpoint,
+        json!([{"tab_id": tab, "target_id": "target-1"}]),
+    );
+    wait_live(&server, &workspace, &tab);
+
+    let (second, elapsed) = open("https://example.com/next");
+    assert!(
+        second.status.success(),
+        "the second link failed after {elapsed:?}: {}{}",
+        String::from_utf8_lossy(&second.stdout),
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(elapsed < Duration::from_secs(5), "the second link took {elapsed:?}");
+    let second = json_output(&second)["value"].clone();
+    assert_eq!(second["reused"], true, "{second}");
+    assert_eq!(second["tab_id"], tab, "{second}");
+    // The link reaches the page.
+    assert_eq!(next_navigation(&navigations), "https://example.com/next");
+    // The daemon still answers.
+    let listed = json_cli(&server, &["workspace", "list"]);
+    assert_success(&listed);
+    drop(provider);
+}
+
+/// `tab.create_browser` (`cmux browser open`, `cmux tab create browser`, the
+/// MCP `tab_create_browser`) with no cmux-browser provider: before the app
+/// attaches it refuses with `engine_unavailable` and a reason that says what
+/// to do; once the app attaches (`frontend-browser-tabs-v1`) the same create
+/// makes a frontend browser tab the app renders, and a retry with the same
+/// key answers the first tab instead of a second one. Live repro before the
+/// fix: an agent whose CLI talks to a Chief session the app shows got "no
+/// browser engine: no cmux-browser provider is attached" for every
+/// `cmux browser open`.
+#[test]
+fn tab_create_browser_makes_a_frontend_tab_when_the_app_is_attached() {
+    let server = HeadlessServer::start("create-browser-frontend");
+    let created = v2(
+        &server,
+        "workspace.create",
+        json!({"initial_content": "terminal", "name": "create-browser-frontend"}),
+        Some("create-browser-frontend-ws"),
+    );
+    let workspace = value(&created)["workspace_id"].as_str().unwrap().to_string();
+    let create = |url: &str, key: &str| {
+        v2(&server, "tab.create_browser", json!({"workspace": workspace, "url": url}), Some(key))
+    };
+
+    let refused = create("https://example.com/none", "create-browser-frontend-0");
+    let refusal = error(&refused);
+    assert_eq!(refusal["details"]["extra"]["code"], "engine_unavailable", "{refused}");
+    assert!(
+        refusal["details"]["reason"].as_str().is_some_and(|reason| reason.contains("cmux app")),
+        "the refusal says to open the cmux app: {refused}"
+    );
+    let before = screen(&server, &workspace);
+
+    let _app = frontend_app(&server);
+    let opened = create("https://example.com/agent", "create-browser-frontend-1");
+    let first = value(&opened).clone();
+    assert!(first["browser_id"].as_str().is_some_and(|id| id.starts_with("browser_")), "{opened}");
+    let after = screen(&server, &workspace);
+    let tab = tab_by_resource(&after, &first["tab_id"]);
+    assert_eq!(tab["browser_renderer"], "frontend", "not a frontend browser tab: {after}");
+    assert_eq!(tab["url"], "https://example.com/agent", "{after}");
+    assert_eq!(tab_count(&after), tab_count(&before) + 1, "{after}");
+
+    let retried = create("https://example.com/agent", "create-browser-frontend-1");
+    assert_eq!(value(&retried)["browser_id"], first["browser_id"], "{retried}");
+    assert_eq!(value(&retried)["tab_id"], first["tab_id"], "{retried}");
+    assert_eq!(tab_count(&screen(&server, &workspace)), tab_count(&after), "a retry made a tab");
+
+    let conflict = create("https://example.com/other", "create-browser-frontend-1");
+    assert_eq!(error(&conflict)["code"], "idempotency.conflict", "{conflict}");
 }

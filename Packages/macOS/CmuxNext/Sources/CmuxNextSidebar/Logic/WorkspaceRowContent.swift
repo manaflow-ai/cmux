@@ -24,16 +24,28 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// busy or paused only for an agent turn with `working` on, or with
     /// `progress` on.
     public var activity: StatusIndicatorState
-    /// The bar under the row, when `progress` is on.
+    /// The bar under the row, when `progress` is on: a measured fraction or
+    /// an error only. An indeterminate report draws no bar; the status glyph
+    /// already says the workspace works (Lawrence 2026-10-13 and 2026-10-18:
+    /// the full-width line under every busy row read as a stray underline).
     public var progress: SidebarProgress?
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
+    /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
+    /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
+    public var detailedStatus = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
     public var time: String?
     /// Expanded rows: a third line (the computer, the pull request).
     public var meta: String?
+    /// A one-line status on an otherwise one-line compact row (one reported entry, or the hooks'
+    /// status line), drawn dim on the right of the name's line so the row keeps its height
+    /// (Thunderdome 2026-10-14). The hover card lists every entry.
+    public var trailingStatus: String?
+    /// What the name's line ends with: an expanded row's age, else a one-line status.
+    public var trailingText: String? { time ?? trailingStatus }
     /// Compact rows under a badge style (`SidebarRowBadgeStyle`): the dim time since the last
     /// change on the right, unless the second line shows the last activity already.
     public var badgeTime: String?
@@ -70,8 +82,20 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
         let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let items = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage)].compactMap { $0 }
-            + set.secondLine.compactMap { Self.text(of: $0, in: ws, now: now) }
+        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage)].compactMap { $0 }
+        let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
+        var items = lead + secondLine.map(\.1)
+        var status = Self.status(ws.reported, set)
+        // A one-line status leaves a one-line row one line: its text moves to the name's line.
+        let others = lead + secondLine.filter { $0.0 != .agentStatus }.map(\.1)
+        var trailing: String?
+        if others.isEmpty {
+            if let line = secondLine.first(where: { $0.0 == .agentStatus })?.1, status == nil {
+                (trailing, items) = (line, [])
+            } else if let block = status, block.entries.count == 1, block.log == nil, block.progressLabel == nil {
+                (trailing, status) = (block.entries[0].displayText, nil)
+            }
+        }
         let working = ws.agentWorking && set.shows(.working)
         self.init(
             icon: set.shows(.icon) ? ws.icon : nil,
@@ -79,10 +103,11 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
-            progress: set.shows(.progress) ? ws.progress : nil,
+            progress: set.shows(.progress) ? Self.bar(ws) : nil,
             showsWorking: working,
-            status: Self.status(ws.reported, set)
+            status: status
         )
+        trailingStatus = trailing
         badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
     }
 
@@ -101,7 +126,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
-            progress: ws.progress,
+            progress: Self.bar(ws),
             showsWorking: ws.agentWorking
         )
         expanded = true
@@ -159,6 +184,13 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         calendar.isDate(date, inSameDayAs: now)
             ? date.formatted(date: .omitted, time: .shortened)
             : date.formatted(.dateTime.month(.abbreviated).day())
+    }
+
+    /// The progress a row draws as a bar: a value or an error. A connecting
+    /// placeholder keeps its dimmed indeterminate bar (its only sign of life).
+    static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
+        guard let progress = ws.progress else { return nil }
+        return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
     }
 
     static func nonEmpty(_ text: String?) -> String? {

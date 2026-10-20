@@ -24,6 +24,12 @@ pub(crate) const DOC_RESOURCE: &str = "sidebar_doc";
 pub(crate) const DOC_ID: &str = "user";
 const REVISION_KEY: &str = "sidebar_doc_revision";
 const MIGRATED_KEY: &str = "sidebar_doc_v1_migrated";
+/// Set once the old layout's section `align` and `gap` (and the other values
+/// [`backfill_arrangement`] names) are in the document: the migration copies
+/// them, and a document migrated before gets them once at open. An older
+/// binary that rewrites a section row drops `align` and `gap` (it does not
+/// know them), and this flag does not bring them back.
+const ARRANGEMENT_KEY: &str = "sidebar_doc_arrangement_v1";
 /// A fresh token per document write: the key of the parsed-document cache.
 const EPOCH_KEY: &str = "sidebar_doc_epoch";
 
@@ -337,6 +343,11 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
             eprintln!("cmux-tui: repaired the stored sidebar document");
         }
         changed |= lift_icon_urls(&mut repaired);
+        if meta(&tx, ARRANGEMENT_KEY)?.is_none() {
+            let layout = super::sidebar_layout_store::document(&tx)?;
+            changed |= backfill_arrangement(&layout, &mut repaired);
+            set_meta(&tx, ARRANGEMENT_KEY, "1")?;
+        }
         if changed {
             super::sidebar_doc_sync::commit_derived(&tx, &before, &repaired)?;
         }
@@ -357,8 +368,64 @@ pub(crate) fn migrate_at_open(connection: &Connection) -> anyhow::Result<()> {
     write_changes(&tx, 0, doc.revision, &changes, None)?;
     super::sidebar_doc_sync::clear_dirty(&tx)?;
     set_meta(&tx, MIGRATED_KEY, "1")?;
+    set_meta(&tx, ARRANGEMENT_KEY, "1")?;
     tx.commit()?;
     Ok(())
+}
+
+/// Copy what the migration now takes from the old layout and an older
+/// migration did not into a document migrated before: each section's
+/// `align` and `gap`, and unknown keys (`extra`, an arrangement's under
+/// `extra.arrangement`) onto the section of the same id; the old workspaces
+/// section's `align`, `gap`, `look` and `max_rows` onto every machine
+/// section. Only a field still at its default takes the old value.
+fn backfill_arrangement(
+    layout: &cmux_layout_reducer::sidebar_layout::Document,
+    doc: &mut Doc,
+) -> bool {
+    use cmux_layout_reducer::sidebar_doc::{GAP_RANGE, Look};
+    use cmux_layout_reducer::sidebar_layout::{Alignment, Content};
+    let (mut sections, items) = doc.to_parts();
+    let before = sections.clone();
+    for old in &layout.sections {
+        let workspaces = old.content == Content::Workspaces;
+        for section in &mut sections {
+            let matches =
+                if workspaces { section.kind.machine().is_some() } else { section.id == old.id };
+            if !matches {
+                continue;
+            }
+            if section.align == Alignment::Leading {
+                section.align = old.arrangement.align.clone();
+            }
+            if section.gap.is_none() {
+                section.gap = old.arrangement.gap.filter(|gap| GAP_RANGE.contains(gap));
+            }
+            if workspaces {
+                if section.look == Look::List {
+                    section.look = old.look.clone();
+                }
+                if section.max_rows.is_none() {
+                    section.max_rows = old.max_rows.filter(|rows| (1..=50).contains(rows));
+                }
+            } else {
+                for (key, value) in &old.extra {
+                    section.extra.entry(key.clone()).or_insert_with(|| value.clone());
+                }
+                if !old.arrangement.extra.is_empty() {
+                    section
+                        .extra
+                        .entry("arrangement".to_string())
+                        .or_insert_with(|| Value::Object(old.arrangement.extra.clone()));
+                }
+            }
+        }
+    }
+    if sections == before {
+        return false;
+    }
+    *doc = Doc::from_parts(doc.revision, sections, items);
+    true
 }
 
 /// Move every url item's old `extra.icon_url` into its body.

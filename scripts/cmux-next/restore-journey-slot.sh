@@ -54,16 +54,24 @@ ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdi
     tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
     for a in \"\$tmp\"/*.app; do mv \"\$a\" '$stage/'; done; rm -rf \"\$tmp\"
   fi"
-scp -q "$here/restore-journey.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+scp -q "$here/restore-journey.py" "$here/build_names.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
 capture-host launch "$lease" "$app" rj -- | tee "$out/launch.txt"
-# The app's control socket: named from the build tag; capture-host also prints the one it set.
+# The app's control socket: the build's own (build_names.py: a slot clone, whose bundle id does
+# not end in its tag, gets cmux-debug--<key hash>.sock in ~/.local/state/cmux, then its /tmp
+# link); before per-build isolation it was
+# named from the build tag; capture-host also prints the one it set.
 printed=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2- || true)
+clone=$(sed -n 's/.* app=\(.*\.app\)$/\1/p' "$out/launch.txt" | head -1)
+keyed=
+if [ -n "$clone" ]; then
+  keyed=$(ssh -o BatchMode=yes "$host" "python3 -I '$run/build_names.py' socket '$clone'" 2>/dev/null || true)
+fi
 sock=
 for _ in $(seq 1 60); do
-  for candidate in "/tmp/cmux-debug-$build_tag-capslot$slot.sock" $printed; do
+  for candidate in $keyed "/tmp/cmux-debug-$build_tag-capslot$slot.sock" $printed; do
     # A socket that accepts a connection (an earlier lease can leave a dead socket file behind).
     if ssh -o BatchMode=yes "$host" "python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1])' '$candidate'" 2>/dev/null; then
       sock=$candidate; break 2

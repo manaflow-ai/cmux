@@ -47,9 +47,11 @@ enum BrowserOmnibarPreference {
                 }
                 reported = resolved.invalidCustomEngine ? setting : nil
                 OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
-                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow)
+                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow, backgroundOpacity: setting.backgroundOpacity)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
+                // Chromium's own search (chrome://settings/search, its menu rows) uses the same engine.
+                cache.cef.setDefaultSearch(resolved.configuration.searchEngine)
             }
         }
     }

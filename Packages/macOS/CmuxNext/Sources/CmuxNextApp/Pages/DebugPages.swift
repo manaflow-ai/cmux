@@ -15,18 +15,20 @@ import Foundation
 //   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
-//   acknowledged / refused / timedOut / loaded, `ms`);
+//   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
+//   running: id, op, age_ms);
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
 // - `connected` (`value` bool): the owner link state on the page's connection stream;
 // - `scrollers`: `data-scrollers` and every element that shows a scroller at rest under "Always"
 //   (overflowing auto/scroll boxes with their overflow in pixels; SCROLLBARS-THIN audit);
-// - `click` (`selector`): clicks the first element matching the CSS selector (live proofs);
+// - `click` (`selector`, `context_menu`?): clicks (or right-clicks) the first element matching the CSS selector;
+// - `query` (`selector`): each matching element's data-* attributes, classes and text, in document order;
 // - `type` (`text`, `selector`?): inserts text as typed input in the matching (else the focused) element;
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
-//   Cloud page, a hidden one is made first (the app has no Cloud page entry yet).
+//   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
@@ -64,6 +66,7 @@ enum DebugPages {
             if case .object(var members) = state {
                 members.merge(identity(page)) { _, new in new }
                 members["subscriptions"] = .number(Double(page.router.subscriptionCount))
+                members["in_flight"] = .array(page.router.inFlightCalls())
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null
@@ -90,7 +93,12 @@ enum DebugPages {
             return ["handled": .bool(page.send(command: command, arguments: arguments))]
         case "click":
             guard let selector = params["selector"]?.stringValue else { return ["error": "selector is required"] }
-            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true))]
+            return ["clicked": .bool(await page.debugClick(selector, metaKey: params["meta"]?.boolValue == true,
+                                                           contextMenu: params["context_menu"]?.boolValue == true))]
+        case "query":
+            return await page.debugQuery(params["selector"]?.stringValue ?? "*")
+        case "route":
+            page.open(route: params["route"]?.stringValue ?? "/"); return ["ok": true] // a hash route, as a hand-off opens it
         case "type":
             guard let text = params["text"]?.stringValue else { return ["error": "text is required"] }
             return ["inserted": .bool(await page.debugInsertText(text, selector: params["selector"]?.stringValue))]

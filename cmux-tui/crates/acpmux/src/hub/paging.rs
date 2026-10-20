@@ -4,8 +4,14 @@
 use super::*;
 
 /// `session/update` kinds that carry no renderable transcript content.
-const NON_TRANSCRIPT_UPDATES: &[&str] =
-    &["usage_update", "available_commands_update", "current_mode_update", "config_option_update"];
+const NON_TRANSCRIPT_UPDATES: &[&str] = &[
+    "usage_update",
+    "available_commands_update",
+    "current_mode_update",
+    "config_option_update",
+    // A compaction's summary is context a handoff carries, not a chat row.
+    "compaction_summary",
+];
 
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
@@ -14,6 +20,7 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queued",
     "dequeued",
     "queue_removed",
+    "prompt_retracted",
     "turn_started",
     "turn_result",
     "permission_request",
@@ -25,6 +32,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "failover",
     "forked",
     "imported",
+    "session_offer",
+    "session_offer_decision",
     "mode",
     "model",
     "stopped",

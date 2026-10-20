@@ -9,7 +9,12 @@ with two groups, then times, per request (wall clock at the socket):
 - sidebar.move (only when the daemon has sidebar-doc-v1).
 Prints median and p95 in ms for each. Compare two binaries with the same N.
 
+`--subscriber old|doc` keeps one `session.events` stream open during the
+timed requests (read on a thread): `old` echoes nothing (it gets the
+placement restatement), `doc` echoes sidebar-doc-v1 and placement-shift-v1.
+
 Usage: sidebar-doc-bench.py --binary path/to/cmux-tui [--count 2000] [--samples 40]
+                            [--subscriber none|old|doc]
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import importlib.util
 import statistics
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +53,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--count", type=int, default=2000)
     parser.add_argument("--samples", type=int, default=40)
+    parser.add_argument("--subscriber", choices=["none", "old", "doc"], default="none")
     args = parser.parse_args()
     work = Path(tempfile.mkdtemp(prefix="sbbench-"))
     state = work / "state"
@@ -65,6 +72,10 @@ def main() -> int:
         groups = [daemon.ok("workspace_group.create", {"name": f"g{i}"}, mutate=True)["value"]["id"] for i in range(2)]
         for index, workspace in enumerate(ids[:20]):
             daemon.ok("workspace.place", {"workspace": workspace, "group": groups[index % 2]}, mutate=True)
+        if args.subscriber != "none":
+            stream = live.EventStream(daemon, ["sidebar-doc-v1", "placement-shift-v1"] if args.subscriber == "doc" else None)
+            threading.Thread(target=lambda: [None for _ in stream.lines(3600.0)], daemon=True).start()
+            print(f"subscriber: {args.subscriber}", flush=True)
         creates, places, renames, moves = [], [], [], []
         for sample in range(args.samples):
             timed(creates, lambda: daemon.ok(

@@ -174,7 +174,7 @@ pub(super) fn list(
         let items = mux
             .read_registry_state(crate::state::closed_history_query::closed_items)
             .map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(items.iter().filter_map(sources::closed_entry));
+        entries.extend(sources::closed_entries(&items));
     }
     // A location row also carries its window and stored location (an app
     // rebuilds its Back/Forward steps from them).

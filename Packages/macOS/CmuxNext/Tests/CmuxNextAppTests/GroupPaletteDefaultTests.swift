@@ -110,7 +110,7 @@ import Testing
                 header.updateLayer()
                 let bar = try #require(header.layer?.sublayers?.first { $0.frame.width >= header.bounds.width - 0.5 && $0.cornerRadius > 0 })
                 let drawn = try Self.rgb(bar.backgroundColor)
-                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark)).fill
+                let want = scope.tokens.chip(try Self.lawrence(color, fill: true, dark: dark), inks: .onColor).fill
                 #expect(Self.same(drawn, want), "\(name) \(color) header: \(drawn), want \(want)")
             }
             let lines = Self.views(GroupLineView.self, in: sidebar)
@@ -146,7 +146,11 @@ import Testing
         header.isHovered = true
         header.layoutSubtreeIfNeeded()
 
-        header.moreButton.performClick(nil)
+        // The button's own action, not performClick: on macOS 27 performClick spins a nested event
+        // loop and queues blocks that stop the current run loop, and one can run after that loop
+        // ended and stop the test helper's main run loop, which exits the run with status 0.
+        let more = header.moreButton
+        #expect(more.sendAction(more.action, to: more.target), "the more button has no action")
 
         #expect(!menuAsked, "the more button showed the right-click menu")
         #expect(sidebar.list.groupEditor.shownGroup == ids[0], "the more button did not open the group editor")
@@ -154,7 +158,7 @@ import Testing
         let rows = Self.views(SidebarGroupEditorRow.self, in: content).map(\.item)
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete", "sidebar.group.moreActions"])
-        #expect(rows.map(\.title) == ["New Workspace in Group", "Move Group to New Window", "Close Group",
+        #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
                                       "Ungroup", "Delete Group", "More Group Actions…"])
     }
 

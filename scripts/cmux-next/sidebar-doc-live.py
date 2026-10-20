@@ -20,6 +20,24 @@ daemon socket.
    `sidebar section-scroll` / `section-max-rows`, the url body `icon_url`
    (migrated from an old item's `extra.icon_url`, `item.update`, lifted on
    `item.add`, restated for old clients in `sidebar_layout`).
+5. Doc slice 3: a new workspace and a workspace.place send a reader that
+   echoed placement-shift-v1 only the new or moved placement, and an
+   old-protocol reader (also one that echoes only sidebar-doc-v1) every
+   placement the change shifted.
+6. Doc slice 4 (parity with the old layout), on a second copy of the seed:
+   section `align` and `gap` migrated from the old layout (the workspaces
+   section's onto every machine section), copied once at open into a
+   document migrated before sections had them, set and cleared through
+   `section.update`, followed from an old `sidebar_layout.update`;
+   `item.remove_ref` (url and workspace refs); `sidebar.reset` (default
+   sections, workspaces and groups kept in their machine sections, closed
+   workspaces dropped, undo with the inverse, a second reset is a no-op)
+   and the old `layout.reset` following into the document.
+7. One order: after a sidebar.move and a sidebar.pin, `cmux workspace list`
+   (and protocol-2 `workspace.list`) list this machine's workspaces in the
+   sidebar.get order; `--order session` and the private raw
+   `list-workspaces` tree (whose deltas carry session indexes) keep the
+   session order.
 
 Usage: sidebar-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -180,6 +198,64 @@ def sidebar_batch(daemon: Daemon, action) -> dict | None:
     return None
 
 
+class EventStream:
+    """One `session.events` stream on its own connection. `echo`: the
+    capabilities the connection echoes in `set-client-info` first (a client
+    that reads the order from the sidebar document echoes sidebar-doc-v1)."""
+
+    def __init__(self, daemon: Daemon, echo: list[str] | None = None) -> None:
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect(str(daemon.socket_path))
+        self.buffer = b""
+        if echo is not None:
+            self.socket.sendall(json.dumps({"id": next(_ids), "cmd": "set-client-info",
+                                            "capabilities": echo}).encode() + b"\n")
+            reply = next(self.lines(10.0), {})
+            if not reply.get("ok"):
+                raise RuntimeError(f"set-client-info failed: {reply}")
+        request = {"protocol": PROTOCOL, "type": "request", "id": f"r{next(_ids)}",
+                   "operation": "session.events",
+                   "params": {"machine": "current", "session": "current",
+                              "stream_id": f"stream_{os.urandom(16).hex()}"}}
+        self.socket.sendall(json.dumps(request).encode() + b"\n")
+        for _ in self.lines(1.0):
+            pass
+
+    def lines(self, timeout: float):
+        self.socket.settimeout(timeout)
+        while True:
+            while b"\n" in self.buffer:
+                line, self.buffer = self.buffer.split(b"\n", 1)
+                yield json.loads(line)
+            try:
+                chunk = self.socket.recv(1 << 20)
+            except TimeoutError:
+                return
+            if not chunk:
+                return
+            self.buffer += chunk
+
+    def delta_with(self, resource: str, value_id: str, index: int | None = None) -> dict | None:
+        """The first delta (within 15 s) with an upsert of `resource` `value_id`
+        (at `index`, when given)."""
+        for message in self.lines(15.0):
+            item = message.get("item") or {}
+            if any(change.get("resource") == resource and change.get("id") == value_id
+                   and (index is None or (change.get("value") or {}).get("index") == index)
+                   for change in item.get("changes") or []):
+                return item
+        return None
+
+    def close(self) -> None:
+        self.socket.close()
+
+
+def placements_of(item: dict | None) -> dict[str, int]:
+    """The workspace_placement upserts of a delta: placement id -> index."""
+    return {change["id"]: change["value"]["index"] for change in (item or {}).get("changes") or []
+            if change.get("resource") == "workspace_placement" and change.get("kind") == "state_upsert"}
+
+
 def registry_file(state: Path) -> Path:
     for path in state.rglob("*"):
         if not path.is_file() or path.suffix in {".log", ".json", ".sock"}:
@@ -254,9 +330,15 @@ def seed(daemon: Daemon) -> dict:
     # An old group name longer than the document's title limit (80).
     daemon.ok("workspace_group.create", {"name": "Long " + "n" * 115}, mutate=True)
     custom = {"id": "sec_work", "title": "Work", "region": "middle", "look": "list", "content": "items",
+              "arrangement": {"layout": "list", "align": "center", "gap": 6},
               "items": [{"id": "itm_docs", "ref": {"kind": "url", "value": "https://example.com/docs"},
                          "icon_url": FAVICON}]}
     daemon.ok("sidebar_layout.update", {"op": {"kind": "section.add", "section": custom, "index": 99}}, mutate=True)
+    # Old arrangement values on the workspaces section and the bottom band.
+    daemon.ok("sidebar_layout.update", {"op": {"kind": "section.update", "id": "sec_workspaces",
+                                               "patch": {"align": "trailing", "gap": 3}}}, mutate=True)
+    daemon.ok("sidebar_layout.update", {"op": {"kind": "section.update", "id": "sec_bottom",
+                                               "patch": {"gap": 4}}}, mutate=True)
     # The app's pin: item.add when its layout shows sec_pinned, else section.add.
     tile = {"id": "itm_tile_w6", "ref": {"kind": "workspace", "value": f"{local}:{ids['w6']}"}}
     layout = daemon.ok("sidebar_layout.get")
@@ -276,6 +358,269 @@ def as_older_daemon_left_it(registry: Path) -> None:
         db.execute("DROP TABLE IF EXISTS sidebar_items")
         db.execute("DELETE FROM meta WHERE key LIKE 'sidebar_doc_%'")
 
+
+def sections_of(doc: dict) -> dict[str, dict]:
+    return {section["id"]: section for section in doc["sections"]}
+
+
+def strip_arrangement(registry: Path) -> None:
+    """The document as a daemon from before section align/gap left it."""
+    with sqlite3.connect(registry) as db:
+        for section_id, text in db.execute("SELECT id, section_json FROM sidebar_sections").fetchall():
+            section = json.loads(text)
+            section.pop("align", None)
+            section.pop("gap", None)
+            db.execute("UPDATE sidebar_sections SET section_json = ? WHERE id = ?", [json.dumps(section), section_id])
+        db.execute("DELETE FROM meta WHERE key = 'sidebar_doc_arrangement_v1'")
+
+
+def doc_slice_4(binary: Path, seed_state: Path, state: Path, sock: Path, seeded: dict) -> None:
+    """Parity with the old layout: align, gap, item.remove_ref, reset."""
+    local, ids = seeded["local"], seeded["ids"]
+    machines = [f"sec_m_{s}" for s in (local, "remote-a", "remote-b")]
+    shutil.rmtree(state, ignore_errors=True)
+    shutil.copytree(seed_state, state)
+    registry = registry_file(state)
+    as_older_daemon_left_it(registry)
+    daemon = Daemon(binary, state, sock)
+    daemon.start()
+    try:
+        sections = sections_of(daemon.ok("sidebar.get"))
+        check("doc4: a custom section's old align and gap are migrated",
+              (sections["sec_work"].get("align"), sections["sec_work"].get("gap")) == ("center", 6),
+              sections["sec_work"])
+        check("doc4: the old workspaces section's align and gap are on every machine section",
+              all((sections[m].get("align"), sections[m].get("gap")) == ("trailing", 3) for m in machines),
+              {m: (sections[m].get("align"), sections[m].get("gap")) for m in machines})
+        check("doc4: the bottom band's old gap is migrated; align is always on the wire",
+              sections["sec_bottom"].get("gap") == 4 and sections["sec_bottom"].get("align") == "leading"
+              and sections["sec_pinned"].get("align") == "leading" and "gap" not in sections["sec_pinned"],
+              {"bottom": sections["sec_bottom"], "pinned": sections["sec_pinned"]})
+    finally:
+        daemon.stop()
+    # A document migrated before sections had align/gap gets them once at open.
+    strip_arrangement(registry)
+    daemon.start()
+    try:
+        doc = daemon.ok("sidebar.get")
+        sections = sections_of(doc)
+        check("doc4: align and gap are copied once at open into an older migrated document",
+              (sections["sec_work"].get("align"), sections["sec_work"].get("gap")) == ("center", 6)
+              and all((sections[m].get("align"), sections[m].get("gap")) == ("trailing", 3) for m in machines)
+              and sections["sec_bottom"].get("gap") == 4,
+              {k: (v.get("align"), v.get("gap")) for k, v in sections.items()})
+
+        # section.update: set, clear, refuse, keep a newer value.
+        daemon.ok("sidebar.section.update", {"id": "sec_work", "patch": {"align": "fill", "gap": 10}}, mutate=True)
+        work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
+        check("doc4: section.update sets align and gap",
+              (work.get("align"), work.get("gap")) == ("fill", 10), work)
+        old_work = next((s for s in daemon.ok("sidebar_layout.get")["sections"] if s["id"] == "sec_work"), {})
+        check("doc4: old sidebar_layout.get shows the document's align and gap",
+              (old_work.get("arrangement") or {}).get("align") == "fill"
+              and (old_work.get("arrangement") or {}).get("gap") == 10, old_work)
+        daemon.ok("sidebar.section.update", {"id": "sec_work", "patch": {"gap": None}}, mutate=True)
+        work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
+        check("doc4: section.update gap null clears it and keeps align",
+              "gap" not in work and work.get("align") == "fill", work)
+        refused = daemon.v2("sidebar.section.update", {"id": "sec_work", "patch": {"gap": 33}}, mutate=True)
+        check("doc4: a gap over 32 is refused invalid_value",
+              not refused.get("ok") and reason_of(refused) == "invalid_value", refused)
+        refused = daemon.v2("sidebar.section.update", {"id": "sec_work", "patch": {"gap": -1}}, mutate=True)
+        check("doc4: a negative gap is refused invalid_value",
+              not refused.get("ok") and reason_of(refused) == "invalid_value", refused)
+        daemon.ok("sidebar.section.update", {"id": "sec_work", "patch": {"align": "diagonal"}}, mutate=True)
+        work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
+        check("doc4: a newer align value is kept verbatim", work.get("align") == "diagonal", work)
+        # An old client's section.update follows: only the field it changed.
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "section.update", "id": "sec_work",
+                                                   "patch": {"gap": 12}}}, mutate=True)
+        work = sections_of(daemon.ok("sidebar.get"))["sec_work"]
+        check("doc4: an old sidebar_layout.update gap follows into the document (align untouched)",
+              (work.get("align"), work.get("gap")) == ("diagonal", 12), work)
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "section.update", "id": "sec_workspaces",
+                                                   "patch": {"align": "center"}}}, mutate=True)
+        sections = sections_of(daemon.ok("sidebar.get"))
+        check("doc4: an old workspaces-section align follows onto every machine section",
+              all((sections[m].get("align"), sections[m].get("gap")) == ("center", 3) for m in machines),
+              {m: (sections[m].get("align"), sections[m].get("gap")) for m in machines})
+
+        # item.remove_ref ("Remove from Sidebar").
+        daemon.ok("sidebar.item.remove_ref", {"ref": {"kind": "url", "value": "https://example.com/docs"}},
+                  mutate=True)
+        doc = daemon.ok("sidebar.get")
+        check("doc4: item.remove_ref removes the url item", "itm_docs" not in items_by_id(doc))
+        refused = daemon.v2("sidebar.item.remove_ref", {"ref": {"kind": "url", "value": "https://example.com/docs"}},
+                            mutate=True)
+        check("doc4: item.remove_ref of a ref no item shows is refused unknown_item",
+              not refused.get("ok") and reason_of(refused) == "unknown_item", refused)
+        daemon.ok("sidebar.item.remove_ref", {"ref": {"kind": "workspace", "value": f"{local}:{ids['w1']}"}},
+                  mutate=True)
+        check("doc4: item.remove_ref of a workspace ref removes its item",
+              ws_item(daemon.ok("sidebar.get"), local, ids["w1"]) is None)
+
+        # Reset: put things where a reset must undo them first.
+        doc = daemon.ok("sidebar.get")
+        frontend, saved = group_item(doc, "Frontend"), group_item(doc, "Saved")
+        daemon.ok("sidebar.move", {"items": [frontend["id"]], "to": {"section": "sec_work"}}, mutate=True)
+        daemon.ok("sidebar.section.add", {"section": {"id": "sec_extra", "kind": {"type": "custom"},
+                                                      "title": "Extra", "region": "top"}}, mutate=True)
+        daemon.ok("sidebar.item.add", {"item": {"id": "itm_extra_url", "body": {"type": "url", "url": "https://example.net"}},
+                                       "to": {"section": "sec_extra"}}, mutate=True)
+        w3 = ws_item(doc, local, ids["w3"])
+        daemon.ok("sidebar.move", {"items": [w3["id"]], "to": {"section": "sec_extra"}}, mutate=True)
+        daemon.ok("sidebar.item.add", {"item": {"id": "itm_pinned_url", "body": {"type": "url", "url": "https://example.org"}},
+                                       "to": {"section": "sec_pinned"}}, mutate=True)
+        daemon.ok("sidebar.section.update", {"id": "sec_top", "patch": {"gap": 7}}, mutate=True)
+        daemon.ok("sidebar.item.remove", {"id": "itm_app_store"}, mutate=True)
+        daemon.ok("workspace.close", {"workspace": ids["w5"]}, mutate=True)
+        doc = daemon.ok("sidebar.get")
+        check("doc4: before reset w5 (closed) stays in Pinned and the custom sections hold their rows",
+              (ws_item(doc, local, ids["w5"]) or {}).get("section") == "sec_pinned"
+              and items_by_id(doc)[frontend["id"]]["section"] == "sec_work"
+              and (ws_item(doc, local, ids["w3"]) or {}).get("section") == "sec_extra",
+              [i["id"] + "@" + i["section"] for i in doc["items"]])
+        before = doc
+        reset = daemon.ok("sidebar.reset", {}, mutate=True)
+        after = daemon.ok("sidebar.get")
+        order = [s["id"] for s in after["sections"]]
+        expected = ["sec_top", "sec_pinned", *machines, "sec_recents", "sec_bottom"]
+        check("doc4: reset leaves exactly the default sections in order", order == expected, order)
+        sections = sections_of(after)
+        check("doc4: reset restores the default looks (top/bottom built-in, bottom inline, no gaps, machine leading)",
+              sections["sec_top"]["kind"]["type"] == "builtin" and "gap" not in sections["sec_top"]
+              and sections["sec_bottom"]["kind"]["type"] == "builtin" and sections["sec_bottom"]["arrangement"] == "inline"
+              and "gap" not in sections["sec_bottom"] and sections["sec_recents"]["kind"]["type"] == "app"
+              and all(sections[m].get("align") == "leading" and "gap" not in sections[m] for m in machines),
+              sections)
+        check("doc4: reset keeps machine section titles",
+              sections["sec_m_remote-a"].get("title") == "build-box", sections["sec_m_remote-a"])
+        check("doc4: reset restores Home and App Store on top and the account at the bottom; Pinned is empty",
+              [i["id"] for i in top(after, "sec_top")] == ["itm_home", "itm_app_store"]
+              and [i["id"] for i in top(after, "sec_bottom")] == ["itm_account"]
+              and top(after, "sec_pinned") == [],
+              {"top": top(after, "sec_top"), "bottom": top(after, "sec_bottom"), "pinned": top(after, "sec_pinned")})
+        home = f"sec_m_{local}"
+        w6, w4, w3 = (ws_item(after, local, ids[n]) for n in ("w6", "w4", "w3"))
+        frontend_after, saved_after = items_by_id(after).get(frontend["id"]), items_by_id(after).get(saved["id"])
+        tail = [i["id"] for i in top(after, home)][-4:]
+        check("doc4: reset moves Pinned, then the other sections' workspaces and groups, to the end of their machine section",
+              w6 is not None and w3 is not None
+              and tail == [w6["id"], saved["id"], w3["id"], frontend["id"]], {"tail": tail})
+        check("doc4: reset keeps groups with their items (Saved from Pinned, Frontend from a custom section)",
+              saved_after is not None and saved_after["section"] == home
+              and [c["id"] for c in children(after, saved["id"])] == [w4 and w4["id"]]
+              and frontend_after is not None and frontend_after["section"] == home
+              and all(c["section"] == home for c in children(after, frontend["id"]))
+              and len(children(after, frontend["id"])) == len(children(before, frontend["id"])),
+              {"saved": saved_after, "frontend": frontend_after})
+        remote = group_item(after, "Remote")
+        check("doc4: reset leaves machine sections' rows in place (Remote group in remote-a)",
+              remote is not None and remote["section"] == "sec_m_remote-a"
+              and [c["id"] for c in children(after, remote["id"])] == [c["id"] for c in children(before, remote["id"])],
+              remote)
+        check("doc4: reset drops this machine's closed workspaces and the removed sections' url items",
+              ws_item(after, local, ids["w5"]) is None
+              and not {"itm_extra_url", "itm_pinned_url"} & set(items_by_id(after)), sorted(items_by_id(after)))
+        refs = [(i["body"]["ref"]["session_id"], i["body"]["ref"]["workspace_id"])
+                for i in after["items"] if i["body"].get("type") == "workspace"]
+        check("doc4: after reset each workspace is placed once", len(refs) == len(set(refs)), refs)
+        again = daemon.ok("sidebar.reset", {}, mutate=True)
+        check("doc4: a second reset changes nothing (same revision, empty inverse)",
+              again["value"]["revision"] == after["revision"] and again["value"]["inverse"] == [], again["value"])
+        daemon.ok("sidebar.apply", {"ops": reset["value"]["inverse"]}, mutate=True)
+        undone = daemon.ok("sidebar.get")
+        strip = lambda d: {"sections": d["sections"], "items": d["items"]}
+        check("doc4: sidebar.apply with reset's inverse restores the document", strip(undone) == strip(before))
+        # The old app's layout.reset is the document's reset.
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "layout.reset"}}, mutate=True)
+        old_reset = daemon.ok("sidebar.get")
+        check("doc4: an old layout.reset follows into the document",
+              [s["id"] for s in old_reset["sections"]] == expected and top(old_reset, "sec_pinned") == []
+              and (ws_item(old_reset, local, ids["w6"]) or {}).get("section") == home,
+              [s["id"] for s in old_reset["sections"]])
+        # The old layout is the defaults now; a section only the document has
+        # still goes with an old layout.reset.
+        daemon.ok("sidebar.section.add", {"section": {"id": "sec_doc_only", "kind": {"type": "custom"},
+                                                      "title": "Doc only"}}, mutate=True)
+        daemon.ok("sidebar_layout.update", {"op": {"kind": "layout.reset"}}, mutate=True)
+        check("doc4: an old layout.reset of a default old layout still resets the document",
+              "sec_doc_only" not in sections_of(daemon.ok("sidebar.get")),
+              [s["id"] for s in daemon.ok("sidebar.get")["sections"]])
+    finally:
+        daemon.stop()
+
+
+def one_order(daemon: Daemon, local: str) -> None:
+    """`cmux workspace list` follows the sidebar document: after a sidebar.move and a sidebar.pin, the CLI order is the
+    order of this machine's live workspaces in sidebar.get (Pinned keeps
+    closed workspaces; those are not listed)."""
+
+    def doc_order(live: set[str]) -> list[str]:
+        return [i["body"]["ref"]["workspace_id"] for i in daemon.ok("sidebar.get")["items"]
+                if i["body"].get("type") == "workspace" and i["body"]["ref"].get("session_id") == local
+                and i["body"]["ref"]["workspace_id"] in live]
+
+    def cli_order(*verb: str, field: str) -> list[str] | str:
+        ran = cli(daemon, *verb)
+        if ran.returncode != 0:
+            return f"exit {ran.returncode}: {ran.stderr.strip()[-300:]}"
+        data = json.loads(ran.stdout)
+        if isinstance(data, dict):
+            data = data.get("workspaces", data.get("value", data.get("result", data)))
+            if isinstance(data, dict):
+                data = data.get("workspaces", data)
+        return [w[field] for w in data]
+
+    raw_list = ("raw", "command", "--request-json", json.dumps({"cmd": "list-workspaces"}))
+    verbs = ((("workspace", "list"), "id", "workspace list"),
+             (("workspace", "list", "--order", "personal"), "id", "workspace list --order personal"))
+
+    def same(step: str) -> list[str]:
+        v2 = [w["id"] for w in daemon.ok("workspace.list")]
+        expected = doc_order(set(v2))
+        check(f"one order: workspace.list (protocol 2) == sidebar.get order after {step}",
+              v2 == expected, {"v2": v2, "doc": expected})
+        for verb, field, label in verbs:
+            got = cli_order(*verb, field=field)
+            check(f"one order: `cmux {label}` == sidebar.get order after {step}",
+                  got == expected, {"cli": got, "doc": expected})
+        return expected
+
+    before = same("restart")
+    doc = daemon.ok("sidebar.get")
+    machine = f"sec_m_{local}"
+    rows = top(doc, machine)
+    loose = [i for i in rows if i["body"].get("type") == "workspace"]
+    check("one order: this machine's section has a loose workspace and another row",
+          len(loose) >= 1 and len(rows) >= 2, rows)
+    if not loose or len(rows) < 2:
+        return
+    mover = loose[0]
+    index = len(rows) - 1 if rows[0]["id"] == mover["id"] else 0
+    daemon.ok("sidebar.move", {"items": [mover["id"]], "to": {"section": machine, "index": index}}, mutate=True)
+    moved = same("sidebar.move")
+    pinned_ws = mover["body"]["ref"]["workspace_id"]
+    check("one order: the moved workspace changed place in the listed order",
+          pinned_ws in moved and pinned_ws in before and moved.index(pinned_ws) != before.index(pinned_ws),
+          {"before": before, "after": moved})
+    daemon.ok("sidebar.pin", {"items": [mover["id"]]}, mutate=True)
+    listed = same("sidebar.pin")
+    in_machine = {i["body"]["ref"]["workspace_id"] for i in daemon.ok("sidebar.get")["items"]
+                  if i["section"] == machine and i["body"].get("type") == "workspace"}
+    check("one order: the pinned workspace is listed before every machine-section workspace",
+          pinned_ws in listed and all(listed.index(pinned_ws) < listed.index(w) for w in in_machine if w in listed),
+          listed)
+    session = cli_order("workspace", "list", "--order", "session", field="id")
+    indexes = cli_order("workspace", "list", "--order", "session", field="index")
+    check("one order: `--order session` keeps the session order (rows by session index)",
+          isinstance(session, list) and sorted(session) == sorted(listed)
+          and isinstance(indexes, list) and indexes == sorted(indexes), {"session": session, "index": indexes})
+    # The private tree keeps the session order: its tree deltas
+    # (workspace-added/moved) carry session indexes that delta readers apply.
+    tree = cli_order(*raw_list, field="resource_id")
+    check("one order: raw list-workspaces keeps the session order of its index deltas",
+          tree == session, {"tree": tree, "session": session})
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -599,6 +944,57 @@ def main() -> int:
         order = [w["id"] for w in daemon.ok("workspace.list", {"order": "personal"})]
         check("workspace.list personal order follows the document (Pinned first)",
               order.index(ids["w6"]) < order.index(ids["w3"]), order)
+        # Placement shift (doc3): a new top workspace or a move shifts the
+        # other rows' ordinals; a placement-shift-v1 reader gets only the new
+        # or moved placement, an old-protocol reader every shifted one, and a
+        # reader that echoes only sidebar-doc-v1 is an old-protocol reader.
+        check("capability placement-shift-v1 advertised", "placement-shift-v1" in caps)
+        doc_reader = EventStream(daemon, ["placement-shift-v1", "sidebar-doc-v1"])
+        old_reader = EventStream(daemon)
+        doc_only_reader = EventStream(daemon, ["sidebar-doc-v1"])
+        try:
+            known = {(r["session_id"], r["workspace_key"])
+                     for r in daemon.raw({"cmd": "list-personal"})["workspaces"]}
+            created = daemon.ok("workspace.create", {"name": "w8", "initial_content": "empty"}, mutate=True)
+            w8 = created["value"]["workspace_id"]
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            w8_row = next(r for r in rows if (r["session_id"], r["workspace_key"]) not in known)
+            w8_id = f"{local}/{w8_row['workspace_key']}"
+            expected = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                        if r["index"] > w8_row["index"]}
+            doc_batch = placements_of(doc_reader.delta_with("workspace_placement", w8_id))
+            old_batch = placements_of(old_reader.delta_with("workspace_placement", w8_id))
+            doc_only_batch = placements_of(doc_only_reader.delta_with("workspace_placement", w8_id))
+            check("create: a reader that echoes only sidebar-doc-v1 still gets every shifted placement",
+                  bool(expected) and all(doc_only_batch.get(pid) == index for pid, index in expected.items()),
+                  {"missing": sorted(set(expected) - set(doc_only_batch))[:5]})
+            check("create: a placement-shift-v1 reader gets only the new workspace's placement (no restatement)",
+                  doc_batch == {w8_id: w8_row["index"]} and expected, {"doc": doc_batch, "shifted": len(expected)})
+            check("create: an old-protocol reader still gets every shifted placement at its new index",
+                  all(old_batch.get(pid) == index for pid, index in expected.items())
+                  and old_batch.get(w8_id) == w8_row["index"],
+                  {"missing": sorted(set(expected) - set(old_batch))[:5],
+                   "wrong": {p: (old_batch.get(p), i) for p, i in expected.items() if old_batch.get(p) not in (None, i)}})
+            target = w8_row["index"] + 3
+            check("place: the target index is inside the order", target < len(rows),
+                  {"target": target, "rows": len(rows)})
+            daemon.ok("workspace.place", {"workspace": w8, "index": min(target, len(rows) - 1)}, mutate=True)
+            rows = daemon.raw({"cmd": "list-personal"})["workspaces"]
+            moved = next(r for r in rows if f"{r['session_id']}/{r['workspace_key']}" == w8_id)
+            between = {f"{r['session_id']}/{r['workspace_key']}": r["index"] for r in rows
+                       if w8_row["index"] <= r["index"] <= moved["index"]}
+            doc_place = placements_of(doc_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            old_place = placements_of(old_reader.delta_with("workspace_placement", w8_id, moved["index"]))
+            check("place: a placement-shift-v1 reader gets only the moved placement",
+                  doc_place == {w8_id: moved["index"]}, doc_place)
+            check("place: an old-protocol reader gets every placement between the old and new index",
+                  len(between) > 1 and all(old_place.get(pid) == index for pid, index in between.items()),
+                  {"between": between, "got": old_place})
+            daemon.ok("workspace.close", {"workspace": w8}, mutate=True)
+        finally:
+            doc_reader.close()
+            old_reader.close()
+            doc_only_reader.close()
         final = daemon.ok("sidebar.get")
     finally:
         daemon.stop()
@@ -615,8 +1011,10 @@ def main() -> int:
         tiles = next((s for s in layout["sections"] if s["id"] == "sec_pinned"), {"items": []})["items"]
         check("old sidebar_layout.get still shows the pinned items after restart",
               f"{local}:{ids['w6']}" in [t["ref"]["value"] for t in tiles], tiles)
+        one_order(daemon, local)
     finally:
         daemon.stop()
+    doc_slice_4(args.binary.resolve(), seed_state, work / "state4", sock, seeded)
     print(f"{'FAILED' if failures else 'OK'}: {len(failures)} failure(s); workdir {work}", flush=True)
     return 1 if failures else 0
 

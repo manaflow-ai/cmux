@@ -70,6 +70,7 @@
 				bin,
 				cmux-cli-path,
 				cmux-cli-path/zsh/.zshenv,
+				cmux-themes,
 				cmux.entitlements,
 				coderouter-cli.json,
 				feed-tui,
@@ -78,6 +79,7 @@
 				opencode-plugin.js,
 				shell-integration,
 				terminfo-overlay,
+				terminfo-overlay/67/ghostty,
 				terminfo-overlay/78/xterm-ghostty,
 			);
 			target = CE7A00000000000000000005 /* cmux-next */;
@@ -160,6 +162,7 @@
 				CE7A00000000000000000042 /* Embed Computer Use helper (dev) */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
 				CE7A00000000000000000031 /* Bundle server helper */,
+				CE7A00000000000000000043 /* Bundle MediaRemote adapter */,
 			);
 			buildRules = (
 			);
@@ -453,6 +456,25 @@
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
 		};
+		CE7A00000000000000000043 /* Bundle MediaRemote adapter */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle MediaRemote adapter";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-mediaremote-adapter.sh\"\n";
+		};
 		CE7A00000000000000000040 /* Verify web bundles */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -522,6 +544,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRINGS_FILE_OUTPUT_ENCODING = binary;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -551,6 +574,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
+				STRINGS_FILE_OUTPUT_ENCODING = binary;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 			};
@@ -628,6 +652,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LD_EXPORT_SYMBOLS = NO;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.65.0;
 				ONLY_ACTIVE_ARCH = NO;

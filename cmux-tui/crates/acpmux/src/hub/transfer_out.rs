@@ -268,7 +268,7 @@ impl Hub {
     }
 
     /// The chat lives on the target now: its queue is withdrawn here (the target runs it), its
-    /// draft cleared, and it closes.
+    /// draft and bookmarks cleared, and it closes.
     pub(super) async fn transfer_commit(
         &self,
         session: &Arc<Session>,
@@ -285,7 +285,12 @@ impl Hub {
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
         }
-        session.meta.lock().unwrap_or_else(|e| e.into_inner()).composer_draft = None;
+        {
+            // The chat's draft and bookmarks live on the target now.
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            meta.composer_draft = None;
+            meta.bookmarks.clear();
+        }
         self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));

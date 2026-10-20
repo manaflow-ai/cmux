@@ -97,8 +97,8 @@ enum DebugTimings {
         if turnStateApplies.count < capacity { turnStateApplies.append((lines, milliseconds(duration))) }
     }
 
-    static func controlPublished(tabs: Int, _ duration: Duration) {
-        if controlPublishes.count < capacity { controlPublishes.append((tabs, milliseconds(duration))) }
+    static func controlPublished(tabs: @autoclosure () -> Int, _ duration: Duration) {
+        if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
     }
 
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
@@ -121,7 +121,8 @@ enum DebugTimings {
         return [
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in
-                ["ms": round(milliseconds(open.total)), "model_ms": round(milliseconds(open.model)),
+                ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
+                 "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),
                  "panel_ms": round(milliseconds(open.panel)), "present_ms": round(milliseconds(open.present)),
                  "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
             }),

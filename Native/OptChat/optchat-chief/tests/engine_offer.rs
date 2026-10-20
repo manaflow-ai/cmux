@@ -2,7 +2,9 @@
 //! Home Chief Settings panel listed three hard-coded model ids whatever acpmux
 //! offered (cx-miuo, ownership audit V-2). The models are acpmux's for the
 //! engine's harness (`_acpmux/models`), the efforts the brain checks a set
-//! against.
+//! against. chief.engine.set also takes the compactor's harness and model
+//! (cosmic-gray 2026-10-14: a subrouter-only machine needs the compactor
+//! off `claude`), and refuses a harness acpmux does not have.
 
 mod common;
 
@@ -52,10 +54,10 @@ fn serve(listener: UnixListener) {
     });
 }
 
-#[test]
-fn the_engine_answer_offers_the_harness_models_acpmux_has() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("acpmux.sock");
+/// A brain over the fake acpmux, its engine.json in `dir`, knowing
+/// `families` (`_acpmux/harnesses` at host start).
+fn brain(dir: &std::path::Path, families: &[(&str, optchat_chief::acpmux::Family)]) -> Brain {
+    let socket = dir.join("acpmux.sock");
     serve(UnixListener::bind(&socket).unwrap());
     let acpmux = Acpmux::new(socket, None, Vec::new());
     let (events, up) = channel();
@@ -69,24 +71,35 @@ fn the_engine_answer_offers_the_harness_models_acpmux_has() {
     while !matches!(up.recv_timeout(common::WAIT).unwrap(), AgentEvent::Up(_)) {}
 
     let settings = Settings {
-        engine_file: Some(dir.path().join("engine.json")),
-        ..common::settings(dir.path())
+        engine_file: Some(dir.join("engine.json")),
+        families: families
+            .iter()
+            .map(|(name, family)| ((*name).to_owned(), *family))
+            .collect(),
+        ..common::settings(dir)
     };
     let (tx, _rx) = channel();
-    let mut brain = Brain::new(
-        common::open_chat(&dir.path().join("chat")),
+    Brain::new(
+        common::open_chat(&dir.join("chat")),
         acpmux,
         settings,
-        StateFile::new(&dir.path().join("host.json")),
+        StateFile::new(&dir.join("host.json")),
         tx,
         Arc::new(|_: &str| {}),
-    );
+    )
+}
+
+fn engine(brain: &mut Brain, request: EngineRequest) -> Value {
     let (reply, answer) = channel();
-    brain.step(Input::Engine {
-        request: EngineRequest::Show,
-        reply,
-    });
-    let answer = answer.recv_timeout(common::WAIT).unwrap();
+    brain.step(Input::Engine { request, reply });
+    answer.recv_timeout(common::WAIT).unwrap()
+}
+
+#[test]
+fn the_engine_answer_offers_the_harness_models_acpmux_has() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
 
     assert_eq!(answer["engine"]["harness"], "claude-sr", "{answer:#}");
     let models: Vec<&str> = answer["offered"]["models"]
@@ -100,5 +113,106 @@ fn the_engine_answer_offers_the_harness_models_acpmux_has() {
     assert_eq!(
         answer["offered"]["efforts"],
         json!(["minimal", "low", "medium", "high", "xhigh", "max"])
+    );
+}
+
+#[test]
+fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[
+            ("claude", Family::Claude),
+            ("claude-sr", Family::Claude),
+            ("codex", Family::Codex),
+        ],
+    );
+    let set = |compactor_harness: &str, compactor_model: Option<&str>| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: Some(compactor_harness.to_owned()),
+        compactor_model: compactor_model.map(str::to_owned),
+    };
+
+    let answer = engine(&mut brain, set("claude-sr", Some("claude-haiku-5-5")));
+    assert_eq!(
+        answer["engine"]["compactor_harness"], "claude-sr",
+        "{answer:#}"
+    );
+    assert_eq!(
+        answer["engine"]["compactor_model"], "claude-haiku-5-5",
+        "{answer:#}"
+    );
+    let file = optchat_chief::engine::load(&dir.path().join("engine.json"));
+    assert_eq!(file.compactor_harness.as_deref(), Some("claude-sr"));
+    assert_eq!(file.compactor_model.as_deref(), Some("claude-haiku-5-5"));
+
+    let refused = engine(&mut brain, set("no-such-harness", None));
+    assert_eq!(refused["error"]["code"], "unknown_harness", "{refused:#}");
+    assert_eq!(
+        optchat_chief::engine::load(&dir.path().join("engine.json"))
+            .compactor_harness
+            .as_deref(),
+        Some("claude-sr"),
+        "a refused set writes nothing"
+    );
+
+    let cleared = engine(&mut brain, set("default", Some("default")));
+    assert_eq!(
+        cleared["engine"]["compactor_harness"],
+        Value::Null,
+        "{cleared:#}"
+    );
+    assert_eq!(
+        cleared["engine"]["compactor_model"],
+        Value::Null,
+        "{cleared:#}"
+    );
+}
+
+#[test]
+fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    // acpmux's built-in `unii` (UniiChat through uniichat-agent) is an Other family.
+    let mut brain = brain(
+        dir.path(),
+        &[
+            ("claude-sr", Family::Claude),
+            ("codex", Family::Codex),
+            ("unii", Family::Other),
+        ],
+    );
+    let set = |harness: &str| EngineRequest::Set {
+        harness: Some(harness.to_owned()),
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+    };
+
+    let answer = engine(&mut brain, set("unii"));
+    assert_eq!(answer["engine"]["harness"], "unii", "{answer:#}");
+    let file = optchat_chief::engine::load(&dir.path().join("engine.json"));
+    assert_eq!(
+        file.harness.as_deref(),
+        Some("unii"),
+        "the next turn runs on UniiChat"
+    );
+    // The compactor stays on Claude: UniiChat keeps its own memory, the
+    // Chief's summaries still need a Claude route.
+    assert_eq!(file.compactor_harness, None);
+
+    let back = engine(&mut brain, set("default"));
+    assert_eq!(back["engine"]["harness"], "claude-sr", "{back:#}");
+    assert_eq!(
+        optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
+        None
     );
 }

@@ -14,7 +14,11 @@ import Testing
     private static func sidebar(_ sections: [SidebarSection], style: SidebarRowBadgeStyle = .stack) -> SidebarView {
         let model = SidebarModel(sections: sections)
         model.rowBadgeStyle = style
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        // The stack lists each state apart only with detailed status icons (`sidebar.detailedStatusIcons`).
+        model.detailedStatus = true
+        let design = DesignSettings()
+        design.sidebarSections.detailedStatusIcons = true
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -35,7 +39,9 @@ import Testing
     }
 
     /// Runs `body` with the stack cap set to `cap` (nil: the default), then clears it. The store is
-    /// active without a file, so nothing is written.
+    /// active without a file, so nothing is written. Each set is followed by the tunables watch's
+    /// refresh, which the app runs one main-actor hop later: the rows `body` draws in this same turn
+    /// would otherwise read the values cached for a row another suite drew earlier.
     private static func withCap(_ cap: SidebarRowBadgeStackCap?, _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
@@ -45,7 +51,11 @@ import Testing
         } else {
             TunableStore.shared.set(key, nil)
         }
-        defer { TunableStore.shared.set(key, nil) }
+        SidebarTunablesWatch.shared.changed()
+        defer {
+            TunableStore.shared.set(key, nil)
+            SidebarTunablesWatch.shared.changed()
+        }
         try body()
     }
 
@@ -55,6 +65,17 @@ import Testing
             #expect(stack.states.count == 5)
             #expect(stack.states.first == .error, "the most urgent first")
             #expect(stack.themedToolTip?.contains(Strings.statusMore(2)) == true)
+        }
+    }
+
+    /// cx-az6hc: in a whole-process run another suite draws a sidebar row first, so the shared
+    /// tunables watch already holds the default cap when a test sets its own. The cap still
+    /// applies to the next row drawn.
+    @Test func aCapSetAfterAnotherRowDrewAppliesToTheNextRow() throws {
+        try Self.withCap(nil) { _ = Self.sevenItems() }
+        try Self.withCap(.three) {
+            let stack = try Self.stack(Self.sevenItems(), Self.busy)
+            #expect(stack.states.count == 3)
         }
     }
 

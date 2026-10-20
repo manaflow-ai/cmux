@@ -60,6 +60,29 @@ impl Ws {
         }
     }
 
+    /// One `cmux.protocol/2` request on this WebSocket; the whole response
+    /// (events read meanwhile are kept).
+    pub(super) fn v2(&mut self, operation: &str, params: Value) -> Value {
+        let id = format!("ws-v2-{}", self.next);
+        self.next += 1;
+        let mut params = params.as_object().cloned().unwrap_or_default();
+        params.insert("machine".into(), json!("current"));
+        params.insert("session".into(), json!("current"));
+        let frame = json!({"protocol": "cmux.protocol/2", "type": "request", "id": id,
+                           "operation": operation, "params": params});
+        self.socket.send(Message::Text(frame.to_string().into())).unwrap();
+        loop {
+            let value = self.read();
+            if value.get("event").is_some() {
+                self.events.push_back(value);
+                continue;
+            }
+            if value["id"] == json!(id) && value["type"] == "response" {
+                return value;
+            }
+        }
+    }
+
     pub(super) fn request(&mut self, cmd: &str, params: Value) -> Value {
         let value = self.reply(cmd, params);
         assert_eq!(value["ok"], true, "{cmd} failed over WebSocket: {value}");

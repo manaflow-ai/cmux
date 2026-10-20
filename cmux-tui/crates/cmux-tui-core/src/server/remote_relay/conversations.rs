@@ -206,9 +206,15 @@ pub(in crate::server) fn remote_event(
         // Drafts reach only the v2 conversation.events stream, which the
         // relay never admits (it refuses every resource-protocol frame).
         ConversationEvent::Draft { .. } => None,
+        // The person's own list state stays on the person's own local
+        // connections (`conversation-inbox-state-v1`).
+        ConversationEvent::Inbox { .. } => None,
         // Runs stay on the person's own local connections
         // (`conversation-runs-v1` is not served to the relay).
-        ConversationEvent::Run { .. } => None,
+        ConversationEvent::Run { .. }
+        | ConversationEvent::Live { .. }
+        | ConversationEvent::Avatar { .. }
+        | ConversationEvent::Chief { .. } => None,
     }
 }
 

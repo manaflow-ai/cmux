@@ -15,9 +15,8 @@ extension BrowserLinkClickMapping {
             case .download: .download
             }
         }
-        self.init(cmdClick: action(setting.cmdClick), cmdShiftClick: action(setting.cmdShiftClick),
-                  shiftClick: action(setting.shiftClick), optionClick: action(setting.optionClick),
-                  middleClick: action(setting.middleClick))
+        self.init(cmdClick: action(setting.cmdClick), cmdShiftClick: action(setting.cmdShiftClick), shiftClick: action(setting.shiftClick),
+                  optionClick: action(setting.optionClick), middleClick: action(setting.middleClick))
     }
 }
 
@@ -25,6 +24,7 @@ extension BrowserLinkClickMapping {
 @MainActor
 enum BrowserLinkClickPreference {
     static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
+        cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
         Task { [weak settings, weak webKit, weak cef] in
             guard let settings else { return }
             for await setting in ObservationStream({ settings.snapshot.browserLinkClicks }) {

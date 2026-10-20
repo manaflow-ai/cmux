@@ -4,6 +4,38 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInvite {
+    pub id: InviteId,
+    pub address: AddressId,
+    pub channel: HomeInviteChannel,
+    pub display_name: String,
+    pub invited_by: ParticipantId,
+    pub created_at: Timestamp,
+    pub expires_at: Timestamp,
+    pub status: HomeInviteStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_at: Option<Timestamp>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_at: Option<Timestamp>,
+    pub delivery: HomeInviteDelivery,
+    pub copy_variant: String,
+    pub locale: String,
+}
+
+wire_enum! {
+    HomeInviteChannel {
+        Email = "email",
+        Sms = "sms",
+    }
+}
+
 wire_enum! {
     HomeInviteStatus {
         Pending = "pending",
@@ -171,13 +203,6 @@ wire_enum! {
     }
 }
 
-wire_enum! {
-    HomeParticipantRole {
-        Owner = "owner",
-        Member = "member",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeParticipantInput {
     pub id: ParticipantId,
@@ -200,6 +225,15 @@ wire_enum! {
     HomeParticipantInputAgentClass {
         Mux = "mux",
         Agent = "agent",
+    }
+}
+
+wire_enum! {
+    HomeParticipantRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
     }
 }
 
@@ -866,40 +900,4 @@ pub struct TeamDomain {
     pub last_checked_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check_failures: Option<i64>,
-}
-
-wire_enum! {
-    TeamDomainState {
-        Pending = "pending",
-        Verified = "verified",
-        Lost = "lost",
-        Lapsed = "lapsed",
-    }
-}
-
-/// A team; a personal account is a team of one.
-pub type TeamId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamIntegrationPolicy {
-    pub allowed_providers: Option<Vec<IntegrationProvider>>,
-    pub github: TeamIntegrationPolicyGithub,
-    pub source: TeamIntegrationPolicySource,
-    pub locked: bool,
-    pub updated_at: Option<i64>,
-    pub updated_by: Option<String>,
-}
-
-wire_enum! {
-    TeamIntegrationPolicyGithubScope {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamIntegrationPolicyGithub {
-    pub scope: TeamIntegrationPolicyGithubScope,
-    pub require_org_admin: bool,
-    pub repo_allowlist: Option<Vec<RepoPattern>>,
 }

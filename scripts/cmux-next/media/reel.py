@@ -3,7 +3,7 @@
 
     reel.py --build B [--notes-url URL | --notes FILE] --out DIR [--dry-run]
             [--repo manaflow-ai/cmux] [--clips FILE] [--tree FILE] [--heads FILE]
-            [--allow-unsigned] [--allow-truncated]
+            [--allow-unsigned] [--allow-truncated] [--publish]
 
 The pull requests come from the build's signed release notes (release-notes.py
 `build`: each item is {title, author, pr}), in notes order, once each. Their
@@ -20,7 +20,9 @@ clip or "no clip". `--dry-run` prints the plan and writes only reel.json.
 
 Notes must verify against the content-signing key (a local --notes file needs
 FILE.sig unless --allow-unsigned), and a truncated listing stops the build
-unless --allow-truncated. Downloads are limited to files-next.cmux.com (notes)
+unless --allow-truncated. `--publish` uploads index.html, reel.json and reel.mp4
+to the pr-media branch at nightly-next/<build>/ (a folder the pr-media prune
+keeps, unlike pull request folders) and prints their URLs. Downloads are limited to files-next.cmux.com (notes)
 and the repo's pr-media branch on raw.githubusercontent.com (clips), with no
 redirects.
 
@@ -55,7 +57,7 @@ CARD_SECONDS = 1.5
 CLIP_SECONDS = 60
 TITLE_MAX = 60
 # capture_paths.py's TOUR_FILES order: the first tour a pull request has is its clip.
-TOUR_ORDER = ("new-tab", "agent-pane", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "chief-settings", "glass", "core")
 TOUR_AFTER = re.compile(r"(?P<pr>[0-9]+)/(?P<sha8>[0-9a-f]{8})/next-(?P<tour>[a-z0-9][a-z0-9-]*?)-after/tour\.mp4")
 TOUR_PLAIN = re.compile(r"(?P<pr>[0-9]+)/(?P<sha8>[0-9a-f]{8})/next-(?P<tour>[a-z0-9][a-z0-9-]*)/tour\.mp4")
 MANUAL = re.compile(r"(?P<pr>[0-9]+)/(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)\.mp4")
@@ -439,7 +441,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-unsigned", action="store_true", help="accept a --notes file with no .sig")
     parser.add_argument("--allow-truncated", action="store_true", help="build from a truncated pr-media listing")
     parser.add_argument("--dry-run", action="store_true", help="print the plan; write only reel.json")
+    parser.add_argument("--publish", action="store_true", help="upload the reel and its page to pr-media")
     args = parser.parse_args(argv)
+    if args.publish and args.dry_run:
+        parser.error("--publish uploads a built reel; it cannot go with --dry-run")
     if not re.fullmatch(r"[0-9]+", args.build):
         raise SystemExit(f"--build must be digits, not {args.build!r}")
 
@@ -465,7 +470,23 @@ def main(argv: list[str] | None = None) -> int:
     if not args.dry_run:
         (args.out / "index.html").write_text(render_html(args.build, args.repo, entries, reel), encoding="utf-8")
         print(args.out / ("reel.mp4" if reel else "index.html"))
+    if args.publish:
+        publish_build(args)
     return 0
+
+
+def publish_build(args: argparse.Namespace) -> None:
+    """Upload the reel (when there is one), the report and the page to nightly-next/<build>/.
+
+    The page goes last: a failed upload leaves no page linking a missing reel.
+    """
+    for name in ("reel.mp4", "reel.json", "index.html"):
+        local = args.out / name
+        if not local.is_file():
+            continue
+        remote = f"nightly-next/{args.build}/{name}"
+        pr_media.put_file(args.repo, pr_media.BRANCH, remote, local, f"cmux NEXT nightly reel for build {args.build}")
+        print(pr_media.raw_url(args.repo, pr_media.BRANCH, remote))
 
 
 if __name__ == "__main__":

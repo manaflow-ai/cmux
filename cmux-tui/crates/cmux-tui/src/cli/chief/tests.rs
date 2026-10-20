@@ -384,7 +384,6 @@ fn a_brain_gets_the_harness_logins_and_nothing_else() {
         "LC_ALL",
         "MUX_HARNESS",
         "OPTCHAT_CHIEF_HARNESS",
-        "CMUX_MCP_COMMAND",
     ] {
         assert!(brain_env_allowed(name), "{name}");
     }
@@ -447,13 +446,23 @@ fn stop_takes_a_subagent_and_engine_takes_speeds() {
         Some(Control::Stop(Some("a3".into())))
     );
     assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
-    let parsed =
-        parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
+    let parsed = parse_args(&strings(&[
+        "engine",
+        "--speed",
+        "fast",
+        "--compactor-speed=default",
+        "--compactor-harness",
+        "claude-sr",
+        "--compactor-model=claude-haiku-5-5",
+    ]))
+    .unwrap();
     assert_eq!(
         parsed.control,
         Some(Control::Engine(vec![
             ("speed".into(), "fast".into()),
-            ("compactor_speed".into(), "default".into())
+            ("compactor_speed".into(), "default".into()),
+            ("compactor_harness".into(), "claude-sr".into()),
+            ("compactor_model".into(), "claude-haiku-5-5".into())
         ]))
     );
     let report = json!({"engine": {"harness": "codex", "model": "gpt-6-sol", "effort": "high", "speed": "fast"}});

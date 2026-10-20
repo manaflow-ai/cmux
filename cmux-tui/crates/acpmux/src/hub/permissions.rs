@@ -68,6 +68,8 @@ impl Hub {
                     session.floor.harness_grant.store(false, Ordering::SeqCst);
                     session.floor.unsandboxed.store(false, Ordering::SeqCst);
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                    // Its background processes ended with it (`processes.rs`).
+                    self.processes_lost(&session, processes::HARNESS_EXIT);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.
@@ -102,7 +104,8 @@ impl Hub {
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
-        let mut m = session.meta.lock().unwrap();
+        let mut reported_tools = None;
+        let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
                 if let Some(text) =
@@ -135,12 +138,21 @@ impl Hub {
                     let title = cmux_chat_index::without_client_context(title).trim_end();
                     if !title.is_empty() {
                         m.title = Some(title.to_owned());
+                        m.title_source = Some(super::titles::HARNESS.to_owned());
                     }
                 }
+                // Claude Code's system/init: its MCP servers, plugins and skills.
+                reported_tools = update
+                    .pointer("/_meta/claude")
+                    .filter(|c| c.get("mcp_servers").is_some_and(Value::is_array))
+                    .cloned();
             }
             _ => {}
         }
         drop(m);
+        if let Some(claude) = reported_tools {
+            self.absorb_reported_tools(session, &claude);
+        }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);

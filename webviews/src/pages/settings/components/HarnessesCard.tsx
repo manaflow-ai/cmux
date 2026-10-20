@@ -50,7 +50,7 @@ function Row({ row }: { row: HarnessRow }) {
             <>
               <div className="row-help">{t("settingsWindow.harnesses.updateElevated")}</div>
               {/* The command is a value to copy, on its own line, not part of the description. */}
-              <div className="row-help selectable" title={row.update.command}>
+              <div className="row-help selectable">
                 <code className="font-mono" data-harness-command="">
                   {row.update.command}
                 </code>

@@ -40,6 +40,13 @@ export class DaemonSocket {
   private readonly operations = new Map<string, Pending>();
   private readonly listeners = new Set<(event: Record<string, unknown>) => void>();
   private readonly closeListeners = new Set<(reason: string) => void>();
+  private endpoint = "";
+
+  /** The WebSocket URL this connection opened (no credential in it): the daemon's origin, where
+   * its listener also serves plain HTTP paths such as attachment download links. */
+  get url(): string {
+    return this.endpoint;
+  }
 
   /** Opens and authenticates. Resolves once the daemon accepts protocol frames. */
   static async connect(url: string, auth: DaemonAuth): Promise<DaemonSocket> {
@@ -52,6 +59,7 @@ export class DaemonSocket {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url);
       this.socket = socket;
+      this.endpoint = url;
       let ready = false;
       socket.addEventListener("open", () => {
         if ("origin" in auth) {

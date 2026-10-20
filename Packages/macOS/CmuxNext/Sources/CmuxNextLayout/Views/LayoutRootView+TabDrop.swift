@@ -57,7 +57,9 @@ extension LayoutRootView {
 
     /// Marks a tab strip's insert slot (`screenRect`, the gap the strip
     /// opens for the dragged tab) with classic's caret: a 2 pt accent bar,
-    /// 20 pt tall, in the middle of the gap (DESIGN.md (c)6). The same
+    /// 20 pt tall, on the gap's leading edge, where the tab will start; the
+    /// drag ghost sits in the gap itself and would hide a centered caret
+    /// (DESIGN.md (c)6, proof 2026-10-14). The same
     /// overlay as the pane zones, so it moves between them. Nothing is
     /// hit-tested; the strip owns that target, and the ghost still lands on
     /// the slot (`tabDragHighlightOnScreen`).
@@ -67,7 +69,7 @@ extension LayoutRootView {
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
         let height = min(20, slot.height)
-        let caret = CGRect(x: slot.midX - 1, y: slot.midY - height / 2, width: 2, height: height)
+        let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
         if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
                           pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
     }

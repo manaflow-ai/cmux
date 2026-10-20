@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use ghostty_vt::{
-    Callbacks, Cell, ColorSpec, CursorShape, Dirty, RenderState, Rgb, Terminal,
+    Callbacks, Cell, ColorSpec, CursorShape, Dirty, Error, RenderState, Rgb, Terminal,
     TerminalColorOverrides,
 };
 
@@ -1251,4 +1251,70 @@ fn empty_kitty_graphics_probe_keeps_checkpoint_replay_readable() {
     assert!(term.vt_stream_is_ground());
     term.vt_replay_bounded(1024 * 1024)
         .expect("an empty Kitty capability probe must not poison replay capture");
+}
+
+#[test]
+fn oversized_kitty_upload_is_not_resumable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    upload.resize(1024, b'A');
+    term.vt_write(&upload);
+
+    assert!(term.discard_unreplayable_replay().is_some());
+    assert!(term.vt_replay_resumes_stream());
+}
+
+#[test]
+fn completed_oversized_kitty_chunk_is_not_can_recoverable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut chunk = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    chunk.resize(1024, b'A');
+    chunk.extend_from_slice(b"\x1b\\");
+    term.vt_write(&chunk);
+
+    assert!(term.vt_replay_resumes_stream());
+    assert!(term.discard_unreplayable_replay().is_none());
+}
+
+#[test]
+fn completed_kitty_overflow_blocks_later_control_string_recovery() {
+    for size in [1024, 1_048_577] {
+        for header in [b"\x1b_Gm=0;".as_slice(), b"\x1b]2;"] {
+            let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+            term.set_kitty_inflight_storage_limit(64);
+            let mut first = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+            first.resize(1024, b'A');
+            first.extend_from_slice(b"\x1b\\");
+            term.vt_write(&first);
+
+            let mut active = header.to_vec();
+            active.resize(size, b'B');
+            term.vt_write(&active);
+
+            assert!(
+                term.discard_unreplayable_replay().is_none(),
+                "CAN cannot recover a lost completed prefix: header={header:?}, size={size}"
+            );
+            assert!(matches!(term.vt_replay_bounded(2 * 1024 * 1024), Err(Error::OutOfSpace)));
+        }
+    }
+}
+
+/// The Mac viewer loads a Ghostty config, whose default
+/// `grapheme-width-method = unicode` turns DEC mode 2027 on. The host grid
+/// must measure graphemes the same way, or the viewer and the daemon put
+/// the cursor in different columns after an emoji (and reflow differently on
+/// resize). It must also survive a full reset, as Ghostty's default does.
+#[test]
+fn grapheme_clustering_is_on_by_default_like_the_ghostty_viewer() {
+    let mut term = Terminal::new(20, 4, 1000, Callbacks::default()).unwrap();
+    assert!(term.mode(2027, false), "mode 2027 must default on");
+    term.vt_write("\u{2764}\u{fe0f}x".as_bytes());
+    assert_eq!(term.cursor_position(), Some((3, 0)), "VS16 emoji is two columns wide");
+    term.vt_write(b"\x1bc");
+    assert!(term.mode(2027, false), "a full reset keeps the default");
+    term.vt_write(b"\x1b[?2027l");
+    assert!(!term.mode(2027, false), "programs may still turn it off");
 }

@@ -118,7 +118,7 @@ fn check_sections(doc: &Doc) -> Result<(), Refusal> {
         if let Some(title) = &section.title {
             validate_title(title)?;
         }
-        validate_section_numbers(section.columns, section.max_rows)?;
+        validate_section_numbers(section)?;
     }
     Ok(())
 }
@@ -309,6 +309,9 @@ pub fn repair(doc: &mut Doc) -> bool {
         }
         if section.max_rows.is_some_and(|r| !(1..=50).contains(&r)) {
             section.max_rows = None;
+        }
+        if section.gap.is_some_and(|gap| !GAP_RANGE.contains(&gap)) {
+            section.gap = None;
         }
     }
     if sections.iter().any(|section| !order_key::is_valid(&section.order)) {

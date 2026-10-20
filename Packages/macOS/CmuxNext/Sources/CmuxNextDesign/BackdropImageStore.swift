@@ -123,7 +123,7 @@ public final class BackdropImageStore {
             let source = selection.resolvedImageURL(dark: dark), snapshot = snapshotURL(selection, texture: texture, dark: dark)
             let size = maxPixelSize
             load = Task.detached(priority: .userInitiated) {
-                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture)
+                Self.load(source, snapshot: snapshot, maxPixelSize: size, texture: texture, dark: dark)
             }
             loads[key] = load
         }
@@ -150,11 +150,11 @@ public final class BackdropImageStore {
 
     /// The snapshot when there is one, else the source decoded, textured and snapshotted.
     private nonisolated static func load(_ source: URL?, snapshot: URL?, maxPixelSize: Int,
-                                         texture: BackdropTexture) -> Decoded? {
+                                         texture: BackdropTexture, dark: Bool) -> Decoded? {
         if let snapshot, let image = decode(snapshot, maxPixelSize: maxPixelSize) {
             return Decoded(image: image, rendered: false)
         }
-        guard let source, let image = decode(source, maxPixelSize: maxPixelSize) else { return nil }
+        guard let source, let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
         let textured = BackdropTextureRenderer(context: CIContext(options: [.cacheIntermediates: false]))
             .render(image, texture: texture)
         let result = textured ?? image
@@ -163,8 +163,8 @@ public final class BackdropImageStore {
     }
 
     /// The file decoded now (not when it first draws), its longest side at most `maxPixelSize`;
-    /// a video's first frame.
-    nonisolated static func decode(_ url: URL, maxPixelSize: Int) -> CGImage? {
+    /// a video's first frame, and a dynamic HEIC's frame for light or `dark` (``BackdropAppearance``).
+    nonisolated static func decode(_ url: URL, maxPixelSize: Int, dark: Bool = false) -> CGImage? {
         if AppleWallpapers.isVideo(url.path) { return poster(url, maxPixelSize: maxPixelSize) }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
@@ -173,7 +173,8 @@ public final class BackdropImageStore {
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        let frame = (dark ? BackdropAppearance.dark : .light).frame(in: source)
+        return CGImageSourceCreateThumbnailAtIndex(source, frame, options as CFDictionary)
     }
 
     /// A video's first frame, upright, its longest side at most `maxPixelSize`: the poster a

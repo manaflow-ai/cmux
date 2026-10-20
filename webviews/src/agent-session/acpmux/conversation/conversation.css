@@ -36,6 +36,25 @@
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
   --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
+     Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
+  --font-mono: var(--cv-mono);
+}
+/* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
+   everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
+   prose keeps the standard 800px measure (--cv-prose) at the column's left edge. */
+:root[data-chat-width="wide"] {
+  --cv-column: clamp(720px, 62.5%, 960px);
+}
+:root[data-chat-width="wideBlocks"] {
+  --cv-column: clamp(720px, 70%, 1120px);
+  --cv-prose: 800px;
+}
+.cv-md > .cv-p,
+.cv-md > .cv-h,
+.cv-md > .cv-list,
+.cv-md > .cv-quote {
+  max-width: var(--cv-prose, none);
 }
 
 /* ---------- User bubble ---------- */
@@ -73,13 +92,45 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
 .acpmux-shell .cv-user__bubble {
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
+}
+
+/* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
+.cv-user__images {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 70%;
+  margin-bottom: 6px;
+}
+.cv-user__images button {
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+.cv-user__images img {
+  display: block;
+  width: auto;
+  height: 72px;
+  max-width: 160px;
+  object-fit: cover;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
@@ -106,6 +157,38 @@
   overflow-wrap: break-word;
   max-height: 320px;
   overflow: auto;
+}
+
+/* A prompt the Chief sent a subagent: a quiet "From the Chief" line above it, and a long task
+   collapsed to its first lines with Show all under it (ChiefPromptBubble.tsx). */
+.cv-user__from {
+  margin-bottom: 2px;
+  padding-right: 4px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+}
+.cv-user__bubble--collapsed {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+  overflow: hidden;
+}
+.cv-user__expand {
+  margin-top: 2px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: 18px;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-user__expand:hover {
+  color: var(--agent-text);
 }
 
 /* A prompt queued behind a harness switch: one quiet line under its bubble ("Starting Codex…"). */
@@ -654,8 +737,8 @@
   color: var(--cv-text);
 }
 
-/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. The
-   katex stylesheet ships beside these rules (build-agent-pane-web.sh). */
+/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
+   stylesheet loads with KaTeX, after these rules; each rule here has two classes, so it wins. */
 .cv-math .katex {
   white-space: nowrap;
 }
@@ -696,20 +779,26 @@ pre.cv-math-source {
 
 /* ---------- Column ---------- */
 
-/* The transcript column; styles.css lines the composer and the cards above it up with it.
-   The queued prompts lie over the transcript's foot (ComposerQueue.tsx): the transcript ends above
-   them, so a followed reply's latest line is never under the queue. The size change is the
-   scroller's, which keeps a followed view at its end before the frame paints. A question waiting
-   for an answer keeps the space clear itself (.acpmux-asks-stack). */
+/* The transcript column; styles.css lines the composer and the cards above it up with it. The
+   bottom stack under it (bottomStack.css) changes the scroller's size, which keeps a followed view
+   at its end before the frame paints. */
 .acpmux-scroll {
-  margin-bottom: var(--acpmux-queue-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+  /* VirtualTranscript owns bottom-following. Letting WebKit also anchor the growing row makes
+     each streamed token compete with that correction and produces the one-pixel shake at rest. */
+  overflow-anchor: none;
 }
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
+}
+/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
+   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
+   that frame, and the offset clamped short of the end and stayed there. */
+.acpmux-spacer {
+  transition: none;
 }
 .acpmux-row {
   left: var(--cv-inset);
@@ -725,6 +814,11 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 8px;
+}
+/* A pointer click can focus an article without asking for keyboard focus. Keep that path quiet;
+   the active row above is the only transcript outline, and it is intentionally :focus-visible. */
+.acpmux-row:focus:not(:focus-visible) {
+  outline: none;
 }
 /* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
    otherwise put the button back in the flow, shown at rest. */
@@ -749,6 +843,164 @@ pre.cv-math-source {
 .acpmux-permission {
   padding-left: var(--cv-inset);
   padding-right: var(--cv-inset);
+}
+
+/* A tool permission ask (permissions/Panel.tsx, Leo 2026-10-14): the transcript's tool row (its
+   glyph, a verb and the command once, regular weight, one line) on the card's thin rim, with
+   small answers at its right end while it waits. A click opens the request in plain words. */
+/* A block, not a flex box: WebKit collapsed a flex fieldset in the bottom stack to a 15px strip.
+   Its rows are the flex lines; it never shrinks below them. */
+.acpmux-ask {
+  display: block;
+  flex-shrink: 0;
+  min-inline-size: 0;
+  margin: 0;
+  padding-block: 3px;
+  padding-inline: 8px 4px;
+  border: var(--cmux-hairline, .5px) solid var(--cv-card-ring);
+  border-radius: 8px;
+  background: var(--cv-card-fill);
+  box-shadow: none;
+  color: var(--cv-tool-strong);
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 20px;
+}
+/* Like the composer card, its rim clears under appearance.borders = none (composer-edges.test.ts). */
+:root[data-borders="none"] .acpmux-ask { border-color: transparent; }
+.acpmux-ask-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-inline-size: 0;
+  min-height: 28px;
+}
+/* The command keeps at least 10rem on the answers' line; in a narrower pane the answers take a
+   line of their own under it, so none of them is cut off (cx-ncc.111). */
+.acpmux-ask-toggle {
+  all: unset;
+  display: flex;
+  flex: 1 1 10rem;
+  align-items: center;
+  gap: 6px;
+  min-inline-size: 0;
+  border-radius: 5px;
+  cursor: default;
+}
+.acpmux-ask-chevron {
+  flex: none;
+  color: var(--cv-text-dim);
+  transition: transform 120ms ease-out;
+}
+.acpmux-ask-chevron.is-open {
+  transform: rotate(90deg);
+}
+.acpmux-ask-chevron:not(.is-open):dir(rtl) {
+  transform: scaleX(-1);
+}
+.acpmux-ask-icon {
+  display: flex;
+  flex: none;
+}
+.acpmux-ask-verb {
+  flex: none;
+  color: var(--cv-text);
+}
+.acpmux-ask-subject {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+.acpmux-ask-subject.is-code {
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+}
+.acpmux-ask-state {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.acpmux-ask-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  max-inline-size: 100%;
+  margin-inline-start: auto;
+}
+.acpmux-ask-action {
+  all: unset;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  color: var(--cv-text);
+  font-size: var(--text-detail);
+  line-height: 22px;
+  cursor: default;
+}
+.acpmux-ask-action:hover {
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.acpmux-ask-action.is-primary {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+}
+/* The wider grant: a hairline rim so it reads as a choice next to the filled Allow, not as a
+   disabled one (cg-design-judge, light theme). */
+.acpmux-ask-action.is-secondary {
+  box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--cv-card-ring);
+}
+.acpmux-ask-action.is-primary:hover {
+  background: color-mix(in srgb, var(--agent-accent) 88%, var(--cv-fg));
+}
+.acpmux-ask-action:disabled {
+  opacity: 0.5;
+}
+.acpmux-ask-toggle:focus-visible,
+.acpmux-ask-action:focus-visible {
+  outline: 1.5px solid var(--agent-accent);
+  outline-offset: 1px;
+}
+.acpmux-ask-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding-block: 2px 6px;
+  padding-inline: 18px 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}
+.acpmux-ask-details p,
+.acpmux-ask-details ul {
+  margin: 0;
+}
+.acpmux-ask-details ul {
+  padding-inline-start: 16px;
+  overflow-wrap: anywhere;
+}
+.acpmux-ask-input {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--cv-mono);
+}
+.acpmux-ask-note {
+  display: block;
+  padding-block: 0 4px;
+  padding-inline-start: 18px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-ask-chevron {
+    transition: none;
+  }
 }
 
 /* ---------- Turn rows (TurnRows.tsx) ---------- */
@@ -801,6 +1053,35 @@ pre.cv-math-source {
   margin-top: 3px;
   margin-left: 2px;
 }
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
+}
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
   from {
@@ -824,6 +1105,14 @@ pre.cv-math-source {
     background-clip: text;
     animation: cv-thinking-sweep 2s linear infinite;
   }
+}
+/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
+:root[data-status-indicators="static"] .cv-thinking {
+  color: var(--cv-text-muted);
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  animation: none;
 }
 
 .cv-tools {
@@ -888,6 +1177,31 @@ pre.cv-math-source {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX, Debug toggle
+   agentPane.debug.liveThoughtViewport): a fixed viewport of seven lines, Codex's 8.75rem, that
+   keeps its newest line at the bottom while older lines fade out at its top over 16px. */
+.cv-thought.is-live .cv-thought__text {
+  display: flex;
+  flex-direction: column-reverse;
+  max-height: 140px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
+  mask-image: linear-gradient(to bottom, transparent, black 16px);
+}
+/* A long thought folded (Debug toggle agentPane.debug.foldLongThoughts): "Thought for 12s", or with
+   agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a trailing chevron. Opened, the text sits under one left rule at the label's indent plus the
+   row's gap (AI Elements' Trace nesting); the reader's toggle animates its height (ThoughtRow.tsx). */
+.cv-thought__preview {
+  color: var(--cv-text-muted);
+}
+.cv-thought__body {
+  display: block;
+  margin: 2px 0 6px 7px;
+  padding-left: 16px;
+  border-left: 1px solid var(--cv-rule);
+  line-height: 20px;
+  overflow: hidden;
+}
 .cv-tool.is-toggle {
   cursor: pointer;
   user-select: none;
@@ -899,6 +1213,13 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 4px;
+}
+/* Pointer activation should not leave a browser outline on transcript controls. Keyboard focus
+   still takes the shared ring above, including Worked for, expandable tool rows and icon actions. */
+.cv-worked:focus:not(:focus-visible),
+.cv-tool.is-toggle:focus:not(:focus-visible),
+.cv-iconbtn:focus:not(:focus-visible) {
+  outline: none;
 }
 /* One right chevron, turned a quarter when open; a message head's shows on hover. */
 .cv-rotor {
@@ -1325,6 +1646,28 @@ pre.cv-math-source {
   }
 }
 
+/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
+ * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
+ * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
+ * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+ * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
+@keyframes acpmux-older-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row--older:not([data-older-shown]) {
+    opacity: 0.35;
+  }
+  .acpmux-row--older[data-older-shown] {
+    animation: acpmux-older-in var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
@@ -1402,6 +1745,9 @@ pre.cv-math-source {
   .cv-md.is-waiting .cv-caret::after {
     animation: cv-caret-wait 1s ease-in-out infinite;
   }
+}
+:root[data-status-indicators="static"] .cv-md.is-waiting .cv-caret::after {
+  animation: none;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
@@ -1689,6 +2035,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
@@ -1712,7 +2062,7 @@ pre.cv-math-source {
   border-radius: 9px;
   overflow: hidden;
   background: var(--agent-page-bg);
-  box-shadow: inset 0 0 0 0.5px var(--agent-border-strong, var(--agent-border));
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border-strong, var(--agent-border));
 }
 .acpmux-render-card-head {
   display: flex;
@@ -1825,6 +2175,15 @@ pre.cv-math-source {
   max-width: 100%;
   height: auto;
 }
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+}
 .cv-diagram__error {
   padding: 8px 10px;
   font-size: 12px;
@@ -1852,11 +2211,11 @@ pre.cv-math-source {
   gap: 2px;
   height: 28px;
   padding: 0 3px 0 9px;
-  border: 0.5px solid var(--agent-border);
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
   /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
+  box-shadow: var(--ui-popup-drop, var(--elevation-2));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
@@ -1931,16 +2290,15 @@ pre.cv-math-source {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its dots say a reply
-   is streaming below. It fades in and out with the pane's motion tokens. */
+   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
+   reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
   bottom: 12px;
   z-index: var(--layer-sticky);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -1950,14 +2308,17 @@ pre.cv-math-source {
   -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
   box-shadow:
-    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent),
-    0 4px 14px color-mix(in srgb, black 14%, transparent),
-    0 1px 2px color-mix(in srgb, black 10%, transparent);
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent)),
+    var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
+}
+/* appearance.borders none clears the rim in place, as it clears the composer's and the popups'. */
+:root[data-borders="none"] .acpmux-jump-latest {
+  --acpmux-jump-latest-rim: transparent;
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;
@@ -1975,16 +2336,35 @@ pre.cv-math-source {
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
+/* The arrow and the dots share one cell: while the agent works, the arrow shrinks and fades out as
+   the accent dots grow in (Claude desktop's Code tab), and back when the turn ends. */
+.acpmux-jump-latest__arrow,
 .acpmux-jump-latest__dots {
+  grid-area: 1 / 1;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-jump-latest__dots {
   gap: 3px;
+  color: var(--agent-accent);
+  opacity: 0;
+  transform: scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__arrow {
+  opacity: 0;
+  transform: translateY(3px) scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__dots {
+  opacity: 1;
+  transform: none;
 }
 .acpmux-jump-latest__dots i {
-  width: 3.5px;
-  height: 3.5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -1995,25 +2375,45 @@ pre.cv-math-source {
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
   }
-  .acpmux-jump-latest__dots i {
+  .acpmux-jump-latest__arrow,
+  .acpmux-jump-latest__dots {
+    transition:
+      opacity var(--agent-motion-in) var(--agent-ease-out),
+      transform var(--agent-motion-in) var(--agent-ease-out);
+  }
+  /* Only while shown and working: hidden dots keep no compositor animation running. */
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
     animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
   }
-  .acpmux-jump-latest__dots i:nth-child(2) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
     animation-delay: calc(var(--agent-motion-in) * 1.5);
   }
-  .acpmux-jump-latest__dots i:nth-child(3) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
+}
+/* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
+  animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
   0%,
   60%,
   100% {
-    opacity: 0.45;
+    opacity: 0.55;
+    transform: scale(0.8);
   }
   30% {
     opacity: 1;
+    transform: scale(1.15);
   }
+}
+/* A chat reopening where the reader left it stays unseen while older pages bring that row back
+   (cx-odzaz), so it never flashes at its latest message first. */
+.acpmux-scroll[data-seeking] {
+  visibility: hidden;
 }
 /* The transcript's soft edges (New Tab's list, #19791): rows fade in under the header once the view
    has left the start, and out above the composer while more lies below, instead of a hard cut. A
@@ -2134,6 +2534,44 @@ pre.cv-math-source {
   color: var(--agent-danger);
 }
 
+/* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
+/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
+   facts' text, quiet until dismissed. */
+.cv-session-start__compaction {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 22.5px;
+  line-height: 18px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-session-start__compaction-text {
+  min-width: 0;
+  flex: 1;
+}
+.cv-session-start__dismiss {
+  all: unset;
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__dismiss:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
 /* One rhythm for steps (tool calls, thoughts, a background task's end) across transcript rows:
    a step row next to another adds no gap, so they sit 26px apart as inside one row (Leo 2026-10-13). */
 .acpmux-row.acpmux-row--before-step,
@@ -2146,4 +2584,13 @@ pre.cv-math-source {
 }
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
+}
+
+/* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
+.cv-user__steer-label {
+  color: var(--cv-text);
+  font-weight: 500;
+}
+.cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
+  color: var(--agent-accent);
 }

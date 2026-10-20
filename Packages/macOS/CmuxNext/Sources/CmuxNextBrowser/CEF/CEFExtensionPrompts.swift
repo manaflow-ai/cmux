@@ -51,7 +51,7 @@ final class CEFExtensionPrompts {
     /// The tab that asked (only that tab is blocked); else the pane window
     /// that showed a Chromium tab last; else any visible cmux window.
     private func scope(for browser: Int32) -> CmuxDialogScope? {
-        if let view = runtime.tabsByBrowser[browser]?.contentView, view.window != nil { return .tab(view) }
+        if let view = runtime.tabsByBrowser[browser]?.contentView, view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
         if let window = runtime.lastShownHost?.visibleTab?.contentView.window { return .window(window) }
         return NSApp.windows.first { $0.isVisible && $0.parent == nil && !($0 is NSPanel) && $0.canBecomeMain }.map { .window($0) }
     }

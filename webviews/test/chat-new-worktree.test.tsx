@@ -73,7 +73,8 @@ const openFolderMenu = async () => {
 };
 
 const menuItem = (name: string) =>
-  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) =>
+  // The folder popover's action rows (FolderPopover.tsx) follow its folders.
+  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option]")].find((item) =>
     item.textContent?.includes(name),
   );
 

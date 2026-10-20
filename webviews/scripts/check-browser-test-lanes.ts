@@ -76,6 +76,23 @@ export function checkBrowserLaneSource(file: string, text: string): string[] {
   ];
 }
 
+/**
+ * A test that starts a Vite dev server warms it (test/support/warmDevServer.ts) before a browser
+ * loads a page: Vite transforms each module on its first request, and a cold first load ran past
+ * the 30 s navigation timeout on a busy CI runner (#20697, #20681).
+ */
+export function checkDevServerWarmSource(file: string, text: string): string[] {
+  const inProcess = /\bawait\s+vite\.listen\(\)/.test(text);
+  const spawned = text.includes("node_modules/.bin/vp") && /\[\s*"dev",/.test(text);
+  if (!inProcess && !spawned) return [];
+  // A server no browser loads (dev-server-stop: starting and stopping it) has nothing to warm.
+  if (!/from "playwright"/.test(text)) return [];
+  if (/\bwarm(?:Vite|Dev)Server\(/.test(text)) return [];
+  return [
+    `${path.relative(root, file)}: starts a Vite dev server without warming it; call ${inProcess ? "warmViteServer(vite, page)" : "warmDevServer(base, page)"} from ./support/warmDevServer once it listens`,
+  ];
+}
+
 if (import.meta.main) {
   const errors: string[] = [];
   function scan(directory: string) {
@@ -83,7 +100,8 @@ if (import.meta.main) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) scan(file);
       else if (/[._](?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
-        errors.push(...checkBrowserLaneSource(file, readFileSync(file, "utf8")));
+        const text = readFileSync(file, "utf8");
+        errors.push(...checkBrowserLaneSource(file, text), ...checkDevServerWarmSource(file, text));
       }
     }
   }

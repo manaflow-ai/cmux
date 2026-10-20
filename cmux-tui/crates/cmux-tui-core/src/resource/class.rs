@@ -54,6 +54,7 @@ impl ResourceOperation {
                 | Self::ChiefProfileList
                 | Self::ChiefProfileGet
                 | Self::ChiefProfileAvatarGet
+                | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
                 | Self::ConversationList
@@ -104,10 +105,12 @@ impl ResourceOperation {
                 | Self::SettingsSnapshot
                 | Self::KeybindingsGet
                 | Self::BrowserDevicesList
+                | Self::BrowserProfileList
                 | Self::SidebarLayoutGet
                 | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
+                | Self::StashList
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

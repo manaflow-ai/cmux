@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 
 /// Home as a workspace (plans/cmux-next/home.md 7): the store owns one home
@@ -90,14 +91,17 @@ extension HomeService {
         return try await client.create(HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)).conversation.id
     }
 
-    /// The signed-in user's chief placed on a paired server (G6), or nil:
-    /// signed out, none placed, or the read failed (logged; the local chief stays).
-    func readPlacedChief() async -> CloudChief? {
-        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return nil }
+    /// The signed-in user's cloud Chiefs (the Hosted Chief, made when this
+    /// service runs Cloud Chief brains, and the placed one), or none: signed
+    /// out, or the read failed (logged; the last read stays).
+    func readCloudChiefs() async -> HomeCloudChiefs? {
+        guard services.cloud.auth.isSignedIn, case let feed = services.feed else { return HomeCloudChiefs() }
         do {
-            return try await HomeChiefSource.readPlaced { path, body in try await feed.call(path, body) }
+            // An unknown probe keeps the last read: a Hosted Chief never drops out of the tab on one failed request.
+            guard let brains = await hostedChief.brainsAvailable() else { return nil }
+            return try await HomeCloudChiefs.read(call: { path, body in try await Self.hostedCall(feed, path, body) }, hostedBrains: brains)
         } catch {
-            logger.error("placed chief: \(String(describing: error), privacy: .public)")
+            logger.error("cloud chiefs: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
@@ -117,18 +121,23 @@ extension HomeService {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs"
             return
         }
-        // The chief placed on a paired server answers in its cloud main
-        // conversation; it is the Chief tab only while the local Chief has no
-        // history to hide (G6, one history).
-        let placed = await readPlacedChief()
+        // A cloud Chief answers in its cloud main conversation: the Hosted
+        // Chief by default (the local history is copied into it), or the one
+        // placed on a paired server when the user switched to it. A placed
+        // chief without a Hosted Chief takes the tab only while the local
+        // Chief has no history to hide (G6, one history).
+        if let read = await readCloudChiefs() { setCloudChiefs(read) }
         guard !Task.isCancelled else { return }
-        setCloudChief(placed)
+        // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
+        hostedChief.start(cloudChiefs.hosted)
+        let cloud = tabChiefs
+        let shown = cloudChief
         // Local conversations live in the Chief home's owner, not this build's
-        // daemon. A placed chief does not wait for it: its tab shows now, and
+        // daemon. A cloud Chief does not wait for it: its tab shows now, and
         // the owner's first connection runs this again (HomeService.start),
         // when a local Chief with history takes the tab back.
         let owner: DaemonConnection?
-        if placed == nil {
+        if shown == nil {
             homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
             owner = await chiefConnection()
             guard owner != nil, !Task.isCancelled else { return }
@@ -139,10 +148,10 @@ extension HomeService {
         if let owner { listedAll = try await ConversationClient(owner).list() }
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
-        // The local Chief is looked up (never created) once a chief is placed.
-        let localChief = if placed == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
-        let localHasHistory = placed == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, placed: placed), HomeDock.classic else { return }
+        // The local Chief is looked up (never created) while a cloud Chief has the tab.
+        let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
+        let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
+        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -168,7 +177,8 @@ extension HomeService {
         // would put the tab in the focused pane, so it waits for that pin.
         // The Chief moved to a server: one Chief tab, where the local one was.
         // After closing a dangling tab its pane may be gone: name the workspace.
-        let move = HomeChiefSource.move(local: localChief, chief: chief, in: local.store.workspaces)
+        let others = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
+        let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {
             homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
@@ -182,8 +192,8 @@ extension HomeService {
             _ = try await connection.request(request)
         }
         for surface in move.close { try await connection.closeTab(surface) }
-        // A placed chief's tab that a relaunch put in a local Chief's place goes.
-        for surface in HomeChiefSource.staleChiefTabs(placed: placed?.mainConversation, chief: chief, in: local.store.workspaces) {
+        // The other cloud Chief's tab (a switch, or a relaunch put it in the Chief's place) goes.
+        for surface in HomeCloudChiefs.staleChiefTabs(stale: others, chief: chief, in: local.store.workspaces) {
             try await connection.closeTab(surface)
         }
         homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"
@@ -198,8 +208,8 @@ extension HomeService {
         if let view = tabViews[tab.id] { return view }
         let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
-        // A placed chief's brain runs on its server: no local brain host for its tab.
-        if conversation != cloudChief?.mainConversation { homeDidOpen() }
+        // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
+        if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
         return view
     }
 
@@ -208,7 +218,7 @@ extension HomeService {
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
         let id = tab.snapshot.conversation?.conversation
-        if let chief = cloudChief, id == chief.mainConversation {
+        if let id, let chief = cloudChiefs.chief(for: id) {
             return chief.displayName.isEmpty ? HomeStrings.chiefName : chief.displayName
         }
         let title = conversations.first { $0.id == id }?.title ?? ""

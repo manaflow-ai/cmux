@@ -26,7 +26,10 @@ import CmuxNextSettings
 /// number 2: a middle click on a sidebar workspace row closes it);
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`. Every action also moves
 /// the synthesized pointer that layout hover reads (`LayoutRootView.
-/// setDebugPointer`); `leave` moves it out of the window. `target: "page"`
+/// setDebugPointer`); `leave` moves it out of the window. A `scroll` with
+/// `hover: false` leaves the synthesized pointer as it is, so a perf
+/// gesture measures the scroll, not a hover recompute per event (set the
+/// pointer once with the gesture's first event). `target: "page"`
 /// clicks Chromium's page view instead (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -89,13 +92,14 @@ enum DebugMouse {
             // row scrolls); a windowless synthesized one skips monitors, so
             // the layout under the point gets it first, then the view.
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
+            let movesPointer = params["hover"]?.boolValue != false
             if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) {
-                LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
+                if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
                 return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                                 "delivered_to": .string("LayoutRootView")])
             }
             target.scrollWheel(with: event)
-            LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window)
+            if movesPointer { LayoutRootView.setDebugPointer(baseLocation(point, in: window), in: window) }
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                             "delivered_to": .string(String(describing: type(of: target)))])
         case "leave":
@@ -116,7 +120,7 @@ enum DebugMouse {
         // The layout's hover reads the pointer, not events: the synthesized
         // pointer ends where the last event is (cx-ww20).
         let last = action == "drag" ? NSPoint(x: params["to_x"]?.doubleValue ?? point.x, y: params["to_y"]?.doubleValue ?? point.y) : point
-        LayoutRootView.setDebugPointer(baseLocation(last, in: window), in: window)
+        if action != "scroll" || params["hover"]?.boolValue != false { LayoutRootView.setDebugPointer(baseLocation(last, in: window), in: window) }
         // Agent input: never the user choosing the app (no-activate guard).
         SyntheticInput.register(posted)
         for event in posted { NSApp.postEvent(event, atStart: false) }

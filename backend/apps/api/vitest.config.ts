@@ -29,14 +29,25 @@ const fakeJwt = (exp: number) => ["e30", Buffer.from(JSON.stringify({ exp })).to
 const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64")
 
 export default defineConfig({
-  // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
-  test: { setupFiles: ["./test/setup/warm-worker.ts"] },
+  test: {
+    // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
+    setupFiles: ["./test/setup/warm-worker.ts"],
+    // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
+    // slower than when its file runs alone: cases of 0.5 s alone took 4.5 to 5.8 s, past the 5 s default. 20 s keeps
+    // over 3x headroom over the slowest case without its own timeout. It hides nothing: the slow-tests reporter lists
+    // every case over 2 s, and a case over 2 s alone has a slow part to fix (fixed waits, serial setup, big fixtures).
+    testTimeout: 20_000,
+    // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
+    reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
+  },
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
           ENVIRONMENT: "test",
+          // The hand classifier answers from the fake model (its reply shapes: chief-brain/fake.ts).
+          HAND_CLASSIFIER_MODEL: "fake",
           // Automation hard cap ceiling per team per month (USD); tests set it explicitly.
           AUTOMATION_CAP_CEILING_USD: "25",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
@@ -84,13 +95,22 @@ export default defineConfig({
           STRIPE_USAGE_KEY: "sk_test_fake-usage-sync-key",
           // Chief brains (chief-brain/brain-do.ts): wakes reach the brain; the fake model (no AI binding in tests).
           CHIEF_BRAIN_ENABLED: "1",
+          HANDS_ENABLED: "1",
+          // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
+          CHIEF_OPENCODE_ENABLED: "1",
+          // Test-only fault hooks (chief-fault.ts): evict a brain object in the middle of a turn.
+          CHIEF_FAULT_HOOKS: "1",
           // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in
           // test/chief-brain-claude.test.ts. Test-only values: an expired fake access token and a fake refresh token.
           CHIEF_BRAIN_CLAUDE_URL: "https://claude.test/api/claude-david",
           CHIEF_BRAIN_CLAUDE_REFRESH_URL: "https://auth.test/api/v1/auth/sessions/current/refresh",
           CHIEF_BRAIN_CLAUDE_STACK_AUTH: JSON.stringify({ accessToken: fakeJwt(1), refreshToken: "test-refresh-token-not-real" }),
-          CHIEF_BRAIN_CLAUDE_OWNERS: [testUser("brain-claude-ok"), testUser("brain-claude-fail")].join(","),
+          CHIEF_BRAIN_CLAUDE_OWNERS: testUser("brain-claude-ok"),
+          // The second allowed owner comes from the no-deploy list (a secret on staging).
+          CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA: testUser("brain-claude-fail"),
           CHIEF_BRAIN_FALLBACK_MODEL: "fake",
+          // Old pi entries are pruned at each turn start (chief-brain/pi-prune.ts), as on staging.
+          CHIEF_BRAIN_PRUNE_PI: "1",
           // Team VMs use the in-object fake provider (team-vm-driver.ts).
           TEAM_VM_DRIVER: "fake",
           // The team VM bind runs against the fake guest (team-vm-fake-guest.ts).

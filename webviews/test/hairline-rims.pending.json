@@ -1,0 +1,3 @@
+{
+  "//": "Rounded rims still drawn with a raw sub-pixel width (test/hairline-rims.ts), with their count, which may only go down. Empty since cx-o9yox moved every one onto var(--cmux-hairline); add a file here only with its reason, then move it and delete its line."
+}

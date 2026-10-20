@@ -114,7 +114,7 @@ fn facts_json(facts: &cmux_agent_pane_policy::Facts) -> Value {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 43, "check.json: the full order's 43 cases");
+    assert_eq!(all.as_array().unwrap().len(), 46, "check.json: the full order's 46 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -402,8 +402,14 @@ fn environment_tokens_and_sockets() {
             .iter()
             .map(|p| PathBuf::from(p.as_str().unwrap()))
             .collect();
+        let build = r["bundle_id"].as_str().map(|bundle_id| {
+            cmux_agent_pane_policy::build_identity::BuildIdentity::new(
+                Some(bundle_id),
+                r["bundled_tag"].as_str(),
+            )
+        });
         let got = resolve(
-            r["tag"].as_str(),
+            build.as_ref(),
             r["bundled"].as_str().map(Path::new),
             &env,
             Path::new(r["user_home"].as_str().unwrap()),

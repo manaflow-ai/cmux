@@ -48,13 +48,16 @@ public nonisolated enum GroupTint: Hashable, Sendable {
 
     /// The solid group header chip (cx-qno.22): its rest color and the one
     /// ink every glyph on it takes (`ThemeTokens.chip`), in the active scope.
+    /// The ink is white or near-black, whichever reads better on the color
+    /// (cg-design-judge 2026-10-14: the theme's text color read grey on a dark
+    /// green header).
     @MainActor public var headerChip: (fill: ThemeRGB, ink: ThemeRGB) {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         let color = switch self {
         case let .palette(token): token.headerRGB(tokens)
         case let .custom(rgb): Self.readable(rgb)
         }
-        return tokens.chip(color)
+        return tokens.chip(color, inks: .onColor)
     }
 
     /// The group's color where it draws as a line or dot, in the active scope. `themed` takes the

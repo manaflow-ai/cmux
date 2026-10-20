@@ -37,10 +37,19 @@ public final class ChiefBrainKeeper {
     }
 
     /// Starts the brain when none runs and none is starting; whether a host
-    /// is starting or watched afterwards.
+    /// is starting or watched afterwards. After `cmux chief shutdown` only an
+    /// ask (`asked`: Home shown, an engine set) starts it again and takes
+    /// the shutdown's marker away; the owner coming back or a panel's read
+    /// does not.
     @discardableResult
-    public func ensure() -> Bool {
+    public func ensure(asked: Bool) -> Bool {
         if watch?.isStopped == true || !HomeBrainHost.canStart() { return false }
+        let marker = home.shutdownMarker
+        // concurrency-allow: one small stat per ask
+        if FileManager.default.fileExists(atPath: marker.path) {
+            guard asked else { return false }
+            try? FileManager.default.removeItem(at: marker)
+        }
         if starting || watch?.isWatching == true { return true }
         if let watch, let running = ChiefHostStop.runningHostPID(home: home) {
             watch.watch(running)
@@ -50,6 +59,19 @@ public final class ChiefBrainKeeper {
         watch = nil
         start()
         return starting
+    }
+
+    /// A person's message in a conversation of the default Chief is an ask
+    /// (cx-4io0o, hq-6d 2026-10-15): it starts the brain when none runs, also
+    /// after `cmux chief shutdown`. The rule reads the owner's committed
+    /// message, not the Home composer, so a send from Home, the `cmux` CLI or
+    /// a page gets the same answer; the daemon starts every other Chief's
+    /// brain on the same rule (cmux-tui chief_brains.rs `woken_by`).
+    public func ask(after message: ConversationMessage, in summary: ConversationSummary?) {
+        let mux = HomeChiefName.muxID
+        guard message.author != mux, let summary, summary.participants.contains(where: { $0.id == mux }),
+              summary.participants.first(where: { $0.id == message.author })?.kind == .human else { return }
+        ensure(asked: true)
     }
 
     /// Quit: the brain stops on purpose; it is not started again.

@@ -57,11 +57,6 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     wakes_as(&rule, summary, message, is_mux_message)
 }
 
-/// Consecutive Chief messages one thread (or a conversation's top level)
-/// may hold before every Chief stays quiet there until a person writes
-/// ([`chief_streak`]).
-pub const CHIEF_TURN_BUDGET: usize = 6;
-
 /// Which messages wake one Chief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WakeRule<'a> {
@@ -70,8 +65,9 @@ pub struct WakeRule<'a> {
     /// The group rule.
     pub group: GroupWake,
     /// Whether another Chief's message (an agent with `agent_class` mux)
-    /// wakes it as a person's does. The caller then bounds Chief-to-Chief
-    /// talk with [`chief_streak`] and [`CHIEF_TURN_BUDGET`].
+    /// wakes it as a person's does. The owner's per-thread budget
+    /// (`cmux_conversation::MAX_AGENT_TURNS`) bounds Chief-to-Chief talk; the
+    /// caller may pre-check it with `cmux_conversation::thread_agent_streak`.
     pub chiefs: bool,
 }
 
@@ -154,85 +150,6 @@ pub fn wakes_as(
         _ => false,
     });
     mentioned || message.reply_to.as_ref().is_some_and(|r| is_mux_message(&r.message_id))
-}
-
-/// The thread a reply to `message` goes into: its root, or the message itself
-/// when it is top level (a Chief answers a top-level message in its thread).
-pub fn reply_thread(message: &Message) -> &str {
-    message.thread_root.as_deref().unwrap_or(&message.id)
-}
-
-/// The Chief streak at `at`: how many Chief messages (agents of class mux,
-/// [`is_chief`]) end the thread a reply to `at` goes into ([`reply_thread`]:
-/// the root and its replies), `at` included, back to the last person's
-/// message. Other agents' messages neither count nor end the streak;
-/// retracted Chief messages still count. `messages` is what the caller read of the
-/// conversation (any order); only those at or before `at` count. At
-/// [`CHIEF_TURN_BUDGET`] or more the thread is paused: no Chief answers a
-/// Chief there until a person writes. Every host and any page computes the
-/// same value from the conversation, so the pause needs no shared state.
-pub fn chief_streak(summary: &Summary, messages: &[Message], at: &Message) -> usize {
-    let root = reply_thread(at);
-    let mut thread: Vec<&Message> = messages
-        .iter()
-        .filter(|m| m.seq <= at.seq)
-        .filter(|m| m.thread_root.as_deref() == Some(root) || m.id == root)
-        .collect();
-    if !thread.iter().any(|m| m.id == at.id) {
-        thread.push(at);
-    }
-    thread.sort_by_key(|m| m.seq);
-    let human = |id: &str| {
-        summary.participants.iter().any(|p| p.id == id && p.kind == ParticipantKind::Human)
-    };
-    let mut streak = 0;
-    for m in thread.iter().rev() {
-        if human(&m.author) {
-            break;
-        }
-        if is_chief(summary, &m.author) {
-            streak += 1;
-        }
-    }
-    streak
-}
-
-/// The owner's own loop guard at `at` (`cmux_conversation::check_agent_streak`):
-/// how many agent messages with text end the whole conversation, `at`
-/// included, back to the last person's message with text. At
-/// `cmux_conversation::MAX_AGENT_TURNS` or more the owner refuses every
-/// agent's next text message (`agent_budget`), so a Chief need not run a
-/// turn whose reply would be refused.
-pub fn owner_agent_streak(summary: &Summary, messages: &[Message], at: &Message) -> usize {
-    let mut all: Vec<&Message> = messages.iter().filter(|m| m.seq <= at.seq).collect();
-    if !all.iter().any(|m| m.id == at.id) {
-        all.push(at);
-    }
-    all.sort_by_key(|m| m.seq);
-    let kind = |id: &str| summary.participants.iter().find(|p| p.id == id).map(|p| p.kind);
-    // The owner also resets its streak when a question is answered.
-    let answered = |m: &Message| {
-        m.parts.iter().any(|p| {
-            matches!(p, Part::Question(q)
-                if matches!(q.state, cmux_conversation::QuestionState::Answered { .. }))
-        })
-    };
-    let mut streak = 0;
-    for m in all.iter().rev().filter(|m| m.parts.iter().any(Part::counts_as_turn)) {
-        match kind(&m.author) {
-            Some(ParticipantKind::Human) => break,
-            Some(ParticipantKind::Agent) => {
-                if answered(m) {
-                    break;
-                }
-                streak += 1;
-            }
-            // An author who left: the owner counted an agent's message when
-            // it was sent; a lower count only costs a turn the owner refuses.
-            None => {}
-        }
-    }
-    streak
 }
 
 /// The plain text of a message (text parts joined by newlines).

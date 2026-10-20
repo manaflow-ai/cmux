@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWorkspaceRepair
 import Observation
 
 /// The content area of one window for one workspace: a `LayoutRootView`
@@ -34,30 +35,39 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var settlingObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
-    private var isApplying = false
-    /// Daemon `transaction` for each layout gesture (undo coalescing).
-    var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
+    private(set) var isApplying = false
+    private var appliedTree = LayoutAppliedTree()
     /// The window's focus state machine (`WindowState.focus`,
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
-    /// Kept mounted off screen by its window (a recently shown workspace):
-    /// its panes are paused in the keep-alive band and it sends no focus
-    /// events, because the window's focus follows the shown workspace.
+    /// Kept mounted off screen by its window (a workspace it showed): its panes report hidden, so
+    /// their surfaces pause and only the warm set's LRU may destroy one; it sends no focus events,
+    /// because the window's focus follows the shown workspace.
     private(set) var isParked = false
+    /// When its window parked it (`WindowController.mountedContents` order).
+    private(set) var parkedSerial: UInt64 = 0
 
-    /// Parks this content before its window shows another workspace.
-    func park() {
+    /// Parks this content before its window shows another workspace. Its attention rings draw
+    /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
+    func park(serial: UInt64) {
+        parkedSerial = serial
         isParked = true
-        layoutView.keepsPanesWhenDetached = true
+        attentionObservation?.cancel()
     }
 
-    /// Shows this parked content again (the window installs its view next).
+    /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
+    /// the attention rings are read now (this frame) and followed again.
     func unpark() {
         isParked = false
-        layoutView.keepsPanesWhenDetached = false
-        applyCurrent()
+        observeAttention()
+    }
+
+    /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
+    func didShow() {
+        sendTopology()
+        layoutView.syncWithModel()
     }
 
     init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
@@ -105,12 +115,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     private func observe() {
         let workspace = workspace
-        apply(LayoutMapping.shared.map(workspace))
+        // One mapping now (the first frame), tracked; the stream brings the later ones. A trigger:
+        // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
+        let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
         observation = Task { [weak self] in
-            for await result in ObservationStream({ LayoutMapping.shared.map(workspace) }) {
-                self?.apply(result)
-            }
+            for await result in later { self?.apply(result.value) }
         }
+        apply(first.value)
         // An empty workspace loaded while disconnected, or drawn from the
         // launch snapshot, is repaired once the daemon is back and its tree
         // is live, even if the tree itself does not change.
@@ -125,12 +136,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // terminal that failed adds why (cx-tzlqb).
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { "\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
+            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
                 self?.updateEmptyState()
             }
         }
-        // Panes with an unread notification draw the attention ring.
-        let notifications = services.notifications
+        observeAttention()
+    }
+
+    /// Panes with an unread notification draw the attention ring.
+    private func observeAttention() {
+        let notifications = services.notifications, workspace = workspace
+        let marks = notifications.attentionMarks(for: workspace)
+        if layoutModel.attention != marks { layoutModel.attention = marks }
+        attentionObservation?.cancel()
         attentionObservation = Task { [weak self] in
             for await marks in ObservationStream({ notifications.attentionMarks(for: workspace) }) {
                 guard let self else { return }
@@ -141,26 +159,32 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// Re-applies the current store state (after a command response that
     /// may trail its own delta).
-    func applyCurrent() {
-        apply(LayoutMapping.shared.map(workspace))
+    func applyCurrent(_ file: StaticString = #fileID, _ line: UInt = #line) {
+        apply(LayoutMapping.shared.map(workspace), force: true, file, line) // after a command response that may trail its own delta
     }
 
-    private func apply(_ result: LayoutMapping.Result) {
+    private func apply(_ result: LayoutMapping.Result, force: Bool = false, _ file: StaticString = #fileID, _ line: UInt = #line) {
+        // Commands translate through the current handles even when the tree is unchanged (the
+        // daemon's echo of an optimistic split renumbers only the new pane): no apply then.
+        let topologyMoved = adoptHandles(result.handles)
+        guard appliedTree.update(result, edgeDocks: daemon.supports(DaemonCapabilities.shared.edgeDocks), rows: daemon.supports(DaemonCapabilities.shared.rows)) || force else {
+            if topologyMoved {
+                // The one topology of this change (adoptions inside sent none); the focus it lands
+                // rings in this frame.
+                sendTopology()
+                layoutView.syncWithModel()
+            }
+            return
+        }
         #if DEBUG
         DebugLayoutCounters.workspaceApplies &+= 1
+        DebugLayoutCounters.note(force ? "apply(force)" : "apply", file, line)
         #endif
         let wasApplying = isApplying
         isApplying = true
         defer { isApplying = wasApplying }
-        handles = result.handles
-        // A key the daemon's pane took over from a provisional one keeps its controller (cx-ry0y).
-        for (id, controller) in panes {
-            if let handle = handles.panes[id], let model = daemon.store.pane(handle) { controller.adopt(model) }
-        }
-        layoutModel.acceptsEdgeDockDrops = daemon.supports(DaemonCapabilities.shared.edgeDocks)
-        // No row op is sent to a daemon without rows-v1 (rows.md step 4).
-        let rows = daemon.supports(DaemonCapabilities.shared.rows)
-        if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
+        if layoutModel.acceptsEdgeDockDrops != appliedTree.edgeDocks { layoutModel.acceptsEdgeDockDrops = appliedTree.edgeDocks }
+        if layoutModel.acceptsRowOps != appliedTree.rows { layoutModel.acceptsRowOps = appliedTree.rows } // no row op without rows-v1 (rows.md step 4)
         layoutModel.apply(screens: result.screens)
         #if DEBUG
         DebugLayoutCounters.notePanes(layoutModel.screens.reduce(0) { $0 + $1.layout.panes.count }, of: self)
@@ -170,8 +194,33 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
         updateEmptyState()
         repairIfEmpty()
+        // The one topology of this apply (mounts and pane snapshots inside it sent none).
+        isApplying = wasApplying
         sendTopology()
+        isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+    }
+
+    /// Takes the mapping's handles. A pane record a resync rebuilt under the same key keeps its
+    /// controller, which moves to the new record (the echo of an optimistic split updates the
+    /// provisional record in place, so it adopts nothing). True when the focus topology may have
+    /// changed: a controller adopted, or a pane with no controller got a new handle (the
+    /// topology reads its record through the handle). The adoptions send no topology themselves.
+    private func adoptHandles(_ next: LayoutHandleMap) -> Bool {
+        let wasApplying = isApplying
+        isApplying = true
+        defer { isApplying = wasApplying }
+        var moved = false
+        if handles != next {
+            moved = next.panes.contains { id, handle in panes[id] == nil && handles.panes[id] != handle }
+            handles = next
+        }
+        for (id, controller) in panes {
+            guard let handle = handles.panes[id], let model = daemon.store.pane(handle), model !== controller.pane else { continue }
+            controller.adopt(model)
+            moved = true
+        }
+        return moved
     }
 
     /// A workspace with no pane shows its title; Return creates the first
@@ -193,7 +242,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         }
         emptyWorkspaceRepair.createFirstTab(key) { [weak self] surface in
             guard let self else { return }
-            focus.expect(.surface(String(surface.rawValue)))
+            expectFocus(on: surface)
             applyCurrent()
         }
     }
@@ -202,7 +251,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func repairIfEmpty() {
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
-            self.focus.expect(.surface(String(surface.rawValue)))
+            self.expectFocus(on: surface)
             self.applyCurrent()
         }
     }
@@ -235,13 +284,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     func makeContentView(for pane: LayoutPaneID) -> NSView {
         guard let handle = handles.panes[pane], let model = daemon.store.pane(handle) else { return NSView() }
-        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
-        controller.workspace = self
+        let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state, workspace: self)
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
         services.paneMounts.changed()
-        if !isApplying { sendTopology() }
+        sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {

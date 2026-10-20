@@ -14,7 +14,7 @@ nonisolated struct ChiefSettleNotice {
     }
 }
 
-/// Watches the Chief home's `state/` folder (the host renames `settle.json`
+/// Watches the Chief home's `state/` folder (the host renames `settle.json` and `compactor.json`
 /// into it, or removes it) and reports the notice on every change; nil when
 /// no turn waits. Kernel events on the folder, no polling.
 public nonisolated final class ChiefSettleWatch {
@@ -46,8 +46,12 @@ public nonisolated final class ChiefSettleWatch {
     public func cancel() { source?.cancel() }
 
     private static func read(_ file: URL, _ send: @Sendable (String?) -> Void) {
-        // concurrency-allow: runs on the watch queue (a small JSON file), never the main actor.
+        // concurrency-allow: runs on the watch queue (small JSON files), never the main actor.
         let data = try? Data(contentsOf: file)
-        send(data.flatMap(ChiefSettleNotice.text(json:)))
+        // `state/compactor.json`: the compactor cannot build summaries (optchat-chief
+        // settle_status.rs `compactor_fault`), a system notice, never a Chief message (cx-oqnw3).
+        // concurrency-allow: the same watch queue.
+        let paused = FileManager.default.fileExists(atPath: file.deletingLastPathComponent().appendingPathComponent("compactor.json").path)
+        send(data.flatMap(ChiefSettleNotice.text(json:)) ?? (paused ? HomeStrings.chiefMemoryPaused : nil))
     }
 }

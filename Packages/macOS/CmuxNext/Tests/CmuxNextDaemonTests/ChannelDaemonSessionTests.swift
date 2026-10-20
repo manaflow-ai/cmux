@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -29,7 +30,7 @@ struct ChannelDaemonSessionTests {
         // Application Support and the remembered socket in this test's root.
         func appLauncher(_ bundleID: String) throws -> DaemonLauncher.Configuration {
             try DaemonLauncher.forApp(
-                tag: nil, bundleID: bundleID, terminalEnvironment: [:],
+                build: BuildIdentity(bundleID: bundleID, bundledTag: nil), terminalEnvironment: [:],
                 processEnvironment: [DaemonLauncher.binaryOverrideKey: binary.path],
                 socketMemory: DaemonSocketMemory(defaults: { UserDefaults(suiteName: defaultsSuite) ?? .standard }),
                 applicationSupport: support
