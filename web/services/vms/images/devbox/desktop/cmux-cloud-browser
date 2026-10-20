@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Cloud browser role (not implemented yet).
+exit 0
