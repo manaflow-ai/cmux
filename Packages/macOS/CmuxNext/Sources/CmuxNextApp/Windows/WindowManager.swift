@@ -248,6 +248,10 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        // Classic cmux's session comes over once, after restore so the restored
+        // registry never overwrites where its workspaces land.
+        let onboarding = AppOnboardingServices(owner: services.onboarding)
+        Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
     }
 
     /// The launch window takes the frontmost saved window's identity and

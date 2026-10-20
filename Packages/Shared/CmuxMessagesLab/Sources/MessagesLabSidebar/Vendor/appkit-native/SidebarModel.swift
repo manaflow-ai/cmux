@@ -25,6 +25,12 @@ protocol SidebarDelegate: AnyObject {
     func sidebar(_ sidebar: SidebarController, menuItemsFor id: ConversationID) -> [NSMenuItem]
     // v1.2 (default in the extension below).
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int)
+    // cmux (default in the extension below).
+    /// The person opened a conversation: a plain click on its row or tile (the selected one too),
+    /// Return on the highlighted one in the list or the search field, or an accessibility press.
+    /// Called after `didSelect`. Up/Down only select; Command-, Shift- and Control-clicks only
+    /// select. The host moves the keyboard into the conversation (Messages' message field).
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID)
 }
 
 /// v1.1: the context-menu actions an owner supports for one conversation. An action that is
@@ -116,6 +122,8 @@ extension SidebarDelegate {
     func sidebar(_ sidebar: SidebarController, delete id: ConversationID) {}
     /// v1.2: a pinned tile was dragged to `index` in the pinned order (default: the tiles go back).
     func sidebar(_ sidebar: SidebarController, movePinned id: ConversationID, to index: Int) {}
+    /// cmux: a conversation was opened (default: nothing beyond the selection).
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID) {}
 }
 
 /// v1.1: where the sidebar's strings come from. Every sidebar string is in one catalog,
