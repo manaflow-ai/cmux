@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers"
+import type { Principal } from "@cmux/ownership"
 import { expect, vi } from "vitest"
 import { CloudDO } from "../src/cloud-do.ts"
 import type { Env } from "../src/env.ts"
@@ -15,6 +16,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
   team: string; tenant: string; user: string; session: string; calls: string[]; creates: () => number; bindFile: () => Record<string, any> | undefined;
   create: () => ReturnType<CloudDO["submit"]>; retry: () => Promise<void>; restart: (change?: Partial<Env>) => Promise<void>;
   connect: () => Promise<unknown>; owner: () => CloudDO; pendingMachine: () => Promise<string>; remove: (id: string) => ReturnType<CloudDO["submit"]>;
+  readyReceiver: () => Promise<void>;
   setMeshes: (values: Array<ReturnType<typeof mesh>>) => void; setNetworkHook: (hook: () => Promise<void>) => void; setAttachHook: (hook: () => Promise<void>) => void;
   meshKeys: string[];
   meshIntent: () => Record<string, unknown> | undefined; replaceMeshIntent: (value: unknown) => void;
@@ -87,6 +89,7 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
     await inDO(e.CLOUD_DO.get(e.CLOUD_DO.idFromName(t.team)), async (_instance, state) => {
       let owner = new CloudDO(state, e)
       const p = { identity: `user:${t.user}`, kind: "session" as const, user: t.user, team: t.team }
+      let vmPrincipal: Principal | undefined
       const initialize = async () => { expect((await owner.readOp(t.team, p, "cloud.machine.list", {})).ok).toBe(true) }
       await initialize()
       const submit = (op: string, params: unknown) => owner.submit(t.team, p, { t: "op", op, params, idempotency_key: crypto.randomUUID(), origin: "user" })
@@ -111,11 +114,26 @@ export const withMeshMachine = async (options: MeshOptions, run: (world: {
         remove: (id) => submit("cloud.machine.delete", { machine: id }),
         connect: async () => {
           if (!bind) throw new Error("no bind file")
-          expect(await owner.bindMachine(t.team, { ...bind, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk } as any)).toMatchObject({ ok: true })
+          const bound = await owner.bindMachine(t.team, { ...bind, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk } as any)
+          expect(bound).toMatchObject({ ok: true })
+          if (!bound.ok) throw new Error(bound.code)
+          const identity = (bound.value as { install: { id: string; user: string; grant: string } }).install
+          vmPrincipal = { identity: identity.id, kind: "install", user: identity.user, team: t.team, install: identity.id,
+            grant: identity.grant, install_kind: "vm", bound_machine: bind.machine, grant_classes: ["vm-self"] }
           await initialize()
           const read = await owner.readOp(t.team, p, "cloud.machine.connect_info", { machine: bind.machine })
           if (!read.ok) throw new Error(read.code)
           return read.value
+        },
+        readyReceiver: async () => {
+          if (!vmPrincipal || !bind) throw new Error("connect the original VM first")
+          const lifecycle = (params: object) => owner.vmOp(t.team, vmPrincipal!, "cloud.vm.receiver.lifecycle", { machine: bind!.machine, ...params })
+          const initial = await lifecycle({ phase: "read" })
+          if (!initial.ok) throw new Error(initial.code)
+          const first = await lifecycle({ phase: "begin", expected: (initial.value as { generation: string }).generation, attempt: crypto.randomUUID().replaceAll("-", "") })
+          if (!first.ok) throw new Error(first.code)
+          const ready = await lifecycle({ phase: "ready", expected: (first.value as { generation: string }).generation })
+          expect(ready.ok).toBe(true)
         },
         setMeshes: (values) => { meshes = values }, setNetworkHook: (hook) => { networkHook = hook }, setAttachHook: (hook) => { attachHook = hook }
       })

@@ -1,5 +1,5 @@
 import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT, type JWK } from "jose"
-import { isNativeLinkBinding, matchesNativeLink, type NativeLinkBinding, type NativeLinkExpected } from "./link-token-native.ts"
+import { isNativeLinkBinding, isNativeReceiverBinding, matchesNativeLink, type NativeLinkBinding, type NativeLinkExpected, type NativeReceiverBinding } from "./link-token-native.ts"
 
 /**
  * Link tokens (state-placement.md 5.8 item 6, decision LINK-TOKEN-FORMAT): compact JWS, EdDSA
@@ -13,6 +13,7 @@ import { isNativeLinkBinding, matchesNativeLink, type NativeLinkBinding, type Na
  */
 
 export const LINK_TOKEN_TYP = "cmux-link+jwt"
+export const NATIVE_LINK_TOKEN_TYP = "cmux-native-link-v2+jwt"
 export const LINK_TOKEN_MAX_TTL_S = 300
 export const MAX_ACTIVE_KIDS = 2
 
@@ -46,6 +47,7 @@ export interface LinkClaims {
   readonly jti: string
   readonly team: string
   readonly network?: NativeLinkBinding
+  readonly receiver?: NativeReceiverBinding
 }
 
 const KID = /^[A-Za-z0-9._-]{1,64}$/
@@ -108,9 +110,10 @@ export const publicKeyset = async (k: SigningKeys): Promise<PublicKeyset> => {
 export const signLinkToken = async (claims: LinkClaims, kid: string, privateJwk: JWK): Promise<string> => {
   if (claims.exp - claims.iat > LINK_TOKEN_MAX_TTL_S || claims.exp <= claims.iat) throw new Error("link token lifetime out of range")
   if (claims.network !== undefined && !isNativeLinkBinding(claims.network)) throw new Error("invalid link network identity")
+  if (claims.receiver !== undefined && (!claims.network || !isNativeReceiverBinding(claims.receiver))) throw new Error("invalid link receiving generation")
   const key = await importJWK({ ...privateJwk, alg: "EdDSA" }, "EdDSA")
-  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team, ...(claims.network ? { network: claims.network } : {}) })
-    .setProtectedHeader({ alg: "EdDSA", kid, typ: LINK_TOKEN_TYP })
+  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team, ...(claims.network ? { network: claims.network } : {}), ...(claims.receiver ? { receiver: claims.receiver } : {}) })
+    .setProtectedHeader({ alg: "EdDSA", kid, typ: claims.receiver ? NATIVE_LINK_TOKEN_TYP : LINK_TOKEN_TYP })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
     .setSubject(claims.sub)
@@ -132,12 +135,13 @@ export type VerifyResult = { readonly ok: true; readonly claims: LinkClaims } | 
  * most 300 s, and a jti not seen before within its exp (`seen` is the daemon's replay set).
  */
 export const verifyLinkToken = async (token: string, v: { aud: string; epoch: number; now: number; keyset: Readonly<Record<string, JWK>>; seen?: Set<string>; native?: NativeLinkExpected }): Promise<VerifyResult> => {
+  const typ = v.native?.receiver ? NATIVE_LINK_TOKEN_TYP : LINK_TOKEN_TYP
   if (v.native && token.length > 8192) return { ok: false, error: "malformed" }
   let kid: string | undefined
   try {
     const h = decodeProtectedHeader(token)
     if (h.alg !== "EdDSA") return { ok: false, error: "malformed" }
-    if (h.typ !== LINK_TOKEN_TYP) return { ok: false, error: "typ" }
+    if (h.typ !== typ) return { ok: false, error: "typ" }
     kid = h.kid
   } catch {
     return { ok: false, error: "malformed" }
@@ -147,7 +151,7 @@ export const verifyLinkToken = async (token: string, v: { aud: string; epoch: nu
   let payload: Record<string, unknown>
   try {
     const key = await importJWK({ ...jwk, alg: "EdDSA" }, "EdDSA")
-    payload = (await jwtVerify(token, key, { algorithms: ["EdDSA"], typ: LINK_TOKEN_TYP, currentDate: new Date(v.now * 1000), clockTolerance: 0 })).payload as Record<string, unknown>
+    payload = (await jwtVerify(token, key, { algorithms: ["EdDSA"], typ, currentDate: new Date(v.now * 1000), clockTolerance: 0 })).payload as Record<string, unknown>
   } catch (e) {
     const code = (e as { code?: string }).code
     return { ok: false, error: code === "ERR_JWT_EXPIRED" ? "expired" : code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ? "bad_signature" : "malformed" }

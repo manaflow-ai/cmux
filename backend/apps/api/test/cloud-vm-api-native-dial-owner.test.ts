@@ -79,6 +79,7 @@ it("mints through CloudDO, TeamDO and UserDO after real client and VM binding, a
     await f.create()
     const info = await f.connect() as { host: string }
     const c = await client(f), proof = await c.proof()
+    await f.readyReceiver()
     const mint = (native_proof: unknown) => f.owner().mintLinkToken(f.team, c.principal, { host: info.host, services: ["ssh"], native_proof })
     const first = await mint(proof)
     expect(first).toMatchObject({ ok: true, value: { host: info.host, services: ["ssh"], epoch: 1 } })
@@ -104,6 +105,7 @@ it.each(["policy", "revoked", "wrong-grant", "wrong-allocation"] as const)("refu
   await withMeshMachine(options, async (f) => {
     await f.create()
     const info = await f.connect() as { host: string }, c = await client(f)
+    await f.readyReceiver()
     if (change === "policy") c.deny()
     if (change === "revoked") c.onRead(c.revoke)
     if (change === "wrong-allocation") options.badVmLookup = true

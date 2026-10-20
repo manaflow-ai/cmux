@@ -3,6 +3,7 @@ import { transportOf } from "./cloud-vm-api-config.ts"
 import type { Principal, SqlStore, StoredRow } from "@cmux/ownership"
 import { CloudMachineConnectInfo, CloudMachineLinkToken, cloudServicesProblem, overlayAddress } from "@cmux/protocol"
 import { LINK_TOKEN_MAX_TTL_S, newJti, signLinkToken, signingKid, type SigningKeys } from "./link-token.ts"
+import type { VmReceiverPermit } from "./cloud-vm-receiver-authority.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
@@ -117,6 +118,8 @@ export const LINK_INSTALL_KINDS: ReadonlyArray<string> = ["cli", "mac", "ios"]
 export interface NativeLinkAuthority {
   authorize(row: MachineRow, p: Principal, proof: unknown, services: ReadonlyArray<string>): Promise<NativeDialReply>
   recheck(p: Principal, permit: NativeDialPermit): Promise<boolean>
+  receiver(row: MachineRow): Promise<VmReceiverPermit | null>
+  recheckReceiver(permit: VmReceiverPermit): Promise<boolean>
 }
 const dialGeneration = (row: MachineRow) => JSON.stringify({ host: row.host, epoch: row.epoch ?? 1, status: row.status, key: row.wg_public_key, transport: row.transport, network: row.network, provider: row.provider_name, creator: row.creator })
 
@@ -148,18 +151,23 @@ export const mintLinkToken = async (
   const transport = transportOf(row)
   if (transport === null) return { ok: false, code: "owner.unreachable", message: "the machine transport is unsupported" }
   let permit: NativeDialPermit | undefined
+  let receiver: VmReceiverPermit | undefined
   if (transport === "vm-api") {
     if (!row.network || !args.native) return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" }
+    const ready = await args.native.receiver(row)
+    if (!ready) return { ok: false, code: "auth.forbidden", message: "the original receiving VM has no live ready attempt" }
+    receiver = ready
     const checked = await args.native.authorize(row, p, d.value.native_proof, d.value.services)
     if (!checked.ok) return checked
     permit = checked.permit
   }
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
-  const exp = permit ? Math.min(iat + LINK_TOKEN_MAX_TTL_S, Math.floor((permit.grantExpiresAt ?? Infinity) / 1000), Math.floor((p.expires_at ?? Infinity) / 1000)) : iat + LINK_TOKEN_MAX_TTL_S
+  const exp = permit ? Math.min(iat + LINK_TOKEN_MAX_TTL_S, Math.floor((permit.grantExpiresAt ?? Infinity) / 1000), Math.floor((receiver?.expires_at ?? Infinity) / 1000), Math.floor((p.expires_at ?? Infinity) / 1000)) : iat + LINK_TOKEN_MAX_TTL_S
   if (!Number.isSafeInteger(exp) || exp <= iat) return { ok: false, code: "auth.forbidden", message: "the original client grant has expired" }
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp, jti: newJti(), team: entity,
-    ...(permit ? { network: { version: 1 as const, tenant: permit.tenant, mesh: permit.mesh, device: permit.device, host: permit.host, user: permit.user, wg_public_key: permit.wg, authority_version: permit.authorityVersion, acl_version: permit.aclVersion } } : {}) }
+    ...(permit ? { network: { version: 1 as const, tenant: permit.tenant, mesh: permit.mesh, device: permit.device, host: permit.host, user: permit.user, wg_public_key: permit.wg, authority_version: permit.authorityVersion, acl_version: permit.aclVersion } } : {}),
+    ...(receiver ? { receiver: { version: 2 as const, generation: receiver.generation } } : {}) }
   const kid = signingKid(args.keys, Date.now())
   if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
@@ -168,6 +176,8 @@ export const mintLinkToken = async (
     if (!currentAllowed.ok || !d.value.services.every((s) => currentAllowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "the current policy no longer permits these services" }
   }
   if (permit && !await args.native!.recheck(p, permit)) return { ok: false, code: "auth.forbidden", message: "the client network identity changed" }
+  if (receiver && !await args.native!.recheckReceiver(receiver)) return { ok: false, code: "auth.forbidden", message: "the original receiving VM authority changed" }
+  if (permit && Date.now() >= claims.exp * 1000) return { ok: false, code: "auth.forbidden", message: "the link authority expired during signing" }
   const current = machineBySelector(args.rows, { host: d.value.host })
   if (!current || dialGeneration(current) !== generation) return { ok: false, code: "auth.forbidden", message: "the machine changed during authorization" }
   audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, ...(permit ? { native: { mesh: permit.mesh, device: permit.device, acl_version: permit.aclVersion, policy_digest: permit.policyDigest, authority_version: permit.authorityVersion } } : {}), at: Date.now() })

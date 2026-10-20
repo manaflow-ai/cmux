@@ -1,10 +1,15 @@
 import type { SqlStore } from "@cmux/ownership"
 import { createHash } from "node:crypto"
+import { GrantId, InstallId, UserId } from "@cmux/protocol"
+import { Schema } from "effect"
 
 type Phase = "idle" | "starting" | "ready" | "stopped"
 export interface ReceiverGeneration { machine: string; generation: string; phase: Phase }
 export interface ReceiverTransition { phase: "read" | "begin" | "ready" | "end"; expected?: string; attempt?: string }
 interface Saved { machine: string; scope: string; generation: string; previous: string; attempt: string; phase: Exclude<Phase, "idle"> }
+export interface OriginalReceiverGrant { user: string; install: string; grant: string }
+export interface StoredReceiverAuthority { machine: string; scope: string; generation: string; identity: OriginalReceiverGrant }
+interface Context { scope: string; generation: string; vm_user: string; vm_install: string; vm_grant: string }
 type Reply = { ok: true; value: ReceiverGeneration } | { ok: false; code: "revision.conflict"; message: string }
 export interface ReceiverTransitionAudit { phase: ReceiverTransition["phase"]; machine: string; changed: boolean; outcome: "ok" | "refused"; generation?: string }
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
@@ -18,13 +23,37 @@ const conflict = (): Reply => ({ ok: false, code: "revision.conflict", message: 
 export class VmReceiverGenerations {
   constructor(private readonly sql: SqlStore) {}
 
-  apply(machine: string, scope: string, request: ReceiverTransition, audit: (entry: ReceiverTransitionAudit) => void): Reply {
-    if (!version(scope)) throw new Error("receiving incarnation unavailable")
+  private ensure(): void {
     this.sql.exec("CREATE TABLE IF NOT EXISTS cloud_vm_receiver_generation (machine TEXT PRIMARY KEY, scope TEXT NOT NULL, generation TEXT NOT NULL, previous TEXT NOT NULL, attempt TEXT NOT NULL, phase TEXT NOT NULL)")
+    this.sql.exec("CREATE TABLE IF NOT EXISTS cloud_vm_receiver_original_grant (machine TEXT PRIMARY KEY, scope TEXT NOT NULL, generation TEXT NOT NULL, vm_user TEXT NOT NULL, vm_install TEXT NOT NULL, vm_grant TEXT NOT NULL)")
+  }
+
+  private saved(machine: string): Saved | undefined {
+    const stored = this.sql.exec<Saved>("SELECT machine, scope, generation, previous, attempt, phase FROM cloud_vm_receiver_generation WHERE machine = ?", machine)[0]
+    if (stored && (!version(stored.scope) || !version(stored.generation) || !version(stored.previous)
+      || !/^[0-9a-f]{32}$/.test(stored.attempt) || !["starting", "ready", "stopped"].includes(stored.phase))) throw new Error("receiving incarnation unavailable")
+    return stored
+  }
+
+  /** Private lookup context, never permission. The caller must revalidate the
+   * original grant and scope; a ready phase alone cannot authorize a token.
+   * Older rows without this context remain closed until a fresh attempt.
+   */
+  storedAuthority(machine: string): StoredReceiverAuthority | null {
+    this.ensure()
+    const row = this.saved(machine)
+    if (!row || row.phase !== "ready") return null
+    const context = this.sql.exec<Context>("SELECT scope, generation, vm_user, vm_install, vm_grant FROM cloud_vm_receiver_original_grant WHERE machine = ?", machine)[0]
+    if (!context || context.scope !== row.scope || context.generation !== row.generation) return null
+    if (!Schema.is(UserId)(context.vm_user) || !Schema.is(InstallId)(context.vm_install) || !Schema.is(GrantId)(context.vm_grant)) throw new Error("receiving incarnation unavailable")
+    return { machine, scope: row.scope, generation: row.generation, identity: { user: context.vm_user, install: context.vm_install, grant: context.vm_grant } }
+  }
+
+  apply(machine: string, scope: string, request: ReceiverTransition, audit: (entry: ReceiverTransitionAudit) => void, identity?: OriginalReceiverGrant): Reply {
+    if (!version(scope)) throw new Error("receiving incarnation unavailable")
+    this.ensure()
     return this.sql.transaction(() => {
-      const stored = this.sql.exec<Saved>("SELECT machine, scope, generation, previous, attempt, phase FROM cloud_vm_receiver_generation WHERE machine = ?", machine)[0]
-      if (stored && (!version(stored.scope) || !version(stored.generation) || !version(stored.previous)
-        || !/^[0-9a-f]{32}$/.test(stored.attempt) || !["starting", "ready", "stopped"].includes(stored.phase))) throw new Error("receiving incarnation unavailable")
+      const stored = this.saved(machine)
       const current = stored?.scope === scope ? stored : undefined
       // Closed scopes still observe the machine's latest stored incarnation.
       // A delayed initial request must not reset a newer authority scope.
@@ -52,6 +81,13 @@ export class VmReceiverGenerations {
       }
       this.sql.exec("INSERT INTO cloud_vm_receiver_generation (machine, scope, generation, previous, attempt, phase) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(machine) DO UPDATE SET scope = excluded.scope, generation = excluded.generation, previous = excluded.previous, attempt = excluded.attempt, phase = excluded.phase",
         machine, scope, next.generation, next.previous, next.attempt, next.phase)
+      if (request.phase === "begin") {
+        if (identity) {
+          if (!Schema.is(UserId)(identity.user) || !Schema.is(InstallId)(identity.install) || !Schema.is(GrantId)(identity.grant)) throw new Error("receiving incarnation unavailable")
+          this.sql.exec("INSERT INTO cloud_vm_receiver_original_grant (machine, scope, generation, vm_user, vm_install, vm_grant) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(machine) DO UPDATE SET scope = excluded.scope, generation = excluded.generation, vm_user = excluded.vm_user, vm_install = excluded.vm_install, vm_grant = excluded.vm_grant",
+            machine, scope, next.generation, identity.user, identity.install, identity.grant)
+        } else this.sql.exec("DELETE FROM cloud_vm_receiver_original_grant WHERE machine = ?", machine)
+      }
       changed = true
       return finish({ ok: true, value: { machine, generation: next.generation, phase: next.phase } })
     })

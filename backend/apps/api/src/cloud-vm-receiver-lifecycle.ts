@@ -3,8 +3,8 @@ import { CloudVmReceiverLifecycleParams } from "@cmux/protocol"
 import { Effect, Exit, Schema } from "effect"
 import { vmGate, type VmReply } from "./cloud-vm.ts"
 import type { MachineRow } from "./domains/cloud.ts"
-import { digest, pointOf, type NetworkIdentity } from "./host-network-peers.ts"
-import { boundVmReceiver, liveVmReceiver, originalVmReceiverGrant, vmReceiverStamp } from "./cloud-vm-receiver-identity.ts"
+import type { NetworkIdentity } from "./host-network-peers.ts"
+import { boundVmReceiver, liveVmReceiver, originalVmReceiverGrant, vmReceiverScope, vmReceiverStamp } from "./cloud-vm-receiver-identity.ts"
 import { VmReceiverGenerations, type ReceiverTransitionAudit } from "./cloud-vm-receiver-generations.ts"
 
 interface Deps {
@@ -43,9 +43,9 @@ export const cloudVmReceiverLifecycle = (d: Deps, p: Principal, params: unknown)
     if (signal.aborted || now < started || now >= started + 15_000) return refuse(unavailable())
     if (!current.ok || !permitted(current.row, p) || stamp(current.row) !== original
       || !originalVmReceiverGrant(p, own, now) || (p.expires_at !== undefined && p.expires_at <= now)) return refuse(forbidden())
-    const scope = digest(["cmux-vm-receiver-scope-v1", original, p.grant, own.authority_version, pointOf(own)])
+    const scope = vmReceiverScope(current.row, p.grant, own)
     // No I/O or await separates the final original-scope check from the atomic
     // private record and audit. An audit failure rolls the transition back.
-    return new VmReceiverGenerations(d.sql()).apply(r.machine, scope, r, d.audit)
+    return new VmReceiverGenerations(d.sql()).apply(r.machine, scope, r, d.audit, { user: p.user, install: p.install, grant: p.grant })
   }, catch: unavailable }).pipe(Effect.timeout("15 seconds"), Effect.catch(() => Effect.succeed(unavailable())))
 )

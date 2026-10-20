@@ -18,12 +18,16 @@ it("reads through HTTP using the VM's actual challenge-issued credential and the
 it("publishes the same current identity that the actual Cloud signer authorizes for the receiver", async () => {
   await withReceiver(async (f) => {
     f.native.peers = [nativePeer(f)]
+    const initial = await f.lifecycleHttp({ phase: "read" })
+    const attempt = await f.lifecycleHttp({ phase: "begin", expected: initial.json.value.generation, attempt: "f".repeat(32) })
+    expect((await f.lifecycleHttp({ phase: "ready", expected: attempt.json.value.generation })).json.ok).toBe(true)
     const policy = await f.read(); expect(policy.ok).toBe(true)
     const peer = policy.value.peers[0], mint = await f.mint(); expect(mint.ok).toBe(true)
     const binding = { version: 1 as const, tenant: policy.value.tenant, mesh: policy.value.mesh, device: peer.device,
       host: peer.host, user: peer.user, wg_public_key: peer.wg_public_key, authority_version: peer.authority_version, acl_version: policy.value.acl_version }
     expect(await verifyLinkToken(mint.value.token, { aud: policy.value.host, epoch: policy.value.epoch, now: Math.floor(Date.now() / 1000),
-      keyset: f.keyset, seen: new Set(), native: { issuer: "cmux:cloud:test", team: f.team, install: peer.install, service: "ssh", binding } })).toMatchObject({ ok: true })
+      keyset: f.keyset, seen: new Set(), native: { issuer: "cmux:cloud:test", team: f.team, install: peer.install, service: "ssh", binding,
+        receiver: { version: 2, generation: attempt.json.value.generation } } })).toMatchObject({ ok: true })
   })
 })
 
