@@ -1605,6 +1605,14 @@ export class AcpmuxDirectClient {
           (item: AcpmuxPermission | undefined): item is AcpmuxPermission =>
             !!item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
         );
+      // acpmux lists them in no order: oldest first, by the record that asked (else by id, a
+      // time-ordered UUIDv7), so the card keeps the ask the replay showed.
+      const asked = new Map<string, number>();
+      for (const event of this.events)
+        if (event.kind === "permission_request" && event.msg?.permissionId)
+          asked.set(String(event.msg.permissionId), event.seq);
+      const at = (ask: AcpmuxPermission) => asked.get(ask.permissionId) ?? Number.POSITIVE_INFINITY;
+      asks.sort((a, b) => at(a) - at(b) || (a.permissionId < b.permissionId ? -1 : 1));
       this.pendingPermission = asks[0];
       this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
