@@ -108,6 +108,9 @@ public final class DaemonService {
     @ObservationIgnored public private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
     /// Hands an owner without `ws-listen-v1` off to the bundled build (DaemonService+PageListener).
     @ObservationIgnored var pageListenerHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
+    /// Hands the local daemon off for a confirmed server-update restart (`restartForUpdate`); nil
+    /// for a remote or test service.
+    @ObservationIgnored var updateHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -141,6 +144,7 @@ public final class DaemonService {
             retryWake.watch(file: socket, companions: [socket + ".websocket.json"])
         }
         pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
+        updateHandOff = { await launcher.handOffForUpdate(identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
