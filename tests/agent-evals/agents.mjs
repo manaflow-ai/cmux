@@ -1,5 +1,5 @@
 // Agent adapters for agent evals. Each adapter returns the shell command that
-// runs the agent once, non-interactively, on the prompt in "$EVAL_DIR/prompt.txt",
+// runs the agent once, non-interactively, on the prompt in "$D/prompt.txt",
 // and reads the agent's final message from its output files.
 // Surfaces: "cli" (shell only) and "mcp" (also `cmux mcp serve`, code mode).
 // The built-in "oracle" and "noop" agents validate the harness itself.
@@ -17,11 +17,11 @@ export const AGENTS = Object.freeze({
     surfaces: ["cli", "mcp"],
     command: ({ dir, surface }) =>
       [
-        "claude -p \"$(cat \"$EVAL_DIR/prompt.txt\")\"",
+        "claude -p \"$(cat \"$D/prompt.txt\")\"",
         "--output-format json --dangerously-skip-permissions",
         "--strict-mcp-config", `--mcp-config ${q(join(dir, surface === "mcp" ? "mcp.json" : "mcp-empty.json"))}`,
         "--setting-sources project,local",
-        "> \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\"",
+        "> \"$D/agent.out\" 2> \"$D/agent.err\"",
       ].join(" "),
     answer: (dir) => {
       try {
@@ -47,9 +47,9 @@ export const AGENTS = Object.freeze({
         "-c 'notify=[]'",
         ...CODEX_USER_MCP.map((name) => `-c ${q(`mcp_servers.${name}.enabled=false`)}`),
         ...(surface === "mcp" ? [`-c ${q(`mcp_servers.cmux.command="${join(dir, "mcp.sh")}"`)}`] : []),
-        "-o \"$EVAL_DIR/last.txt\"",
-        "\"$(cat \"$EVAL_DIR/prompt.txt\")\"",
-        "> \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\" < /dev/null",
+        "-o \"$D/last.txt\"",
+        "\"$(cat \"$D/prompt.txt\")\"",
+        "> \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",
       ].join(" "),
     answer: (dir) => read(join(dir, "last.txt")),
     meta: (dir) => {
@@ -73,27 +73,27 @@ export const AGENTS = Object.freeze({
     command: ({ dir, surface }) =>
       [
         surface === "mcp" ? `OPENCODE_CONFIG=${q(join(dir, "opencode-mcp.json"))}` : "",
-        "opencode run -m zai/glm-5.2 \"$(cat \"$EVAL_DIR/prompt.txt\")\"",
-        "> \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\" < /dev/null",
+        "opencode run -m zai/glm-5.2 \"$(cat \"$D/prompt.txt\")\"",
+        "> \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",
       ].join(" "),
     answer: (dir) => read(join(dir, "agent.out")).replace(/\x1b\[[0-9;]*m/g, ""),
     meta: () => ({}),
   },
   amp: {
     surfaces: ["cli"],
-    command: () => "amp -x \"$(cat \"$EVAL_DIR/prompt.txt\")\" --dangerously-allow-all > \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\" < /dev/null",
+    command: () => "amp -x \"$(cat \"$D/prompt.txt\")\" --dangerously-allow-all > \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",
     answer: (dir) => read(join(dir, "agent.out")),
     meta: () => ({}),
   },
   "cursor-agent": {
     surfaces: ["cli"],
-    command: () => "cursor-agent -p \"$(cat \"$EVAL_DIR/prompt.txt\")\" -f --output-format text > \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\" < /dev/null",
+    command: () => "cursor-agent -p \"$(cat \"$D/prompt.txt\")\" -f --output-format text > \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",
     answer: (dir) => read(join(dir, "agent.out")),
     meta: () => ({}),
   },
   gemini: {
     surfaces: ["cli"],
-    command: () => "gemini -p \"$(cat \"$EVAL_DIR/prompt.txt\")\" --yolo > \"$EVAL_DIR/agent.out\" 2> \"$EVAL_DIR/agent.err\" < /dev/null",
+    command: () => "gemini -p \"$(cat \"$D/prompt.txt\")\" --yolo > \"$D/agent.out\" 2> \"$D/agent.err\" < /dev/null",
     answer: (dir) => read(join(dir, "agent.out")),
     meta: () => ({}),
   },
@@ -101,13 +101,13 @@ export const AGENTS = Object.freeze({
   // score 100%); noop does nothing (must fail every task that asks for work).
   oracle: {
     surfaces: ["cli"],
-    command: ({ task }) => `bash ${q(join(import.meta.dir, "oracle.sh"))} ${q(task.id)} > "$EVAL_DIR/agent.out" 2> "$EVAL_DIR/agent.err"`,
+    command: ({ task }) => `bash ${q(join(import.meta.dir, "oracle.sh"))} ${q(task.id)} > "$D/agent.out" 2> "$D/agent.err"`,
     answer: (dir) => read(join(dir, "agent.out")),
     meta: () => ({}),
   },
   noop: {
     surfaces: ["cli"],
-    command: () => "echo 'I did nothing.' > \"$EVAL_DIR/agent.out\"",
+    command: () => "echo 'I did nothing.' > \"$D/agent.out\"",
     answer: (dir) => read(join(dir, "agent.out")),
     meta: () => ({}),
   },

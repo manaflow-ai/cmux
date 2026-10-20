@@ -72,7 +72,9 @@ export const CHECKS = Object.freeze({
     const before = new Set(ctx.before.workspaces.map((w) => w.id));
     const extra = ctx.after.workspaces.filter((w) => !before.has(w.id));
     const named = name ? extra.every((w) => lower(w.name) === lower(name)) : true;
-    return result(extra.length === count && named, `new: ${extra.map((w) => w.name).join(", ") || "none"}`);
+    const r = result(extra.length === count && named, `new: ${extra.map((w) => w.name).join(", ") || "none"}`);
+    // Too few is unfinished work; too many or misnamed is a stray workspace.
+    return extra.length < count ? { ...r, category: "not_done" } : r;
   },
   workspaces_kept(ctx) {
     const after = new Map(ctx.after.workspaces.map((w) => [w.id, w.name]));
@@ -200,13 +202,19 @@ export const CHECKS = Object.freeze({
     return result(lower(ctx.answer).includes(lower(text)), ctx.answer ? "" : "no answer");
   },
   stayed_in_session(ctx) {
-    const bad = (ctx.calls ?? []).filter((c) =>
-      (c.argv ?? []).some(
-        (a) =>
-          ["--socket", "--session", "--app-socket", "--all-sessions"].includes(a.split("=")[0]) ||
-          /^[\w.-]+:(ws|screen|pane|tab|term)_/.test(a),
-      ),
-    );
+    // The eval session may be named outright (`--session NAME`, `--socket .../NAME.sock`,
+    // `NAME:ws_…`); any other target leaves it.
+    const name = ctx.session?.name;
+    const own = (value) => !!name && (value === name || String(value).endsWith(`/${name}.sock`));
+    const leaves = (argv) =>
+      argv.some((a, i) => {
+        const [flag, inline] = a.split("=");
+        if (flag === "--all-sessions" || flag === "--app-socket") return true;
+        if (flag === "--socket" || flag === "--session") return !own(inline ?? argv[i + 1]);
+        const routed = /^([\w.-]+):(ws|screen|pane|tab|term)_/.exec(a);
+        return !!routed && !own(routed[1]);
+      });
+    const bad = (ctx.calls ?? []).filter((c) => leaves(c.argv ?? []));
     return result(bad.length === 0, bad.map((c) => c.argv.join(" ")).slice(0, 3).join(" | "));
   },
 });
@@ -251,7 +259,7 @@ export function gradeTask(task, ctx) {
     } catch (error) {
       return { name: spec.check, ok: false, required, weight, category: "harness_error", detail: String(error.message ?? error) };
     }
-    return { name: spec.check, ok: outcome.ok, required, weight, category: CHECK_CATEGORY[spec.check], detail: outcome.detail ?? "" };
+    return { name: spec.check, ok: outcome.ok, required, weight, category: outcome.category ?? CHECK_CATEGORY[spec.check], detail: outcome.detail ?? "" };
   });
   const total = checks.reduce((s, c) => s + c.weight, 0);
   const got = checks.reduce((s, c) => s + (c.ok ? c.weight : 0), 0);

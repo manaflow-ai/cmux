@@ -9,6 +9,8 @@
 import { execFile, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { AGENTS, NO_LOGIN_PATTERNS } from "./agents.mjs";
 import { gradeTask } from "./grade.mjs";
@@ -26,7 +28,7 @@ function arg(name, fallback) {
 }
 const RUN = arg("run", new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19));
 const OUT = resolve(arg("out", join(REPO, "artifacts/agent-evals", RUN)));
-const TIMEOUT_S = Number(arg("timeout", "420"));
+const TIMEOUT_S = Number(arg("timeout", "600"));
 const PARALLEL = Number(arg("parallel", "3"));
 const TIER = arg("tier", "headless");
 const REAL_CLI = arg("cli", process.env.CMUX_EVAL_CLI ?? "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux");
@@ -58,8 +60,8 @@ function evalEnv(dir) {
   env.CMUX_NEXT_CONFIG_FILE = join(dir, "cmux-next.json");
   // A path that does not exist: app commands fail instead of reaching the user's app.
   env.CMUX_SOCKET_PATH = join(dir, "no-app.sock");
-  env.CMUX_EVAL_REAL_CLI = REAL_CLI;
-  env.EVAL_DIR = dir;
+  // Login shells (codex runs `zsh -lc`) rebuild PATH; this ZDOTDIR puts the shim first again.
+  env.ZDOTDIR = join(dir, "zdot");
   env.PATH = `${join(dir, "bin")}:${dirname(REAL_CLI)}:${env.PATH}`;
   if (APP_SOCKET) env.CMUX_SOCKET_PATH = APP_SOCKET;
   return env;
@@ -67,6 +69,13 @@ function evalEnv(dir) {
 
 function writeFixtures(dir, task, session) {
   mkdirSync(join(dir, "bin"), { recursive: true });
+  mkdirSync(join(dir, "zdot"), { recursive: true });
+  for (const f of [".zshenv", ".zprofile", ".zshrc", ".zlogin"]) {
+    writeFileSync(
+      join(dir, "zdot", f),
+      `ZDOTDIR="$HOME"; [ -f "$HOME/${f}" ] && source "$HOME/${f}"; ZDOTDIR=${JSON.stringify(join(dir, "zdot"))}\nexport PATH=${JSON.stringify(join(dir, "bin"))}:"$PATH"\n`,
+    );
+  }
   mkdirSync(join(dir, "markers"), { recursive: true });
   mkdirSync(join(dir, "work"), { recursive: true });
   writeFileSync(join(dir, "cmux-next.json"), JSON.stringify({ mcp: { enabled: true } }));
@@ -75,7 +84,7 @@ function writeFixtures(dir, task, session) {
   const shim = join(dir, "bin/cmux");
   writeFileSync(
     shim,
-    `#!/bin/bash\nif [ -n "$EVAL_CALL_LOG" ]; then jq -cn --arg t "$(date +%s)" '{argv:$ARGS.positional,t:($t|tonumber)}' --args -- "$@" >> "$EVAL_CALL_LOG"; fi\nexec "$CMUX_EVAL_REAL_CLI" "$@"\n`,
+    `#!/bin/bash\nif [ -f ${JSON.stringify(join(dir, "calls.on"))} ]; then jq -cn --arg t "$(date +%s)" '{argv:$ARGS.positional,t:($t|tonumber)}' --args -- "$@" >> ${JSON.stringify(join(dir, "calls.jsonl"))}; fi\nexec ${JSON.stringify(REAL_CLI)} "$@"\n`,
   );
   // The helper "agent" for subagents-right: records the terminal it ran in, then stays up.
   const stub = join(dir, "bin/cmux-eval-agent");
@@ -85,12 +94,24 @@ function writeFixtures(dir, task, session) {
   );
   // MCP: code mode against this session, with a tee of the requests.
   const mcp = join(dir, "mcp.sh");
-  writeFileSync(mcp, `#!/bin/bash\ntee -a ${JSON.stringify(join(dir, "mcp.jsonl"))} | "$CMUX_EVAL_REAL_CLI" mcp serve\n`);
+  writeFileSync(mcp, `#!/bin/bash\ntee -a ${JSON.stringify(join(dir, "mcp.jsonl"))} | ${JSON.stringify(REAL_CLI)} mcp serve\n`);
   for (const f of [shim, stub, mcp]) chmodSync(f, 0o755);
   writeFileSync(join(dir, "mcp-empty.json"), JSON.stringify({ mcpServers: {} }));
   writeFileSync(join(dir, "mcp.json"), JSON.stringify({ mcpServers: { cmux: { command: mcp, args: [] } } }));
   writeFileSync(join(dir, "opencode-mcp.json"), JSON.stringify({ mcp: { cmux: { type: "local", command: [mcp], enabled: true } } }));
   writeFileSync(join(dir, "session.txt"), session);
+  // The agent may connect to no cmux socket but its own session's: not the
+  // user's app, not their sessions, not other eval runs.
+  writeFileSync(
+    join(dir, "sandbox.sb"),
+    [
+      "(version 1)",
+      "(allow default)",
+      '(deny network-outbound (remote unix-socket (path-regex #"cmux")))',
+      `(allow network-outbound (remote unix-socket (path-regex #"/${session.replace(/[.-]/g, "\\$&")}\\.sock$")))`,
+      "",
+    ].join("\n"),
+  );
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -100,6 +121,7 @@ async function runOne({ agent, surface }, task, index) {
   mkdirSync(dir, { recursive: true });
   const session = `ae-${process.pid}-${index}`;
   writeFixtures(dir, task, session);
+  const work = mkdtempSync(join(tmpdir(), "cmux-eval-work-"));
   const env = evalEnv(dir);
   const cmux = async (args, { json = true } = {}) => {
     const full = ["--session", session, ...(APP_SOCKET ? ["--app-socket", APP_SOCKET] : []), ...(json ? ["--json"] : []), ...args];
@@ -112,7 +134,7 @@ async function runOne({ agent, surface }, task, index) {
   const row = { agent, surface, task: task.id, run: RUN };
   const daemon = spawn(REAL_CLI, ["daemon", "start", "--session", session, "--ephemeral", "--headless"], {
     env,
-    cwd: join(dir, "work"),
+    cwd: work,
     stdio: ["ignore", "ignore", "pipe"],
     detached: true,
   });
@@ -127,10 +149,10 @@ async function runOne({ agent, surface }, task, index) {
       }
     }
     // Origin: the user's workspace with the agent's terminal.
-    const created = await cmux(["workspace", "create", "--name", "home", "--cwd", join(dir, "work")]);
+    const created = await cmux(["workspace", "create", "--name", "home", "--cwd", work]);
     const origin = { workspace_id: created.workspace_id, screen_id: created.screen_id, pane_id: created.pane_id, tab_id: created.tab_id };
     const originTerm = created.terminal_id;
-    const aliases = await runSetup(cmux, task, origin, dir);
+    const aliases = await runSetup(cmux, task, origin, work);
     await cmux(["workspace", origin.workspace_id, "focus"]);
     await cmux(["pane", origin.pane_id, "focus"]);
     const before = normalize(await capture(cmux));
@@ -142,21 +164,24 @@ async function runOne({ agent, surface }, task, index) {
       [
         "#!/bin/bash",
         `export PATH=${JSON.stringify(env.PATH)}`,
-        `export EVAL_DIR=${JSON.stringify(dir)} CMUX_EVAL_REAL_CLI=${JSON.stringify(REAL_CLI)}`,
+        `EVAL_DIR=${JSON.stringify(dir)}`,
+        `export ZDOTDIR=${JSON.stringify(env.ZDOTDIR)}`,
         `export CMUX_SOCKET_PATH=${JSON.stringify(env.CMUX_SOCKET_PATH)} CMUX_NEXT_CONFIG_FILE=${JSON.stringify(env.CMUX_NEXT_CONFIG_FILE)}`,
-        `cd ${JSON.stringify(join(dir, "work"))}`,
+        `cd ${JSON.stringify(work)}`,
         // Preflight: the CLI reaches this session and no app.
-        `cmux --json workspace list > "$EVAL_DIR/preflight-ws.json" 2>&1`,
+        `sandbox-exec -f "$EVAL_DIR/sandbox.sb" cmux --json workspace list > "$EVAL_DIR/preflight-ws.json" 2>&1`,
+        `if sandbox-exec -f "$EVAL_DIR/sandbox.sb" ${JSON.stringify(REAL_CLI)} --app-socket "$HOME/.local/state/cmux/cmux-nightly.sock" app ping > /dev/null 2>&1; then echo live-app-reachable >> "$EVAL_DIR/preflight-fail"; fi`,
         APP_SOCKET ? "true" : `if cmux --json identify > "$EVAL_DIR/preflight-identify.json" 2>&1; then echo app-reachable > "$EVAL_DIR/preflight-fail"; fi`,
         `grep -q ${JSON.stringify(origin.workspace_id)} "$EVAL_DIR/preflight-ws.json" || echo wrong-session >> "$EVAL_DIR/preflight-fail"`,
         `if [ -f "$EVAL_DIR/preflight-fail" ]; then echo 97 > "$EVAL_DIR/agent.exit"; exit 0; fi`,
-        `export EVAL_CALL_LOG="$EVAL_DIR/calls.jsonl"`,
-        `perl -e 'alarm shift; exec @ARGV' ${TIMEOUT_S} bash -c ${JSON.stringify(AGENTS[agent].command({ dir, surface, task }))}`,
+        `touch "$EVAL_DIR/calls.on"`,
+        `sandbox-exec -f "$EVAL_DIR/sandbox.sb" perl -e 'alarm shift; exec @ARGV' ${TIMEOUT_S} bash "$EVAL_DIR/agent.sh"`,
         `echo $? > "$EVAL_DIR/agent.exit.tmp"; mv "$EVAL_DIR/agent.exit.tmp" "$EVAL_DIR/agent.exit"`,
         "",
       ].join("\n"),
     );
     chmodSync(launch, 0o755);
+    writeFileSync(join(dir, "agent.sh"), `D=${JSON.stringify(dir)}\n${AGENTS[agent].command({ dir, surface, task })}\n`);
     await cmux(["terminal", originTerm, "write", "--text", `clear; ${launch}\n`]);
     const deadline = Date.now() + (TIMEOUT_S + 30) * 1000;
     while (!existsSync(join(dir, "agent.exit")) && Date.now() < deadline) await sleep(1000);
@@ -174,7 +199,7 @@ async function runOne({ agent, surface }, task, index) {
       readdirSync(join(dir, "markers")).map((role) => [role, readFileSync(join(dir, "markers", role), "utf8").trim()]),
     );
     const answer = AGENTS[agent].answer(dir);
-    const grade = gradeTask(task, { before, after, origin, aliases, answer, calls, markers });
+        const grade = gradeTask(task, { before, after, origin, aliases, answer, calls, markers, session: { name: session } });
     const errText = `${read(join(dir, "agent.err"))}\n${read(join(dir, "agent.out")).slice(0, 4000)}`;
     Object.assign(row, grade, {
       wall_ms: Date.now() - started,
@@ -202,16 +227,21 @@ async function runOne({ agent, surface }, task, index) {
     try {
       process.kill(-daemon.pid, "SIGTERM");
     } catch {}
+    const sockDir = join(env.TMPDIR ?? tmpdir(), `cmux-tui-${process.getuid()}`);
+    for (const f of existsSync(sockDir) ? readdirSync(sockDir) : []) {
+      if (f.startsWith(`${session}.sock`)) rmSync(join(sockDir, f), { force: true });
+    }
+    rmSync(work, { recursive: true, force: true });
   }
   writeFileSync(join(dir, "row.json"), JSON.stringify(row, null, 1));
   return row;
 }
 
-async function runSetup(cmux, task, origin, dir) {
+async function runSetup(cmux, task, origin, work) {
   const aliases = {};
   for (const step of task.setup ?? []) {
     if (step.op === "workspace") {
-      await cmux(["workspace", "create", "--name", step.name, "--cwd", join(dir, "work")]);
+      await cmux(["workspace", "create", "--name", step.name, "--cwd", work]);
     } else if (step.op === "split-right") {
       const r = await cmux(["pane", origin.pane_id, "split", "--right", "--viewport-width", "0.5"]);
       if (step.alias) aliases[step.alias] = r.pane_id;
@@ -252,12 +282,21 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
   const jobs = runs.flatMap((r) => tasks.map((t) => [r, t]));
   const rows = [];
-  let next = 0;
+  // OpenCode keeps one SQLite database per user; parallel runs lock it.
+  const LIMIT = { opencode: 1 };
+  const running = {};
+  const pending = jobs.map((job, i) => ({ job, i }));
   const worker = async () => {
-    while (next < jobs.length) {
-      const i = next++;
-      const [r, t] = jobs[i];
+    while (pending.length) {
+      const k = pending.findIndex(({ job: [r] }) => (running[r.agent] ?? 0) < (LIMIT[r.agent] ?? Infinity));
+      if (k < 0) {
+        await sleep(500);
+        continue;
+      }
+      const [{ job: [r, t], i }] = pending.splice(k, 1);
+      running[r.agent] = (running[r.agent] ?? 0) + 1;
       const row = await runOne(r, t, i);
+      running[r.agent] -= 1;
       rows.push(row);
       writeFileSync(join(OUT, "rows.jsonl"), `${rows.map((x) => JSON.stringify(x)).join("\n")}\n`);
       console.log(`${row.agent}:${row.surface} ${row.task} ${row.pass ? "pass" : `FAIL ${row.category}`} ${(row.score ?? 0).toFixed(2)} ${Math.round(row.wall_ms / 1000)}s calls=${row.calls}`);

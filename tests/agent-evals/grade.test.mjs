@@ -174,6 +174,9 @@ describe("focus and leftovers", () => {
     expect(run("no_new_workspaces", ctx(base(), base())).ok).toBe(true);
     expect(run("new_workspaces", ctx(base(), one), { count: 1, name: "eval-proj" }).ok).toBe(true);
     expect(run("new_workspaces", ctx(base(), one), { count: 1, name: "other" }).ok).toBe(false);
+    const none = run("new_workspaces", ctx(base(), base()), { count: 1, name: "eval-proj" });
+    expect(none.ok).toBe(false);
+    expect(none.category).toBe("not_done");
   });
   test("user_tabs_kept fails when a pre-existing tab is gone", () => {
     const before = base({ tabs: [{ id: "t_a", pane: "p_o" }] });
@@ -299,6 +302,14 @@ describe("stayed_in_session", () => {
       const bad = ctx(base(), base(), { calls: [{ argv: [flag, "x", "tab", "list"] }] });
       expect(run("stayed_in_session", bad).ok).toBe(false);
     }
+  });
+  test("naming the eval session itself stays in it", () => {
+    const own = (argv) => ({ ...ctx(base(), base(), { calls: [{ argv }] }), session: { name: "ae-1-0" } });
+    expect(run("stayed_in_session", own(["--socket", "/tmp/cmux-tui-501/ae-1-0.sock", "pane", "list"])).ok).toBe(true);
+    expect(run("stayed_in_session", own(["--session=ae-1-0", "pane", "list"])).ok).toBe(true);
+    expect(run("stayed_in_session", own(["tab", "ae-1-0:tab_1", "show"])).ok).toBe(true);
+    expect(run("stayed_in_session", own(["tab", "main:tab_1", "show"])).ok).toBe(false);
+    expect(run("stayed_in_session", own(["--socket", "/tmp/cmux-tui-501/main.sock", "pane", "list"])).ok).toBe(false);
   });
 });
 
