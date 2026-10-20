@@ -24,6 +24,7 @@ package actor CloudTeamScope {
         package let call: @Sendable (_ path: String, _ body: Data) async throws -> Data
         package let wireLeases: @Sendable () async throws -> [CloudAuthorityWireLease]
         package let refreshAuthority: @Sendable () async throws -> Snapshot
+        package let reselectAuthority: @Sendable () async throws -> Snapshot
         let nativeContext: @Sendable () async throws -> NativeInstallContext
     }
     package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
@@ -105,6 +106,11 @@ package actor CloudTeamScope {
         }, wireLeases: { try await leases.leases() }, refreshAuthority: { [weak self] in
             guard let self else { throw Failure.changed }
             return try await self.snapshot(selected, context: context)
+        }, reselectAuthority: { [weak self] in
+            guard let self else { throw Failure.changed }
+            let next = try await self.selection()
+            guard next.account == context.account else { throw Failure.changed }
+            return try await self.snapshot(next, context: context)
         }, nativeContext: { [weak self] in
             guard let self else { throw Failure.changed }
             try await self.check(selected, context)
