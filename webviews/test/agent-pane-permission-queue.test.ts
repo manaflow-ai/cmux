@@ -83,8 +83,9 @@ await requireBrowserLane("agent-pane-permission-queue.test.ts", async () => {
         return { sessions: [session(LIVE), session(REOPENED)] };
       case "_acpmux/attach": {
         const attached = { session: session(id), lastSeq: steps.length, events: events(id) };
-        // acpmux lists the asks still waiting when a page attaches (server `pending`).
-        if (id === REOPENED) return { ...attached, pending: [first[2], second[2]] };
+        // acpmux lists the asks still waiting on the attached session (`hub/views.rs` `pending`),
+        // in no particular order (a hash map's).
+        if (id === REOPENED) return { ...attached, session: { ...session(id), pending: [second[2], first[2]] } };
         return attached;
       }
       case "_acpmux/events":
