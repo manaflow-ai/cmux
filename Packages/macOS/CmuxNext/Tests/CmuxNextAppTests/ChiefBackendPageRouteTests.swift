@@ -8,7 +8,7 @@ import Testing
 /// arguments; a bad form is refused before anything is written.
 @Suite struct ChiefBackendPageRouteTests {
     @Test func anEndpointCarriesItsKeyOnlyToTheKeychainStep() throws {
-        let backend = try ChiefBackend([
+        let backend = try BroughtChiefBackend([
             "kind": "anthropic-endpoint", "name": "Acme Gateway", "baseUrl": "https://api.acme.dev",
             "model": "acme-1", "apiKey": "sk-secret-123",
         ])
@@ -31,7 +31,7 @@ import Testing
     }
 
     @Test func aCommandKeepsItsArguments() throws {
-        let backend = try ChiefBackend(["kind": "command", "name": "My Agent", "command": "my-agent", "args": ["--acp", "--fast"]])
+        let backend = try BroughtChiefBackend(["kind": "command", "name": "My Agent", "command": "my-agent", "args": ["--acp", "--fast"]])
         #expect(backend.kind == .command("my-agent", args: ["--acp", "--fast"]))
     }
 
@@ -43,12 +43,12 @@ import Testing
         ["kind": "command", "name": " ", "command": "x"],
     ])
     func aBadFormIsRefused(_ params: JSONValue) {
-        #expect(throws: PageError.self) { try ChiefBackend(params) }
+        #expect(throws: PageError.self) { try BroughtChiefBackend(params) }
     }
 
     @Test func idsAreLowercaseWordsAndDashes() {
-        #expect(ChiefBackend.id(for: "My Backend!") == "my-backend")
-        #expect(ChiefBackend.id(for: "--") == "my-backend")
-        #expect(ChiefBackend.id(for: "GPT 6 / Astra") == "gpt-6-astra")
+        #expect(BroughtChiefBackend.id(for: "My Backend!") == "my-backend")
+        #expect(BroughtChiefBackend.id(for: "--") == "my-backend")
+        #expect(BroughtChiefBackend.id(for: "GPT 6 / Astra") == "gpt-6-astra")
     }
 }

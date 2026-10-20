@@ -40,7 +40,7 @@ final class ChiefBackendPageRoute: PageProvider {
                     throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
                 }
                 spentGesture = event
-                let backend = try ChiefBackend(params)
+                let backend = try BroughtChiefBackend(params)
                 return ["id": .string(try await add(backend))]
             case Self.prefix + "doctor":
                 guard let id = params["id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("id is required") }
@@ -56,7 +56,7 @@ final class ChiefBackendPageRoute: PageProvider {
     }
 
     /// Writes the profile (and an endpoint's key, first); answers the harness id acpmux keeps.
-    private func add(_ backend: ChiefBackend) async throws -> String {
+    private func add(_ backend: BroughtChiefBackend) async throws -> String {
         var request = AgentHarnessAddRequest()
         request.id = backend.id
         request.displayName = backend.name
@@ -76,7 +76,7 @@ final class ChiefBackendPageRoute: PageProvider {
 }
 
 /// A backend the person brings, as the page sends it (`cmux.chief.backend.add`).
-nonisolated struct ChiefBackend: Equatable {
+nonisolated struct BroughtChiefBackend: Equatable {
     enum Kind: Equatable {
         case command(String, args: [String])
         /// `example` is `anthropic-endpoint` or `openai-endpoint`.
