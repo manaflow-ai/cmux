@@ -102,6 +102,22 @@ await requireBrowserLane("new-tab-field-reclaims-keyboard.test.ts", async () => 
         await page.close();
       });
 
+      test("taking the keyboard back keeps where the page was scrolled", async () => {
+        const page = await newTab(browsers.get(name)!);
+        await page.setViewportSize({ width: 900, height: 300 });
+        const scrolled = await page.evaluate(() => {
+          const screen = document.querySelector<HTMLElement>(".nt-screen")!;
+          screen.scrollTop = screen.scrollHeight;
+          (document.activeElement as HTMLElement | null)?.blur();
+          return screen.scrollTop;
+        });
+        expect(scrolled).toBeGreaterThan(0);
+        await switchAwayAndBack(page);
+        expect(await focused(page)).toBe("nt-field");
+        expect(await page.evaluate(() => document.querySelector<HTMLElement>(".nt-screen")!.scrollTop)).toBe(scrolled);
+        await page.close();
+      });
+
       test("a control that has focus keeps it when the page gets the keyboard back", async () => {
         const page = await newTab(browsers.get(name)!);
         await page.keyboard.type("fix");
