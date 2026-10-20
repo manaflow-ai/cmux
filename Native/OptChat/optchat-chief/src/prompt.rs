@@ -133,7 +133,9 @@ macro_rules! home_rule {
   Never close or rename the user's workspaces to group them.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks."
+  push, never force; no pull requests unless the user asks. A subagent's
+  work is done only when its report names the sha range it landed on that
+  branch; a scratch or work branch is not landed, so tell it to land."
     };
 }
 
@@ -368,7 +370,10 @@ report.
   workspaces to group them.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks."
+  push, never force; no pull requests unless the user asks. Work is landed
+  only when its commits are on that branch's remote: a scratch, work or red
+  branch is not landed. Your report gives the sha range you landed on it
+  (`OLD..NEW`), or says that nothing landed and why."
     )
 }
 
