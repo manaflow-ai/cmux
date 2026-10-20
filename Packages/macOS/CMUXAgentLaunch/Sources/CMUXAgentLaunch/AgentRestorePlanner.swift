@@ -393,6 +393,19 @@ public struct AgentRestorePlanner: Sendable {
             // when the captured argv is empty, so a rejected capture cannot be
             // replaced by a guessed command for the provider kind.
             if (launch?.arguments.isEmpty ?? true), let preparedArguments {
+                // Prepared argv is not independent provenance. A legacy or
+                // deferred record can contain Subrouter config (including a
+                // dead localhost data-plane URL) without the trusted marker
+                // pair and launch-bound argv needed to reconstruct `sr
+                // codex resume`. Replaying it directly would silently change
+                // transport after quit/reopen, so fail closed.
+                if kind == "codex",
+                   SubrouterCodexResumeRouting().usesSubrouterProvider(in: preparedArguments)
+                    || preparedArguments.contains(where: {
+                        $0.contains("model_providers.subrouter")
+                    }) {
+                    return nil
+                }
                 return (preparedArguments, false)
             }
             switch AgentResumeArgv().launcherResolution(
