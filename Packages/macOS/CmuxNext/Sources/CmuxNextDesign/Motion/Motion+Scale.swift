@@ -7,6 +7,11 @@ extension Motion {
     /// Scale a floating panel closes to, with `fadeOut`: a slight shrink.
     public static var panelCloseScale: CGFloat { CGFloat(MotionTunables.panelCloseScale.value) }
 
+    /// Scale a popup grows from, about the control it opened from, on the `popover` spring.
+    public static var popupOpenScale: CGFloat { CGFloat(MotionTunables.popupOpenScale.value) }
+    /// Scale a popup shrinks to, toward its control, on the `popoverClose` spring.
+    public static var popupCloseScale: CGFloat { CGFloat(MotionTunables.popupCloseScale.value) }
+
     /// A uniform scale about `pivot` (in `layer`'s bounds coordinates) for
     /// the layer's `transform` or `sublayerTransform`. Core Animation
     /// applies both about the layer's anchor point, and AppKit gives a

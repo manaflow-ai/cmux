@@ -24,9 +24,13 @@ struct SidebarBottomCardSlot {
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenChanges = { [weak sidebar] in sidebar?.model.send(.openUpdateChanges) }
         update.onCloseAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
+        // The highlights show in the app's one hover card window (one card at a time).
+        update.hoverCards = { [weak sidebar] in sidebar?.list.hoverCards }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
+        nowPlaying.onClose = { [weak sidebar] in sidebar?.model.send(.hideNowPlayingCard) }
+        nowPlaying.menuProvider = { [weak sidebar] in sidebar?.contextMenuProvider?(.nowPlaying) }
         updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)

@@ -81,6 +81,7 @@ impl Brain {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        self.note_posted(&conversation, &message);
                         self.sent(&key, &message.id);
                     }
                 }
@@ -131,6 +132,39 @@ impl Brain {
                     self.save();
                     (self.log)(&format!(
                         "op {key}: the owner refused its link cards ({reason}); sending the text"
+                    ));
+                    continue;
+                }
+                Err(OpError::Rejected(reason))
+                    if super::replies::unthreaded(&op, &reason).is_some() =>
+                {
+                    // The owner refused the reply's thread: the same reply
+                    // goes at the top level under a new key (the refused key
+                    // is spent), never dropped.
+                    let top = super::replies::unthreaded(&op, &reason).expect("checked above");
+                    let head = &mut self.state.outbox[0];
+                    let new_key = format!("{key}:top");
+                    head.idempotency_key = new_key.clone();
+                    head.attempted = false;
+                    head.op = match top {
+                        Op::MessageSend {
+                            parts,
+                            answers,
+                            answers_pending,
+                            ..
+                        } => Op::MessageSend {
+                            client_msg_id: new_key,
+                            parts,
+                            reply_to: None,
+                            answers,
+                            answers_pending,
+                            thread_root: None,
+                        },
+                        other => other,
+                    };
+                    self.save();
+                    (self.log)(&format!(
+                        "op {key}: the owner refused its thread ({reason}); posting it at the top level"
                     ));
                     continue;
                 }

@@ -223,11 +223,13 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
         const last = Math.max(...rows.map((row) => row.getBoundingClientRect().bottom));
-        const box = scroller.getBoundingClientRect();
+        // The view's foot: the bottom stack lies over the transcript's foot (bottomStack.css).
+        const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+        const foot = stack ? stack.getBoundingClientRect().top : scroller.getBoundingClientRect().bottom;
         return {
           overflows: scroller.scrollHeight > scroller.clientHeight,
-          below: Math.max(0, Math.round(last - box.bottom)),
-          spare: Math.floor(box.bottom - last),
+          below: Math.max(0, Math.round(last - foot)),
+          spare: Math.floor(foot - last),
         };
       });
     await page.waitForTimeout(300);

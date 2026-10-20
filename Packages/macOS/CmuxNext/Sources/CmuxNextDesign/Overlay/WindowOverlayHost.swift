@@ -73,6 +73,10 @@ public final class WindowOverlayHost {
     public var onOccludersChange: (() -> Void)?
     /// Carries `agentCursorLayer` (made on first use; `WindowOverlayHost+AgentCursor`).
     var agentCursorCarrier: AgentCursorCarrierView?
+    /// The window's clickable agent cursor tags (the app's source).
+    public weak var agentCursorTags: (any AgentCursorTagSource)? {
+        didSet { agentCursorCarrier?.tags = agentCursorTags }
+    }
 
     private static var hosts: [ObjectIdentifier: WindowOverlayHost] = [:]
     private static var app: WindowOverlayHost?

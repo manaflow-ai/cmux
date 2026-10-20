@@ -280,7 +280,8 @@ while True:
                                                or k == "FORCE_PROMPT_CACHING_5M"},
                                "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
                                                                          "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
-                                              if k in os.environ}})
+                                              if k in os.environ},
+                               "customHeaders": os.environ.get("ANTHROPIC_CUSTOM_HEADERS")})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,

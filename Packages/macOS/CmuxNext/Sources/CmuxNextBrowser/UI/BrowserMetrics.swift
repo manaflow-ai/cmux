@@ -28,9 +28,8 @@ enum BrowserMetrics {
     static var overlayInset: CGFloat { Metrics.panelInset }
     static var overlayCornerRadius: CGFloat { Metrics.panelCornerRadius }
     static var overlayPadding: CGFloat { Metrics.space4 }
-    static var findBarHeight: CGFloat { toolbarHeight }
-    static var findFieldWidth: CGFloat { Metrics.tabMaxWidth * 3 / 4 }
-    static var findCountWidth: CGFloat { Metrics.tabMinWidth * 2 }
+    /// The shared find pill's height (FindPillMetrics), the same over every pane.
+    static var findBarHeight: CGFloat { FindPillMetrics.height }
     static var promptMinWidth: CGFloat { Metrics.paletteWidth / 2 }
     static var promptMaxWidth: CGFloat { Metrics.paletteWidth * 3 / 4 }
 
@@ -38,8 +37,5 @@ enum BrowserMetrics {
     static var bodyFont: NSFont { Typography.body }
     static var emphasizedFont: NSFont { Typography.bodyEmphasized }
     static var captionFont: NSFont { Typography.caption }
-    static var countFont: NSFont {
-        Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
-    }
     static var errorTitleFont: NSFont { Typography.header }
 }

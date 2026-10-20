@@ -20,22 +20,25 @@ extension UpdaterService {
     /// built from the recorded changelog lines; the span runs from the
     /// previous version to this one. Nil when no update is recorded.
     public var lastUpdateHighlights: UpdateHighlights? {
-        guard let record = whatsNew.lastUpdate else { return nil }
-        var highlights = record.highlights ?? UpdateHighlights(version: record.toVersion, build: record.toBuild,
-                                                               fromVersion: record.fromVersion, fromBuild: record.fromBuild,
-                                                               notes: nil, appcast: record.changelog)
+        guard let record = whatsNew.lastUpdate, var highlights = recordedHighlights else { return nil }
+        // A record with no change list (saved before the staged notes loaded): this build's own notes.
+        if highlights.items.isEmpty, let notes = currentBuildNotes {
+            highlights = UpdateHighlights(version: record.toVersion, build: record.toBuild, fromVersion: record.fromVersion,
+                                          fromBuild: record.fromBuild, notes: notes, appcast: record.changelog)
+        }
         highlights.changelog = UpdateHighlights.Changelog(from: record.fromVersion, to: record.toVersion)
         return highlights
     }
 
     /// The "cmux Updated!" card without a saved record (a manual or brew
     /// install, an update from a build that saved none): this version, the
-    /// span from the last version seen, no items. Nil when not updated.
+    /// span from the last version seen, and this build's own notes once read
+    /// (``currentBuildNotes``). Nil when not updated.
     public var updatedWithoutRecordHighlights: UpdateHighlights? {
         guard whatsNew.lastUpdate == nil, whatsNew.isUpdated else { return nil }
         let from = whatsNew.lastSeen?.description ?? identity.shortVersion
         return UpdateHighlights(version: identity.shortVersion, build: identity.build, fromVersion: from, fromBuild: "",
-                                notes: nil, appcast: nil)
+                                notes: currentBuildNotes, appcast: nil)
     }
 
     /// "See all changes": the changelog page for the releases after this

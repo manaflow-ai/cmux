@@ -14,9 +14,11 @@ enum HomeStrings {
         String(localized: "home.composer.attach.failed", defaultValue: "The file couldn’t be attached.", bundle: .module)
     }
     static func attachUnsupported(_ name: String) -> String {
-        String(format: String(localized: "home.composer.attach.unsupported",
-                              defaultValue: "“%@” can’t be attached. You can attach photos, videos, audio, PDFs, text files and ZIP archives.",
-                              bundle: .module), name)
+        String(format: String(localized: "home.composer.attach.refused", defaultValue: "“%@” can’t be attached.", bundle: .module), name)
+    }
+    static func attachFolder(_ name: String) -> String {
+        String(format: String(localized: "home.composer.attach.folder",
+                              defaultValue: "“%@” is a folder. Attach the files in it, or a ZIP of the folder.", bundle: .module), name)
     }
     static func attachTooLarge(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.tooLarge", defaultValue: "“%@” is larger than 100 MB.", bundle: .module), name)
@@ -69,6 +71,7 @@ enum HomeStrings {
     static func attachmentRefusal(_ refusal: HomeAttachmentError, name: String? = nil) -> String {
         switch refusal {
         case .typeRefused(_, let file): attachUnsupported(name ?? file)
+        case .folder(let file): attachFolder(name ?? file)
         case .tooLarge: name.map(attachTooLarge) ?? attachTooLargeAny()
         case .empty(let file): attachEmpty(name ?? file)
         case .invalidName(let file): attachInvalidName(name ?? file)
