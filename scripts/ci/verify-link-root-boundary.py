@@ -60,7 +60,7 @@ def main() -> int:
         output = run_root(command)
         for case in ("owned_child_cross_uid", "inherited_root_parent",
                      "unrelated_child_and_uid_refused", "daemon_survives_owner_drop",
-                     "channel_lifetime", "native_private_channel"):
+                     "channel_lifetime", "native_private_channel", "native_ticket_drain_barrier"):
             if f"ROOT_BOUNDARY_EXECUTED {case}" not in output:
                 raise SystemExit(f"root boundary case did not execute: {case}")
         native_target = Path(directory) / "receiver-native-root-tests"

@@ -74,19 +74,28 @@ mod linux {
             assert_eq!(control.read(&mut [0]).unwrap(), 0);
             return;
         }
-        if mode == "transport" || mode == "native_transport" {
+        if mode == "transport" || mode == "native_transport" || mode == "native_delayed_drain" {
             let mut daemon = cmux_link::root_bootstrap::Daemon::from_stdin()
                 .unwrap()
                 .expect("the spawner discarded its private root channel");
-            if mode == "native_transport" {
+            if mode != "transport" {
                 daemon.native_permit().expect("root Native startup was not recognized");
+                let gate = (mode == "native_delayed_drain")
+                    .then(|| std::env::var_os("CMUX_RECEIVER_DRAIN_GATE").unwrap());
                 daemon
-                    .attach_native(|mut role, stop| {
+                    .attach_native(move |mut role, stop| {
                         role.set_nonblocking(false)?;
                         role.set_read_timeout(Some(Duration::from_secs(10)))?;
                         let mut payload = [0; 32];
                         role.read_exact(&mut payload)?;
                         assert_eq!(payload, [7; 32]);
+                        let mut gate = gate.as_ref().map(UnixStream::connect).transpose()?;
+                        if let Some(gate) = &mut gate {
+                            // Queue READY without allowing it to stand for drain.
+                            role.write_all(&[2])?;
+                            gate.set_read_timeout(Some(Duration::from_secs(10)))?;
+                            gate.write_all(&[0])?;
+                        }
                         role.set_nonblocking(true)?;
                         let mut fds = [
                             libc::pollfd { fd: role.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -94,6 +103,12 @@ mod linux {
                         ];
                         // SAFETY: both sockets remain owned through the wait.
                         assert!(unsafe { libc::poll(fds.as_mut_ptr(), 2, 10_000) } > 0);
+                        if let Some(gate) = &mut gate {
+                            gate.write_all(&[1])?;
+                            let mut release = [0];
+                            gate.read_exact(&mut release)?;
+                            assert_eq!(release, [1]);
+                        }
                         Ok(())
                     })
                     .unwrap();
@@ -459,5 +474,65 @@ mod linux {
         host.detach();
         assert!(replacement.wait().unwrap().success());
         println!("ROOT_BOUNDARY_EXECUTED native_private_channel");
+    }
+
+    #[test]
+    #[ignore = "requires Linux root; scripts/ci/verify-link-root-boundary.py"]
+    fn receiver_root_privileged_new_ticket_waits_for_the_old_role_drain() {
+        use cmux_link::root_bootstrap::{Capability, Host, NativeStatus, StopReceipt};
+        use std::os::unix::fs::{PermissionsExt as _, chown};
+        use std::os::unix::net::UnixListener;
+        use std::sync::Arc;
+        use std::time::Instant;
+        use zeroize::Zeroizing;
+        root();
+        let directory = tempfile::Builder::new().prefix("rd-").tempdir().unwrap();
+        chown(directory.path(), Some(WORK_UID), Some(WORK_UID)).unwrap();
+        let path = directory.path().join("gate");
+        let listener = UnixListener::bind(&path).unwrap();
+        chown(&path, Some(WORK_UID), Some(WORK_UID)).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let host = Arc::new(Host::new_native().unwrap());
+        let first = host.new_ticket().unwrap();
+        assert!(host.offer(&first));
+        let mut command = transport_command("native_delayed_drain");
+        command.env("CMUX_RECEIVER_DRAIN_GATE", &path);
+        let child = host.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        drive_until(&host, |_| host.capability() == Some(Capability::NativeReceiver));
+        let stale = host.prepare_native(&first).unwrap();
+        let request = host.prepare_native(&first).unwrap();
+        assert!(host.publish_native(request, Zeroizing::new(vec![7; 32])));
+        drive_until(&host, |sent| sent);
+        let mut fd = libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one initialized, live listener descriptor is retained through poll.
+        assert!(unsafe { libc::poll(&raw mut fd, 1, 10_000) } > 0);
+        let (mut gate, _) = listener.accept().unwrap();
+        gate.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut signal = [255];
+        gate.read_exact(&mut signal).unwrap();
+        assert_eq!(signal, [0]);
+        let stopping = host.clone();
+        let old = first.clone();
+        let waiter = std::thread::spawn(move || {
+            stopping.quiesce_native(&old, Instant::now() + Duration::from_secs(8))
+        });
+        gate.read_exact(&mut signal).unwrap();
+        assert_eq!(signal, [1], "the old recipient has not observed stop");
+        let next = host.new_ticket().unwrap();
+        assert!(host.offer(&next));
+        assert!(host.prepare_native(&next).is_none(), "new frame bypassed pending drain");
+        assert!(!host.native_request_current(&stale));
+        assert!(!host.publish_native(stale, Zeroizing::new(vec![7; 32])));
+        assert!(host.advance_native(&first).is_none());
+        assert!(!waiter.is_finished(), "READY was accepted as a drain receipt");
+        gate.write_all(&[1]).unwrap();
+        assert_eq!(waiter.join().unwrap().unwrap(), StopReceipt::Acknowledged);
+        assert!(host.prepare_native(&next).is_some());
+        assert_eq!(host.native_status(&next), Some(NativeStatus::Pending));
+        assert_eq!(host.native_status(&first), None);
+        host.detach();
+        assert!(child.wait().unwrap().success());
+        println!("ROOT_BOUNDARY_EXECUTED native_ticket_drain_barrier");
     }
 }
