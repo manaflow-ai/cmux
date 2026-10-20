@@ -293,6 +293,11 @@ extension PaneController {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
             return
         }
+        // A Markdown tab has the browser's omnibar row above its page (markdown-omnibar-DESIGN.md).
+        if case .page(let view) = currentContent, let bar = view.topBar as? MarkdownOmnibarBar {
+            bar.focusLocation()
+            return
+        }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)

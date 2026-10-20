@@ -10,14 +10,21 @@
 //!
 //! - a new or edited record's grant is within the caller's: `tools` and
 //!   `self_edit` are subsets; `harnesses` is any when the caller's is empty
-//!   (every harness), else a non-empty subset; each engine field (harness,
-//!   model, effort) equals the caller's (unset only when the caller's is);
-//! - a Chief another Chief made (`created_by`) may be edited fully; a Chief
-//!   the person made (no `created_by`, every older record) only in its
-//!   name, role and picture (lead decision 2026-10-14); an edit needs the
-//!   target's CURRENT grant within the caller's too;
+//!   (every harness), else a non-empty subset; the engine harness is one the
+//!   caller may use (any when its `harnesses` is empty); model and effort
+//!   are free (Lawrence 2026-10-19, u2586: "chiefs can edit ... the
+//!   configuration of all chiefs");
+//! - every profile field of another Chief may change (name, role, picture,
+//!   personality, instructions, engine), whoever made it; an edit needs the
+//!   target's CURRENT grant within the caller's too, so no Chief rewrites a
+//!   Chief that holds more than it does;
+//! - a locked Chief (`locked`, the person's switch) refuses every Chief's
+//!   write (`chief_locked`), and `locked` itself is never a Chief's to set;
+//! - every write is a kept revision the person (or a Chief within these
+//!   rules) can undo (`chief.profile.undo`);
 //! - a Chief never edits itself here (the self_edit path takes `chief == me`);
-//! - the default Chief's grant is never a Chief's to change;
+//! - the default Chief's tools, harnesses and self_edit are never a Chief's
+//!   to change;
 //! - no Chief deletes a Chief;
 //! - a create fills the grant fields it omits from the caller (the default
 //!   tools the caller holds, its harnesses and engine fields, the default
@@ -30,16 +37,14 @@ use serde_json::{Map, Value, json};
 
 use super::{ResourceError, ResourceOperation};
 use crate::chief_registry::{
-    self, ChiefRecord, ChiefStore, DEFAULT_CHIEF, DEFAULT_NEW_TOOLS, GRANT_FIELDS, Refusal,
+    self, ChiefRecord, ChiefStore, DEFAULT_CHIEF, DEFAULT_NEW_TOOLS, ENGINE_FIELDS, GRANT_FIELDS,
+    Refusal,
 };
 
 use ResourceOperation as Op;
 
 /// The tool name in a record's `tools` that carries the right.
 const GRANT: &str = "chiefs";
-
-/// What a Chief may change on a Chief the person made (and the picture).
-const PERSON_MADE_FIELDS: [&str; 2] = ["display_name", "role"];
 
 /// Checks a write the Chief `me` makes on another Chief (or a create), and
 /// for a create fills the omitted grant fields of `profile` from the caller.
@@ -66,6 +71,14 @@ pub(super) fn check(
             &[],
         ));
     }
+    if profile.contains_key("locked") {
+        return Err(deny(
+            operation,
+            "chief_lock_person_only",
+            "only the person locks or unlocks a Chief",
+            &["locked"],
+        ));
+    }
     if operation == Op::ChiefProfileCreate {
         fill_create_defaults(&caller, profile);
         let draft = ChiefRecord {
@@ -79,6 +92,7 @@ pub(super) fn check(
             harnesses: Vec::new(),
             engine: chief_registry::Engine::default(),
             self_edit: Vec::new(),
+            locked: false,
             is_default: false,
             rev: 0,
             created_at: String::new(),
@@ -89,34 +103,25 @@ pub(super) fn check(
         return within(operation, "grant_exceeds_caller", &caller, &wanted);
     }
     let target = load(store, operation, chief)?;
+    if target.locked {
+        return Err(deny(
+            operation,
+            "chief_locked",
+            "the person locked this Chief; only they change it",
+            &[],
+        ));
+    }
     if target.id == DEFAULT_CHIEF {
-        let named: Vec<&str> =
-            GRANT_FIELDS.iter().copied().filter(|f| profile.contains_key(*f)).collect();
+        let named: Vec<&str> = GRANT_FIELDS
+            .iter()
+            .copied()
+            .filter(|f| !ENGINE_FIELDS.contains(f) && profile.contains_key(*f))
+            .collect();
         if !named.is_empty() {
             return Err(deny(
                 operation,
                 "chief_default_grant",
                 "the default Chief's grant is the person's",
-                &named,
-            ));
-        }
-    }
-    // A Chief the person made (no `created_by`, every record from before):
-    // only its name, role and picture. Its instructions, personality, grant
-    // and engine stay the person's, so no Chief plants instructions in a
-    // Chief that may read conversations the caller cannot, and no twin
-    // rewrites a person-made creator's text past its self_edit.
-    if target.created_by.is_none() {
-        let named: Vec<&str> = profile
-            .keys()
-            .map(String::as_str)
-            .filter(|f| !PERSON_MADE_FIELDS.contains(f))
-            .collect();
-        if !named.is_empty() {
-            return Err(deny(
-                operation,
-                "chief_person_made_fields",
-                "a Chief changes only the name, role and picture of a Chief the person made",
                 &named,
             ));
         }
@@ -143,8 +148,10 @@ fn fill_create_defaults(caller: &ChiefRecord, profile: &mut Map<String, Value>) 
         profile.insert("harnesses".into(), json!(caller.harnesses));
     }
     if !profile.contains_key("self_edit") {
-        let mine: Vec<&str> =
-            ["avatar"].into_iter().filter(|f| holds(&caller.self_edit, f)).collect();
+        let mine: Vec<String> = chief_registry::full_self_edit()
+            .into_iter()
+            .filter(|f| holds(&caller.self_edit, f))
+            .collect();
         profile.insert("self_edit".into(), json!(mine));
     }
     for (field, value) in [
@@ -178,22 +185,11 @@ fn within(
     {
         over.push("harnesses");
     }
-    // Each engine field equals the caller's (unset = the brain default, so
-    // an unset caller field allows only unset), and the engine harness is one
-    // of the caller's harnesses when it has a list.
-    for (field, mine, theirs) in [
-        ("harness", &caller.engine.harness, &record.engine.harness),
-        ("model", &caller.engine.model, &record.engine.model),
-        ("effort", &caller.engine.effort, &record.engine.effort),
-    ] {
-        if mine != theirs {
-            over.push(field);
-        }
-    }
+    // The engine harness is one the caller may use (any when its harness
+    // list is empty); model and effort are free.
     if let Some(harness) = &record.engine.harness
         && !caller.harnesses.is_empty()
         && !caller.harnesses.contains(harness)
-        && !over.contains(&"harness")
     {
         over.push("harness");
     }

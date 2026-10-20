@@ -18,10 +18,12 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
     public var kind: String?
     /// Cloud: `active`, `archived` or `importing`.
     public var state: String?
+    /// Cloud, a large group: how many members it has (`participants` is then a roster).
+    public var memberCount: Int?
 
     public init(id: String, owner: String = "local", title: String, participants: [ConversationParticipant], lastSeq: UInt64,
                 rev: UInt64, createdAt: String, updatedAt: String, lastMessage: ConversationMessage? = nil,
-                readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil) {
+                readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil, memberCount: Int? = nil) {
         self.id = id
         self.owner = owner
         self.title = title
@@ -34,6 +36,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         self.readCursors = readCursors
         self.kind = kind
         self.state = state
+        self.memberCount = memberCount
     }
 
     enum CodingKeys: String, CodingKey {
@@ -43,6 +46,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         case updatedAt = "updated_at"
         case lastMessage = "last_message"
         case readCursors = "read_cursors"
+        case memberCount = "member_count"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -59,6 +63,7 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         readCursors = try c.decodeIfPresent([String: UInt64].self, forKey: .readCursors) ?? [:]
         kind = try c.decodeIfPresent(String.self, forKey: .kind)
         state = try c.decodeIfPresent(String.self, forKey: .state)
+        memberCount = try c.decodeIfPresent(Int.self, forKey: .memberCount)
     }
 
     /// Messages after `participant`'s read cursor.

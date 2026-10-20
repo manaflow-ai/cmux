@@ -32,6 +32,11 @@ final class OmniboxSuggestionPanel {
     /// Row views made so far (tests: typing reuses them).
     private(set) var rowViewsMade = 0
 
+    /// Site icons for page rows (`AddressBarView.rowFavicon`).
+    var faviconSource: ((URL) async -> NSImage?)? {
+        didSet { rows.forEach { $0.faviconSource = faviconSource } }
+    }
+
     /// Shows `suggestions` under `anchor` (the bar), clipped to `pane`.
     /// Rows already on the card take the new matches in place, so typing
     /// never rebuilds the card (no flash, hover tracking kept); only a
@@ -46,7 +51,7 @@ final class OmniboxSuggestionPanel {
             if index < rows.count {
                 rows[index].show(suggestion)
             } else {
-                let row = SuggestionRowView(suggestion: suggestion)
+                let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
                 row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
