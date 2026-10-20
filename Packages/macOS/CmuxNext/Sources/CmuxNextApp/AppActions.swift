@@ -16,6 +16,7 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
         TabSearchHandlers.bind(into: registry, context: context)
         PaletteScopeHandlers.bind(into: registry, context: context)
@@ -66,6 +67,7 @@ enum AppActions {
         BrowserHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        NowPlayingCardHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
