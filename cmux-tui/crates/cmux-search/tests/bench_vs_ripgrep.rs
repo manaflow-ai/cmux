@@ -24,10 +24,15 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(64 << 20);
-    let dir = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let corpus_dir = temp.path().join("corpus");
+    std::fs::create_dir_all(&corpus_dir).unwrap();
+    let dir = &corpus_dir;
 
     // One pass: index every doc and write it to the rg corpus files.
-    let mut engine = SearchEngine::new(EngineConfig::default());
+    // Sealed segments go to disk, as the daemon runs it.
+    let mut engine =
+        SearchEngine::open(&temp.path().join("index"), EngineConfig::default()).unwrap();
     let mut samples = Samples::default();
     let mut writer: Option<BufWriter<File>> = None;
     let mut file_bytes = 0usize;
@@ -39,7 +44,7 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
             if let Some(mut old) = writer.take() {
                 old.flush().unwrap();
             }
-            let path = dir.path().join(format!("corpus-{file_index:04}.log"));
+            let path = dir.as_path().join(format!("corpus-{file_index:04}.log"));
             writer = Some(BufWriter::new(File::create(path).unwrap()));
             file_index += 1;
             file_bytes = 0;
@@ -67,7 +72,7 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
 
     let queries = samples.queries();
     let rg = ripgrep();
-    let lowered = lowered_corpus(dir.path(), bytes);
+    let lowered = lowered_corpus(dir.as_path(), bytes);
     let now = 1_900_000_000_000;
     let mut rows: Vec<Row> = Vec::new();
     for (class, text) in &queries {
@@ -84,8 +89,8 @@ fn cmux_search_search_bench_vs_ripgrep_report() {
         let scan = lowered.as_deref().map(|corpus| naive_scan(corpus, text));
         let (rg_full, rg_first) = match &rg {
             Some(rg) => (
-                Some(run_rg(rg, dir.path(), text, false)),
-                Some(run_rg(rg, dir.path(), text, true)),
+                Some(run_rg(rg, dir.as_path(), text, false)),
+                Some(run_rg(rg, dir.as_path(), text, true)),
             ),
             None => (None, None),
         };
@@ -273,7 +278,10 @@ fn render(
     );
     let _ = writeln!(
         out,
-        "- peak RSS of the bench process: {:.0} MiB (holds the text in memory; no mmap yet)",
+        "- engine resident memory: {:.1} MiB = {:.1} MiB per GiB of text (sealed segments on disk, read with pread); peak RSS of the bench process {:.0} MiB (includes the in-memory copy of the corpus for the 1-thread scan)",
+        stats.resident_bytes as f64 / (1 << 20) as f64,
+        (stats.resident_bytes as f64 / (1 << 20) as f64)
+            / (stats.text_bytes as f64 / (1 << 30) as f64).max(1e-9),
         peak_rss as f64 / (1 << 20) as f64
     );
     let _ = writeln!(out, "- ripgrep: {}", rg.unwrap_or("not found"));
