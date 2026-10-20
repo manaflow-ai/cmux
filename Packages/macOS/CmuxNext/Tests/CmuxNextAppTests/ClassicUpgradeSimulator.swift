@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOnboarding
+import CmuxNextSidebar
 import CryptoKit
 import Foundation
 import Testing
@@ -97,6 +98,8 @@ final class ClassicUpgradeSimulator {
     private let launcher: DaemonLauncher
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
+    /// Workspaces the launch made before the migration (its empty New Tab page).
+    private(set) var launchMade: Set<String> = []
     private var watcher: Task<Void, Never>?
 
     /// - Parameter ssh: the daemon for an SSH destination (default: none connects).
@@ -141,6 +144,7 @@ final class ClassicUpgradeSimulator {
             return result
         }
         let migrating = clock.now
+        launchMade = Set(made().keys)
         watch(from: migrating)
         switch await run.result {
         case .success(let outcome): result.outcome = outcome
@@ -148,6 +152,11 @@ final class ClassicUpgradeSimulator {
         }
         result.migration = clock.now - migrating
         watcher?.cancel()
+        // The launch's empty New Tab page closes at the run's end; its close reaches the store a moment later.
+        if result.outcome?.opened.isEmpty == false {
+            let settle = clock.now + .seconds(5)
+            while clock.now < settle, !launchMade.isDisjoint(with: made().keys) { try? await Task.sleep(for: .milliseconds(50)) }
+        }
         return result
     }
 
@@ -206,9 +215,22 @@ final class ClassicUpgradeSimulator {
         Dictionary(services.daemon.store.personal.groups.map { ($0.name, $0.collapsed) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// Workspace ids per window, in sidebar order.
-    func windows() -> [[String]] {
-        services.windows.registry.value.windows.map(\.workspaceIDs)
+    /// Each window's sidebar containers (loose rows, then each group), workspace ids in the order shown.
+    func windows() -> [[[String]]] {
+        services.windows.registry.value.windows.map { window in
+            SidebarBridge.sections(services.machines, members: window.workspaceIDs, profile: .defaultProfile).flatMap { section in
+                var loose: [String] = []
+                var groups: [[String]] = []
+                for node in section.nodes {
+                    switch node {
+                    case .workspace(let workspace): loose.append(workspace.id.rawValue)
+                    case .group(let group): groups.append(group.workspaces.map(\.id.rawValue))
+                    case .item: break
+                    }
+                }
+                return [loose] + groups
+            }
+        }
     }
 
     /// Whether anything asked the person something (a modal or a sheet).
@@ -218,14 +240,15 @@ final class ClassicUpgradeSimulator {
 
     /// Checks `profile`'s promise against the tree after the run(s).
     /// - Parameter source: the classic file the run read (default: the session file).
-    func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil,
+    ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
+    func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
                 sourceLocation: SourceLocation = #_sourceLocation) throws {
         let label = profile.name
         // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
         let file = source ?? mac.session()
         let decoded = try ClassicSessionImporter(fileURL: file).decodeSnapshot(Data(contentsOf: file))
         let ledger = try mac.readLedger()
-        let made = made()
+        let made = made().filter { !ignoring.contains($0.key) }
         let windows = windows()
         // The decoder keeps classic's order and count, so it lines up with the profile.
         var expectedIDs: [[String]] = []
@@ -241,8 +264,10 @@ final class ClassicUpgradeSimulator {
                 }
                 ids.append(id)
                 if let title = workspace.title?.trimmingCharacters(in: .whitespaces), !title.isEmpty {
-                    #expect(here.name.trimmingCharacters(in: .whitespaces) == title,
-                            "\(label): name \(here.name) for \(title)", sourceLocation: sourceLocation)
+                    let name = here.name.trimmingCharacters(in: .whitespaces)
+                    // A title past the daemon's limit comes over cut.
+                    let fits = title.utf8.count <= ClassicSessionImporter.maximumNameBytes ? name == title : title.hasPrefix(name) && !name.isEmpty
+                    #expect(fits, "\(label): name \(here.name.prefix(80)) for \(title.prefix(80))", sourceLocation: sourceLocation)
                 }
                 #expect(here.panes == workspace.layout.expectedPanes.sorted(),
                         "\(label): \(here.name) panes \(here.panes), classic \(workspace.layout.expectedPanes)", sourceLocation: sourceLocation)
@@ -265,12 +290,20 @@ final class ClassicUpgradeSimulator {
         #expect(made.count == profile.expectedCount,
                 "\(label): \(made.count) workspaces, classic had \(profile.expectedCount): \(made.values.map(\.name).sorted())",
                 sourceLocation: sourceLocation)
-        // Each classic window is one cmux-next window, in classic's order.
+        // Each classic window is one cmux-next window; in each of its sidebar
+        // containers (loose rows, a group) classic's workspaces show in classic's order.
         for ids in expectedIDs {
-            let window = windows.first { $0.contains(ids[0]) } ?? []
-            #expect(window.filter(Set(ids).contains) == ids, "\(label): order in window differs", sourceLocation: sourceLocation)
+            let window = windows.first { $0.joined().contains(ids[0]) } ?? []
+            for container in window {
+                let shown = container.filter(Set(ids).contains)
+                let classic = ids.filter(Set(shown).contains)
+                #expect(shown == classic, "\(label): order differs: \(shown.compactMap { made[$0]?.name.prefix(20) }) for \(classic.compactMap { made[$0]?.name.prefix(20) })",
+                        sourceLocation: sourceLocation)
+            }
+            let listed = Set(window.joined())
+            #expect(ids.allSatisfy(listed.contains), "\(label): a workspace is missing from its window's sidebar", sourceLocation: sourceLocation)
         }
-        let distinct = Set(expectedIDs.map { ids in windows.firstIndex { $0.contains(ids[0]) } ?? -1 })
+        let distinct = Set(expectedIDs.map { ids in windows.firstIndex { $0.joined().contains(ids[0]) } ?? -1 })
         #expect(distinct.count == expectedIDs.count, "\(label): classic windows merged", sourceLocation: sourceLocation)
         // Groups with their collapsed state (members or pinned).
         if !profile.legacyKeys {

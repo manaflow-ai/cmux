@@ -367,6 +367,9 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                          folder: folder.isEmpty || folder == "/" ? "Imported workspace" : folder)
     }
 
+    /// The longest workspace name cmux-next's daemon takes, in UTF-8 bytes.
+    public static let maximumNameBytes = 1024
+
     /// The user's own title; else a running command or tab title, the
     /// agent it ran, or the folder's name. Names several workspaces share
     /// take each one's branch, and a number only as the last resort.

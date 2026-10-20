@@ -63,7 +63,9 @@ struct ClassicUpgradeSimulationTests {
         let sim = try ClassicUpgradeSimulator(mac: mac)
         let launch = await sim.launch()
         #expect(launch.outcome?.decision == .skip(.classicRunning), "\(String(describing: launch.outcome))")
-        #expect(sim.made().isEmpty)
+        // Only the launch's own New Tab page: none of classic's.
+        let own = Set(sim.made().keys)
+        #expect(own.count <= 1, "\(sim.made().values.map(\.name))")
         // Classic quits: its quit save is newer, its sentinel gone.
         try mac.classicRunning(false)
         var saved = profile
@@ -72,7 +74,8 @@ struct ClassicUpgradeSimulationTests {
         let before = try mac.classicDigest()
         let merge = try await sim.relaunch()
         #expect(merge.decision == .merge && merge.opened.count == profile.expectedCount, "\(merge)")
-        try sim.verify(saved, classicBefore: before)
+        // The New Tab page from the first launch is the person's now; it stays.
+        try sim.verify(saved, classicBefore: before, ignoring: own)
         await sim.shutdown()
     }
 

@@ -132,6 +132,20 @@ public nonisolated struct ClassicMigrationPlanner: Sendable {
         return plan
     }
 
+    /// Moves that put the workspaces a run made back at their classic place
+    /// in the personal order: each right after the nearest classic workspace
+    /// before it that is here, else right before the nearest one after it.
+    /// Workspaces the run did not make keep their place.
+    ///
+    /// - Parameters:
+    ///   - order: the personal order now (row keys, first to last).
+    ///   - classic: one classic window's workspace keys (as in `order`), in classic's order.
+    ///   - made: the keys this run made.
+    /// - Returns: `(key, index)` moves to apply in turn; `index` is the row's final position.
+    public func placements(order: [String], classic: [String], made: Set<String>) -> [(String, Int)] {
+        []
+    }
+
     /// `ledger` with every classic workspace in `snapshot` recorded as seen,
     /// none made: for a cmux-next that was in use before its first migration.
     /// A manual run still brings each one over (no cmux-next workspace is

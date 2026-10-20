@@ -306,12 +306,12 @@ extension ClassicUpgradeProfile {
             groups: [Group(id: "", name: "no id"), Group(id: "G-OK", name: "fine")], selected: 99)])
     }
 
-    /// Classic at its limits (12 windows x 128 workspaces cap): 4 windows,
-    /// 520 workspaces, 30 groups.
+    /// Classic at its limits: 4 windows at classic's cap of 128 workspaces
+    /// each (`SessionPersistencePolicy.maxWorkspacesPerWindow`), 512 workspaces, 30 groups.
     static var huge: ClassicUpgradeProfile {
         let windows = (0..<4).map { window in
             let groups = (0..<8).map { Group(id: "H-\(window)-\($0)", name: "W\(window) group \($0)", collapsed: $0 % 2 == 0) }
-            let workspaces = (0..<130).map { index in
+            let workspaces = (0..<128).map { index in
                 Workspace(title: "huge \(window)-\(index)", group: index % 3 == 0 ? nil : "H-\(window)-\(index % 8)",
                           pinned: index == 0, color: index % 10 == 0 ? "#00AAFF" : nil,
                           layout: index % 13 == 0 ? .split(vertical: false, ratio: 0.5, .pane([.terminal()]), .pane([.terminal()]))
