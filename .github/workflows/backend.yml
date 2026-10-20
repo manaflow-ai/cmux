@@ -88,8 +88,10 @@ jobs:
         run: |
           python3 - <<'PY'
           import os, re
-          assert re.fullmatch(r"[0-9a-f]{40}", os.environ["SOURCE_SHA"]), "verify needs an exact source SHA"
-          assert re.fullmatch(r"[a-z][a-z0-9-]{0,79}", os.environ["TEST_FILTER"]), "invalid API test prefix"
+          if not re.fullmatch(r"[0-9a-f]{40}", os.environ["SOURCE_SHA"]):
+              raise SystemExit("verify needs an exact source SHA")
+          if not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", os.environ["TEST_FILTER"]):
+              raise SystemExit("invalid API test prefix")
           PY
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -103,7 +105,8 @@ jobs:
           import os
           from pathlib import Path
           paths = sorted(Path("backend/apps/api/test").glob(os.environ["TEST_FILTER"] + "*.test.ts"))
-          assert paths, "API test prefix selects no files"
+          if not paths:
+              raise SystemExit("API test prefix selects no files")
           print("Selected API test files:", len(paths))
           PY
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -125,6 +128,9 @@ jobs:
         run: git diff --exit-code
 
   test:
+    # A manual focused run must not create a skipped check named `test` that
+    # could satisfy the full suite's required check on the same source SHA.
+    name: ${{ github.event_name == 'workflow_dispatch' && inputs.target == 'verify' && 'full backend suite (not requested)' || 'test' }}
     if: github.event.action != 'closed' && !(github.event_name == 'workflow_dispatch' && inputs.target == 'verify')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     services:
