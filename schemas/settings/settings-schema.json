@@ -756,6 +756,7 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
+          "chiefs",
           "computerUse"
         ]
       },
