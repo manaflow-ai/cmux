@@ -16,7 +16,7 @@ extension SidebarListViewComponents {
         revealedActive = active
         // Read on every reload, so a user's move is used by the structural set that shows it, and only by that one.
         let userMoved = model.takeUserMove()
-        let revealsTop = takeTopReveal()
+        let revealsTop = takeTopReveal(in: layout)
         guard drag == nil, external == nil, let clip = enclosingScrollView?.contentView,
               case let height = clip.bounds.height, height > 0 else {
             // No viewport yet (init): the first reload with one reveals.

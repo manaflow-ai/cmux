@@ -66,6 +66,7 @@ enum AppActions {
         BrowserHandlers.bind(into: registry, context: context)
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
+        NowPlayingCardHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
