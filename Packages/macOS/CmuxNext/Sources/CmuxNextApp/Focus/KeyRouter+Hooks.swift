@@ -193,6 +193,12 @@ extension KeyRouter {
     }
 
     private func window(showing tab: any BrowserTab) -> WindowController? {
+        browserPaneWindow(showing: tab)
+            // A cmux page in Chromium (ChromiumPageHost) is no pane's browser entry: its view's window.
+            ?? services?.windows.controllers.first { $0.window != nil && $0.window === tab.contentView.window }
+    }
+
+    private func browserPaneWindow(showing tab: any BrowserTab) -> WindowController? {
         services?.windows.controllers.first { controller in
             controller.content?.panes.values.contains { pane in
                 if case .browser(let entry)? = pane.currentContent { return entry.tab === tab }

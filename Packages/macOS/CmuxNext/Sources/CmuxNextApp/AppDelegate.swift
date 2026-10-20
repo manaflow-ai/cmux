@@ -182,6 +182,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
+        // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
+        PageWebView.chromiumHosting = ChromiumPageHost(
+            cef: services.cache.cef,
+            preference: { [weak services] in
+                services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
+            },
+            keyRouter: services.keyRouter)
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only

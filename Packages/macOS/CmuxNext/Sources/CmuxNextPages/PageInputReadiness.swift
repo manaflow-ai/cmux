@@ -23,6 +23,9 @@ public final class PageInputReadiness {
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
     private weak var webView: WKWebView?
+    /// Types into a page another engine shows (a Chromium page, ``PageWebView``); nil types into the
+    /// attached web view.
+    var inserter: ((String) async -> Bool)?
 
     /// Installs the script and its message handler on `configuration`
     /// before its web view loads anything.
@@ -35,6 +38,16 @@ public final class PageInputReadiness {
     /// The web view the configuration made (``insert(_:)`` types into it).
     public func attach(_ webView: WKWebView) {
         self.webView = webView
+    }
+
+    /// One message of the readiness script (`true`/`false`, `{list}` or `{editing}`), from any engine.
+    func receive(_ body: Any) {
+        if let body = body as? [String: Any] {
+            if let list = body["list"] as? Bool { reportList(list) }
+            if let editing = body["editing"] as? Bool { reportEditing(editing) }
+            return
+        }
+        report(body as? Bool == true)
     }
 
     func reportList(_ focused: Bool) {
@@ -59,6 +72,7 @@ public final class PageInputReadiness {
     /// input events reach the page's own handlers). Returns whether an
     /// editable element had focus.
     public func insert(_ text: String) async -> Bool {
+        if let inserter { return await inserter(text) }
         guard let webView else { return false }
         let inserted = try? await webView.callAsyncJavaScript(Self.insertScript, arguments: ["text": text], in: nil, contentWorld: .page)
         return inserted as? Bool == true
@@ -109,13 +123,7 @@ public final class PageInputReadiness {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            if let body = message.body as? [String: Any] {
-                if let list = body["list"] as? Bool { owner?.reportList(list) }
-                if let editing = body["editing"] as? Bool { owner?.reportEditing(editing) }
-                return
-            }
-            let ready = message.body as? Bool == true
-            owner?.report(ready)
+            owner?.receive(message.body)
         }
     }
 }
