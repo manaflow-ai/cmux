@@ -837,6 +837,10 @@ export class UserDO extends DurableObject<Env> {
     const rows = this.sql
       .exec(`SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`, ...binds, limit)
       .toArray();
+    // Names come from the devices table, which keeps removed devices, so rows
+    // about a removed device keep its last known name.
+    const names = new Map(this.sql.exec("SELECT id, name FROM devices").toArray().map((d) => [d.id as string, d.name as string]));
+    const nameOf = (id: unknown) => (typeof id === "string" ? (names.get(id) ?? null) : null);
     return json({
       entries: rows.map((r) => ({
         id: r.id,
@@ -849,6 +853,9 @@ export class UserDO extends DurableObject<Env> {
         detail: r.detail,
         durationS: r.duration_s,
         deviceId: r.device_id,
+        viewerName: nameOf(r.viewer_id),
+        hostName: nameOf(r.host_id),
+        deviceName: nameOf(r.device_id),
       })),
     });
   }
