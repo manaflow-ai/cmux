@@ -11,6 +11,11 @@ public nonisolated enum BrowserDesignModeDelivery: Sendable, Equatable {
 
     /// The delivery for `card` given what the browser's window shows.
     public init(_ card: BrowserDesignModeCard, homeShown: Bool, agentChat: Bool) {
-        self = .nowhere
+        if homeShown {
+            let firstLine = card.text.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+            self = card.pickedVariation != nil && !firstLine.isEmpty ? .sendToHome(firstLine) : .attachToHome
+        } else {
+            self = agentChat ? .agentChat : .nowhere
+        }
     }
 }
