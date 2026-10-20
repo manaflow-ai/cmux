@@ -39,6 +39,18 @@ import Testing
         for _ in 0..<500 where !done() { try await Task.sleep(for: .milliseconds(10)) }
     }
 
+    /// Ends the card and waits out its fade before the window goes: a fade that finishes after
+    /// its parent window is released crashed the test process on the fleet (2cc91dfc4b6e).
+    static func tearDown(_ window: NSWindow, _ coordinator: HoverCardCoordinator) async throws {
+        coordinator.dismiss(.action)
+        let start = ContinuousClock.now
+        while let panel = coordinator.panel, panel.isVisible, ContinuousClock.now - start < .seconds(3) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        window.contentView = nil
+        window.close()
+    }
+
     static func scrollEvent(dy: Int32) throws -> NSEvent {
         let cg = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0))
         return try #require(NSEvent(cgEvent: cg))
@@ -58,7 +70,6 @@ import Testing
     @Test func aScrollOnTheCardKeepsItAndNeverReachesTheSidebar() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        defer { coordinator.dismiss(.action); window.contentView = nil; window.close() }
         let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
         let shown = try #require(coordinator.machine.shownTarget)
 
@@ -67,13 +78,13 @@ import Testing
         let delivered = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40))
         #expect(delivered == nil, "the scroll on the card went on to the sidebar under it")
         #expect(coordinator.isShowing(shown.id), "a scroll on the card dismissed it (\(coordinator.machine.phase))")
+        try await Self.tearDown(window, coordinator)
     }
 
     /// The history is longer than the card: the wheel on it scrolls the history, and the card stays.
     @Test func aScrollOnALongHistoryScrollsTheHistory() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        defer { coordinator.dismiss(.action); window.contentView = nil; window.close() }
         let now = Date()
         list.hoverCard.timelineSource = { _, limit in
             (0..<min(limit, 40)).map { SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-Double($0) * 60), text: "Prompt \($0)") }
@@ -90,17 +101,18 @@ import Testing
         for _ in 0..<5 { _ = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40)) }
         #expect(body.timeline.scrollOffset > 0, "the wheel did not scroll the history")
         #expect(coordinator.isShowing(shown.id), "scrolling the history dismissed the card")
+        try await Self.tearDown(window, coordinator)
     }
 
     @Test func aScrollOffTheCardStillEndsIt() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
-        defer { coordinator.dismiss(.action); window.contentView = nil; window.close() }
         let row = try #require(rows.first)
         _ = try await Self.showCard(list, coordinator, clock, row: row)
         // The pointer still on the row: the sidebar scrolls and the card goes.
         let delivered = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40))
         #expect(delivered != nil, "a scroll on the row was swallowed")
         #expect(coordinator.machine.shownTarget == nil, "a scroll on the row kept the card")
+        try await Self.tearDown(window, coordinator)
     }
 }
