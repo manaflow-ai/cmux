@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "build": "3949364522401",
+  "notes": "notes/3949364522401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21469,
+      "title": "Recover agent updates across app restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22572,
+      "title": "test(cmux-next): TransferProgressGateTests compiles (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22564,
+      "title": "agent pane: a subagent left running by a stop or a restart reads stopped",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22573,
+      "title": "ci: cmux-next Swift canary asks the build fleet before it takes a Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22429,
+      "title": "cmux NEXT Chief pet: no jump at a display's edge, back on screen after a resolution change, the reply box follows a drag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22570,
+      "title": "cmux NEXT: acpmux pushes a start-mode setting change; the chip stops re-asking on return",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22517,
+      "title": "cmux-next Settings: background tiles tell VoiceOver a video or a download",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22565,
+      "title": "ci(cmux-next): GUI jobs' bot re-runs with no placement wait on the fleet, not 12 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22571,
+      "title": "cmux NEXT Chief Settings: put back the effort titles and localized last-turn line #22500's merge dropped",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22500,
+      "title": "cmux NEXT Chief Settings: a new harness passes its backend check before the Chief switches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22496,
+      "title": "cmux NEXT Chief Settings: a rename that does not take shows the kept name and says so",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22435,
+      "title": "cmux-next Settings: a painting set with appearance.backdropArt shows in the Background picker and palette",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21962,
+      "title": "cmux-next: agent question card like the Claude app's (Needs your input pill, ⌘↩, Esc returns to the composer)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22350,
+      "title": "fix(next): Files pane opens and reveals off the main thread (base concurrency red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22102,
+      "title": "cmux-next media: a changed tour file tours itself, plus launch clip tours",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22102/4a38bb04/next-launch-themes-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "4a38bb04",
+      "tour": "launch-themes"
+    },
+    {
+      "pr": 22022,
+      "title": "cmux-next: Swift daemon client for Stash (stash-v1), slice 3 of #20706",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22431,
+      "title": "cmux-next Settings: Hue and Saturation preview while you drag; Experimental Appearance Controls says what it does",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
