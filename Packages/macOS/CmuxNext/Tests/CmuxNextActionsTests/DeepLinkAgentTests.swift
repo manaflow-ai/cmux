@@ -139,6 +139,25 @@ struct DeepLinkAgentTests {
         #expect(DeepLink.agentTab(harness: "claude", session: session, adopted: nil, terminals: terminals) == "term-1")
     }
 
+    @Test func aSubagentsAgentTypeIsNoHarness() {
+        let terminals = [
+            DeepLink.AgentCandidate(tab: "term-1", harness: "general-purpose", session: session),
+            DeepLink.AgentCandidate(tab: "term-2", harness: "claude-code", session: session),
+        ]
+        #expect(DeepLink.agentTabs(harness: "claude", session: session, adopted: nil, terminals: terminals) == ["term-2", "term-1"])
+        #expect(DeepLink.agentTabs(harness: "codex", session: session, adopted: nil, terminals: terminals) == ["term-1"])
+    }
+
+    @Test func theHarnessesTerminalsComeBeforeUnnamedOnes() {
+        let terminals = [
+            DeepLink.AgentCandidate(tab: "term-1", harness: nil, session: session),
+            DeepLink.AgentCandidate(tab: "term-2", harness: "claude", session: session),
+            DeepLink.AgentCandidate(tab: "term-3", harness: "codex", session: session),
+        ]
+        #expect(DeepLink.agentTabs(harness: "claude", session: session, adopted: "chat-1", terminals: terminals)
+            == ["chat-1", "term-2", "term-1"])
+    }
+
     @Test func nothingReachableMeansNoTab() {
         let terminals = [DeepLink.AgentCandidate(tab: "term-1", harness: "claude", session: "other")]
         #expect(DeepLink.agentTab(harness: "claude", session: session, adopted: nil, terminals: terminals) == nil)

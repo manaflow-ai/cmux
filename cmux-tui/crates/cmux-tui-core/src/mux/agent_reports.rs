@@ -455,7 +455,7 @@ impl Mux {
         let agent_session_ids = self
             .agent_records
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .filter_map(|(terminal_id, record)| {
                 Some((terminal_id.clone(), record.agent_session_id.clone()?))
