@@ -126,7 +126,9 @@ extension HomeService {
         // placed on a paired server when the user switched to it. A placed
         // chief without a Hosted Chief takes the tab only while the local
         // Chief has no history to hide (G6, one history).
-        if let read = await readCloudChiefs() { setCloudChiefs(read) }
+        // The same sign-in also reads the Home list's Chiefs: the list hides an archived Chief's rows by them
+        // (the page's own read can come before sign-in, and a docked Home never makes the page).
+        if let read = await readCloudChiefs() { setCloudChiefs(read); await directory.refreshChiefs() }
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
