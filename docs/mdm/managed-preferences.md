@@ -141,6 +141,17 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area. |
+| `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once. |
+| `ui.animations.tabs` | boolean | `true` |  | Animate Tabs. Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once. |
+| `ui.animations.panes` | boolean | `true` |  | Animate Panes and Windows. Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once. |
+| `ui.animations.overlays` | boolean | `true` |  | Animate Menus and Cards. Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once. |
+| `ui.animations.hoverCards` | boolean | `true` |  | Animate Hover Cards. Hover cards and tooltips fade and slide in. Off: they show and hide at once. |
+| `ui.animations.home` | boolean | `true` |  | Animate Home and Chats. The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once. |
+| `ui.animations.cursor` | boolean | `true` |  | Animate the Agent Cursor. The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple. |
+| `ui.animations.indicators` | boolean | `true` |  | Animate Spinners and Progress. Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph. |
+| `ui.animations.feedback` | boolean | `true` |  | Animate Highlights and Colors. Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once. |
+| `ui.animations.web` | boolean | `true` |  | Animate cmux Web Pages. Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed. |
 | `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
 | `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
 | `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |

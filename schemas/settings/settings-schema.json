@@ -12565,6 +12565,571 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.enabled.help",
+        "text" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.enabled",
+      "keywords" : [
+        "motion",
+        "animation",
+        "animations",
+        "no animations",
+        "disable animations",
+        "reduce motion",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.enabled",
+        "text" : "Play Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.sidebar.help",
+        "text" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.sidebar",
+      "keywords" : [
+        "motion",
+        "animation",
+        "sidebar",
+        "row",
+        "group",
+        "reorder",
+        "pin",
+        "move to top"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "sidebar"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.sidebar",
+        "text" : "Animate the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.tabs.help",
+        "text" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.tabs",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab",
+        "tab bar",
+        "reorder",
+        "group"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "tabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.tabs",
+        "text" : "Animate Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.panes.help",
+        "text" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.panes",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "window",
+        "divider",
+        "focus ring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "panes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.panes",
+        "text" : "Animate Panes and Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.overlays.help",
+        "text" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.overlays",
+      "keywords" : [
+        "motion",
+        "animation",
+        "menu",
+        "popover",
+        "palette",
+        "toast",
+        "card",
+        "sheet",
+        "find bar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "overlays"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.overlays",
+        "text" : "Animate Menus and Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.hoverCards.help",
+        "text" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.hoverCards",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover card",
+        "tooltip",
+        "preview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "hoverCards"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.hoverCards",
+        "text" : "Animate Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.home.help",
+        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.home",
+      "keywords" : [
+        "motion",
+        "animation",
+        "home",
+        "chief",
+        "chat",
+        "bubble",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "home"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.home",
+        "text" : "Animate Home and Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.cursor.help",
+        "text" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.cursor",
+      "keywords" : [
+        "motion",
+        "animation",
+        "cursor",
+        "agent",
+        "computer use",
+        "ripple"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "cursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.cursor",
+        "text" : "Animate the Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.indicators.help",
+        "text" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.indicators",
+      "keywords" : [
+        "motion",
+        "animation",
+        "spinner",
+        "progress",
+        "pulse",
+        "flash",
+        "loading",
+        "status"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "indicators"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.indicators",
+        "text" : "Animate Spinners and Progress"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.feedback.help",
+        "text" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.feedback",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover",
+        "highlight",
+        "focus",
+        "color",
+        "theme",
+        "transition"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "feedback"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.feedback",
+        "text" : "Animate Highlights and Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.web.help",
+        "text" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.web",
+      "keywords" : [
+        "motion",
+        "animation",
+        "web",
+        "page",
+        "css",
+        "transition",
+        "new tab",
+        "markdown",
+        "agent chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "web"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.web",
+        "text" : "Animate cmux Web Pages"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "#1a2B3c",
         "#1A2B3C80",
         "1a2b3c"
