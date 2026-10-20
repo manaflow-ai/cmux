@@ -163,7 +163,30 @@ impl Brain {
             .origin
             .as_ref()
             .map(|Origin::Remote { install }| install.clone());
-        self.respond(&pending, answer, &message.author, install.as_deref());
+        if let Err(e) = self.respond(&pending, answer, &message.author, install.as_deref()) {
+            // acpmux still holds the request (an allow needs the person's
+            // decision proof, which a chat reply never carries): keep it, so
+            // a deny or a newer message still answers it, and say so rather
+            // than leave the turn waiting in silence.
+            let text = format!(
+                "That {} was not accepted, so {} is still waiting: {e}. Approve it in the cmux app, or reply deny or send a new message to skip it.",
+                answer.as_str(),
+                pending.tool
+            );
+            let key = format!("approval:{}:undelivered:{}", pending.permission_id, message.seq);
+            let conversation = pending
+                .conversation
+                .clone()
+                .or_else(|| self.state.conversation.clone());
+            self.approvals.insert(k, pending);
+            if let Some(conversation) = conversation {
+                self.state
+                    .outbox
+                    .push(reply_entry(conversation, &key, &text));
+                self.save();
+                self.flush_outbox();
+            }
+        }
     }
 
     /// Denies the running turn's pending approvals (`why` is the trace's
@@ -173,7 +196,8 @@ impl Brain {
             self.approvals.drain(..).partition(|p| p.child.is_none());
         self.approvals.extend(children);
         for pending in turn {
-            self.respond(&pending, Answer::Deny, why, None);
+            // A deny that does not land has no better answer to try.
+            let _ = self.respond(&pending, Answer::Deny, why, None);
         }
     }
 
@@ -183,7 +207,7 @@ impl Brain {
         answer: Answer,
         approver: &str,
         install: Option<&str>,
-    ) {
+    ) -> Result<(), String> {
         let option = option_for(&pending.request, answer);
         let result = self.agents.respond_permission(
             &pending.session_id,
@@ -217,5 +241,6 @@ impl Brain {
                 (self.log)(&format!("recording an approval in the trace: {e}"));
             }
         }
+        result
     }
 }
