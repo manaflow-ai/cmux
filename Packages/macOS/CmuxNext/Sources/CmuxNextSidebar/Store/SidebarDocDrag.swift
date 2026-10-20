@@ -128,6 +128,14 @@ public struct SidebarDocDrag {
         return (target, adopt)
     }
 
+    /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their
+    /// list section has no document section here (a machine the client holds no section for yet): `index` of
+    /// that machine's section, `sec_m_<session>`, which the rows' adopt (sent first) makes. Nil unless every
+    /// moving row is a live workspace of one session with no item, outside a group.
+    public func unplacedTarget(_ position: DropPosition, moving ids: [WorkspaceID]) -> SidebarDocTarget? {
+        nil
+    }
+
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.
     public static func target(_ section: LayoutSectionID, index: Int, moving: [String], layout: SidebarLayoutDocument) -> SidebarDocTarget {
         let siblings = layout.section(section)?.items.map(\.id.rawValue) ?? []
