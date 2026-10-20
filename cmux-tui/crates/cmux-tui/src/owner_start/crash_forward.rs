@@ -257,8 +257,7 @@ pub(super) fn spawn(log: Option<PathBuf>) {
         channel: executable.as_deref().map_or(InstallChannel::Other, InstallChannel::detect),
         managed_forced: &managed.forced,
         settings: settings.as_ref(),
-        release_build: test_dsn.is_some()
-            || option_env!("CMUX_TUI_DISTRIBUTION_VERSION").is_some_and(|v| !v.is_empty()),
+        release_build: test_dsn.is_some() || crate::version_report::RELEASE_STAMPED,
         env: &env,
     });
     if let Consent::Off(reason) = decision {
