@@ -6,6 +6,13 @@
       use the project version (`<V>-<channel>.<B>`); cmux-next (track
       nightly-next) starts its own line at N (`<N>-nightly.<B>`, N = 1.0.0).
 
+  next-base [--root DIR]
+      Prints the cmux-next version (N above): `version` in
+      cmux-tui/Cargo.toml [workspace.package]. It is the one source of truth:
+      the bundled CLIs inherit it as their crate version, nightly.yml passes it
+      as --next-base, scripts/reload.sh stamps it as MARKETING_VERSION, and
+      scripts/cmux-next/check-version-surfaces.sh fails a bundle that disagrees.
+
   check-build --build B --feed FILE_OR_URL [--feed ...]
       Exits 1 unless B is numerically above every sparkle:version in every
       feed. nightly.yml runs it for a cmux-next build against the cmux-next
@@ -50,6 +57,32 @@ def marketing(track, project_version, build, next_base):
     if not VERSION.match(base):
         raise Refused(f"base version {base!r} is not MAJOR.MINOR.PATCH")
     return f"{base}-{TRACK_CHANNEL[track]}.{build}"
+
+
+WORKSPACE_PACKAGE_VERSION = re.compile(r'^version\s*=\s*"([^"]+)"\s*(?:#.*)?$')
+
+
+def next_base(root):
+    """The cmux-next version from cmux-tui/Cargo.toml [workspace.package]."""
+    path = os.path.join(root, "cmux-tui", "Cargo.toml")
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as error:
+        raise Refused(f"cannot read {path}: {error}") from error
+    section = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("["):
+            section = stripped
+            continue
+        if section == "[workspace.package]":
+            match = WORKSPACE_PACKAGE_VERSION.match(stripped)
+            if match:
+                if not VERSION.match(match.group(1)):
+                    raise Refused(f"{path} [workspace.package] version {match.group(1)!r} is not MAJOR.MINOR.PATCH")
+                return match.group(1)
+    raise Refused(f"{path} has no [workspace.package] version")
 
 
 class Missing(Refused):
@@ -163,6 +196,8 @@ def main(argv):
     m.add_argument("--project-version", required=True)
     m.add_argument("--build", required=True)
     m.add_argument("--next-base", required=True)
+    n = commands.add_parser("next-base")
+    n.add_argument("--root", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     c = commands.add_parser("check-build")
     c.add_argument("--build", required=True)
     c.add_argument("--feed", action="append", required=True)
@@ -172,6 +207,8 @@ def main(argv):
     try:
         if args.command == "marketing":
             print(marketing(args.track, args.project_version, args.build, args.next_base))
+        elif args.command == "next-base":
+            print(next_base(args.root))
         else:
             published = check_build(args.build, args.feed, args.feed_if_present, args.already_published_ok)
             if args.already_published_ok:

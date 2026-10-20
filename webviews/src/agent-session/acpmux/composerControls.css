@@ -1,8 +1,7 @@
 /* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
    row's trailing edge as Claude's model list marks it, so every label starts at the row's own
    inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
-   separators on the label column's rhythm. The track below is the model menu's
-   inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+   separators on the label column's rhythm. Theme tokens only. */
 .acpmux-effort-menu {
   --acpmux-menu-gutter: 16px;
   --acpmux-menu-gutter-gap: 8px;
