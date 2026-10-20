@@ -75,7 +75,11 @@ import Testing
         _ = button.target?.perform(button.action, with: button)
         #expect(invocations.count == 1)
         #expect(invocations.first?.target == nil)
-        // A chat (no kind) has no "…" and no search button.
+        // A chat selected in a pane with terminals keeps the room and Search Tabs fills it (no "…").
+        toolbar.update(target: "chat", kind: nil, paneKinds: [.terminal])
+        #expect(toolbar.view.items.map(\.id) == ["tab.search"])
+        #expect(toolbar.view.reservedCount == 2)
+        // A pane of chats only (no kind anywhere) has no bar at all.
         toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.items.isEmpty)
         #expect(toolbar.view.reservedCount == 0)

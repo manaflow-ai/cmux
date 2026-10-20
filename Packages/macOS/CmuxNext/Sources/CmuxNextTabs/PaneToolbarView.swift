@@ -21,8 +21,9 @@ public struct PaneToolbarItem: Equatable, Sendable {
 }
 
 /// The pane's controls at the tab bar's trailing end (``PaneToolbar``; Leo 2026-10-12, Lawrence
-/// 2026-10-12): the pinned actions' buttons, then "…". They fade in place while the pointer is over
-/// the tab bar or these controls (`HoverReveal`, like the strip's plus) and while "…"'s menu is open,
+/// 2026-10-12): Search Tabs and the pinned actions' buttons, then "…". They show muted at rest
+/// (`tabs.restingControlOpacity`) and brighten in place while the pointer is over the tab bar or
+/// these controls (`HoverReveal`, like the strip's plus) and while "…"'s menu is open,
 /// and stay shown, "…" lit, while the pane is zoomed. Their width is kept while they are faded, so
 /// nothing moves when they appear. "…"'s menu opens on press (press-drag-release) and lists what
 /// opens in the pane, then the actions without a button, then Show in Tab Bar.
@@ -63,6 +64,8 @@ public final class PaneToolbarView: NSView {
         }
         moreButton.isHidden = true
         addSubview(moreButton)
+        // Muted at rest, so the bar's kept room never reads as an empty gap (Leo 2026-10-19).
+        reveal.restAlpha = TabTunables.restingControlOpacity.value
         _ = reveal.add(moreButton)
     }
 
@@ -79,6 +82,7 @@ public final class PaneToolbarView: NSView {
     public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0) {
         guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount else { return }
         reservedCount = reserving
+        reveal.restAlpha = TabTunables.restingControlOpacity.value
         if items != self.items { setButtons(items) }
         hasMore = more
         self.lit = lit
