@@ -265,6 +265,270 @@
         }
       }
     },
+    "settings.tabs.newTabNowPlaying": {
+      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет» в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่นบนแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає» в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示“正在播放”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示「正在播放」"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabNowPlaying.help": {
+      "comment": "Settings: help under Show Now Playing on New Tab.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der afspilles, på siden for ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, on the New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, på siden for ny fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na página da nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放内容的播放器，位于新标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放內容的播放器，位於新分頁。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -402,127 +666,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+            "value": "A player for what is playing, at the bottom of the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
+            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
+            "value": "Plejer za ono što se reproducira, na dnu bočne trake."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
+            "value": "En afspiller til det, der afspilles, nederst i sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
+            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
+            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
+            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
+            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
+            "value": "再生中のメディアのプレーヤー。サイドバーの下部に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
+            "value": "재생 중인 항목의 플레이어로, 사이드바 하단에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
+            "value": "En spiller for det som spilles, nederst i sidepanelet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
+            "value": "Odtwarzacz tego, co gra, na dole paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
+            "value": "Um player do que está tocando, na parte inferior da barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
+            "value": "Плеер для того, что сейчас играет, внизу боковой панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
+            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
+            "value": "Плеєр для того, що зараз грає, унизу бічної панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
+            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
+            "value": "正在播放内容的播放器，位于边栏底部。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
+            "value": "正在播放內容的播放器，位於側邊欄底部。"
           }
         }
       }

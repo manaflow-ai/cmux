@@ -619,6 +619,7 @@
     "setting.tabs.barOrder": "aboveToolbar",
     "setting.tabs.barPosition": "top",
     "setting.tabs.cmdWClosesPinnedTabs": false,
+    "setting.tabs.newTabNowPlaying": true,
     "setting.tabs.newTabPosition": "end",
     "setting.tabs.newTabTemplate": "default",
     "setting.tabs.overflow": "shrink",
