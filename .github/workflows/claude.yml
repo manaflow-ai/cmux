@@ -24,6 +24,7 @@ concurrency:
 jobs:
   claude:
     name: Claude request
+    environment: claude-agent
     # Webhook events cannot filter on comment text. Admit only human-authored
     # mentions so bot chatter never reaches the secret-bearing action.
     if: |
