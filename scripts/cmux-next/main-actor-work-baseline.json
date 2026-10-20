@@ -118,8 +118,8 @@
   "directory walk": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/SSHService+PersonKey.swift": {
-  "JSON / property-list decode": 3,
-  "line split of a whole input": 2
+  "JSON / property-list decode": 1,
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift": {
   "JSON / property-list decode": 1
@@ -129,9 +129,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift": {
   "JSON / property-list decode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TerminalOutput.swift": {
-  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/UpdaterService+Relaunch.swift": {
   "process launch": 1

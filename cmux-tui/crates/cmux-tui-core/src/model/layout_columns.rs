@@ -219,6 +219,18 @@ pub struct ColumnDock {
     /// records and clients without the capability read it as before.
     #[serde(default, skip_serializing_if = "is_false")]
     pub permanent: bool,
+    /// `pinned-dock-v1`: the column is a pinned column (the Home dock). Its
+    /// first tab is its pinned tab: it never closes, never leaves the
+    /// column and keeps the first place. No other tab enters the column
+    /// unless [`Self::allow_tabs`] is set. A pinned column is never removed
+    /// either (as a permanent one). Omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinned: bool,
+    /// `pinned-dock-v1`: a pinned column takes more tabs (new tabs, moves
+    /// in). Off by default: the person turns it on per column with
+    /// `column.update {allow_tabs: true}`. Meaningless without `pinned`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_tabs: bool,
 }
 
 fn is_false(value: &bool) -> bool {
@@ -228,7 +240,7 @@ fn is_false(value: &bool) -> bool {
 impl ColumnDock {
     /// A dock with no role that is not permanent.
     pub fn new(edge: DockEdge, mode: DockMode) -> Self {
-        Self { edge, mode, role: None, permanent: false }
+        Self { edge, mode, role: None, permanent: false, pinned: false, allow_tabs: false }
     }
 }
 

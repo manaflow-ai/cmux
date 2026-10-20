@@ -249,12 +249,14 @@ function pageOps(
     error?: { code: string; message: string };
   },
 ): Record<string, HostOp> {
+  let firstFailure = true;
   return Object.fromEntries(
     operations.map((operation) => [
       operation,
       async (params: unknown) => {
         if (state.mode === "loading" && operation === state.firstOperation) return await new Promise<never>(() => {});
-        if (state.mode === "error" && operation === state.firstOperation) {
+        if (state.mode === "error" && operation === state.firstOperation && firstFailure) {
+          firstFailure = false;
           throw new HostError(
             state.error?.code ?? "cmux.page.failed",
             state.error?.message ?? "The sample host failed.",
@@ -272,6 +274,9 @@ function clickLater(selector: string): void {
 
 export async function mountAppsPage(state: AppsPageVariant, _context: StageContext): Promise<void> {
   const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as ReturnType<typeof sampleApps>);
+  if (state.detailError) {
+    provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
+  }
   const host = installMockHost(
     pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
       mode: state.mode === "normal" ? undefined : state.mode,

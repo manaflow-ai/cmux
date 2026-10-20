@@ -18,6 +18,8 @@
 // dispatches DOM events itself. Waiting is on events (DOM mutations, animation and transition ends,
 // frames), never on a fixed time; a wait that never resolves fails at its cap.
 
+import type { MotionController, MotionEvidence } from "./motionEvidence";
+
 export type PlayTarget =
   | { role: string; name?: string | RegExp }
   | { testId: string }
@@ -51,6 +53,8 @@ export type PlayContext = {
   /** Resolves `target` now (throws when it is not there). */
   find(target: PlayTarget): Element;
   document: Document;
+  /** Start/stop a deterministic frame probe during a play step. */
+  motion: MotionController;
 };
 
 export type Play = (ctx: PlayContext) => Promise<void>;
@@ -115,7 +119,12 @@ export type StepReport = {
   /** Popup layer problems (judgePopups); absent where the stage measured none. */
   popupProblems?: string[];
 };
-export type PlayReport = { status: "pass" | "warn" | "fail" | "none"; steps: StepReport[]; error?: string };
+export type PlayReport = {
+  status: "pass" | "warn" | "fail" | "none";
+  steps: StepReport[];
+  motion?: MotionEvidence;
+  error?: string;
+};
 
 // ---- Pure rules (unit tested) ----
 

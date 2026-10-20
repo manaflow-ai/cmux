@@ -172,17 +172,25 @@ pub mod harness {
     /// The family of `harness` in an `_acpmux/harnesses` answer: the one
     /// acpmux reports, else derived from its kind and its command's words
     /// (acpmux's order: codex before claude), never from its name.
+    ///
+    /// A `claude-stdio` profile is Claude Code whatever family it declares:
+    /// `claude-sr2` (Claude Code through subrouter2, Lawrence 2026-10-18)
+    /// keeps its own family so acpmux's `-m claude` never resolves to it,
+    /// but the Chief must still give it the Claude turn and subagent
+    /// presets, the cached prompt layout and CLAUDE.md.
     pub fn family(answer: &Value, harness: &str) -> Result<String, String> {
         let Some(profile) = answer.get("harnesses").and_then(|h| h.get(harness)) else {
             return Err(format!("acpmux has no harness named {harness}"));
         };
+        let claude_stdio = profile.get("kind").and_then(Value::as_str) == Some(CLAUDE_STDIO);
         if let Some(family) = profile.get("family").and_then(Value::as_str) {
             return Ok(match family {
                 "claude" | "codex" => family.to_owned(),
+                _ if claude_stdio => "claude".to_owned(),
                 _ => "other".to_owned(),
             });
         }
-        if profile.get("kind").and_then(Value::as_str) == Some(CLAUDE_STDIO) {
+        if claude_stdio {
             return Ok("claude".into());
         }
         let words: Vec<String> =

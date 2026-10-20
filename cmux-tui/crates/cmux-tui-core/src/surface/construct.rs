@@ -179,6 +179,7 @@ impl Surface {
     ) -> anyhow::Result<Arc<Surface>> {
         let (opts, terminal_public_id, kitty_reservation) =
             Self::spawn_prelude(id, opts, &mux, resource_identity.as_ref(), KittyQuota::AtLaunch)?;
+        crate::debug_spans::mark("surface.prelude");
         let initial_kitty_limits = kitty_reservation
             .as_ref()
             .map(crate::mux::KittyImageBudgetReservation::initial_limits)
@@ -209,6 +210,7 @@ impl Surface {
                     initial_kitty_limits,
                 ),
             };
+            crate::debug_spans::mark("surface.host_launched");
             match launched {
                 Ok(attachment) => {
                     let defer_launch_activation = terminal_public_id.is_some();
@@ -249,7 +251,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
+        let pty = cmux_pty::open(initial_geometry.pty_size())?;
 
         let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
             Some(argv) => {
@@ -270,8 +272,12 @@ impl Surface {
         // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
         // caller can still override it.
         cmd.env("COLORTERM", "truecolor");
+        // A daemon-local PTY never starts through login(1): its close ends
+        // only the direct child, which would be login, not the shell.
         for (k, v) in &launch.env {
-            cmd.env(k, v);
+            if !crate::login_shell::is_marker(k) {
+                cmd.env(k, v);
+            }
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
         if let Some(cwd) = cwd.as_deref() {

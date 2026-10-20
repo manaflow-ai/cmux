@@ -18,7 +18,8 @@ struct DebugShortcutHintControl {
         guard !parts.isEmpty, !parts.contains(nil), parts.count == 1 || !parts.contains(where: { $0?.isEmpty == true }) else { return .object(["error": .string("modifier must be cmd, ctrl, opt, shift joined by +, or release")]) }
         let flags = parts.reduce(into: NSEvent.ModifierFlags()) { $0.formUnion($1 ?? []) }
         let ready = await hints.debugHold(flags)
-        return .object(["ready": .bool(ready), "released": .bool(flags.isEmpty),
+        let shown = hints.shownHints.map { JSONValue.object(["text": .string($0.text), "target": $0.target.map(JSONValue.string) ?? .null]) }
+        return .object(["ready": .bool(ready), "released": .bool(flags.isEmpty), "hints": .array(shown),
                         "source": .string("modifier held via debug event injection")])
     }
 }

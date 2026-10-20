@@ -43,14 +43,14 @@ extension PageFactory {
         // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
         let registry = services.registry
         page.contextMenuEditor = { [weak page] menu in
-            PageSelectionMenu.rebuild(menu, actions: .init(
+            PageSelectionMenu(
                 quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
                     page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
                         guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                     }
-                }))
+                }).rebuild(menu)
         }
         services.home.homeDidOpen(asked: true)
         return page

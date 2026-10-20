@@ -5,33 +5,31 @@ public import AppKit
 /// Search the Web and WebKit's Look Up; macOS adds Services last. With nothing selected WebKit
 /// offers no Copy, and the menu stays empty, as the default left it. The Channels page uses it.
 @MainActor
-public enum PageSelectionMenu {
+public struct PageSelectionMenu {
     /// The page command Quote in Reply sends; the page quotes its own selection (the Channels
     /// page's quoteSelection.ts).
     public nonisolated static let quoteCommand = "quoteSelection"
     static let copyItem = "WKMenuItemIdentifierCopy"
     static let lookUpItem = "WKMenuItemIdentifierLookUp"
 
-    public struct Actions {
-        public var quote: () -> Void
-        public var search: () -> Void
+    public var quote: () -> Void
+    public var search: () -> Void
 
-        public init(quote: @escaping () -> Void, search: @escaping () -> Void) {
-            self.quote = quote
-            self.search = search
-        }
+    public init(quote: @escaping () -> Void, search: @escaping () -> Void) {
+        self.quote = quote
+        self.search = search
     }
 
     /// Replaces WebKit's items in `menu` with the selection menu.
-    public static func rebuild(_ menu: NSMenu, actions: Actions) {
-        let copy = menu.items.first { $0.identifier?.rawValue == copyItem }
-        let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
+    public func rebuild(_ menu: NSMenu) {
+        let copy = menu.items.first { $0.identifier?.rawValue == Self.copyItem }
+        let lookUp = menu.items.first { $0.identifier?.rawValue == Self.lookUpItem }
         menu.removeAllItems()
         guard let copy else { return }
         menu.addItem(copy)
-        menu.addItem(PageMenuAction.item(Strings.quoteInReply, handler: actions.quote))
+        menu.addItem(PageMenuAction.item(Strings.quoteInReply, handler: quote))
         menu.addItem(.separator())
-        menu.addItem(PageMenuAction.item(Strings.searchTheWeb, handler: actions.search))
+        menu.addItem(PageMenuAction.item(Strings.searchTheWeb, handler: search))
         if let lookUp { menu.addItem(lookUp) }
     }
 

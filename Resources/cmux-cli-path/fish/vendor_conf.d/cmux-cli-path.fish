@@ -38,6 +38,22 @@ if status is-interactive
             set -gx PATH $dir $rest
         end
     end
+    # cmux-tui's agent shim directory (`codex` and `claude` that add this
+    # terminal's hooks) goes back to the front before each command line:
+    # config.fish and prompt hooks often prepend the directory of the real
+    # agent, and Codex runs its hooks in a shared daemon that cannot see this
+    # terminal's environment, so only the shim can route them. The daemon's
+    # own integration defines the same function; the later definition wins.
+    function __cmux_tui_agent_shims_first --on-event fish_preexec
+        set -l dir "$CMUX_TUI_AGENT_SHIMS"
+        if test -n "$dir" -a -d "$dir"; and test "$PATH[1]" != "$dir"
+            set -l rest
+            for entry in $PATH
+                test "$entry" = "$dir"; or set -a rest $entry
+            end
+            set -gx PATH $dir $rest
+        end
+    end
     function __cmux_replay_first --on-event fish_prompt
         functions -e __cmux_replay_first
         set -l file $__cmux_replay_file

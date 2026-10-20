@@ -21,6 +21,14 @@ public struct ProvisionalTab: Sendable, Hashable {
         surface = SurfaceID(rawValue: Self.surfaceBase + Self.next)
     }
 
+    /// The stand-in of a new conversation tab showing `conversation` (`new-conversation-tab`).
+    public func conversation(_ conversation: ConversationTabRef) -> TabSnapshot {
+        var snapshot = TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .conversation,
+                                   title: "about:blank", browserRenderer: "frontend")
+        snapshot.conversation = conversation
+        return snapshot
+    }
+
     public static func isProvisional(_ id: String) -> Bool { id.hasPrefix(idPrefix) }
 
     /// Whether `surface` is a provisional tab's (never a daemon surface).
@@ -34,19 +42,44 @@ public struct ProvisionalTab: Sendable, Hashable {
         if store.tabsBySurface[surface] != nil, !store.overlayLifted, store.applyDepth == 0 {
             store.withOverlayLifted(writer: "intent created") {}
         }
+        CancelledCreation.requestCloses(in: store)
     }
 
     /// The daemon's tab of a create intent arrived carrying the intent's transaction (the event
     /// can come before the reply): the provisional tab gives way to it in this apply, and the
     /// store reports both ids (`DaemonStore.onTabCreated`, `onPageTabCreated` for a page tab).
     @MainActor static func echoed(_ event: DaemonEvent, transaction: ClientTransactionID, in store: DaemonStore) {
+        if case .paneAdded(let delta) = event { return echoedSplit(delta, transaction: transaction, in: store) }
         guard case .tabAdded(let delta) = event,
               let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               entry.createdSurface != delta.surface, // `matched` paired it already
-              case .createTab(_, let provisional) = entry.kind, let tab = store.tabsBySurface[delta.surface] else { return }
+              let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
         store.intentLog.noteCreated(transaction, surface: delta.surface)
+        guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
+    }
+
+    /// The provisional tab a create intent shows: a created tab's, or a new workspace's first tab.
+    private static func createdTab(of intent: Intent) -> TabSnapshot? {
+        switch intent {
+        case .createTab(_, let provisional): provisional
+        case .createWorkspace(let provisional, _): provisional.tab
+        default: nil
+        }
+    }
+
+    /// The daemon's pane of a conversation tab's split (`conversation-tab-split-v1`) arrived
+    /// carrying the split intent's transaction: its one tab is the provisional tab's, reported
+    /// in this apply as for a create (so view state moves before the pane shows).
+    @MainActor private static func echoedSplit(_ delta: PaneDelta, transaction: ClientTransactionID, in store: DaemonStore) {
+        guard let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
+              case .splitPane(_, _, _, let provisional) = entry.kind, let wanted = provisional.tab,
+              let tab = store.pane(delta.pane)?.tabs.first, entry.createdSurface != tab.surface else { return }
+        store.intentLog.noteCreated(transaction, surface: tab.surface)
+        guard !entry.closeWhenCreated else { return }
+        let id = wanted.tabResourceID?.rawValue ?? ""
+        if wanted.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
     }
 
     /// The daemon's raw `tab-added` of a conversation tab, with no transaction: the daemon sends it
@@ -76,6 +109,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         let daemonTabs = store.pane(delta.pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= delta.surface.rawValue }) else { return }
         store.intentLog.noteCreated(entry.transaction, surface: delta.surface)
+        guard !entry.closeWhenCreated else { return }
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
     }

@@ -21,6 +21,13 @@ extension UpdaterService {
         willInstallStaged = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
+        // The check's progress and result show on the sidebar's notice card; with the
+        // active window's sidebar hidden (or no window) nothing would show, so the sheet
+        // answers instead (never a check with no visible feedback).
+        showsIndicator = { [weak services] in
+            guard let window = services?.windows.active else { return false }
+            return !window.state.sidebarHidden
+        }
         openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
