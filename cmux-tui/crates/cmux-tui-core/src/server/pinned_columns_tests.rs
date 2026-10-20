@@ -404,7 +404,7 @@ fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
             .collect::<Vec<_>>();
         (columns, state.pane_of(browser.id), state.active_pane())
     });
-    assert_eq!(columns[0].1, true);
+    assert!(columns[0].1, "{columns:?}");
     assert_eq!(columns[1], (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false), "{columns:?}");
     assert_eq!(columns.len(), 2);
     assert_ne!(beside, Some(panes[0]));

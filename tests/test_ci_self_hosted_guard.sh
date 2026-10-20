@@ -1023,6 +1023,12 @@ check_no_github_hosted_runners() {
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
   # (Blacksmith by default), or owned pools reached through the pickers.
   # A `# github-hosted-required:` comment is no longer an exemption.
+  # The one live route to GitHub-hosted macOS is cmux-next.yml's
+  # needs.macos-placement.outputs.hosted_runner: next_macos_cascade.py names
+  # `macos-26` only for fast-tier and swift-canary overflow Blacksmith cannot
+  # take now (full or stalled). A hosted outage queues at most its
+  # HOSTED_CAPACITY; a failed hosted job falls back on the bot's attempt 3.
+  # tests/test_ci_next_macos_cascade.py keeps the output to those two jobs.
   # Allowed GitHub-hosted forms:
   #   - the fork branch `github.repository_owner != 'manaflow-ai' && '<label>'`
   #     (and `&& matrix.hosted_runner`), which never evaluates in manaflow-ai;

@@ -35,6 +35,21 @@ enum CmuxStrings {
     static var send: String {
         String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
     }
+    /// Reply to Selection (ChatController+ReplyQuote.swift): the menu item, the card's line and its remove button.
+    static var replyToSelection: String {
+        String(localized: "home.message.replyToSelection", defaultValue: "Reply to Selection", table: "CmuxHome", bundle: .module)
+    }
+    /// The card's line over the quote: "Replying to Chief".
+    static func replyingTo(_ name: String) -> String {
+        String(format: String(localized: "home.replyQuote.replyingTo", defaultValue: "Replying to %@", table: "CmuxHome", bundle: .module), name)
+    }
+    /// The card's line when the quoted message's sender is unknown.
+    static var replyingToSelection: String {
+        String(localized: "home.replyQuote.replyingToSelection", defaultValue: "Replying to Selection", table: "CmuxHome", bundle: .module)
+    }
+    static var replyQuoteRemove: String {
+        String(localized: "home.replyQuote.remove", defaultValue: "Remove Quote", table: "CmuxHome", bundle: .module)
+    }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }

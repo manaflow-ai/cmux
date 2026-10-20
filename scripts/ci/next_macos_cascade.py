@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next's macOS cascade: idle minis, then Blacksmith 12 vCPU, then 6 vCPU, then the minis' queue.
+"""cmux-next's macOS cascade: idle minis, Blacksmith 12 vCPU, 6 vCPU, hosted macos-26, then the minis' queue.
 
 side_lane_placement.py gives an idle owned side runner to each job it can and
 leaves the rest queued on the owned label. Until this cascade, a busy fleet
@@ -40,6 +40,38 @@ A free slot is CAPACITY less the jobs in flight and the jobs already queued:
   a backlog would wait behind it, so without a fresh count nothing cascades.
 Anything unread places nothing, which is today's route.
 
+A stalled label gets no job, whatever its free slots say (stalled()). On
+2026-10-20 Blacksmith's macOS starts stopped (status.blacksmith.sh, "Delayed job
+starts on macOS runners"): with no runner online the slots all counted free,
+so every run's cascade kept sending jobs to labels where none started, about
+80 by 10:50Z. The janitor's snapshot (the same read as the queued counts)
+records each label's oldest queued job; by now it has waited that long plus
+the snapshot's age. A label is stalled when that wait is STALL_MINUTES or
+more, or when the snapshot itself saw it wait IDLE_STALL_MINUTES or more and
+the label has no runner online now (age is not added there: an idle scale set
+has no runner online, and a job queued at snapshot time may since have run):
+a moving Blacksmith label starts a job in a few minutes (6 vCPU: median 2.6
+min, p90 14.7, 2026-10-20 01:04Z to 02:35Z).
+
+Then hosted macos-26 takes the overflow (Leo: GitHub-hosted macOS is free on
+this public repository and must not sit idle while Blacksmith queues). The
+jobs Blacksmith did not take, in HOSTED_JOBS, go to `macos-26` while it has
+room: HOSTED_CAPACITY, the organization's hosted macOS concurrency, less this
+repository's hosted macOS jobs in the snapshot, at most MAX_PER_RUN a run.
+Nothing measures hosted health: an outage there queues at most that many
+jobs, and a hosted job that fails falls back only on the bot's attempt 3
+(retry_runner); the rescue does not watch hosted jobs. A hosted job gets a
+45 min timeout instead of 20, since it builds cold. The
+rest stay on the minis' queue as before. HOSTED_JOBS are the jobs whose pins
+the hosted image meets: they pin no Xcode path (select-ci-xcode.sh takes
+xcode-pins.txt's 26.6, the image default, build 17F113 as on Blacksmith),
+their R2 cache keys carry the workspace path (a hosted /Users/runner/work
+build never restores a Blacksmith one), and they use no Blacksmith-only
+action. The scheme compile stays off hosted: a cold app compile, web bundles
+and launch-time budget on about 3 vCPU are unmeasured against its 60 min
+budget. Without the snapshot's waits nothing is stalled and nothing goes to
+hosted, which is the previous route.
+
 `retry_runner` is the Blacksmith label the bot's overflow attempt (3 or later)
 takes for these jobs: among labels with a free slot, the lowest (in flight +
 queued) / capacity, the larger label on a tie; with no free slot, 6 vCPU, whose
@@ -60,6 +92,12 @@ from typing import Any, Callable, Mapping, Sequence
 LARGE = "blacksmith-12vcpu-macos-26"
 SMALL = "blacksmith-6vcpu-macos-26"
 LABELS = (LARGE, SMALL)
+# GitHub-hosted macOS 26 (Xcode 26.6 default): free here, capped by the organization's concurrency.
+HOSTED = "macos-26"
+HOSTED_CAPACITY = 5
+HOSTED_JOBS = ("fast-tier", "swift-canary")
+STALL_MINUTES = 25
+IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
@@ -75,7 +113,7 @@ API = "https://api.github.com"
 
 @dataclasses.dataclass(frozen=True)
 class Placement:
-    jobs: Mapping[str, tuple[str, ...]]  # Blacksmith label -> the jobs it takes now
+    jobs: Mapping[str, tuple[str, ...]]  # Blacksmith label or HOSTED -> the jobs it takes now
     retry_runner: str
     why: str
 
@@ -93,8 +131,16 @@ def in_flight(groups: Sequence[Mapping[str, Any]], runners_of: Callable[[int], S
     return counts
 
 
-def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, int] | None:
-    """Each label's queued jobs from a janitor snapshot at most QUEUE_SNAPSHOT_MINUTES old, else None."""
+@dataclasses.dataclass(frozen=True)
+class Seen:
+    """What else the snapshot says: each label's oldest queued wait by now (minutes), and HOSTED's load."""
+    waits: Mapping[str, float]
+    hosted: int
+    age: float = 0.0  # the snapshot's age in minutes, already in `waits`
+
+
+def _fresh(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> tuple[float, Mapping[str, Any]] | None:
+    """(age in minutes, pools) of a janitor snapshot at most QUEUE_SNAPSHOT_MINUTES old, else None."""
     if not isinstance(snapshot, Mapping):
         return None
     try:
@@ -107,24 +153,63 @@ def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, in
     pools = snapshot.get("pools")
     if not -5 <= age <= QUEUE_SNAPSHOT_MINUTES or not isinstance(pools, Mapping):
         return None
-    counts: dict[str, int] = {}
-    for label in LABELS:
-        entry = pools.get(label) or {}
-        try:
-            counts[label] = max(0, int(entry.get("queued", 0))) if isinstance(entry, Mapping) else 0
-        except (TypeError, ValueError):
-            counts[label] = 0
-    return counts
+    return age, pools
 
 
-def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int]) -> dict[str, tuple[str, ...]]:
-    """Give `jobs`, in order, the free slots of LARGE and then SMALL; a job with none left gets nothing."""
-    free = {label: CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0) for label in LABELS}
-    placed: dict[str, list[str]] = {label: [] for label in LABELS}
+def _field(pools: Mapping[str, Any], label: str, key: str) -> int:
+    entry = pools.get(label) or {}
+    try:
+        return max(0, int(entry.get(key, 0))) if isinstance(entry, Mapping) else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def queued(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> dict[str, int] | None:
+    """Each label's queued jobs from a janitor snapshot at most QUEUE_SNAPSHOT_MINUTES old, else None."""
+    fresh = _fresh(snapshot, now)
+    if fresh is None:
+        return None
+    return {label: _field(fresh[1], label, "queued") for label in LABELS}
+
+
+def seen(snapshot: Mapping[str, Any] | None, now: dt.datetime) -> Seen | None:
+    """Each label's oldest queued wait by now and HOSTED's queued + running, from the same fresh snapshot."""
+    fresh = _fresh(snapshot, now)
+    if fresh is None:
+        return None
+    age, pools = fresh
+    age = max(0.0, age)
+    waits = {label: float(_field(pools, label, "oldest_queued_minutes")) + age
+             if _field(pools, label, "queued") else 0.0 for label in LABELS}
+    # Every hosted macOS pool shares the organization's concurrency; the janitor keys a job by its
+    # macOS labels joined with commas, so a hosted pool is one whose labels are all macos-*.
+    hosted = sum(_field(pools, pool, "queued") + _field(pools, pool, "running") for pool in pools
+                 if all(part.startswith("macos-") for part in str(pool).split(",")))
+    return Seen(waits=waits, hosted=hosted, age=age)
+
+
+def stalled(live: Mapping[str, int], waiting: Mapping[str, int], waits: Mapping[str, float],
+            age: float = 0.0) -> tuple[str, ...]:
+    """The labels whose queue is not moving: a wait of STALL_MINUTES by now, or one of IDLE_STALL_MINUTES
+    the snapshot saw (`waits` less its `age`) with no runner online now."""
+    return tuple(label for label in LABELS
+                 if waiting.get(label, 0) > 0
+                 and (waits.get(label, 0.0) >= STALL_MINUTES
+                      or live.get(label, 0) == 0 and waits.get(label, 0.0) - age >= IDLE_STALL_MINUTES))
+
+
+def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, int], *,
+            stall: Sequence[str] = (), hosted_free: int = 0) -> dict[str, tuple[str, ...]]:
+    """Give `jobs`, in order, the free slots of LARGE, then SMALL (unless stalled), then HOSTED for HOSTED_JOBS."""
+    free = {label: 0 if label in stall else CAPACITY[label] - live.get(label, 0) - waiting.get(label, 0)
+            for label in LABELS}
+    free[HOSTED] = min(hosted_free, MAX_PER_RUN)
+    placed: dict[str, list[str]] = {label: [] for label in (*LABELS, HOSTED)}
     for job in jobs:
-        label = next((label for label in LABELS if free[label] > 0), None)
+        targets = (*LABELS, HOSTED) if job in HOSTED_JOBS else LABELS
+        label = next((label for label in targets if free[label] > 0), None)
         if label is None:
-            break
+            continue
         placed[label].append(job)
         if len(placed[label]) >= MAX_PER_RUN:
             free[label] = 0
@@ -159,14 +244,18 @@ def skipped(env: Mapping[str, str]) -> str:
 
 
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
-          waiting: Mapping[str, int] | None) -> Placement:
-    """The Blacksmith jobs of attempt 1, after the idle minis took `owned`."""
-    empty = {label: () for label in LABELS}
+          waiting: Mapping[str, int] | None, seen: Seen | None = None) -> Placement:
+    """The Blacksmith and hosted jobs of attempt 1, after the idle minis took `owned`."""
+    empty = {label: () for label in (*LABELS, HOSTED)}
     if skipped(env):
         return Placement(empty, "", skipped(env))
     if live is None:
         return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
+    stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
+    moving = [label for label in LABELS if label not in stall]
     retry = retry_label(live, waiting or {})
+    if stall and moving:
+        retry = moving[0] if len(moving) == 1 else retry
     if waiting is None:
         return Placement(empty, retry, f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
                                        "Blacksmith's queue; no job leaves the minis' queue")
@@ -176,12 +265,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # minis count against the jobs that run here, in order, before Blacksmith.
     running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
     candidates = running[len(owned):]
-    placed = cascade(candidates, live, waiting)
+    hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
+    placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
     load = ", ".join(f"`{label}` {live[label]} in flight + {waiting[label]} queued of {CAPACITY[label]}"
+                     + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
                      for label in LABELS)
     moved = "; ".join(f"`{label}` takes {', '.join(names)}" for label, names in placed.items() if names)
     left = [job for job in candidates if not any(job in names for names in placed.values())]
     why = f"Blacksmith: {load}. " + (moved or "No free Blacksmith slot")
+    if seen is not None:
+        why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
     return Placement(placed, retry, why + f"; overflow goes to `{retry}`")
@@ -210,12 +303,14 @@ class Api:
 
 
 def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[str], None] = print,
-         clock: Callable[[], float] = time.monotonic) -> tuple[dict[str, int] | None, dict[str, int] | None]:
-    """(in flight, queued) for place(); each None when its read fails or READ_BUDGET_SECONDS ran out."""
+         clock: Callable[[], float] = time.monotonic,
+         ) -> tuple[dict[str, int] | None, dict[str, int] | None, Seen | None]:
+    """(in flight, queued, seen) for place(); each None when its read fails or READ_BUDGET_SECONDS ran out."""
     started = clock()
     live = waiting = None
+    found: Seen | None = None
     if skipped(env):
-        return live, waiting
+        return live, waiting, found
     route, repository = env.get("ROUTE_TOKEN", ""), env.get("GITHUB_REPOSITORY", "")
     if route and repository:
         try:
@@ -227,13 +322,14 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
-        return live, None
+        return live, None, None
     if live is not None and snapshot_token and repository:
         try:
-            waiting = queued(pool.GitHub(snapshot_token, repository).snapshot(now=now), now)
+            snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
+            waiting, found = queued(snapshot, now), seen(snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
-    return live, waiting
+    return live, waiting, found
 
 
 def delimited(jobs: Sequence[str]) -> str:
@@ -241,12 +337,16 @@ def delimited(jobs: Sequence[str]) -> str:
 
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
-    """Outputs blacksmith_12_jobs, blacksmith_6_jobs (space-delimited, as owned_jobs) and retry_runner."""
+    """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs (space-delimited, as owned_jobs),
+    hosted_runner (HOSTED when hosted_jobs names a job) and retry_runner."""
     output = env.get("GITHUB_OUTPUT")
+    hosted = placement.jobs.get(HOSTED, ())
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"blacksmith_12_jobs={delimited(placement.jobs.get(LARGE, ()))}\n"
                          f"blacksmith_6_jobs={delimited(placement.jobs.get(SMALL, ()))}\n"
+                         f"hosted_jobs={delimited(hosted)}\n"
+                         f"hosted_runner={HOSTED if hosted else ''}\n"
                          f"retry_runner={placement.retry_runner}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:

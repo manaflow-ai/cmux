@@ -356,6 +356,11 @@ let package = Package(
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The Accounts screen (Settings > Accounts, onboarding step). The App
         // supplies `AccountsServices`.
         .target(
@@ -1160,7 +1165,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextPaletteTests",
-            dependencies: ["CmuxNextPalette"],
+            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
+            dependencies: ["CmuxNextPalette", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1299,6 +1305,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // UpdateLoadingIndicatorTests feeds Sparkle's update states.
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),

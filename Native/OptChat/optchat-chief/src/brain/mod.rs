@@ -65,6 +65,14 @@ use crate::turn::{TurnOutcome, TurnStart};
 /// The start of [`Brain::run`]'s answer when a signal asked the host to stop.
 pub const STOP_REQUESTED: &str = "stop requested";
 
+/// The brain's stop when an update asked the host to hand off when idle
+/// (SIGUSR1): it stopped between turns, so the next host cuts nothing.
+pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
+
+/// How long a handoff request waits for the running turn: past it the host
+/// stops anyway and the next host adopts the turn session.
+pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 pub enum Input {
     Daemon(Box<DaemonEvent>),
     Agents(Box<AgentEvent>),
@@ -218,6 +226,33 @@ pub enum Input {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
     },
+    /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
+    EscalateAuth {
+        agent: String,
+        request: crate::tools::AuthEscalation,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `peers` from subagent `caller` (acp-chief-issues.md #11).
+    PeerList {
+        caller: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// `tell` from subagent `from` to subagent `id`.
+    PeerTell {
+        from: String,
+        id: String,
+        message: String,
+        key: Option<String>,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A tell to a running subagent that neither its steer nor the prompt
+    /// after it delivered (acp-chief-issues.md #10): it goes back into the
+    /// subagent's inbox, first, for its next prompt.
+    TellUndelivered {
+        id: String,
+        message: String,
+        error: String,
+    },
     /// `control(action, ...)` (control.rs).
     Control {
         request: crate::tools::ControlCall,
@@ -256,6 +291,10 @@ pub enum Input {
     Shutdown {
         signal: i32,
     },
+    /// SIGUSR1 to the host: an update replaced the app, so the brain stops
+    /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
+    /// off and starts the next host.
+    HandoffWhenIdle,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
     Stop {
@@ -491,6 +530,10 @@ enum Phase {
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
+/// The longest the Chief waits for a turn session the next acpmux adopted
+/// (an update relaunch) to end before it folds and ends it.
+pub(crate) const ORPHAN_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 /// Runs after every turn with its key (persist and back up, section 10).
 pub type TurnHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -582,6 +625,12 @@ pub struct Brain {
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Most subagents at work at once (`subagents::live_limit`); None: no cap.
     max_live: Option<usize>,
+    /// The wall clock (ms since the epoch) the subagent watch reads; tests
+    /// set their own (`set_clock`).
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// Each running subagent's folded events (sub_watch.rs), by id: kept
+    /// between ticks so each tick reads only the new events.
+    watches: HashMap<String, crate::sub_watch::Watch>,
     /// A finished subagent's workspace closes instead of taking the done
     /// mark (`OPTCHAT_SUBAGENT_ON_FINISH=close`).
     sub_close_on_finish: bool,
@@ -656,10 +705,17 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// While set, an adopted turn session still runs and no turn starts; at
+    /// this time it is folded and ended anyway (`children::adopt_orphans`).
+    orphan_wait: Option<Instant>,
     /// When a turn an upstream error cut may run again (None: now).
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
     upstream_backoff: Vec<std::time::Duration>,
+    /// An update asked for a handoff: the brain stops between turns, at
+    /// the latest at this deadline.
+    handoff_at: Option<Instant>,
+    handoff_wait: std::time::Duration,
 }
 
 impl Brain {
@@ -738,6 +794,8 @@ impl Brain {
             cloud_paused: Default::default(),
             cloud_idle_since: Default::default(),
             max_live: None,
+            clock: Arc::new(now_ms),
+            watches: HashMap::new(),
             sub_close_on_finish: false,
             resume_policy: Some(crate::auto_resume::ResumePolicy::default()),
             reach: Arc::new(crate::auto_resume::TcpProbe::from_env(
@@ -767,7 +825,10 @@ impl Brain {
             previewer: None,
             cuts: 0,
             resume_at: None,
+            orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            handoff_at: None,
+            handoff_wait: HANDOFF_DEADLINE,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -864,6 +925,11 @@ impl Brain {
         self.cloud_idle = idle;
     }
 
+    /// The clock the subagent watch reads (ms since the epoch).
+    pub fn set_clock(&mut self, clock: Arc<dyn Fn() -> u64 + Send + Sync>) {
+        self.clock = clock;
+    }
+
     /// Caps the subagents at work at once (None: no cap, the default).
     pub fn set_max_live(&mut self, limit: Option<usize>) {
         self.max_live = limit;
@@ -905,10 +971,15 @@ impl Brain {
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        match (self.outbox_timer, self.resume_at) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [
+            self.outbox_timer,
+            self.resume_at,
+            self.orphan_wait,
+            self.handoff_at,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Runs until a fatal error; returns it.
@@ -1041,6 +1112,28 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::EscalateAuth {
+                agent,
+                request,
+                reply,
+            } => {
+                let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
+            Input::PeerList { caller, reply } => {
+                let _ = reply.send(Ok(self.agents_list(&caller)));
+            }
+            Input::PeerTell {
+                from,
+                id,
+                message,
+                key,
+                reply,
+            } => {
+                let _ = reply.send(self.peer_tell(&from, &id, &message, key.as_deref()));
+            }
+            Input::TellUndelivered { id, message, error } => {
+                self.tell_undelivered(&id, message, &error);
+            }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
@@ -1068,6 +1161,13 @@ impl Brain {
             Input::Shutdown { signal } => {
                 (self.log)(&format!("signal {signal}: stopping"));
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
+            }
+            Input::HandoffWhenIdle => {
+                if self.handoff_at.is_none() {
+                    (self.log)("an update asks for a handoff: stopping once no turn runs");
+                    self.handoff_at = Some(Instant::now() + self.handoff_wait);
+                }
+                self.handoff_if_idle();
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
@@ -1165,11 +1265,45 @@ impl Brain {
 
     pub fn on_timer(&mut self) {
         let now = Instant::now();
+        if self.handoff_at.is_some_and(|at| at <= now) && self.fatal.is_none() {
+            (self.log)("the turn ran past the handoff deadline; stopping, the next host adopts it");
+            self.fatal = Some(format!("{HANDOFF_WHEN_IDLE} (deadline)"));
+            return;
+        }
         if self.outbox_timer.is_some_and(|at| at <= now) {
             self.outbox_timer = None;
             self.flush_outbox();
         }
         self.on_resume_timer();
+        if self.orphan_wait.is_some_and(|at| at <= now) {
+            (self.log)("an adopted turn session ran past its wait; folding and ending it");
+            self.adopt_orphans(true);
+            self.maybe_start_turn();
+        }
+    }
+
+    /// Sets how long a handoff request waits for the running turn (tests
+    /// shorten it).
+    pub fn set_handoff_deadline(&mut self, wait: std::time::Duration) {
+        self.handoff_wait = wait;
+    }
+
+    /// A handoff was asked and no turn runs (none in flight, no adopted turn
+    /// session it waits for): the brain stops. True when it stopped.
+    pub(super) fn handoff_if_idle(&mut self) -> bool {
+        if self.handoff_at.is_none() || self.phase != Phase::Idle || self.orphan_wait.is_some() {
+            return false;
+        }
+        if self.fatal.is_none() {
+            (self.log)("no turn runs: handing off for the update");
+            // Replies the agent gap holds back post now, not with the next host.
+            if self.outbox_timer.take().is_some() {
+                self.flush_outbox();
+            }
+            self.save();
+            self.fatal = Some(HANDOFF_WHEN_IDLE.into());
+        }
+        true
     }
 
     fn save(&self) {
@@ -1195,9 +1329,19 @@ impl Brain {
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, parse_bool, parse_reply_threads,
-            parse_ttl,
+            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            parse_reply_threads, parse_ttl,
         };
+        if key == SHOW_AFTER_REPORT {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.show_after_report = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
             let mut next = self.chief;
@@ -1224,7 +1368,7 @@ impl Brain {
         }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
             ));
         }
         let on = parse_bool(value)?;
@@ -1286,6 +1430,25 @@ impl Brain {
         let wakes = item.wakes();
         self.queue.push_back(item);
         if human && same && wakes {
+            self.interrupt_for_newer();
+        }
+        self.maybe_start_turn();
+    }
+
+    /// Queues `text` as a note at the head of the main conversation's queue
+    /// and steers it into a running main turn at once (a subagent's
+    /// sign-in escalation: the user is waiting on it, so it never waits
+    /// behind other reports).
+    fn queue_urgent(&mut self, text: String) {
+        let item = Queued {
+            logged: false,
+            text,
+            source: Source::Note,
+            images: Vec::new(),
+            conversation: None,
+        };
+        self.queue.push_front(item);
+        if self.phase == Phase::Running && self.turn_side().is_none() {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();
