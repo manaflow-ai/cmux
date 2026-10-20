@@ -151,11 +151,10 @@ public final class BrowserDownload: Identifiable {
     }
 
     /// The download ended. Both engines end every download here, so a
-    /// finished file moves from its temporary name into place
-    /// (`BrowserDownloadPlacement.finish`; a failed move fails the
-    /// download), the completion steps of `BrowserDownloadPolicy`
-    /// (quarantine) run on the file where it landed, a failed or cancelled
-    /// download leaves no file, and only the first end counts.
+    /// finished file is quarantined while it still has its temporary name,
+    /// then moves into place (`BrowserDownloadPlacement.finish`). A failed
+    /// quarantine or move fails the download and leaves no file; a failed or
+    /// cancelled download also leaves no file, and only the first end counts.
     func complete(_ end: Status) {
         guard status == .inProgress, end != .inProgress else { return }
         // A download that ends before its engine named it is named first.
@@ -164,10 +163,14 @@ public final class BrowserDownload: Identifiable {
         if let placement {
             if end == .finished {
                 do {
+                    try BrowserDownloadPolicy.prepareForLanding(
+                        placement.temporaryURL, source: sourceURL, quarantine: quarantine
+                    )
                     let landed = try placement.finish()
                     destination = landed
                     filename = landed.lastPathComponent
                 } catch {
+                    placement.discard()
                     end = .failed(error.localizedDescription)
                 }
             } else {
@@ -176,7 +179,6 @@ public final class BrowserDownload: Identifiable {
         }
         if end == .finished {
             fraction = 1
-            BrowserDownloadPolicy.runCompletionSteps(for: self, quarantine: quarantine)
         }
         status = end
         let handlers = finishHandlers
