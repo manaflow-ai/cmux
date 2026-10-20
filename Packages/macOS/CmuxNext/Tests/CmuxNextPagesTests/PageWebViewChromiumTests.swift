@@ -57,10 +57,13 @@ struct PageWebViewChromiumTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try makeView(hosting)
-        view.chromiumSleep = { _ in }
+        // The deadline's sleep ends when the test says so, after it holds the deadline task.
+        let (elapsed, elapse) = AsyncStream<Void>.makeStream()
+        view.chromiumSleep = { _ in for await _ in elapsed { return } }
         let start = try #require(view.chromiumStart)
         await start.value
         let deadline = try #require(view.chromiumSession?.deadline)
+        elapse.yield()
         await deadline.value
         #expect(view.engineDecision == .webKit(.chromiumFailed))
         #expect(hosting.made.first?.closed == true)
