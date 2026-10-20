@@ -193,7 +193,12 @@ test("an older failed chat behind newer idle ones still shows as needing you", a
   const idle = Array.from({ length: 6 }, (_, index) =>
     session({ sessionId: `s-idle-${index}`, title: `Idle ${index}`, updatedAt: now - (index + 1) * 60_000 }),
   );
-  const failed = session({ sessionId: "s-failed", title: "Old failure", indicator: "failed", updatedAt: now - 3_600_000 });
+  const failed = session({
+    sessionId: "s-failed",
+    title: "Old failure",
+    indicator: "failed",
+    updatedAt: now - 3_600_000,
+  });
   const cards = needsYouCards([...idle, failed], now, translate);
   expect(cards.map((card) => card.sessionId)).toEqual(["s-failed"]);
 });

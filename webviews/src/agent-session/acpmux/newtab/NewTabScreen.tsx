@@ -294,7 +294,10 @@ export function NewTabScreen(props: Props) {
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent.
   // Picked from every chat, not the trimmed recent cards (needsYouCards).
-  const needsYou = useMemo(() => (stage ? needsYouCards(snapshot.sessions, at, t) : []), [stage, snapshot.sessions, at, t]);
+  const needsYou = useMemo(
+    () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
+    [stage, snapshot.sessions, at, t],
+  );
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
@@ -784,11 +787,7 @@ export function NewTabScreen(props: Props) {
         {stage && (
           // Claude Code desktop's footer, under the box (Leo 2026-10-19; the composer's split): the
           // folder and the permission mode on the left, the model and effort on the right, as text.
-          <div
-            className="nt-footer"
-            data-footer-look={plainFooter ? "plain" : undefined}
-            onPointerDownCapture={touch}
-          >
+          <div className="nt-footer" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
             {locationStrip}
             {chips}
           </div>
