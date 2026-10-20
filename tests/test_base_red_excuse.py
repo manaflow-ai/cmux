@@ -373,6 +373,40 @@ class LintFindings(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "printed nothing"):
             self.judge()
 
+    def test_a_head_log_without_step_names_compares_only_its_red_steps(self):
+        # GitHub served the head's log with every line under UNKNOWN STEP (#22200, 2026-10-20):
+        # the runner banner, a green step and the post-job cleanup are no step's findings.
+        unnamed = "\n".join(
+            [f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z {line}" for line in (
+                "Runner name: 'blacksmith-4vcpu-ubuntu-2404-2dlrqe74lxhfk4or'",
+                "##[group]Run actions/checkout@de0fac2e", "##[endgroup]",
+                " * [new tag]             xcframework-ios-v5 -> xcframework-ios-v5",
+                "##[group]Run python3 scripts/cmux-next/check-god-files.py", "##[endgroup]",
+                "check-god-files: ok")]
+            + [line.replace(f"\t{L10N}\t", "\tUNKNOWN STEP\t") for line in self.gh.logs[1].splitlines()]
+            + [f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z {line}" for line in (
+                "Post job cleanup.", "[command]/usr/local/bin/git version")])
+        self.gh.jobs[1]["steps"] = [
+            {"name": name, "status": "completed", "conclusion": conclusion} for name, conclusion in (
+                ("Set up job", "success"), ("Run actions/checkout@de0fac2e", "success"),
+                ("God files and types (Swift)", "success"), (L10N, "failure"),
+                ("Post Run actions/checkout@de0fac2e", "success"), ("Complete job", "success"))]
+        self.gh.logs[1] = unnamed
+        text = "\n".join(self.judge())
+        self.assertIn("sidebar.doc.move: missing uk", text)
+        # Its own finding still blocks.
+        self.gh.logs[1] = unnamed.replace("missing uk", "missing uk\n" + (
+            f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z {XCSTRINGS}:sidebar.doc.rename: missing uk"), 1)
+        with self.assertRaisesRegex(excuse.Refused, "sidebar.doc.rename"):
+            self.judge()
+        # A nested `Run` group (a composite action's step) could split a red step's findings from
+        # its error: the blocks no longer match the steps, so it refuses rather than guess.
+        self.gh.logs[1] = unnamed.replace("##[group]Run python3 scripts/cmux-next/check-god-files.py",
+                                          "##[group]Run python3 scripts/cmux-next/check-god-files.py\n" + (
+            f"{CHECKS}\tUNKNOWN STEP\t2026-10-07T02:10:37.8032610Z ##[group]Run inner"), 1)
+        with self.assertRaisesRegex(excuse.Refused, "cannot be told apart"):
+            self.judge()
+
     def test_a_lint_check_green_on_the_base_blocks(self):
         self.gh.jobs[2]["conclusion"] = "success"
         with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next"):
