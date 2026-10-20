@@ -798,7 +798,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(connection.paneTitleSubscriptionActive)
     }
 
-    @Test func rejectedPaneTitleWatcherIsRetryable() throws {
+    @Test func rejectedPaneTitleWatcherIsNotRetriedUntilReconnect() throws {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "watcher-retry@host"),
             sessionName: "title-watcher"
@@ -854,18 +854,29 @@ struct RemoteTmuxMirrorTargetingTests {
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 2, lines: ["unknown option"], isError: true
         ))
-        #expect(!connection.paneTitleSubscriptionActive)
-
         connection.subscribePaneTitlesIfNeeded()
         #expect(connection.paneTitleSubscriptionActive)
-        guard case .paneTitleSubscription(_) = try #require(connection.pendingCommandKindsForTesting.first) else {
-            Issue.record("expected the retried pane-title watcher at the command FIFO head")
-            return
-        }
-        connection.handleMessageForTesting(.commandResult(
-            commandNumber: 3, lines: [], isError: false
+        #expect(!connection.pendingCommandKindsForTesting.contains { kind in
+            if case .paneTitleSubscription = kind { return true }
+            return false
+        })
+    }
+
+    @Test func removingProjectedPaneClearsPendingRenameGeneration() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 5, index: 0, title: "shell-b"),
+        ]])
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
         ))
-        #expect(connection.paneTitleSubscriptionActive)
+        #expect(harness.workspace.remoteTmuxRenameGenerationByPanelID[panePanel.id] != nil)
+        mirror.onTerminalPanelRemoved?(panePanel)
+        #expect(harness.workspace.remoteTmuxRenameGenerationByPanelID[panePanel.id] == nil)
     }
 
     @Test func liveTmuxPaneRetitleWinsOverOlderPaneRectSnapshot() throws {
@@ -960,8 +971,7 @@ struct RemoteTmuxMirrorTargetingTests {
             height: Int = 40
         ) -> String {
             "%\(paneID) \(x) \(y) \(width) \(height) \(index == 0 ? 1 : 0) off :\(index) \"\(title)\""
-                + "cmux_title_metadata_v1\\037\(paneTitleMetadata(title: title))"
-                    .replacingOccurrences(of: "\u{1f}", with: "\\037")
+                + "cmux_title_metadata_v1\u{1f}\(paneTitleMetadata(title: title))"
         }
 
         func drainThroughPaneRects(_ linesByWindow: [Int: [String]]) throws {
