@@ -18,7 +18,13 @@ const say = (text: string) => ({
 const call = (toolCallId: string) => ({
   method: "session/update",
   params: {
-    update: { sessionUpdate: "tool_call", toolCallId, title: `Run ${toolCallId}`, kind: "execute", status: "completed" },
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId,
+      title: `Run ${toolCallId}`,
+      kind: "execute",
+      status: "completed",
+    },
   },
 });
 const record = (steps: Step[], from = 1) =>
@@ -149,7 +155,11 @@ test("a Chief follow-up (tell, restart message) also shows as from the Chief", a
     ["mux", "turn_started", {}],
     ["in", "agent_message_chunk", say("done")],
     ["mux", "turn_result", { stopReason: "end_turn" }],
-    ["mux", "user_message", { text: "one more thing", client: "optchat-chief#01a156", promptId: "optchat-tell:a142:2" }],
+    [
+      "mux",
+      "user_message",
+      { text: "one more thing", client: "optchat-chief#01a156", promptId: "optchat-tell:a142:2" },
+    ],
     ["mux", "turn_started", {}],
   ]);
   const { rows } = await connect(fakeDaemon(history, 100));

@@ -1561,7 +1561,11 @@ export class AcpmuxDirectClient {
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    const opener = await this.fetchTurnOpener(sessionId, mergeEventRecords(page, this.events), result?.hasMore === true);
+    const opener = await this.fetchTurnOpener(
+      sessionId,
+      mergeEventRecords(page, this.events),
+      result?.hasMore === true,
+    );
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     this.turnOpener = opener;
     // Merged after the read: live events that landed meanwhile are kept.
