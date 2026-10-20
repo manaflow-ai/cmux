@@ -29,7 +29,7 @@ extension SettingsController {
         // A renamed key's old key goes with the write, so it can never apply
         // again behind the new value (or behind a reset to the default).
         var legacy: [String]?
-        if let old = WorkspaceRowSetting.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
+        if let old = descriptor.legacyPath, try await file.value(at: old) != nil { legacy = old }
         // The window background's opacity and material leave Ghostty, or return to it, together.
         let linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
         if let value {

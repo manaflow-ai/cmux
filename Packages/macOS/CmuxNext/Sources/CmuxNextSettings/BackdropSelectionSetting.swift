@@ -49,6 +49,22 @@ public struct BackdropSelectionSetting: Sendable {
         return nil
     }
 
+    /// The key `appearance.background` replaced (`appearance.backdropArt`, bundled art only),
+    /// which still applies while the new key is absent; nil for any other path.
+    static func legacyPath(for path: [String]) -> [String]? {
+        path == BackdropSelectionSetting().configPath ? BackdropArtSetting().configPath : nil
+    }
+
+    /// What an `appearance.backdropArt` value applies, as an `appearance.background` value: the
+    /// painting's current id (a retired id names its replacement), or "none". A value the old key
+    /// never took (a desktop or file pick, or not a string) paints nothing, as the parser reads it,
+    /// so it is `.null`, which Settings refuses and shows as the default.
+    static func selection(forLegacy value: JSONValue) -> JSONValue {
+        guard let raw = value.stringValue else { return .null }
+        if raw == "none" { return .string(raw) }
+        return BackdropArt(id: raw).map { .string($0.rawValue) } ?? .null
+    }
+
     /// Parses the new key and accepts the legacy bundled-art key.
     func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BackdropSelection? {
         if let value = root.value(at: configPath) {
