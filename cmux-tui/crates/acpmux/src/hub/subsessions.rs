@@ -299,6 +299,7 @@ pub struct StartRequest {
 /// A sub-session's new worktree (and the folder it was made from) until its
 /// start succeeds: dropped before [`KeptWorktree::keep`] (a later refusal,
 /// failure, or the parent closing meanwhile), it is removed, off the async
+
 /// runtime.
 struct KeptWorktree {
     folder: PathBuf,
@@ -322,7 +323,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-fn refused(reason: &str, message: String, data: Value) -> RpcError {
+pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
     data["reason"] = json!(reason);
     RpcError::invalid_params(message).with_data(data)
@@ -638,7 +639,7 @@ impl Hub {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
         }
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None).await;
+        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -646,7 +647,11 @@ impl Hub {
                 return Err(e);
             }
         };
-        let summary = self.session_summary(&probe);
+        // The row get_session reads, not the session summary: a summary's
+        // `shown` says whether a client has the chat open right now, which a
+        // parent read as "the user cannot see it" (it is under the parent's
+        // chat in the sidebar from the start).
+        let row = self.subsession_row(&probe, false);
         let mut reply = json!({
             "sessionId": probe.id,
             "name": cm.name,
@@ -655,7 +660,7 @@ impl Hub {
             "harness": cm.harness,
             "mode": crate::web_modes::mode_of(&probe.meta()),
             "turnId": accepted.get("turnId"),
-            "session": summary,
+            "session": row,
         });
         if let Some(kept) = &worktree {
             let w = &kept.made;
@@ -700,20 +705,26 @@ impl Hub {
 
     /// Sends `text` from `from` to `to` as a prompt with the family
     /// provenance; answers once it is accepted (started or queued).
-    async fn send_family_prompt(
+    pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        steer: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
-        let provenance = json!({
+        let mut provenance = json!({
             "kind": PROVENANCE_KIND,
             "from": from.id,
             "fromName": fm.name,
             "to": to.id,
+            // Who the sender is to the receiver, for its chat's label.
+            "fromRole": super::subsession_send::family_role(&fm, &to.meta()),
         });
+        if let Some(link) = &fm.subsession {
+            provenance["fromShortName"] = json!(link.short_name);
+        }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
@@ -727,7 +738,7 @@ impl Hub {
         let (hub, to2) = (self.clone(), to.clone());
         // The turn runs on: only its acceptance is awaited here.
         let turn = tokio::spawn(async move {
-            hub.prompt_with(&to2, blocks, "acpmux-subsession", false, opts).await
+            hub.prompt_with(&to2, blocks, "acpmux-subsession", steer, opts).await
         });
         match rx.await {
             Ok(v) => Ok(v),
@@ -761,13 +772,17 @@ impl Hub {
             "queued": pick("queued"),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
+            // working, input, failed, lost or idle, and since when (`views::lane`).
+            "state": summary["lane"]["state"].clone(),
+            "stateSince": summary["lane"]["since"].clone(),
+            "doing": super::subsession_send::doing(&summary),
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
         }
         // The tools hand this to another session's agent: a secret in the
         // child's text (one it read from a file, say) is masked.
-        for key in ["title", "lastReply"] {
+        for key in ["title", "lastReply", "doing"] {
             if let Some(text) = row[key].as_str() {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
@@ -874,45 +889,6 @@ impl Hub {
                 .and_then(|s| s.meta.lock().ok().and_then(|m| m.subsession.clone()));
         }
         Ok(target)
-    }
-
-    /// `_acpmux/subsession/send`: a prompt from `caller` to a descendant or
-    /// to its parent, queued behind a running turn, or after stopping it.
-    pub async fn subsession_send(
-        self: &Arc<Self>,
-        caller: &Arc<Session>,
-        target: &Arc<Session>,
-        text: &str,
-        interrupt: bool,
-        prompt_id: Option<String>,
-    ) -> Result<Value, RpcError> {
-        if text.trim().is_empty() {
-            return Err(RpcError::invalid_params("text must not be empty"));
-        }
-        if target.meta().status == SessionStatus::Closed {
-            return Err(refused(
-                "subsessions.closed",
-                "that session is closed; start a new one with start_session".to_owned(),
-                json!({"sessionId": target.id}),
-            ));
-        }
-        // A child reports to its parent; it never stops the parent's turn.
-        let to_parent =
-            caller.meta().subsession.as_ref().is_some_and(|l| l.started_by == target.id);
-        if interrupt && to_parent {
-            return Err(RpcError::invalid_params(
-                "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
-            ));
-        }
-        if interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id).await?;
-        Ok(json!({
-            "sessionId": target.id,
-            "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),
-            "turnId": accepted.get("turnId"),
-        }))
     }
 
     /// `_acpmux/subsession/stop`: stops a descendant's turn, or with `close`

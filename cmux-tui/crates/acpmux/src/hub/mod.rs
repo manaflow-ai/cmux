@@ -4,6 +4,7 @@
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
+mod activity;
 mod adoption;
 mod aside;
 pub(crate) mod auto_resume;
@@ -87,8 +88,10 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+pub use subsession_send::Delivery;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -177,6 +180,11 @@ pub struct TurnInfo {
     /// Who prompted (or steered) this turn. A Web turn never uses the chat
     /// allowance: each eligible permission in it still asks.
     pub control: Control,
+    /// What the turn does right now, one line: its latest tool call's title,
+    /// else its plan's step in progress (`activity.rs`). None until either.
+    pub activity: Option<String>,
+    /// Its plan's entry in progress, one line (`activity.rs`).
+    pub plan_step: Option<String>,
 }
 
 /// Options for `Hub::prompt_with`.

@@ -248,6 +248,11 @@ pub struct TurnSummary {
     pub turn_id: String,
     pub prompt_id: String,
     pub turn_seq: u64,
+    /// What the turn does right now: its latest tool call's title; null
+    /// until it calls one (`hub/activity.rs`).
+    pub activity: Option<String>,
+    /// Its plan's entry in progress; null without one.
+    pub plan_step: Option<String>,
 }
 
 /// A prompt waiting for the running turn to end.

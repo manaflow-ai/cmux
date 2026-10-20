@@ -2479,8 +2479,22 @@
     "TurnSummary": {
       "description": "The running turn.",
       "properties": {
+        "activity": {
+          "description": "What the turn does right now: its latest tool call's title; null\nuntil it calls one (`hub/activity.rs`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "client": {
           "type": "string"
+        },
+        "planStep": {
+          "description": "Its plan's entry in progress; null without one.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "prompt": {
           "type": "string"
@@ -2503,7 +2517,9 @@
         }
       },
       "required": [
+        "activity",
         "client",
+        "planStep",
         "prompt",
         "promptId",
         "startedAt",
