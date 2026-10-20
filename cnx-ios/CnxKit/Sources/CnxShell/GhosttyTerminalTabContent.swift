@@ -282,9 +282,13 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// whenever the grid opens, and again after a read that brought nothing
     /// (`TerminalCardScreenRefresh`). Until it arrives the card's saved frame
     /// is drawn as not current (T-TABS-01).
-    private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel, gridOpening: Bool = false) {
-        guard let provider = screenTextProvider, !model.pageStarted,
-              let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening) else { return }
+    /// `live`: the grid's own refresh (D6), which also asks for a started
+    /// tab whose page is off screen, at the grid's shorter interval.
+    private func refreshScreenText(for tab: WorkspaceTab, model: TerminalModel, gridOpening: Bool = false, live: Bool = false) {
+        guard let provider = screenTextProvider, live || !model.pageStarted,
+              let request = screenTextRefresh.begin(tab.id, now: Date(), gridOpening: gridOpening,
+                                                    interval: live ? TerminalCardLiveRefresh.screenTextInterval : TerminalCardScreenRefresh.interval)
+        else { return }
         Task { @MainActor [weak self, weak model] in
             let text = await provider(tab)
             guard let self else { return }
@@ -294,8 +298,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             }
             // A slower older reply never replaces a newer card text (A6).
             guard self.screenTextRefresh.finished(tab.id, request: request) else { return }
-            guard let model, !model.pageStarted else { return }
-            if model.cardScreenText != text { model.cardScreenText = text }
+            guard let model, live || !model.pageStarted else { return }
+            if model.cardScreenText != text || live { model.cardScreenText = text }
         }
     }
 
@@ -307,6 +311,52 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A tab whose card was never built has no host yet: its card asks
         // when the grid builds it.
         for tab in tabs { if let model = hosts[tab.id]?.model { refreshScreenText(for: tab, model: model, gridOpening: true) } }
+    }
+
+    // MARK: Cards while the grid shows (full verify D6, T-TABS-01)
+
+    private var liveRefresh = TerminalCardLiveRefresh()
+    private var liveRefreshTask: Task<Void, Never>?
+
+    func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {
+        liveRefresh.setVisible(visible, now: CACurrentMediaTime())
+        liveRefreshTask?.cancel()
+        liveRefreshTask = nil
+        guard visible else { return }
+        // A UI refresh cadence, not synchronization: each tick asks only for
+        // the cards that are due (`TerminalCardLiveRefresh`).
+        liveRefreshTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await ContinuousClock().sleep(for: TerminalCardLiveRefresh.tick)
+                guard !Task.isCancelled, let self else { return }
+                self.refreshLiveCards(tabs())
+            }
+        }
+    }
+
+    func overviewScrollingChanged(_ scrolling: Bool) {
+        liveRefresh.setScrolling(scrolling)
+    }
+
+    private func refreshLiveCards(_ tabs: [WorkspaceTab]) {
+        // Only tabs whose card was built (a host exists): the grid builds the rest.
+        let known = tabs.filter { hosts[$0.id] != nil }
+        let states = known.compactMap { tab -> TerminalCardLiveRefresh.Tab? in
+            guard let model = hosts[tab.id]?.model, !tab.hasEndedShell else { return nil }
+            return TerminalCardLiveRefresh.Tab(id: tab.id, pageStarted: model.pageStarted,
+                                               capturable: model.pageStarted && model.canCaptureCard, behind: model.cardIsBehind)
+        }
+        for action in liveRefresh.due(states, now: CACurrentMediaTime()) {
+            switch action {
+            case .snapshot(let id):
+                hosts[id]?.model.refreshCardSnapshot()
+            case .screenText(let id):
+                guard let tab = known.first(where: { $0.id == id }), let model = hosts[id]?.model else { continue }
+                // A live tab not attached yet shows its connecting card.
+                if model.pageStarted, !model.connectionState.isAttached { continue }
+                refreshScreenText(for: tab, model: model, live: true)
+            }
+        }
     }
 
     /// The settled grid shows the active page's snapshot, placed with its
