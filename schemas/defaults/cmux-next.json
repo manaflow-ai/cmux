@@ -481,6 +481,7 @@
     "setting.layout.panePadding": null,
     "setting.layout.paneSeparation": null,
     "setting.layout.rows": true,
+    "setting.layout.scrollAreas": false,
     "setting.layout.splitSizing": "even",
     "setting.layout.stripMargin": 0,
     "setting.layout.stripScrollbar": "system",
