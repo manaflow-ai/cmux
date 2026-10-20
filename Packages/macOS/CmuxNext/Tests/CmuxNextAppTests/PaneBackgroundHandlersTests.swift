@@ -15,3 +15,14 @@ struct PaneBackgroundHandlersTests {
         #expect(!PaneBackgroundHandlers.acceptsBackground(value))
     }
 }
+
+/// `appearance set|reset --property theme` forwards to the one theme path of each level.
+struct AppearanceThemeForwardingTests {
+    @Test func eachLevelForwardsToItsThemeAction() {
+        #expect(PaneBackgroundHandlers.themeAction(.window, set: true) == "space.setTheme")
+        #expect(PaneBackgroundHandlers.themeAction(.workspace, set: false) == "workspace.clearTheme")
+        #expect(PaneBackgroundHandlers.themeAction(.tab, set: true) == "terminal.setTheme")
+        // A pane's theme has no saved row of its own elsewhere: the appearance store keeps it.
+        #expect(PaneBackgroundHandlers.themeAction(.pane, set: true) == nil)
+    }
+}
