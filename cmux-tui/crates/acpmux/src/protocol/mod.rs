@@ -9,6 +9,7 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod events;
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
@@ -137,11 +138,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // Sessions.
         untyped(method::MUX_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
-        untyped(method::MUX_ATTACH, Request),
-        untyped(method::MUX_DETACH, Request),
-        untyped(method::MUX_VIEW, Request),
-        untyped(method::MUX_MARK_UNREAD, Request),
-        untyped(method::MUX_WATCH, Request),
+        request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
+        request::<events::SessionRef, events::Done>(method::MUX_DETACH),
+        request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         untyped(method::MUX_OFFER_RESPOND, Request),
@@ -162,13 +163,15 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
+        untyped(method::MUX_HARNESS_UPDATE, Request),
+        untyped(method::MUX_SESSIONS_RESTART_HARNESS, Request),
         untyped(method::MUX_KILL, Request),
         untyped(method::MUX_ARCHIVE, Request),
         untyped(method::MUX_SIDE, Request),
         untyped(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_INFO, Request),
-        untyped(method::MUX_EVENTS, Request),
+        request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         untyped(method::MUX_ATTACHMENT, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
@@ -270,7 +273,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         // Notifications.
-        untyped(method::MUX_EVENT, Notification),
+        notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),
