@@ -35,7 +35,10 @@ mod closed_history_scrub_tests;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
+#[cfg(test)]
+mod closed_layout_tests;
 mod closed_pane_split;
+mod closed_screen_layout;
 #[cfg(test)]
 mod closed_relaunch_tests;
 mod closed_tab_groups;
