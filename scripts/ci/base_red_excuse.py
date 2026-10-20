@@ -94,7 +94,9 @@ TESTS = (
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
     re.compile(r"^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$"),  # bun test
-    # A bun test file that failed, also one that died loading with no `(fail)` line.
+    # A bun test file that failed, also one that died loading with no `(fail)` line,
+    # and bun's error outside any test (a file that failed to load beside a red test).
+    re.compile(r"^# (Unhandled error between tests)$"),
     re.compile(r"^(?:##\[group\])?FAIL (\S+\.test\.[cm]?[jt]sx?)(?: \(limit \d+s\))?$"),
 )
 ERROR = re.compile(r"##\[error\]|\berror:")
@@ -263,7 +265,7 @@ def reported_red(log: str) -> list[str]:
 
     `gh run view --log` often files every line under UNKNOWN STEP, so the runner's own
     banner is in the log too; a status job is told apart by the jobs it names
-    (`reports_only`), not by printing nothing else."""
+    (`report_matches`), not by printing nothing else."""
     found, echo = [], False
     for text in lines_of(log):
         text = ANSI.sub("", text)
@@ -280,21 +282,28 @@ def job_key(name: str) -> str:
     return re.sub(r"[\s_]+", "-", MATRIX.sub("", name.rsplit(" / ", 1)[-1]).strip().casefold())
 
 
-def reports_only(reported: list[str], under: list[dict]) -> list[str]:
-    """The reported job ids that name no failed job in `under`; empty when each names one.
+# A job id's suffix naming the legs of a matrix job (`react-apps-check-shard`).
+LEG_SUFFIX = re.compile(r"-shards?$")
 
-    A job id is matched with a job's name without caller prefix or matrix suffix, spaces
-    as dashes (`web-tests` is `Web tests (2/4)`), or with that name and a suffix
-    (`react-apps-check-shard` is `react-apps-check (3)`), or with its caller (`web`
-    is `web / Web status`)."""
-    missing = []
+
+def report_matches(reported: list[str], under: list[dict], prefixed: bool) -> dict[str, list[dict]]:
+    """For each job id a status job reports red, the failed jobs of `under` it names.
+
+    A job id names a job whose name, without caller prefix or matrix suffix and with
+    spaces as dashes, is the id (`web-tests` is `Web tests (2/4)`) or the id without a
+    leg suffix (`react-apps-check-shard` is `react-apps-check (3)`). A status job with
+    no caller prefix also names the jobs of a caller (`web` is `web / Web tests (1/4)`);
+    under a prefixed one, every job shares the caller, so that would name them all."""
+    matches = {}
     for job_id in reported:
         wanted = job_id.casefold()
-        if not any(wanted == key or wanted.startswith(key + "-") or
-                   (" / " in found.get("name", "") and wanted == job_key(found["name"].split(" / ", 1)[0]))
-                   for found in under if (key := job_key(found.get("name", "")))):
-            missing.append(job_id)
-    return missing
+        matches[job_id] = [
+            found for found in under
+            if (key := job_key(found.get("name", ""))) and (
+                wanted == key or LEG_SUFFIX.sub("", wanted) == key
+                or (not prefixed and " / " in found.get("name", "")
+                    and wanted == job_key(found["name"].split(" / ", 1)[0])))]
+    return matches
 
 
 def caller_prefix(name: str) -> str:
@@ -387,6 +396,8 @@ class Base:
         self._logs: dict[int, str] = {}
         self.notes: list[str] = []
         self.tip_is_merge_base = False
+        # Whether the base tip or the commits just before it had a verdict for the job judged last.
+        self.tip_verdict = False
 
     def history(self, ref: str) -> list[str]:
         listed = self.github.json(f"repos/{self.repo}/commits?sha={ref}&per_page={self.lookback + 1}")
@@ -526,12 +537,14 @@ def verdict_at(head: Head, base: Base, commit: str) -> tuple[list[dict], str]:
 def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], bool]:
     """(audit line or None, reasons it did not excuse, whether any base commit had a verdict)."""
     reasons, had_verdict = [], False
+    base.tip_verdict = False
     for line, commits in base.lines():
         for commit, label in commits:
             jobs, how = verdict_at(head, base, commit)
             if not jobs:
                 continue
             had_verdict = True
+            base.tip_verdict = base.tip_verdict or line == "base tip"
             where = f"{label} {short(commit)}"
             for job in base.candidates(jobs, how):
                 if job.get("conclusion") != "failure":
@@ -600,8 +613,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused(f"no failed job found on the head {short(sha)} to compare with the base")
     judged = {job["id"] for job in jobs}
-    # Status jobs: (job, the jobs it reports red, the failed jobs of its run judged in its place).
-    statuses: list[tuple[dict, list[str], list[dict]]] = []
+    # Status jobs: (job, the jobs it reports red, the failed jobs of its run judged in its place,
+    # the jobs each reported id names).
+    statuses: list[tuple[dict, list[str], list[dict], dict[str, list[dict]]]] = []
     for job in jobs:  # grows: a status job adds the failed jobs it reports
         name = job.get("name", "")
         if job.get("conclusion") != "failure":
@@ -633,13 +647,14 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 refusals.append(f"'{name}' at {short(sha)} ({head.url}) reports {', '.join(reported)} red, but its run "
                                 f"has no failed job{f' under {prefix.strip()}' if prefix else ''} to compare with the base")
                 continue
-            if missing := reports_only(reported, under):
+            matches = report_matches(reported, under, bool(prefix))
+            if missing := [job_id for job_id, found in matches.items() if not found]:
                 refusals.append(f"'{name}' at {short(sha)} ({head.url}) prints {', '.join(missing)}: failure, which "
                                 "names no failed job of its run; nothing to compare with the base")
                 continue
             jobs.extend(found for found in under if found["id"] not in judged)
             judged.update(found["id"] for found in under)
-            statuses.append((job, reported, under))
+            statuses.append((job, reported, under, matches))
             continue
         if not head.lint and not head.tests and not head.errors and not head.crash and not head.soft:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): no failing test or error line to match; "
@@ -650,8 +665,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(excused)
             continue
         run_reason, run_verdict = None, False
-        if not had_verdict:
-            # A base commit's verdict is newer than any run found by searching; a green tip is green.
+        if not evidence.tip_verdict:
+            # The base tip line's verdict is newer than any run found by searching: a green tip is
+            # green. An older merge-base verdict is not, so a path-filtered job still searches.
             workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
             workflows = [workflow] + [found for found in evidence.workflows_running(name) if found != workflow]
             excused, run_reason, run_verdict = judge_on_base_runs(head, evidence, workflows)
@@ -669,11 +685,20 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         else:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}) is not red the same way on {base}: "
                             + " | ".join(tried))
-    status_ids = {job["id"] for job, _, _ in statuses}
-    for job, reported, under in statuses:
+    by_id = {job["id"]: matches for job, _, _, matches in statuses}
+
+    def grounded(job_id: int, seen: frozenset = frozenset()) -> bool:
+        """Each job id it reports names a judged job, or a status job grounded the same way.
+        Status jobs naming only each other (two legs of a job each ending in `x: failure`)
+        are not: none of them was compared with the base."""
+        return job_id not in seen and all(
+            any(found["id"] not in by_id or grounded(found["id"], seen | {job_id}) for found in named)
+            for named in by_id[job_id].values())
+
+    for job, reported, under, _ in statuses:
         name = job.get("name", "")
-        # Two status jobs reporting each other excuse nothing: a job under them must have been judged.
-        if not (judged_under := [found for found in under if found["id"] not in status_ids]):
+        judged_under = [found for found in under if found["id"] not in by_id]
+        if not judged_under or not grounded(job["id"]):
             refusals.append(f"'{name}' at {short(sha)} ({job_url(repo, job)}) reports {', '.join(reported)} red, "
                             "but every failed job of its run is a status job; nothing to compare with the base")
             continue
