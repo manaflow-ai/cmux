@@ -345,6 +345,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        | Op::WorkspaceChecklistList
+        | Op::WorkspaceChecklistAdd
+        | Op::WorkspaceChecklistUpdate
+        | Op::WorkspaceChecklistRemove
         // A page never sees, mints or rotates launch credentials.
         | Op::CredentialVerify
         | Op::CredentialMint
@@ -364,6 +368,8 @@ const fn access(operation: Op) -> Access {
         | Op::ChiefProfileDelete
         | Op::ChiefProfileAvatarSet
         | Op::ChiefProfileAvatarGet
+        | Op::ChiefProfileHistory
+        | Op::ChiefProfileUndo
         // Adopting an agent as a Chief: no page route at all (owner only,
         // from a terminal; chief_registry_resource.rs refuses any page).
         | Op::ChiefProfileAdopt

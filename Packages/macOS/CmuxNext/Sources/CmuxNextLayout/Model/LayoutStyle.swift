@@ -73,9 +73,12 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// Fraction of a pane's extent that counts as an edge drop zone
     /// (DESIGN.md (c)2: a quarter, half of the half a split gives).
     public var dropEdgeFraction: CGFloat = 0.25
-    /// Floor and cap of the edge band: bonsplit's 80 pt floor and no cap
-    /// (#22287). `band(for:)` also keeps it at most a third of the extent.
-    public var dropEdgeRange: ClosedRange<CGFloat> = 80...CGFloat.greatestFiniteMagnitude
+    /// Floor and cap of the edge band (drop-zones DESIGN.md): 48 pt keeps an
+    /// edge easy to hit on a small pane, and there is no cap, so the outer
+    /// quarter of a big pane splits as in classic cmux (a 120 pt cap made the
+    /// right quarter of a 1200 pt pane join it). `band(for:)` also keeps it
+    /// at most a third of the extent, so a center always remains.
+    public var dropEdgeRange: ClosedRange<CGFloat> = 48...CGFloat.greatestFiniteMagnitude
     /// How far past a zone line the pointer goes before the drop preview
     /// leaves the zone it shows (`DropZoneGeometry.zone`).
     public var dropZoneHysteresis: CGFloat = 12
@@ -93,6 +96,10 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     /// cmux.json `layout.rows` (plans/cmux-next/rows.md O1 to O3): off, a
     /// column's existing rows fit it like stacked panes and never scroll.
     public var rowsEnabled = true
+    /// cmux.json `layout.scrollAreas` (plans/cmux-next/scroll-areas-DESIGN.md G1 to G5): on, a
+    /// split tree that needs more width than its frame scrolls inside it instead of squashing
+    /// its panes, and columns keep their width. Off (default) is today's layout.
+    public var scrollAreasEnabled = false
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -144,6 +151,7 @@ extension LayoutStyle {
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
         style.rowsEnabled = DesignSettings.shared.layoutRows
+        style.scrollAreasEnabled = DesignSettings.shared.layoutScrollAreas
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }

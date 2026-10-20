@@ -265,8 +265,12 @@ expect "pull request, no cmux-tui change, nothing published" pull_request skippe
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
 
-# A scheduled DEV snapshot remains buildable after the source branch moves.
-# The CLI must start one publisher for its exact tree, then reuse that run.
+# A scheduled DEV snapshot owns its exact SHA after the source branch moves.
+# Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
+# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
+# reads failed, and ready once published. Failed is not the intended result
+# while a trusted publisher for the exact SHA is running; the probe skips that
+# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
@@ -291,11 +295,14 @@ PYENV
 }
 export CMUX_TUI_DEV_DAILY=1
 eval "$(dev_probe_environment tree)"
-expect "scheduled dev, cold exact tree" workflow_dispatch deferred
-[[ "$(posts dispatches)" == 1 && "$(posts git/refs)" == 1 ]] || fail "dev snapshot needs exactly one publisher"
-grep -q "cmux-tui-pin-${sha:0:12}.*$sha" "$TMP/posts.log" || fail "dev publisher must pin the snapshot SHA"
+expect "scheduled dev, cold exact tree" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev snapshot probe must not write (pin ref or dispatch): $(cat "$TMP/posts.log")"
 eval "$(dev_probe_environment tree-final)"
-expect "scheduled dev, second probe" workflow_dispatch deferred
-[[ "$(posts dispatches)" == 1 ]] || fail "dev second probe dispatched a duplicate"
+expect "scheduled dev, second probe" workflow_dispatch failed "no cmux-tui artifacts run can publish tree $key"
+[[ ! -s "$TMP/posts.log" ]] || fail "dev second probe must not write: $(cat "$TMP/posts.log")"
+mkdir -p "$TMP/cdn/cmux-tui/tree/$key"
+printf '%064d  cmux-tui-aarch64-apple-darwin\n' 0 > "$TMP/cdn/cmux-tui/tree/$key/cmux-tui-aarch64-apple-darwin.sha256"
+expect "scheduled dev, published by a trusted publisher" workflow_dispatch ready
+[[ ! -s "$TMP/posts.log" ]] || fail "dev published probe must not write: $(cat "$TMP/posts.log")"
 
 printf 'pin-cmux-tui probe tests: ok\n'

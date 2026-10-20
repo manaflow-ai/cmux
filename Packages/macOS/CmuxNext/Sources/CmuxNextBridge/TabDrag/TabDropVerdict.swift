@@ -7,7 +7,7 @@ public nonisolated enum TabDropRefusal: Hashable, Sendable {
     case columnBeforeFirst
     /// A tab group dropped on a dock edge: groups have no dock move yet.
     case groupDock
-    /// A new workspace for a tab of a workspace that keeps its tabs (Home).
+    /// A new workspace for a tab that stays in its workspace (Home's own tab).
     case staysPut
     /// The surface refused it with this localized reason
     /// (`TabDropProposal.refusedReason`).

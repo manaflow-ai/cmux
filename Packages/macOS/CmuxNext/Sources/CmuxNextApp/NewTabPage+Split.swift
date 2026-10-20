@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
+import enum CmuxNextLayout.NewChatPlacement
 
 /// The tab key a split's page got from the store, for its Open Tabs moves.
 private final class SplitPageKey {
@@ -54,16 +55,24 @@ extension NewTabPage {
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
+        // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
+        let layoutModel = source.workspace?.layoutModel
+        let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
                                                  focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
             guard let split else { return Self.moveToSplit(key, from: source, edge: swapsBack ? edge.opposite : edge, keys: keys, focuses: focusesPage) }
-            source.workspace?.layoutModel.applySplitSizing(sizing)
+            if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
+        } failed: {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
         }
-        if !started { input.endIncoming(keys, pageMade: false) }
+        if !started {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
+            input.endIncoming(keys, pageMade: false)
+        }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
@@ -90,7 +99,8 @@ extension NewTabPage {
     }
 
     /// The pane showing tab `key` now.
-    private static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
+    /// The pane that shows page `key` now (it may have moved since it opened).
+    static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
         services.locateTab(key).flatMap { services.paneController(for: $0.1) }
     }
 

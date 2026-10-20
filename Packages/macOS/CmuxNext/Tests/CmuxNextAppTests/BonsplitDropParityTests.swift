@@ -7,34 +7,13 @@ import enum CmuxNextDaemon.PaneEdge
 import CmuxNextTabs
 import Testing
 
-/// Tab drops behave as bonsplit's do in classic cmux (#22287): the edge bands, the corners, no
-/// split dwell, the shared edge of a terminal tab's neighbor, a drop on the tab's own pane, and
-/// the split of a pane with its only tab.
+/// Tab drops behave as bonsplit's do in classic cmux (#22287): no split dwell, the shared edge of
+/// a terminal tab's neighbor, a drop on the tab's own pane, the split of a pane with its only tab,
+/// even split sizing, and no flicker. Band size and corners follow plans/cmux-next/drop-zones/DESIGN.md
+/// (`DropZoneRuleTests`).
 @MainActor
 struct BonsplitDropParityTests {
     // MARK: Zones
-
-    /// bonsplit's band is `max(80, 0.25 * extent)` with no cap; the third keeps a center to join.
-    @Test func edgeBandsAreBonsplitsQuarterWithAnEightyPointFloor() {
-        let style = LayoutStyle()
-        #expect(DropZoneGeometry.band(for: 1000, style: style) == 250)
-        #expect(DropZoneGeometry.band(for: 600, style: style) == 150)
-        #expect(DropZoneGeometry.band(for: 300, style: style) == 80)
-        #expect(DropZoneGeometry.band(for: 180, style: style) == 60)
-        #expect(LayoutTunables.dropEdgeMinimum.defaultValue == 80)
-        #expect(LayoutTunables.dropEdgeMaximum.defaultValue == 0)
-    }
-
-    /// In a corner left and right win over top and bottom, even nearer the top.
-    @Test func leftAndRightTakeTheCorners() {
-        let style = LayoutStyle()
-        let pane = CGRect(x: 0, y: 0, width: 1000, height: 600)
-        #expect(DropZoneGeometry.zone(at: CGPoint(x: 30, y: 5), in: pane, style: style) == .left)
-        #expect(DropZoneGeometry.zone(at: CGPoint(x: 970, y: 595), in: pane, style: style) == .right)
-        #expect(DropZoneGeometry.zone(at: CGPoint(x: 500, y: 5), in: pane, style: style) == .top)
-        #expect(DropZoneGeometry.zone(at: CGPoint(x: 500, y: 595), in: pane, style: style) == .bottom)
-        #expect(DropZoneGeometry.zone(at: CGPoint(x: 500, y: 300), in: pane, style: style) == .center)
-    }
 
     /// The preview is classic's: the half the split gives, inset 4 pt on its outer sides.
     @Test func edgePreviewIsTheInsetHalf() {

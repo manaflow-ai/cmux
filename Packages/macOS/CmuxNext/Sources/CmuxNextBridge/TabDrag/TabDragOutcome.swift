@@ -61,8 +61,9 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     public var sourceGroupID: String?
     /// The drag carries a whole tab group (not a single tab).
     public var isGroupDrag = false
-    /// The source workspace keeps its tabs (Home, Leo 2026-10-09): they
-    /// never become a new workspace or a new window.
+    /// The dragged tabs stay in their workspace (Home's own tab, Leo
+    /// 2026-10-09): they never become a new workspace or a new window. The
+    /// other tabs of Home drag out like any (`TabPromotion`).
     public var sourceStaysPut = false
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,

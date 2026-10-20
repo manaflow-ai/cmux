@@ -19,6 +19,14 @@ extension TabDragContext {
                   draggedTabCount: draggedCount, sourceStripID: pane.stripModel.stripID, sourceIndex: index,
                   sourceGroupID: group)
         if case .group = item { isGroupDrag = true }
-        sourceStaysPut = TabPromotion.staysPut(kind: pane.workspace?.workspace.kind)
+        // Only Home's own tab stays in Home; the tabs right of its dock drag out like any (TabPromotion).
+        let dragged: [String] = switch item {
+        case .tab(let id): [id]
+        case .group(_, let members): members
+        case .workspaces: []
+        }
+        let workspace = pane.workspace?.workspace
+        sourceStaysPut = dragged.isEmpty ? TabPromotion.staysPut(kind: workspace?.kind)
+            : dragged.contains { TabPromotion.staysPut(tab: $0, in: workspace) }
     }
 }

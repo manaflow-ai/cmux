@@ -31,7 +31,8 @@
 //!   workspace's `CMUX_CUA_DISPLAY`, and a session without a workspace gets
 //!   no computer use server.
 //! - Binaries are found next to this executable (the app's
-//!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`. A missing
+//!   `Contents/Resources/bin`), or in `CMUX_AGENT_TOOLS_BIN_DIR`; `cmux-cua`
+//!   also in the nested helper app, its only copy in shipped builds. A missing
 //!   binary leaves its server out. Every agent chat gets `cmux mcp serve`
 //!   by default (cx-wx93i, Lawrence 2026-10-14: "give every agent chat the
 //!   cmux MCP tools by default"), so it controls cmux without a shell
@@ -251,6 +252,12 @@ pub fn left_out(remote_origin: bool, env: &BTreeMap<String, String>, args: &[Str
 /// Anthropic's (our routers), and then sends every schema in every turn.
 pub const TOOL_SEARCH_ENV: &str = "ENABLE_TOOL_SEARCH";
 
+/// The profile env that opts a harness in to cmux's code mode (two tools, `cmux_docs` and
+/// `cmux_exec`) instead of every tool: `1` turns it on. Off by default: on the agent evals
+/// (tests/agent-evals RESULTS, codemode-vs-all) every tool passed 8/12 Claude Code tasks to code
+/// mode's 6/12 at about half the cost, and tied for Codex.
+pub const CODE_MODE_ENV: &str = "CMUX_MCP_CODE_MODE";
+
 /// Whether a harness defers MCP tools behind its own tool search, so its
 /// cmux server lists every tool (`cmux mcp serve --all-tools`) and the
 /// harness loads the ones a turn needs. Every other harness gets cmux's
@@ -269,7 +276,7 @@ pub fn lists_all_tools(
     profile: &crate::config::HarnessProfile,
     env: &BTreeMap<String, String>,
 ) -> bool {
-    if !own_provider(env) {
+    if !own_provider(env) || env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
         return false;
     }
     if is_claude_code(name, profile) {
@@ -341,7 +348,11 @@ pub fn claude_args_for(
             .for_session(session_id)
             // Claude Code has tool search unless its env turns it off or
             // sends it to another provider.
-            .listing(tool_search_on(env) && own_provider(env))
+            .listing(
+                tool_search_on(env)
+                    && own_provider(env)
+                    && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
+            )
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
@@ -380,7 +391,7 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             args: vec!["cua-mcp".into()],
             env: vec![(crate::cua_v2::ENDPOINT_DIR_ENV.into(), dir.to_string_lossy().into_owned())],
         });
-    } else if let Some(cua) = executable("cmux-cua") {
+    } else if let Some(cua) = executable("cmux-cua").or_else(|| nested_cua_helper(inputs)) {
         let mut args = vec!["mcp".to_owned()];
         let mut socket_env: Vec<(String, String)> = Vec::new();
         if let Some(socket) = &inputs.cua {
@@ -769,6 +780,17 @@ fn materialize(state_dir: &Path) -> anyhow::Result<PathBuf> {
             Err(e.into())
         }
     }
+}
+
+/// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer
+/// Use.app/Contents/MacOS/cmux-cua`), for an app whose `Resources/bin` has no
+/// copy: NIGHTLY, NEXT and release ship the client only inside the helper
+/// (nightly.yml removes the scratch bin copy). It is the same client binary;
+/// `CMUX_CUA_MCP_FORCE_PROXY=1` keeps it a proxy to the helper daemon.
+fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
+    let contents = inputs.bin_dir.as_ref()?.parent()?.parent()?;
+    let path = contents.join("Library/cmux Computer Use.app/Contents/MacOS/cmux-cua");
+    is_executable(&path).then_some(path)
 }
 
 #[cfg(all(test, unix))]

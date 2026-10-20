@@ -173,7 +173,8 @@ public nonisolated enum HomeCoreMapping {
         case .renameConversation(let conversation, let title):
             return (conversation.rawValue, .setTitle(title.trimmingCharacters(in: .whitespacesAndNewlines)))
         case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping,
-             .addParticipants, .removeParticipant:
+             .addParticipants, .removeParticipant, .setChiefReplies:
+            // The local owner has no settings op (its wake rule is fixed: home.md section 5).
             // The local owner has no participants.remove, and its participants.add needs the
             // person's record (names), which only the cloud's directory holds.
             return nil

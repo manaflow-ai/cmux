@@ -7,8 +7,8 @@ public nonisolated enum DropZoneGeometry {
     /// body below its `header`-point tab bar (flipped, y grows down); over
     /// the tab bar a tab joins the pane (center). Each edge owns a band
     /// (`band(for:)`); a point inside several bands (a corner) goes to the
-    /// first of left, right, top, bottom, as in bonsplit, where left and
-    /// right take the corners (#22287); else center. The preview
+    /// edge it is relatively nearest to (depth / band), so a corner splits
+    /// along the edge the pointer is closer to; else center. The preview
     /// (`highlightRect`) and the commit both take the target from here
     /// (R47). `previous` is the zone the preview shows in this pane now: it
     /// holds until the pointer is `dropZoneHysteresis` past its line, so a
@@ -39,13 +39,14 @@ public nonisolated enum DropZoneGeometry {
             }
         }
         if let previous, previous != .center, reach(previous) < 1 { return previous }
-        return [PaneDropZone.left, .right, .top, .bottom].first { reach($0) < 1 } ?? .center
+        let candidates = [PaneDropZone.left, .right, .top, .bottom].map { ($0, reach($0)) }.filter { $0.1 < 1 }
+        return candidates.min { $0.1 < $1.1 }?.0 ?? .center
     }
 
-    /// An edge band: a share of the extent between the style's floor and
-    /// cap (bonsplit's `max(80, 0.25 * extent)`, no cap), and never more
+    /// An edge band: a share of the extent above the style's floor
+    /// (`dropEdgeFraction` 0.25, at least 48 pt, no cap), and never more
     /// than a third of it, so every pane keeps a center of at least a third
-    /// of each axis to join (DESIGN.md (c)2).
+    /// of each axis to join (plans/cmux-next/drop-zones/DESIGN.md).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)

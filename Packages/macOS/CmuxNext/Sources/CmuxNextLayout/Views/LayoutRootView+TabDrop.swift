@@ -84,6 +84,24 @@ extension LayoutRootView {
                           pointer: CGPoint(x: caret.midX, y: caret.midY), animated: canAnimate, fills: false) { driver.start() }
     }
 
+    /// Previews a pane drag's target `pane` (a swap) with the fill a tab dropped in that pane's
+    /// center shows, so a pane drag and a tab drag share one preview (drop-zones DESIGN.md). Hides
+    /// the preview when the pane is not on the active screen. Nothing is hit-tested here.
+    public func showPaneDragTarget(_ pane: PaneID, locationInWindow: NSPoint) {
+        guard let active = model.activeScreenID, let view = screenViews[active], let join = view.joinHighlight(pane) else {
+            hideTabDragHighlight()
+            return
+        }
+        tabDropHit = nil
+        let rect = convert(join.highlight, from: view)
+        tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
+        let tunedRadius = CGFloat(DropOverlayTunables.cornerRadius.value)
+        let radius = tunedRadius >= 0 ? tunedRadius
+            : context.style.hasPaneChrome ? PaneChromeGeometry.cornerRadius(for: rect, style: context.style) : context.style.panelCornerRadius
+        if highlight.show(rect, region: convert(join.region, from: view), zone: .center, text: "", inset: 0, cornerRadius: radius,
+                          pointer: convert(locationInWindow, from: nil), animated: canAnimate) { driver.start() }
+    }
+
     /// Hides the drop highlight `updateTabDrag` showed, for a zone the App
     /// refuses: it draws nothing. The drag goes on, and the zone held near
     /// its line stays for the next hit test.
@@ -142,7 +160,25 @@ extension LayoutRootView {
         draggingUpdated(sender)
     }
 
+    /// A URL another app (or a web page) drags here, when the App takes link drops.
+    private func linkURL(from info: any NSDraggingInfo) -> URL? {
+        guard linkDropHandler != nil, tabID(from: info) == nil else { return nil }
+        return (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL])?.first
+    }
+
     override public func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        if let url = linkURL(from: sender) {
+            // A link from outside: the same zones as a tab; the App says which it can open.
+            guard let target = updateTabDrag(TabID("link-drop"), locationInWindow: sender.draggingLocation) else {
+                hideHighlight()
+                return []
+            }
+            guard linkDropHandler?(url, target, false) == true else {
+                hideTabDragHighlight()
+                return []
+            }
+            return .copy
+        }
         guard let tab = tabID(from: sender), updateTabDrag(tab, locationInWindow: sender.draggingLocation) != nil else {
             hideHighlight()
             return []
@@ -155,6 +191,12 @@ extension LayoutRootView {
     }
 
     override public func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let url = linkURL(from: sender) {
+            let target = updateTabDrag(TabID("link-drop"), locationInWindow: sender.draggingLocation)
+            cancelTabDrag()
+            guard let target else { return false }
+            return linkDropHandler?(url, target, true) == true
+        }
         guard let tab = tabID(from: sender) else { return false }
         return endTabDrag(tab, locationInWindow: sender.draggingLocation) != nil
     }

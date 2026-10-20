@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -93,7 +94,11 @@ def bundle_in(dest: str) -> str | None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("names", nargs="+")
-    parser.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench/apps"))
+    # The account's own home, not $HOME: fleet steps get a per-step HOME that the worker deletes
+    # afterwards, and macOS App Management refuses to delete files inside an app bundle that has
+    # been launched (EPERM even for its owner), so a per-step copy breaks the step's cleanup.
+    home = pwd.getpwuid(os.getuid()).pw_dir
+    parser.add_argument("--cache", default=os.path.join(home, "Library/Caches/cmux-perf-bench/apps"))
     args = parser.parse_args()
     for name in args.names:
         try:

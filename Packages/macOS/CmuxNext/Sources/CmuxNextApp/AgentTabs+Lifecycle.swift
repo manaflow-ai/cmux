@@ -126,7 +126,7 @@ extension AgentTabStore {
     func openTab(in pane: PaneController, session: String? = nil, seed: AgentPaneSeedSource? = nil,
                  newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
                  linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
-                 then: (@MainActor (String) -> Void)? = nil) -> Bool {
+                 then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
         let pending: AgentTabPending
         do {
@@ -161,6 +161,7 @@ extension AgentTabStore {
             } catch {
                 // A chat bound for a dock that never came: the pane stops waiting for it (cx-ihyx2).
                 if hidden { pane.dockFinished(pending.key) }
+                failed?()
                 guard !(error is CancellationError) else { return nil } // the person closed it first
                 daemon.logger.error("new-conversation-tab (agent) failed: \(String(describing: error), privacy: .public)")
                 return "\(RefusalStrings.agentTabCreateFailed)"
