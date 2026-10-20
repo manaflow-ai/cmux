@@ -158,14 +158,6 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
-    /// An agent CLI in a cmux terminal stopped on an error
-    /// (terminal_watch.rs): `[term_…] stopped: …`. Quiet ones (an
-    /// auto-resume is planned or done) are notices; the others reach the
-    /// Chief as a note.
-    TerminalStopped {
-        text: String,
-        quiet: bool,
-    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -407,17 +399,33 @@ impl Queued {
     fn wakes(&self) -> bool {
         !matches!(&self.source, Source::Spawn(r) if r.quiet)
     }
+
+    fn requires_approval(&self) -> bool {
+        matches!(
+            self.source,
+            Source::Message {
+                requires_approval: true,
+                ..
+            } | Source::Resume {
+                requires_approval: true,
+                ..
+            }
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Source {
     /// A human message of the Chief conversation; `remote` names the paired
     /// install that sent it (the relay's origin), None for a local one.
+    /// `requires_approval` is true for every author other than the Chief's
+    /// owner, even when the message is otherwise allowed to wake the Chief.
     Message {
         seq: u64,
         /// The message's id (a side floor's crash dedupe).
         id: String,
         remote: Option<String>,
+        requires_approval: bool,
     },
     /// A child's report; its record turns `Reported` with this floor when logged.
     Child { session_id: String, floor: u64 },
@@ -427,7 +435,11 @@ enum Source {
     Spawn(crate::state::SpawnRef),
     /// The note that resumes a turn a host stop cut (`HostState::resumes`),
     /// with the cut messages' full text for the turn's prompt.
-    Resume { remote: bool, cut: Vec<String> },
+    Resume {
+        remote: bool,
+        requires_approval: bool,
+        cut: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -692,6 +704,7 @@ impl Brain {
                 text: recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    requires_approval: resume.requires_approval,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
@@ -879,13 +892,6 @@ impl Brain {
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
-            Input::TerminalStopped { text, quiet } => {
-                if quiet {
-                    self.notice(format!("notice:optchat:terminal-resume:{}", now_ms()), text);
-                } else {
-                    self.queue(text, Source::Note);
-                }
-            }
             Input::AutoResume {
                 id,
                 attempt,

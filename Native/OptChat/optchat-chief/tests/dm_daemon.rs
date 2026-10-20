@@ -222,6 +222,7 @@ fn start_brain(daemon: &Daemon, token_file: &Path, title: &str) -> (Harness, Str
     let settings = Settings {
         membership: Membership {
             participant: CHIEF.into(),
+            owner: cmux_chief::rules::USER_LOCAL.into(),
             group_wake: GroupWake::Every,
             local_side: true,
         },

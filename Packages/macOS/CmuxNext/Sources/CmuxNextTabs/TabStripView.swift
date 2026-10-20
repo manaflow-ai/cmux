@@ -83,7 +83,16 @@ public final class TabStripView: NSView {
     var closingAnchors: [TabID: TabID?] = [:]
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
-    var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
+    var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
+        didSet { slotIndexCache = nil }
+    }
+    /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
+    var slotIndexCache: TabSlotIndex?
+    /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
+    var movesInFlight: Set<Int> = []
+    /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
+    /// the switch work budget (a tab switch at rest runs none, at any tab count).
+    var rowPasses = TabStripRowPasses()
     /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).

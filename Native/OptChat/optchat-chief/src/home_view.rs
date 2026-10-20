@@ -41,6 +41,13 @@ const READ_LIMIT: Duration = Duration::from_millis(1500);
 /// Longest all the reads of one block may take: a turn never waits longer for it.
 const TOTAL_LIMIT: Duration = Duration::from_millis(2500);
 
+/// Whether a rendered Home block contains terminal screen text. Metadata such
+/// as terminal ids, titles and folders is structured by the host; only lines
+/// with this prefix came from the terminal grid and taint effect authorization.
+pub fn contains_terminal_text(block: &str) -> bool {
+    block.lines().any(|line| line.starts_with("    | "))
+}
+
 /// How to read the app's daemon: the `cmux` CLI and the env that pins it there
 /// (`cmux_env::pin`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
