@@ -47,6 +47,14 @@ ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
 `tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
 `--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
 
+## Palette open
+
+The same Debug app also runs a182's `scripts/cmux-next/palette-open-stages.py --no-gate`:
+Cmd-Shift-P and Cmd-P key-down to the palette's committed first frame from a terminal, Chromium page
+(and its page window), WebKit page, Markdown and Home. BENCH.md gets a "Palette open" section and the
+gate gets `palette-open-<surface>-<key>` rows (Debug only). `--arg=palette=off` skips it. a182's own
+entry `scripts/measure/palette-open.sh` is allowlisted too.
+
 ## For the tab switch rewrite (a168) and other perf agents
 
 - Tab switch only, fastest loop: `cmux-ci run --class exclusive --measurement --label measure
