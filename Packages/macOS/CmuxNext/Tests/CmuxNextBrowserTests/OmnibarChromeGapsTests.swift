@@ -67,7 +67,10 @@ struct OmnibarChromeGapsTests {
 
     /// The keyword and a space start the session as Tab does.
     @Test func anEngineKeywordAndASpaceStartTheSearch() {
-        let (state, effects) = reduce(typed("github.com swift testing") + [.key(.enter(.currentTab))])
+        // After the space the field holds only the text after the keyword.
+        let (session, _) = reduce(typed("github.com "))
+        #expect(session.keyword?.searchEngine?.id == "github")
+        let (state, effects) = reduce(session, typed("swift testing", focus: false) + [.key(.enter(.currentTab))])
         #expect(state.keyword == nil)
         #expect(commits(effects) == [URL(string: "https://github.com/search?q=swift%20testing")!])
     }
