@@ -184,6 +184,11 @@ const PROVIDERS: ProviderDef[] = [
   },
 ];
 
+export function minimaxProviderForTest(): ProviderDef {
+  syncCatalogProviderDefs();
+  return PROVIDERS.find((provider) => provider.id === "minimax")!;
+}
+
 const adapters = new Map<string, Adapter>();
 for (const def of PROVIDERS) {
   if (def.adapter === "claude") adapters.set(def.id, claudeAdapter);
