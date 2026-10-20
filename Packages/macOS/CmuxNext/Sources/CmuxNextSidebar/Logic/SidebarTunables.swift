@@ -65,6 +65,12 @@ public nonisolated enum SidebarTunables {
         help: "Where the middle band of a loose workspace row ends. Equal to the start turns grouping on drop off.",
         default: 0.7, range: 0.5...1, step: 0.01, unit: .fraction, code: "SidebarTunables.workspaceOntoEnd")
 
+    /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
+    public static let dragThreshold = Tunable<CGFloat>.number(
+        "sidebar.drag.threshold", .sidebar, "Drag start distance",
+        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
+
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
@@ -104,6 +110,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
+            dragThreshold.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             NotificationBadgeLook.tunable.descriptor,

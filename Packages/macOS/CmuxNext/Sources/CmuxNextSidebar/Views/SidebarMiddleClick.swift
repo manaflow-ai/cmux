@@ -12,8 +12,9 @@ struct SidebarPress {
 
     /// How far a press moves before it drags (Leo 2026-10-20: a plain click must never start a drag). A click's
     /// jitter on a trackpad reaches 4-5 pt; at the old 4 pt (`Metrics.space2`) such clicks lifted the row, or a
-    /// group header with all its members. Fixed points, not a density token: it is about the hand, not the layout.
-    static let dragThreshold: CGFloat = 6
+    /// group header with all its members. Points, not a density token: it is about the hand, not the layout.
+    /// Debug Settings `sidebar.drag.threshold` (default 6).
+    static var dragThreshold: CGFloat { SidebarTunables.dragThreshold.value }
 
     /// The pointer at `point` has moved from `start` far enough to start a drag.
     static func movedPastThreshold(from start: NSPoint, to point: NSPoint) -> Bool {
