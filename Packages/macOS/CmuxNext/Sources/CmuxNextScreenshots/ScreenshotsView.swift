@@ -41,6 +41,7 @@ public final class ScreenshotsView: NSView {
         sourceMenu.controlSize = .small
         sourceMenu.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         search.placeholderString = ScreenshotsStrings.filter
+        search.focusRingType = .none
         search.controlSize = .small
         search.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         search.target = self

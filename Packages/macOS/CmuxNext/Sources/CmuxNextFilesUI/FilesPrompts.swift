@@ -66,6 +66,7 @@ struct FilesPrompts {
         alert.addButton(withTitle: button)
         alert.addButton(withTitle: FilesStrings.cancel)
         let field = NSTextField(string: initial)
+        field.focusRingType = .none
         field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
         alert.accessoryView = field
         alert.window.initialFirstResponder = field

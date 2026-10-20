@@ -71,6 +71,7 @@ public struct FileGridActions {
         alert.addButton(withTitle: FileGridStrings.renameConfirm)
         alert.addButton(withTitle: FileGridStrings.cancel)
         let field = NSTextField(string: item.name)
+        field.focusRingType = .none
         field.frame = CGRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = field
         alert.layout()
