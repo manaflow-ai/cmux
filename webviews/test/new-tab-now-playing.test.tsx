@@ -25,6 +25,8 @@ const keys = [
   "localStorage",
   "customElements",
   "MutationObserver",
+  "MouseEvent",
+  "KeyboardEvent",
 ] as const;
 const added: string[] = [];
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -55,6 +57,8 @@ beforeAll(() => {
     localStorage: window.localStorage,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
+    MouseEvent: window.MouseEvent,
+    KeyboardEvent: window.KeyboardEvent,
   });
   // Pierre's registered elements (App's diff view) read their own DOM constructors at import time.
   for (const key of Object.getOwnPropertyNames(window))
@@ -294,19 +298,20 @@ test("with the setting off the page draws no player and keeps no space for it", 
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   // The host pushes null at load and handshake while tabs.newTabNowPlaying is off.
   applyHostEvent({ kind: "nowPlaying", value: null });
-  const root = await mount(calls);
+  // Generated ids (useId) differ from one mount to the next; nothing else may.
+  const markup = () => host.innerHTML.replace(/ (id|aria-controls|aria-labelledby|aria-describedby|for)="[^"]*"/g, "");
+  const off = await mount(calls);
+  const offMarkup = markup();
+  expect(host.querySelector(".nt-player, .nt-player-host, .nt-player-note")).toBeNull();
+  act(() => off.unmount());
+  // Byte for byte the page with nothing playing at all: no placeholder, no reserved box.
+  const { setNowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
+  setNowPlaying(undefined);
+  const never = await mount(calls);
   try {
-    const off = host.innerHTML;
-    expect(host.querySelector(".nt-player, .nt-player-host, .nt-player-note")).toBeNull();
-    act(() => root.unmount());
-    // Byte for byte the page with nothing playing at all: no placeholder, no reserved box.
-    const { setNowPlaying } = await import("../src/agent-session/acpmux/newtab/nowPlaying");
-    setNowPlaying(undefined);
-    const again = await mount(calls);
-    expect(host.innerHTML).toBe(off);
-    act(() => again.unmount());
+    expect(markup()).toBe(offMarkup);
   } finally {
-    act(() => root.unmount());
+    act(() => never.unmount());
   }
 });
 
