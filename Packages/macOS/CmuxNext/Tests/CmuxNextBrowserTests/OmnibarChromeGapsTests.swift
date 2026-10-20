@@ -17,7 +17,11 @@ struct OmnibarChromeGapsTests {
         return resolver
     }
 
-    private func reduce(_ state: OmnibarState = OmnibarState(), _ inputs: [OmnibarInput]) -> (OmnibarState, [OmnibarEffect]) {
+    private func reduce(_ inputs: [OmnibarInput]) -> (OmnibarState, [OmnibarEffect]) {
+        reduce(OmnibarState(), inputs)
+    }
+
+    private func reduce(_ state: OmnibarState, _ inputs: [OmnibarInput]) -> (OmnibarState, [OmnibarEffect]) {
         var state = state
         var effects: [OmnibarEffect] = []
         let resolver = self.resolver
