@@ -548,13 +548,14 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
     for (id, cmd) in [
         (
             1,
-            Command::Send {
+            Command::Send(cmd_terminal_io::SendParams {
                 surface: Some(1),
                 terminal_id: None,
                 text: Some("input".to_string()),
                 bytes: None,
                 paste: false,
-            },
+                expect_foreground: None,
+            }),
         ),
         (2, Command::WaitFor { surface: 2, pattern: "never".to_string(), timeout_ms: 60_000 }),
     ] {

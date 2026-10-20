@@ -163,19 +163,23 @@ test("End accepts the inline URL completion and Tab only advances a keyboard-hig
   expect(calls).toEqual([]);
 });
 
-test("Tab with suggestions showing but no keyboard-highlighted row moves focus on (to Send)", async () => {
+// Tab with no keyboard highlight is the Search | Ask switch's (Leo 2026-10-18, new-tab-search-ask);
+// Shift-Tab is still the browser's, so the keyboard can leave the field.
+test("Tab with suggestions showing but no keyboard-highlighted row switches Search | Ask, not the row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   expect(rows().length).toBeGreaterThan(0);
-  const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(tab));
-  // Not prevented: the browser's own focus traversal takes the key.
-  expect(tab.defaultPrevented).toBe(false);
-  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(before);
+  expect(tab.defaultPrevented).toBe(true);
+  expect(rows()[0]?.getAttribute("data-type")).toBe("search");
+  expect(rows().findIndex((row) => row.getAttribute("aria-selected") === "true")).toBe(0);
+  const back = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  await act(async () => field.dispatchEvent(back));
+  expect(back.defaultPrevented).toBe(false);
   expect(calls).toEqual([]);
 });
 

@@ -398,9 +398,7 @@ export function markdownStyleVariables(settings: unknown): Partial<Record<Markdo
   put("--cmux-md-code-line-height", cssValue(code.lineHeight));
   put("--cmux-md-code-background", color(code.background));
   const width =
-    typeof layout.width === "number" && Number.isFinite(layout.width)
-      ? `${clampWidth(layout.width)}ch`
-      : null;
+    typeof layout.width === "number" && Number.isFinite(layout.width) ? `${clampWidth(layout.width)}ch` : null;
   put("--cmux-md-content-width", layout.fullWidth === true ? "none" : (width ?? length(layout.maxWidth)));
   put("--cmux-md-page-padding", length(layout.padding));
   put("--cmux-md-paragraph-spacing", length(spacing.paragraph, "em"));

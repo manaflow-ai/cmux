@@ -3,8 +3,11 @@
 //! monitorable and I can jump in deeper using cmux ui"). A workspace named
 //! after the subagent's task, whose selected tab is the agent chat of the
 //! SAME acpmux session the Chief drives: the user watches its chat and tool
-//! calls live and can write to it. The workspace stays after the subagent
-//! finishes, renamed with a done mark; closing it only detaches the tab.
+//! calls live and can write to it. It is named `aN · Short title` and goes
+//! into a sidebar group named by its topic. It stays after the subagent
+//! finishes with its name untouched (Lawrence 2026-10-19: "I don't like the
+//! checkmark"): the chat tab's own idle state shows it is done, and a name
+//! the user gave it is never overwritten. Closing it only detaches the tab.
 //!
 //! The app opens it (`agent.openSessionWorkspace` through `action.run` on
 //! its control socket, `CMUX_SOCKET_PATH`), with a workspace key chosen
@@ -20,18 +23,24 @@ use serde_json::{Value, json};
 
 /// The app action that opens a session's chat in a new workspace.
 pub const OPEN_ACTION: &str = "agent.openSessionWorkspace";
-/// Marks a finished subagent's workspace name.
-pub const DONE_MARK: &str = "✓";
-/// Characters of a task kept in a workspace name.
-const TITLE_CHARS: usize = 40;
+/// Characters of a workspace title, after the `aN · ` prefix.
+const TITLE_CHARS: usize = 32;
 
 /// Where subagents' workspaces are made.
 pub trait Workspaces: Send + Sync {
     /// Opens workspace `key` (a fresh `new_key`, chosen before the session
-    /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`,
+    /// starts so the session can carry it as CMUX_WORKSPACE_ID) named `name`
+    /// in the sidebar group named `group` (made when missing; best effort),
     /// whose tab is acpmux session `session`'s chat (a terminal in `cwd`
     /// beside it); returns its key.
-    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String>;
+    fn open(
+        &self,
+        key: &str,
+        session: &str,
+        name: &str,
+        group: &str,
+        cwd: &Path,
+    ) -> Result<String, String>;
     /// Renames the workspace `key`.
     fn rename(&self, key: &str, name: &str) -> Result<(), String>;
     /// Closes the workspace `key` (`OPTCHAT_SUBAGENT_ON_FINISH=close`): it
@@ -44,19 +53,305 @@ pub trait Workspaces: Send + Sync {
     fn place(&self) -> String;
 }
 
-/// A subagent's workspace name: its id and the task's first words.
+/// A subagent's workspace name: its id and a short title of its task.
 pub fn name(id: &str, task: &str) -> String {
-    let flat: String = task.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut title: String = flat.chars().take(TITLE_CHARS).collect();
-    if flat.chars().count() > TITLE_CHARS {
-        title.push('…');
-    }
-    format!("{id} · {title}")
+    format!("{id} · {}", title(task))
 }
 
-/// The name of a finished subagent's workspace.
-pub fn done_name(name: &str) -> String {
-    format!("{DONE_MARK} {name}")
+/// The value of a leading `key: value` header line of `task` (`Title:`,
+/// `Group:`), among its first three non-empty lines; any case.
+pub fn header(task: &str, key: &str) -> Option<String> {
+    task.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .find_map(|line| {
+            let (k, v) = line.split_once(':')?;
+            (k.trim().eq_ignore_ascii_case(key) && !v.trim().is_empty())
+                .then(|| v.trim().to_owned())
+        })
+}
+
+/// Whether `line` is a `Title:` or `Group:` header.
+fn is_header(line: &str) -> bool {
+    line.split_once(':').is_some_and(|(k, _)| {
+        let k = k.trim();
+        k.eq_ignore_ascii_case("title") || k.eq_ignore_ascii_case("group")
+    })
+}
+
+/// The first line of `task` that is not a header.
+fn first_line(task: &str) -> &str {
+    task.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !is_header(l))
+        .unwrap_or("")
+}
+
+/// A short title (at most 32 characters) for a task (Lawrence 2026-10-19:
+/// "when you make a new workspace you do name it better"): its `Title:`
+/// line, else its first line without the "User (u2455)," style preamble,
+/// cut at its first clause. Never starts with "User".
+pub fn title(task: &str) -> String {
+    if let Some(t) = header(task, "title") {
+        return clip(&t);
+    }
+    let mut s = first_line(task).to_owned();
+    loop {
+        let next = strip_preamble(&s);
+        if next == s {
+            break;
+        }
+        s = next;
+    }
+    let t = clip(&cut_clause(&s));
+    if t.is_empty() || t.to_lowercase().starts_with("user") {
+        return "Task".to_owned();
+    }
+    t
+}
+
+/// `s` without one leading preamble: "User (u2455):", "The user said
+/// about X:", "cmux-next (repo …, branch …).", "Context:", quotes.
+fn strip_preamble(s: &str) -> String {
+    let s = s
+        .trim()
+        .trim_start_matches(['"', '\'', '“', '`', '-', '*', ' ']);
+    let lower = s.to_lowercase();
+    let preamble = ["the user", "user", "redo of", "follow-up to", "context"]
+        .iter()
+        .any(|p| {
+            lower.starts_with(p)
+                && lower[p.len()..]
+                    .chars()
+                    .next()
+                    .is_none_or(|c| !c.is_alphanumeric())
+        });
+    if preamble {
+        return after_mark(s, &[':', ',', '.']).to_owned();
+    }
+    for product in ["cmux-next", "cmux next"] {
+        if lower.starts_with(product) {
+            let rest = s[product.len()..].trim_start();
+            if rest.starts_with('(') {
+                return after_mark(rest, &[')'])
+                    .trim_start_matches([',', '.', ':', ';'])
+                    .trim()
+                    .to_owned();
+            }
+            if let Some(r) = rest.strip_prefix(':').or_else(|| rest.strip_prefix(',')) {
+                return r.trim().to_owned();
+            }
+            if rest.len() > 3 {
+                return rest.to_owned();
+            }
+        }
+    }
+    s.to_owned()
+}
+
+/// What follows the first of `marks` outside parentheses; empty when none.
+fn after_mark<'a>(s: &'a str, marks: &[char]) -> &'a str {
+    let closing = marks.contains(&')');
+    let mut depth = 0i32;
+    for (i, c) in s.char_indices() {
+        if !closing {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                _ => {}
+            }
+        }
+        if depth <= 0 && marks.contains(&c) {
+            return s[i + c.len_utf8()..].trim();
+        }
+    }
+    ""
+}
+
+/// The first clause of `s`: up to a sentence end, a colon, a quote, a
+/// parenthesis or an embedded "User" preamble.
+fn cut_clause(s: &str) -> String {
+    let mut end = s.len();
+    for mark in [
+        ". ", ": ", "; ", " — ", " - ", "? ", "! ", " (", "\"", " User", " user (", " user:",
+    ] {
+        if let Some(i) = s.find(mark).filter(|&i| i > 0) {
+            end = end.min(i);
+        }
+    }
+    s[..end]
+        .trim()
+        .trim_end_matches(['.', ',', ':', ';', '"', '\''])
+        .trim()
+        .to_owned()
+}
+
+/// `s` on one line, at most ``TITLE_CHARS`` characters (cut at a word, with
+/// "…"), its first letter upper case.
+fn clip(s: &str) -> String {
+    let flat = s
+        .replace('✓', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut out = if flat.chars().count() <= TITLE_CHARS {
+        flat
+    } else {
+        let head: String = flat.chars().take(TITLE_CHARS - 1).collect();
+        // A whole word when the next character ends it.
+        let whole = flat
+            .chars()
+            .nth(TITLE_CHARS - 1)
+            .is_some_and(char::is_whitespace);
+        let cut = if whole {
+            head.len()
+        } else {
+            head.rfind(' ')
+                .filter(|&i| i >= TITLE_CHARS / 2)
+                .unwrap_or(head.len())
+        };
+        format!("{}…", head[..cut].trim_end_matches([',', ';', ':', ' ']))
+    };
+    if let Some(c) = out.chars().next()
+        && c.is_lowercase()
+        && !out.starts_with("cmux")
+    {
+        out = c.to_uppercase().collect::<String>() + &out[c.len_utf8()..];
+    }
+    out
+}
+
+/// Topic groups for subagent workspaces and the words that pick them; the
+/// first match wins (Lawrence 2026-10-19: "you need to group it better as
+/// well").
+pub const TOPICS: &[(&str, &[&str])] = &[
+    (
+        "Crashes & QA",
+        &[
+            "crash", "crashes", "sentry", "fuzz", "qa", "tester", "testers",
+        ],
+    ),
+    (
+        "Performance",
+        &[
+            "perf",
+            "performance",
+            "bench",
+            "benchmark",
+            "latency",
+            "power",
+            "wakeups",
+            "memory",
+            "cpu",
+        ],
+    ),
+    (
+        "Markdown & editor",
+        &["markdown", "monaco", "editor", "mermaid"],
+    ),
+    (
+        "Home & chat",
+        &[
+            "home", "imessage", "composer", "chat", "chats", "dm", "dms", "messages",
+        ],
+    ),
+    (
+        "Browser & parity",
+        &[
+            "browser",
+            "chrome",
+            "chromium",
+            "webkit",
+            "web",
+            "webview",
+            "omnibar",
+            "extension",
+            "extensions",
+            "cookie",
+            "cookies",
+        ],
+    ),
+    (
+        "Sidebar & tabs",
+        &[
+            "sidebar",
+            "tab",
+            "tabs",
+            "unread",
+            "hover",
+            "workspace",
+            "workspaces",
+            "group",
+            "groups",
+        ],
+    ),
+    (
+        "Panes & layout",
+        &[
+            "pane", "panes", "split", "splits", "divider", "resize", "layout", "window",
+        ],
+    ),
+    (
+        "Nightly & CI",
+        &["nightly", "nightlies", "ci", "release", "landing"],
+    ),
+    (
+        "Agents & routing",
+        &[
+            "acpmux",
+            "chief",
+            "agent",
+            "agents",
+            "subagent",
+            "subagents",
+            "subrouter",
+            "sr2",
+            "claude",
+            "codex",
+            "acp",
+        ],
+    ),
+    (
+        "Cloud & fleet",
+        &[
+            "cloud",
+            "fleet",
+            "vm",
+            "vms",
+            "mini",
+            "minis",
+            "tailscale",
+            "server",
+        ],
+    ),
+];
+
+/// The group of subagent workspaces no topic matches.
+pub const AGENTS_GROUP_NAME: &str = "Chief agents";
+
+/// The sidebar group for `task`: its `Group:` line, else the first of
+/// ``TOPICS`` whose words appear in its title, else in its first line, else
+/// ``AGENTS_GROUP_NAME``.
+pub fn topic_group(task: &str) -> String {
+    if let Some(g) = header(task, "group") {
+        return g;
+    }
+    for text in [title(task), first_line(task).to_owned()] {
+        let words: Vec<String> = text
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(str::to_owned)
+            .collect();
+        let topic = TOPICS
+            .iter()
+            .find(|(_, keys)| keys.iter().any(|k| words.iter().any(|w| w == k)));
+        if let Some((name, _)) = topic {
+            return (*name).to_owned();
+        }
+    }
+    AGENTS_GROUP_NAME.to_owned()
 }
 
 /// `key` as CMUX_WORKSPACE_ID: the uppercase UUID form a cmux terminal
@@ -319,9 +614,18 @@ pub fn control_call(socket: &Path, request: &Value, timeout: Duration) -> Result
 }
 
 impl Workspaces for AppWorkspaces {
-    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+    /// The app makes the workspace; the host then moves it into `group`
+    /// on the app's session daemon, by key.
+    fn open(
+        &self,
+        key: &str,
+        session: &str,
+        name: &str,
+        group: &str,
+        cwd: &Path,
+    ) -> Result<String, String> {
         let key = key.to_owned();
-        match control_call(
+        let opened = match control_call(
             &self.control,
             &match &self.home {
                 Some(home) => open_request_for(home, session, name, &key, cwd),
@@ -337,7 +641,12 @@ impl Workspaces for AppWorkspaces {
             // rename before then fails and is logged).
             Err(e) if still_running(&e) => Ok(key),
             Err(e) => Err(e),
+        }?;
+        // Best effort: a sidebar group never fails the subagent's start.
+        if let Err(e) = group_by_key(&self.daemon, &opened, group) {
+            eprintln!("optchat: subagent workspace {opened} stays ungrouped: {e}");
         }
+        Ok(opened)
     }
 
     fn close(&self, key: &str) -> Result<(), String> {
@@ -353,42 +662,99 @@ impl Workspaces for AppWorkspaces {
     }
 }
 
-/// The sidebar group every subagent workspace goes into (Lawrence
-/// 2026-10-18: "use groups more aggressively so that you can organize and
-/// the user feels less overwhelmed"). A fixed id makes the create
-/// idempotent: the daemon answers the stored group for the same id and name.
+/// The id the fallback group is made with (Lawrence 2026-10-18: "use groups
+/// more aggressively so that you can organize and the user feels less
+/// overwhelmed"). A fixed id makes the create idempotent: the daemon answers
+/// the stored group for the same id and name.
 pub const AGENTS_GROUP_ID: &str = "chief-agents";
-/// The name the group is made with; the user may rename it.
-pub const AGENTS_GROUP_NAME: &str = "Chief agents";
 /// The daemon capability of workspace groups.
 const GROUPS: &str = "workspace-groups-v1";
 
-/// Puts `workspace` in the Chief agents group, making the group first. A
-/// create refused because the user renamed the group still moves the
-/// workspace into it; only a failed move is an error.
+/// The id a topic group named `name` is made with when the session has none
+/// by that name: `chief-agents` for the fallback, else `chief-topic-<slug>`.
+pub fn group_id(name: &str) -> String {
+    if name == AGENTS_GROUP_NAME {
+        return AGENTS_GROUP_ID.to_owned();
+    }
+    let slug: String = name
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    format!("chief-topic-{slug}")
+}
+
+/// Puts `workspace` in the group named `name` (any case): the session's own
+/// group by that name when it has one (the user's groups are reused), else
+/// one made with ``group_id``. Only a failed move is an error.
+/// `workspace` None moves it by its key (a workspace the app made).
 fn group_workspace(
     client: &mut cmux::raw::Client,
-    workspace: u64,
+    workspace: Option<u64>,
     key: &str,
+    name: &str,
 ) -> Result<(), String> {
-    use cmux::raw::{CreateWorkspaceGroupRequest, MoveWorkspaceToGroupRequest, Optional};
-    let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
-        collapsed: None,
-        color: Optional::Missing,
-        group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
-        index: Optional::Missing,
-        name: AGENTS_GROUP_NAME.to_owned(),
-    });
+    use cmux::raw::{
+        CreateWorkspaceGroupRequest, ListWorkspaceGroupsRequest, MoveWorkspaceToGroupRequest,
+        Optional,
+    };
+    let existing = client
+        .list_workspace_groups(ListWorkspaceGroupsRequest {})
+        .ok()
+        .and_then(|listed| {
+            listed["groups"].as_array()?.iter().find_map(|g| {
+                let named = g["name"].as_str()?.trim().eq_ignore_ascii_case(name.trim());
+                named.then(|| g["id"].as_str().map(str::to_owned)).flatten()
+            })
+        });
+    let group = match existing {
+        Some(id) => id,
+        None => {
+            let id = group_id(name);
+            let _ = client.create_workspace_group(CreateWorkspaceGroupRequest {
+                collapsed: None,
+                color: Optional::Missing,
+                group: Optional::Value(id.clone()),
+                index: Optional::Missing,
+                name: name.to_owned(),
+            });
+            id
+        }
+    };
     client
         .move_workspace_to_group(MoveWorkspaceToGroupRequest {
-            workspace: Optional::Value(workspace),
-            group: Optional::Value(AGENTS_GROUP_ID.to_owned()),
+            workspace: workspace.map_or(Optional::Missing, Optional::Value),
+            key: match workspace {
+                Some(_) => Optional::Missing,
+                None => Optional::Value(key.to_owned()),
+            },
+            group: Optional::Value(group),
             mutation_id: Optional::Value(format!("optchat-subagent-group-{key}")),
             origin: Optional::Value(MUTATION_ORIGIN.to_owned()),
             ..Default::default()
         })
         .map(|_| ())
         .map_err(|e| format!("move-workspace-to-group: {e}"))
+}
+
+/// Puts the workspace `key` on the session daemon at `daemon` in the group
+/// named `name`, when the daemon has workspace groups.
+fn group_by_key(daemon: &Path, key: &str, name: &str) -> Result<(), String> {
+    use cmux::raw::{Client, ClientConfig};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon))
+        .map_err(|e| format!("the session daemon: {e}"))?;
+    let groups = client
+        .identify_server()
+        .map(|info| info.capabilities.unwrap_or_default())
+        .is_ok_and(|caps| caps.iter().any(|c| c == GROUPS));
+    let result = if groups {
+        group_workspace(&mut client, None, key, name)
+    } else {
+        Ok(())
+    };
+    client.close();
+    result
 }
 
 /// A host without a cmux app (an always-on brain on a server): each
@@ -418,7 +784,14 @@ impl DaemonWorkspaces {
 }
 
 impl Workspaces for DaemonWorkspaces {
-    fn open(&self, key: &str, session: &str, name: &str, cwd: &Path) -> Result<String, String> {
+    fn open(
+        &self,
+        key: &str,
+        session: &str,
+        name: &str,
+        group: &str,
+        cwd: &Path,
+    ) -> Result<String, String> {
         use cmux::raw::{
             AgentSessionSource, CreateTerminalRequest, CreateWorkspaceRequest,
             NewConversationTabRequest, Optional,
@@ -458,7 +831,7 @@ impl Workspaces for DaemonWorkspaces {
                 .workspace;
             if groups {
                 // Best effort: a sidebar group never fails the subagent's start.
-                if let Err(e) = group_workspace(&mut client, workspace, &key) {
+                if let Err(e) = group_workspace(&mut client, Some(workspace), &key, group) {
                     eprintln!("optchat: subagent workspace {key} stays ungrouped: {e}");
                 }
             }
