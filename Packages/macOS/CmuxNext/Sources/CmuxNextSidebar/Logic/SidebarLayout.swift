@@ -40,7 +40,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     mutating func replaceRows(_ range: Range<Int>, with new: [SidebarRow], shiftingFollowingBy dy: CGFloat) {
         rows.replaceSubrange(range, with: new)
         if dy != 0 {
-            for i in (range.lowerBound + new.count)..<rows.count { rows[i].y += dy }
+            // Through the buffer: each later row's y moves in place, with no copy of the row (its content).
+            let start = range.lowerBound + new.count
+            rows.withUnsafeMutableBufferPointer { buffer in
+                for i in start..<buffer.count { buffer[i].y += dy }
+            }
             totalHeight += dy
         }
         index.splice(start: range.lowerBound, removed: range.count, inserted: new.map(\.key), rows: rows)
