@@ -177,5 +177,6 @@ fn column_move_refuses_an_unknown_pane_and_a_bad_direction() {
     let response = wire.refused(request);
     assert_eq!(response["error_code"], "column-move-missing", "{response}");
     let request = wire.move_column(panes[0], "up");
-    wire.refused(request);
+    let response = wire.refused(request);
+    assert_eq!(response["error_code"], "invalid-argument", "{response}");
 }

@@ -207,6 +207,7 @@ mod cmd_terminals;
 mod creating_input;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
+mod column_move;
 mod command_history;
 mod page_credential;
 mod page_files;
@@ -317,6 +318,8 @@ pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const DOCK_COLUMN_ROLE_CAPABILITY: &str = "dock-column-role-v1";
 /// `new-row`, `set-row-heights` and `Screen.columns[].rows` (rows.md).
 pub const ROWS_CAPABILITY: &str = "rows-v1";
+/// `move-column`: a whole viewport column moves one place left or right.
+pub const COLUMN_MOVE_CAPABILITY: &str = "column-move-v1";
 /// `kind` (`pty` | `browser`) and `url` on `split` and `new-pane-right`.
 pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
@@ -1623,6 +1626,8 @@ enum Command {
     MoveTabToColumn(tab_column::MoveTabToColumnParams),
     NewRow(rows::NewRowParams),
     SetRowHeights(rows::SetRowHeightsParams),
+    /// Move a whole viewport column one place (`column-move-v1`).
+    MoveColumn(column_move::MoveColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
