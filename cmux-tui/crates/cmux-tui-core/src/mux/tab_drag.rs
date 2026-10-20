@@ -145,6 +145,12 @@ impl TabDragDestination {
         }
     }
 
+    /// A new pinned column made from its anchor pane's only tab (`pinned-dock-alone-v1`).
+    fn makes_lone_pinned_column(self, state: &State, tab: SurfaceId) -> bool {
+        let Self::Column { pane, dock: Some(dock), .. } = self else { return false };
+        dock.pinned && state.panes.get(&pane).is_some_and(|anchor| anchor.tabs == [tab])
+    }
+
     /// The reducer op for this drag, with the ids the daemon reserved.
     pub(super) fn layout_op(self, tab: SurfaceId, ids: &TabDragIds) -> LayoutOpKind {
         match self {
@@ -457,13 +463,20 @@ impl Mux {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
                 committed = Some((outcome, target_key));
-                Ok(ResourceMutationPlan::replacing(
+                let plan = ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
                     projected,
-                )
-                .with_layout_op(destination.layout_op(surface, &ids)))
+                );
+                // The reducer models no pins, so it has no op for a screen's only tab
+                // becoming its lone pinned column (`pinned-dock-alone-v1`); the I1-I3
+                // checks of the live result still run.
+                Ok(if destination.makes_lone_pinned_column(state, surface) {
+                    plan
+                } else {
+                    plan.with_layout_op(destination.layout_op(surface, &ids))
+                })
             },
         )?;
         let (outcome, target_key) = committed.context("tab drag committed no outcome")?;
@@ -636,8 +649,12 @@ pub(crate) fn apply_tab_drag(
         state.pane_of(surface).with_context(|| format!("unknown surface {surface}"))?;
     anyhow::ensure!(state.panes.contains_key(&target_pane), "unknown pane {target_pane}");
     let source_tabs = state.panes[&source_pane].tabs.len();
+    // `pinned-dock-alone-v1`: a screen's only tab may become a lone pinned column (Home's
+    // dock): its pane closes and the pinned column is all the screen holds.
     anyhow::ensure!(
-        source_pane != target_pane || source_tabs > 1,
+        source_pane != target_pane
+            || source_tabs > 1
+            || destination.makes_lone_pinned_column(state, surface),
         "bad request: a pane's only tab cannot be split out of that pane"
     );
     let origin_index = state.panes[&source_pane]
@@ -697,7 +714,7 @@ pub(crate) fn apply_tab_drag(
                     screen.creation_order_auto_layout = None;
                 }
             }
-            TabDragDestination::Column { after_column, width, .. } => {
+            TabDragDestination::Column { after_column, width, dock, .. } => {
                 let anchor = match after_column {
                     Some(column) => screen
                         .layout_columns
@@ -711,12 +728,16 @@ pub(crate) fn apply_tab_drag(
                         .map(|column| column.root.first_visible_pane())
                         .unwrap_or(target_pane),
                 };
+                let mut column = LayoutColumn::single(ids.split, width, ids.pane);
+                // `pinned-dock-alone-v1`: a pinned dock is pinned before the move, so a
+                // screen's only tab becomes the lone pinned column (Home's dock with nothing
+                // beside it) instead of collapsing back to a plain screen when its source
+                // column closes. The flag is validated again after the move, below.
+                if let Some(dock) = dock.filter(|dock| dock.pinned) {
+                    column.dock = Some(dock);
+                }
                 anyhow::ensure!(
-                    screen.insert_layout_column_after(
-                        anchor,
-                        ids.base_column,
-                        LayoutColumn::single(ids.split, width, ids.pane),
-                    ),
+                    screen.insert_layout_column_after(anchor, ids.base_column, column),
                     "column anchor disappeared from its layout"
                 );
             }
