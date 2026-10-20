@@ -191,12 +191,17 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       expect(await page.locator(".acpmux-question-tab[aria-current=step]").innerText()).toBe("Platforms");
       await page.keyboard.press("Escape");
       expect(await focusedInCard(page)).toBe(false);
-      // From a tab too.
+      // From a tab too, in one press even with an Other answer left open.
+      await page.locator(".acpmux-question-tab").nth(1).click();
+      await page.locator(".acpmux-question-other-choice").click();
+      await page.locator(".acpmux-question-other input").waitFor();
+      await page.keyboard.type("Tauri");
       await page.locator(".acpmux-question-tab").nth(2).focus();
       await page.keyboard.press("Escape");
       expect(await focusedInCard(page)).toBe(false);
       expect(await permissionCalls(page, 0)).toEqual([]);
-      expect(await page.locator(".acpmux-question-tab[data-answered]").count()).toBe(1);
+      // Both answers are kept: question 1's pick and the typed Other for Platforms.
+      expect(await page.locator(".acpmux-question-tab[data-answered]").count()).toBe(2);
       await page.close();
     });
 

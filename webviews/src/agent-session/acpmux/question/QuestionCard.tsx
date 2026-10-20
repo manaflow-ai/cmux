@@ -224,8 +224,11 @@ function PendingQuestion({
     if (event.repeat && !REPEATS.has(event.key)) return;
     // Escape skips a one-question ask. In the Other field the reducer only leaves the field, and in
     // an ask of several questions it gives the keyboard back, so answers given are not thrown away.
-    if (input.type === "escape" && !inOther && state.question.items.length === 1) skip();
-    else dispatch(input);
+    // It gives the keyboard back directly, so one press works even with Other left open.
+    if (input.type === "escape" && !inOther) {
+      if (state.question.items.length === 1) skip();
+      else resign();
+    } else dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively
   // (PermissionCard does the same): the fieldset is a group, not a control of its own. It runs
