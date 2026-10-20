@@ -5,6 +5,7 @@ use std::os::unix::net::UnixStream;
 use std::process::{Child, ExitStatus};
 use std::sync::Mutex;
 
+use super::CallerRefused;
 use super::supervised::{ProcessStart, process_start};
 
 fn check_stream(fd: RawFd) -> io::Result<()> {
@@ -23,8 +24,7 @@ fn check_stream(fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn verify_parent(fd: RawFd) -> Result<(), super::CallerRefused> {
-    use super::CallerRefused;
+pub(super) fn verify_parent(fd: RawFd) -> Result<(), CallerRefused> {
     check_stream(fd).map_err(CallerRefused::Io)?;
     let uid = super::peer_uid(fd).map_err(CallerRefused::Io)?;
     if uid != 0 {

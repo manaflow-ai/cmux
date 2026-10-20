@@ -76,7 +76,7 @@ mod linux {
             return;
         }
         // SAFETY: fd is the fresh owned descriptor returned by F_DUPFD_CLOEXEC.
-        let mut inherited = unsafe { UnixStream::from_raw_fd(fd) };
+        let inherited = unsafe { UnixStream::from_raw_fd(fd) };
         let (mut child, host) = UnixStream::pair().unwrap();
         cmux_unix_socket::descriptor::send(&inherited, &[1], host.as_raw_fd()).unwrap();
         drop(host);
