@@ -2,7 +2,7 @@
 // session opened, newest first, with its title, repository and number, its line counts and how
 // its checks stand when the App knows them. A row opens the pull request. Five show and the rest
 // wait behind Show more.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Counts } from "../changes/Counts";
 import type { HeaderPullRequest } from "../header/headerState";
 import { useT, type StringKey } from "../i18n";
@@ -44,6 +44,10 @@ export function RailChanges({
 }) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
+  /// For each pull request the chat closed: the App's state for it at the close, and whether a
+  /// read since has said otherwise. Until one has, the close wins over an older read; after,
+  /// the App's reads do (someone reopened it).
+  const closes = useRef(new Map<string, { atClose?: string; since: boolean }>());
   const newest = [...pullRequests].reverse();
   const visible = expanded ? newest : newest.slice(0, SHOWN);
   return (
@@ -51,8 +55,14 @@ export function RailChanges({
       <ul className="acpmux-rail-list">
         {visible.map((pr) => {
           const live = statuses[pr.url] ?? {};
-          // A merge or close the chat ran wins over an older read; an open one defers to the App.
-          const state = pr.state !== "open" ? pr.state : (live.state ?? "open");
+          // A merge the chat ran is final. A close wins until a later read differs (a reopen).
+          // An open one defers to the App.
+          const state =
+            pr.state === "closed"
+              ? closedState(closes.current, pr.url, live.state)
+              : pr.state !== "open"
+                ? pr.state
+                : (live.state ?? "open");
           const title = live.title ?? pr.title;
           const counted = live.additions !== undefined && live.deletions !== undefined;
           const checks = state === "open" || state === "draft" ? live.checks : undefined;
@@ -97,4 +107,17 @@ export function RailChanges({
       )}
     </>
   );
+}
+
+/// A closed pull request's state: `closed` until the App reads a state other than the one it had
+/// when the chat closed it, then whatever the App reads.
+function closedState(
+  closes: Map<string, { atClose?: string; since: boolean }>,
+  url: string,
+  live: string | undefined,
+): string {
+  let close = closes.get(url);
+  if (!close) closes.set(url, (close = { atClose: live, since: false }));
+  if (live !== close.atClose) close.since = true;
+  return close.since && live ? live : "closed";
 }
