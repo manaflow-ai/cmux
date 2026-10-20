@@ -109,6 +109,42 @@ struct VaultSessionExclusionTests {
         #expect(!registry.excludes(makeEntry(agent: .claude, entrypoint: "cli")))
     }
 
+    @Test("A launch folder's project filters do not reach global listings")
+    func launchFolderFiltersStayOutOfGlobalListings() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-vault-launch-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let project = root.appendingPathComponent("project", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try #"{"vault":{"hideClaudeSDKSessions":true,"exclude":[{"agent":"codex"}],"agents":[{"id":"local-agent","name":"Local Agent","detect":{"processName":"local-agent"},"sessionIdSource":{"type":"argvOption","argvOption":"--session"},"resumeCommand":"local-agent --session {{sessionId}}","cwd":"preserve"}]}}"#.write(
+            to: project.appendingPathComponent("cmux.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let global = CmuxVaultAgentRegistry.load(
+            homeDirectory: home.path,
+            workingDirectory: nil,
+            environment: ["PWD": project.path]
+        )
+        let scoped = CmuxVaultAgentRegistry.load(
+            homeDirectory: home.path,
+            workingDirectory: project.path,
+            environment: [:]
+        )
+
+        #expect(!global.hasSessionExclusions(for: .claude))
+        #expect(!global.hasSessionExclusions(for: .codex))
+        #expect(scoped.hasSessionExclusions(for: .claude))
+        #expect(scoped.excludes(makeEntry(agent: .codex)))
+        // Agent registrations still come from the launch folder, as before.
+        #expect(global.registrations.contains { $0.id == "local-agent" })
+        #expect(scoped.registrations.contains { $0.id == "local-agent" })
+    }
+
     @Test("Exclusions only make an agent filter when a rule can match it")
     func exclusionsAreScopedPerAgent() {
         let sdkOnly = CmuxVaultAgentRegistry(registrations: [], hideClaudeSDKSessions: true)
