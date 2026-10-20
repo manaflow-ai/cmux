@@ -3,8 +3,9 @@
 // stand-in acpmux daemon whose one chat has a turn running, and which answers prompts as acpmux
 // does: a plain prompt waits behind the turn (`queued`), a steer goes into it (`user_message`).
 //
-// - Enter sends now, with no queue flag: acpmux stops the running turn and runs it next (its default
-//   since 2026-10-20, "We do not like queuing here").
+// - Enter sends now: into the turn for an agent that steers (`_meta.acpmux.steer`), else with no
+//   queue flag, so acpmux stops the running turn and runs it next (its default since 2026-10-20,
+//   "We do not like queuing here"). ⌘Enter stops the turn and sends now.
 // - ⌥Enter queues (`_meta.acpmux.queue`): the queue row shows the prompt and the composer is free for
 //   the next one. The prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
@@ -283,13 +284,38 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("⌘Enter interrupts an agent that cannot steer and sends now", async () => {
+    test("Enter steers an agent that steers; ⌘Enter stops its turn instead", async () => {
+      summary.steering = true;
+      try {
+        const page = await openChat();
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("look at the failing test first");
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(
+          () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+        );
+        await page.keyboard.type("stop and rebase");
+        await page.keyboard.press("Meta+Enter");
+        await page.waitForFunction(
+          () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+        );
+        expect(prompts.map((p) => ({ steer: p._meta?.acpmux?.steer, queue: p._meta?.acpmux?.queue }))).toEqual([
+          { steer: true, queue: undefined },
+          { steer: undefined, queue: undefined },
+        ]);
+        await page.close();
+      } finally {
+        summary.steering = false;
+      }
+    });
+
+    test("the Interrupt and send button stops a turn its agent cannot steer and sends now", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("use the new tokenizer");
       const button = page.getByRole("button", { name: "Interrupt and send" });
       await button.waitFor();
-      await page.keyboard.press("Meta+Enter");
+      await button.click();
       await page.waitForFunction(
         () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
       );
