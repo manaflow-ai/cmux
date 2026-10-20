@@ -15,8 +15,9 @@ export const CloudDriverResultParams = Schema.Struct({
   error: Schema.optionalKey(Schema.Struct({ code: Schema.String, message: Schema.String })),
   /** Retrying cannot help (configuration, authorization, a name owned by someone else). */
   final: Schema.optionalKey(Schema.Boolean),
-  /** VM API snapshot only: a verified terminal capture receipt, not a timeout or lookup miss. */
-  snapshot_outcome: Schema.optionalKey(Schema.Literal("deleted")),
+  /** VM API snapshot only: a verified terminal capture receipt ("deleted"), or a final error before the
+   *  VM service admitted any capture under the key ("absent"); never a timeout or lookup miss. */
+  snapshot_outcome: Schema.optionalKey(Schema.Literals(["deleted", "absent"])),
   /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
   resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */

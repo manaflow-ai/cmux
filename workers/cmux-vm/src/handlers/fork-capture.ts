@@ -10,9 +10,9 @@ import { TenantLimits } from "../limits/service.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { forkSnapshotAccess } from "../proofs/snapshot-capture.ts";
 import { readVmCreation } from "../proofs/vm-creation.ts";
-import { reconcileCapturedSnapshot, resumeSnapshotCapture } from "./snapshot-capture.ts";
+import { DEFINITE, reconcileCapturedSnapshot, resumeSnapshotCapture } from "./snapshot-capture.ts";
 
-export const acquireForkSnapshot = <C, V>(caller: Named<C, Principal>, source: Named<V, VmId>, scope: KeyHasScope<C, "vm:write">, key: string, parent: ForkCaptureProgress) =>
+export const acquireForkSnapshot = <C, V>(caller: Named<C, Principal>, source: Named<V, VmId>, scope: KeyHasScope<C, "vm:write">, key: string, parent: ForkCaptureProgress, unkeyed = false) =>
   name(parent.snapshotId, (snapshot) => Effect.gen(function* () {
     const access = yield* forkSnapshotAccess(caller, snapshot, key, scope);
     const result = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "begin", key: parent.captureKey,
@@ -23,7 +23,17 @@ export const acquireForkSnapshot = <C, V>(caller: Named<C, Principal>, source: N
     if (result.state !== "record" || result.record.intent.id !== parent.snapshotId) return yield* Effect.fail(unavailable());
     yield* resumeSnapshotCapture(caller, source, snapshot, access, result);
     return snapshot.value;
-  })).pipe(Effect.uninterruptible);
+  })).pipe(
+    // An unkeyed fork can never be retried by its caller: a definite refusal ends its intermediate capture
+    // as cancelled, then settles the destination, so neither the snapshot slot nor the VM slot stays held.
+    Effect.tapError((error) => unkeyed && DEFINITE.has(error._tag) ? Effect.gen(function* () {
+      const limits = yield* TenantLimits, tenant = caller.value.tenantId;
+      const child = yield* limits.snapshotCapture(tenant, { op: "cancel", id: parent.snapshotId });
+      if (child.state !== "record" || child.record.state !== "cancelled") return;
+      if ((yield* limits.cancelCreation(tenant, key, parent.vmId)) === "accepted") yield* limits.settleCancellation(tenant, key, parent.vmId);
+    }).pipe(Effect.ignore) : Effect.void),
+    Effect.uninterruptible,
+  );
 
 /** Reconciliation adopts or deletes existing effects only; it never sends a capture or VM create. */
 export const reconcileForkCapture = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, rawKey: string, expectedId?: string) => Effect.gen(function* () {
