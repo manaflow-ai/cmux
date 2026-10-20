@@ -41,6 +41,7 @@ final class HomeChatRig {
         view.frame = NSRect(x: 0, y: 0, width: width, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
+        view.controller.nextFrame = { [frames] f in frames.held.append(f) }
     }
 
     enum RigError: Error { case noMe }
@@ -55,8 +56,18 @@ final class HomeChatRig {
         for _ in 0..<20_000 where !condition() { await Task.yield() }
     }
 
-    /// One store pass and one display frame, as the app runs them.
+    /// Work the view holds for the next display frame (`ChatController.nextFrame`; an offscreen
+    /// window has no display link): it runs at the start of each `frame()`.
+    private final class Frames {
+        var held: [() -> Void] = []
+        func start() { let w = held; held = []; w.forEach { $0() } }
+    }
+    private let frames = Frames()
+
+    /// One display frame and one store pass, as the app runs them: the frame's held work first
+    /// (a stream update held for this frame, HomeStreamPacer), then the store pass.
     func frame() {
+        frames.start()
         view.projection.refresh()
         window.contentView?.layoutSubtreeIfNeeded()
         CATransaction.flush()

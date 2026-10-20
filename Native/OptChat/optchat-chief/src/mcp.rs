@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION,
-    SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION,
-    TELL_DESCRIPTION, VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, REACT_DESCRIPTION,
+    REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
+    SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, VERSION_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -41,6 +42,16 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
     ];
+    // A subagent's one write: ask its Chief to drive a sign-in.
+    if subagent {
+        list.push(json!({"name": "escalate_auth", "description": ESCALATE_AUTH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "site": {"type": "string", "minLength": 1, "description": "The site's host name, for example npmjs.com."},
+            "url": {"type": "string", "minLength": 1, "description": "The http(s) page where the sign-in starts."},
+            "reason": {"type": "string", "minLength": 1, "description": "One line: what you need the sign-in for."},
+            "kind": {"type": "string", "enum": crate::tools::AUTH_KINDS, "description": "password, passkey, 2fa (a code or security key after the password) or oauth (a Sign in with ... page)."}},
+          "required": ["site", "url", "reason", "kind"], "additionalProperties": false}}));
+    }
     if !subagent && grant.allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: on the cloud VM peer (code, tests through the fleet); local: on this Mac (its app, UI, computer use). By default: the `control cloud` setting."}}, "required": ["tasks"], "additionalProperties": false}}));

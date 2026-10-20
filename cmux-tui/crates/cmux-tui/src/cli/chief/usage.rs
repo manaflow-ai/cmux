@@ -89,7 +89,11 @@ pub(super) fn invocation(
             out.extend(["--mux-home".to_owned(), dir.display().to_string()]);
         }
         _ => {
-            out.extend(["--mux-home".to_owned(), home.display().to_string(), "--chiefs".to_owned()])
+            out.extend([
+                "--mux-home".to_owned(),
+                home.display().to_string(),
+                "--chiefs".to_owned(),
+            ]);
         }
     }
     if json {
