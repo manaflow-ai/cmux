@@ -23,7 +23,7 @@ struct AgentProcessTerminal {
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
         let controller = services.paneController(for: pane)
-        let placed: @MainActor (SurfaceID) -> Void = target == nil
+        let placed: @MainActor @Sendable (SurfaceID) -> Void = target == nil
             ? AgentBesidePlacement.placed(invocation, pane: chatPane, controller: services.paneController(for: chatPane), services: services, then: nil)
             : { [weak controller] surface in controller?.selectWhenReported(surface: surface) }
         let options = SpawnOptions(cwd: tab.cwd, argv: viewer.argv, name: viewer.title, env: viewer.environment,
