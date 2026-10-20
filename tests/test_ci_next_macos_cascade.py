@@ -281,13 +281,12 @@ class Wiring(unittest.TestCase):
             return set(evaluate(expression, context).split())
 
         self.assertEqual(runs(), set(CASCADED))
-        # An ordinary pull request (no full-ci) runs only the fast tier of these.
-        self.assertEqual(runs(labels=()), {"fast-tier"})
+        # A same-repository pull request runs its routed canary and scheme compile with no label (#22303).
+        self.assertEqual(runs(labels=()), set(CASCADED))
+        self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
         self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), {"swift-canary", "cmux-scheme-compile"})
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile"})
-        # A member's dev-build pull request compiles the scheme without full-ci; an outsider's does not.
-        self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "cmux-scheme-compile"})
-        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier"})
+        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), set(CASCADED))
         # A same-tree dispatch asking for the scheme tier has no path routing output.
         self.assertEqual(runs("workflow_dispatch", labels=(), canary="", scheme="",
                               inputs={"same_tree_sha": "a" * 40, "same_tree_state": "ready",
