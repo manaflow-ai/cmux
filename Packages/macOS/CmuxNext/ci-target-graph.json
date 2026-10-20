@@ -193,7 +193,6 @@
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
-        "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
@@ -216,6 +215,7 @@
         "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
+        "CmuxNextSessionTransfer",
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
@@ -281,6 +281,7 @@
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
         "CmuxNextScreenshots",
+        "CmuxNextSessionTransfer",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -769,16 +770,6 @@
         "CmuxHomeCore"
       ]
     },
-    "CmuxNextHostedChief": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextHomeEngine"
-      ],
-      "packages": []
-    },
     "CmuxNextIcons": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextIcons",
@@ -1097,6 +1088,15 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextServerHelperDaemon",
       "targets": [
         "CmuxNextServerHelper"
+      ],
+      "packages": []
+    },
+    "CmuxNextSessionTransfer": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSessionTransfer",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
