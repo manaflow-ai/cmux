@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -66,12 +67,12 @@ final class LinkOpener {
         case .splitRight:
             return make(source) { [weak self, weak source] surface in
                 guard let self, let source else { return }
-                self.move(surface, from: source, column: false, focus: !background)
+                self.move(surface, from: source, to: .split(.right), focus: !background)
             }
         case .newColumn:
             return make(source) { [weak self, weak source] surface in
                 guard let self, let source else { return }
-                self.move(surface, from: source, column: true, focus: !background)
+                self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
         }
     }
@@ -108,10 +109,56 @@ final class LinkOpener {
         }
     }
 
-    /// Moves the new tab on `surface` out of `source` into a new split (or column) on its right
+    /// Where ``move(_:from:to:focus:)`` takes a new tab.
+    enum Destination {
+        /// A new split of the tab's pane on this side.
+        case split(PaneEdge)
+        /// A new column right of the tab's pane, sized and placed like an agent's beside its chat.
+        case besideColumn
+        /// A new column after the daemon column (nil: after the tab's own column).
+        case column(after: DaemonColumnID?)
+        /// A new dock band on this edge of the tab's screen.
+        case dock(CmuxNextLayout.DockEdge)
+    }
+
+    /// Opens a link dragged out of a chat (``LinkDragItem``) where it was dropped (``LinkDropPlan``)
+    /// in `content`: a tab in the pane, or a tab opened there unselected and moved in one daemon
+    /// move into the new split, column or dock. False when the target pane is gone or nothing opened.
+    @discardableResult
+    func drop(_ item: LinkDragItem, plan: LinkDropPlan, in content: WorkspaceContentController) -> Bool {
+        let anchor: LayoutPaneID?, destination: Destination?
+        switch plan {
+        case .tab(let pane):
+            anchor = pane; destination = nil
+        case .split(let pane, let edge):
+            anchor = pane; destination = .split(edge)
+        case .column(let screen, let after):
+            let columns = content.layoutModel.screens.first { $0.id == screen }?.layout.columns ?? []
+            let column = after.flatMap { id in columns.first { $0.id == id } } ?? columns.last { $0.dock == nil }
+            anchor = column?.root.panes.last
+            destination = .column(after: column.flatMap { content.handles.columns[$0.id] })
+        case .dock(let screen, let edge):
+            anchor = content.layoutModel.screens.first { $0.id == screen }?.layout.panes.first
+            destination = .dock(edge)
+        }
+        guard let anchor, let pane = content.panes[anchor] else { return false }
+        let make: Make = { pane, placed in
+            switch item {
+            case .web(let url): return pane.newBrowserTab(url: url, background: placed != nil, then: placed)
+            case .file(let url): return pane.services.viewers.openFile(url, in: pane, markdown: false, placed: placed)
+            }
+        }
+        guard let destination else { return make(pane, nil) }
+        return make(pane) { [weak self, weak pane] surface in
+            guard let self, let pane else { return }
+            self.move(surface, from: pane, to: destination, focus: true)
+        }
+    }
+
+    /// Moves the new tab on `surface` out of `source` to `destination` (a new split, column or dock)
     /// once the store lists it, then focuses it unless not `focus`. A failed move selects it where
     /// it is, so it never stays hidden.
-    private func move(_ surface: SurfaceID, from source: PaneController, column: Bool, focus: Bool) {
+    private func move(_ surface: SurfaceID, from source: PaneController, to destination: Destination, focus: Bool) {
         let services = source.services, store = source.daemon.store
         let intent = focus ? source.workspace?.beginFocusIntent() : nil
         services.registry.track(Task { @MainActor [weak source] () -> ActionWorkFailure? in
@@ -129,13 +176,19 @@ final class LinkOpener {
             bound.cancel()
             guard let tab = found, let source, let anchor = store.pane(holding: tab) else { return "link open: the new tab did not open" }
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                if column {
+                switch destination {
+                case .besideColumn:
                     let after = AgentBesidePlacement.newColumn(beside: anchor, in: store)
                     TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
-                } else {
-                    TabMoves.toNewSplit(tab, pane: anchor, edge: .right, services: services) { done.resume(returning: $0) }
+                case .column(let after):
+                    TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
+                case .split(let edge):
+                    TabMoves.toNewSplit(tab, pane: anchor, edge: edge, services: services) { done.resume(returning: $0) }
+                case .dock(let edge):
+                    TabMoves.toNewDockColumn(tab, anchor: anchor, edge: edge, services: services) { done.resume(returning: $0) }
                 }
             }
+            let column = if case .besideColumn = destination { true } else { false }
             if moved {
                 if let intent { source.workspace?.expectFocus(on: surface, awayFrom: source.paneKey, generation: intent) }
                 if column { await AgentBesidePlacement.revealMoved(tab.id, from: anchor, services: services) }

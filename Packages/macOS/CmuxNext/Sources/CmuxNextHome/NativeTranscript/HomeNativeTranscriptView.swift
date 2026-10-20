@@ -59,6 +59,12 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onOpenLink }
         set { transcript.onOpenLink = newValue }
     }
+    /// A press on a link that moved past the drag slop (the pointer's screen point): true when the
+    /// host took it as a link drag (a split or pane drop zone opens it). Nil: the press selects text.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { transcript.onDragLink }
+        set { transcript.onDragLink = newValue }
+    }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }

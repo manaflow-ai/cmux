@@ -129,7 +129,7 @@ pub enum Input {
     SubagentStarted {
         id: String,
         session_id: String,
-        /// `ask` under the spawn floor.
+        /// The effective session policy (configured policy or spawn floor).
         policy: Option<String>,
     },
     /// A subagent's first prompt (view and task) is sent: its inbox follows.
