@@ -11,6 +11,7 @@ import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
+import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES, RecentSet } from "./imageCache";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
@@ -36,9 +37,13 @@ export function remoteImageHost(src: string): string | undefined {
   }
 }
 
-const loaded = new Map<string, string>();
 /// Sources an automatic load started for, so a render twice in a row asks the host once.
 const started = new Set<string>();
+/// Sources that loaded once. A web image the reader loaded and the cache then forgot loads again
+/// when it draws, instead of asking for a second click.
+const shown = new RecentSet(1024);
+/// The images drawn most recently; one it forgets is loaded from the host again when it draws.
+const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
 
 function useImageLoad(src: string, auto: boolean) {
   const [state, setState] = useState<State>(() => {
@@ -51,6 +56,7 @@ function useImageLoad(src: string, auto: boolean) {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
         loaded.set(src, data);
+        shown.add(src);
         setState({ kind: "shown", src: data });
       } else {
         started.delete(src);
@@ -136,7 +142,8 @@ function LocalImage({ src, path, alt, fallback }: { src: string; path: string; a
 function RemoteImage({ src, alt, host, fallback }: { src: string; alt: string; host: string; fallback: ReactNode }) {
   const t = useT();
   const policy = useReplyPolicy();
-  const { state, load } = useImageLoad(src, policy.remoteImages === "always");
+  const auto = policy.remoteImages === "always" || (policy.remoteImages !== "never" && shown.has(src));
+  const { state, load } = useImageLoad(src, auto);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   return (
