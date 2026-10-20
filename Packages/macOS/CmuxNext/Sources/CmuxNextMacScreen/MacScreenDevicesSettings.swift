@@ -388,6 +388,7 @@ public final class MacScreenDevicesSettings {
         case .signedOut: L.t("devices.history.signedOut", "A device signed out")
         case .peerOffline: L.t("devices.history.offline", "A device went offline")
         case .failed: L.t("devices.history.failed", "The stream could not start")
+        case .expired: L.t("devices.history.expired", "No answer in time")
         case .other: L.t("devices.history.other", "Ended")
         }
     }

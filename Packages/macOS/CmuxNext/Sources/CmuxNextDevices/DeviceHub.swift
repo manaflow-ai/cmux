@@ -265,6 +265,12 @@ public final class DeviceHub {
         if decision == .always { await refreshPermissions(host: identity.id) }
     }
 
+    /// Sign-out: the hub ends this device's sessions (`signed_out`) and closes its socket. Then ``stop()``.
+    public func signOutDevice() async throws {
+        try await perform { try await $0.signOutDevice() }
+        tickets = [:]
+    }
+
     public func endSession(_ id: String, reason: String) async throws {
         try await perform { try await $0.endSession(id, reason: reason) }
         tickets[id] = nil

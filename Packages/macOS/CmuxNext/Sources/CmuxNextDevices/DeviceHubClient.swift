@@ -146,6 +146,13 @@ public actor DeviceHubClient {
         _ = try await call("DELETE", "/v1/devices/\(segment(id))", as: Empty.self)
     }
 
+    /// Signs this device out (`POST /v1/devices/:id/sign-out`): the hub ends
+    /// its sessions at once with `signed_out` and closes its socket; the
+    /// device stays registered. Call it before dropping the account session.
+    public func signOutDevice() async throws {
+        _ = try await call("POST", "/v1/devices/\(segment(signer.identity.id))/sign-out", as: Empty.self)
+    }
+
     /// Turns this device's Mac Screen sharing on or off (only a device changes its own).
     public func setMacScreenShared(_ shared: Bool) async throws -> HubDevice {
         try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: ["shared": shared],
