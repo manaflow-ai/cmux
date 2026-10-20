@@ -19,6 +19,10 @@ export const GroupCreateHeaders = Schema.Struct({
 
 export const DisplayName = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100));
 
+export const CreatedByCaller = Schema.Literal("caller").annotations({
+  description: "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators.",
+});
+
 export const describe = (summary: string, scope: string, detail?: string) =>
   OpenApi.annotations({
     summary,

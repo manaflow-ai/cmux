@@ -17,14 +17,7 @@ import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/common
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
-import { TableView } from "@milkdown/kit/prose/tables";
-import {
-  Decoration,
-  DecorationSet,
-  type EditorView,
-  type NodeViewConstructor,
-  type ViewMutationRecord,
-} from "@milkdown/kit/prose/view";
+import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
 import "../../markdown-task-checkbox.css";
@@ -57,6 +50,8 @@ import {
   type RemarkLike,
   type SourceMap,
 } from "./sourceMap";
+import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
+import { ResizableTableView, tableClipboard, tableKeyDown, type TableWidths } from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -76,6 +71,8 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
+  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  tableWidths?: TableWidths;
 }
 
 export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText" | "document";
@@ -135,6 +132,19 @@ type ReferenceData = { data?: { cmuxReference?: unknown; cmuxAutolink?: Autolink
 
 /** The mdast node a bare-URL autolink is written as (`literalAutolinkHandler` writes it verbatim). */
 const LITERAL_AUTOLINK = "cmuxLiteralAutolink";
+
+/**
+ * Text as remark writes it, but an Obsidian `[[wikilink]]` (or `![[embed]]`) stays as typed:
+ * remark escapes every `[` it writes, which turned `[[note]]` into `\[\[note]]` on an edit.
+ */
+function textHandler(
+  node: { value?: unknown },
+  _parent: unknown,
+  state: { safe(value: string, info: unknown): string },
+  info: unknown,
+): string {
+  return state.safe(String(node.value ?? ""), info).replace(/\\\[\\\[([^\]\n]*?)\]\]/g, "[[$1]]");
+}
 
 /** Writes a bare-URL autolink as its text: the default `link` handler would write `<url>`. */
 function literalAutolinkHandler(node: { value?: unknown }): string {
@@ -252,7 +262,7 @@ export class MarkdownEditor {
           rule: "-" as const,
           listItemIndent: "one" as const,
           incrementListMarker: true,
-          handlers: { ...options.handlers, [LITERAL_AUTOLINK]: literalAutolinkHandler },
+          handlers: { ...options.handlers, [LITERAL_AUTOLINK]: literalAutolinkHandler, text: textHandler },
         }));
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
@@ -270,10 +280,17 @@ export class MarkdownEditor {
           // also make ProseMirror select the clicked node, as a modifier click does.
           handleClick: (_view, _pos, event) =>
             event.metaKey &&
-            !!(event.target as Element | null)?.closest?.('a[href], sup[data-type="footnote_reference"]'),
+            !!(event.target as Element | null)?.closest?.(
+              'a[href], sup[data-type="footnote_reference"], .md-wikilink[data-href]',
+            ),
+          // Obsidian's table keys (tables.ts): before every plugin's keymap.
+          handleKeyDown: (view, event) => tableKeyDown(view, event, this.schema),
           handleDOMEvents: {
             click: (_view, event) => this.handleClick(event),
             auxclick: (_view, event) => this.handleClick(event),
+            // A cell selection copies as a Markdown table (and an HTML one for spreadsheets).
+            copy: (view, event) => tableClipboard(view, event, (cell) => this.inlineMarkdown(cell), true),
+            cut: (view, event) => tableClipboard(view, event, (cell) => this.inlineMarkdown(cell), this.readOnly),
           },
         }));
       })
@@ -290,6 +307,7 @@ export class MarkdownEditor {
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
       .use(githubReferencePlugin(() => host.githubRepository))
+      .use(obsidianSyntaxPlugin(host))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
       .use(codeHighlightPlugin(host));
     if (host.links)
@@ -317,10 +335,25 @@ export class MarkdownEditor {
     });
   }
 
+  /** A table cell's content as Markdown on one line (copying cells as a Markdown table). */
+  private inlineMarkdown(cell: ProseNode): string {
+    if (!this.schema || !this.serializeDoc) return cell.textContent;
+    const blocks: ProseNode[] = [];
+    cell.forEach((child) => blocks.push(child));
+    return this.serializeDoc(this.schema.topNodeType.create(null, blocks)).trim();
+  }
+
   private handleClick(event: MouseEvent): boolean {
     const target = event.target as Element | null;
     if (event.type === "click" && this.toggleTask(target, event)) return true;
     if (event.type === "click" && this.followFootnote(target, event)) return true;
+    // A [[wikilink]] opens its note as a link does: Cmd-click, or a click when read only.
+    const wikilink = target?.closest?.(".md-wikilink[data-href]");
+    if (wikilink && event.type === "click" && (event.metaKey || this.readOnly)) {
+      event.preventDefault();
+      this.options.host.openLink(wikilink.getAttribute("data-href") ?? "");
+      return true;
+    }
     const anchor = target?.closest?.("a[href]");
     if (!anchor) return false;
     // A link never navigates the page. It opens with Cmd-click, or a plain click when read only.
@@ -691,14 +724,23 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
     code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos, host),
     [RAW_NODE]: (node, view, getPos) => new RawBlockView(node, view, getPos, host),
     // Each table sits in prosemirror-tables' `.tableWrapper` (its min-width 100px a column), the
-    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL). gfm's plugins leave
-    // out columnResizing, which would install this view, so the editor names it here.
-    table: (node) => new ScrollingTableView(node, 100),
+    // box a wide table scrolls sideways in (styles.css, MARKDOWN-TABLE-SCROLL), with a resize
+    // handle on each column's edge (tables.ts). gfm's plugins leave out columnResizing, which
+    // would write widths into the document, so the editor names its own view here.
+    table: (node, view, getPos) => new ResizableTableView(node, view, getPos, host.tableWidths, 100),
     image: (node) => {
       const img = document.createElement("img");
       const apply = (next: ProseNode) => {
         img.src = host.imageURL(String(next.attrs.src ?? ""));
-        img.alt = String(next.attrs.alt ?? "");
+        // Obsidian's size suffix: `![alt|300](src)` or `|300x200`.
+        const alt = String(next.attrs.alt ?? "");
+        const sized = /^(.*?)\|\s*(\d+(?:\s*x\s*\d+)?)\s*$/.exec(alt);
+        const size = imageSize(sized?.[2]);
+        img.alt = sized ? sized[1]!.trim() : alt;
+        if (size.width) img.setAttribute("width", String(size.width));
+        else img.removeAttribute("width");
+        if (size.height) img.setAttribute("height", String(size.height));
+        else img.removeAttribute("height");
         if (next.attrs.title) img.title = String(next.attrs.title);
         else img.removeAttribute("title");
       };
@@ -713,15 +755,6 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
       };
     },
   };
-}
-
-/** prosemirror-tables' TableView, minus one re-render: the wrapper's scroll mark
- * (`data-cmux-scrolling`, scrollers.ts) is an attribute change ProseMirror would read as an edit,
- * redrawing the table and dropping its sideways scroll on the first wheel step. */
-class ScrollingTableView extends TableView {
-  override ignoreMutation(record: ViewMutationRecord): boolean {
-    return (record.type === "attributes" && record.target === this.dom) || super.ignoreMutation(record);
-  }
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
