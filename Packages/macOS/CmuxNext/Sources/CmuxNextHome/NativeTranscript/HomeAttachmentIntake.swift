@@ -8,6 +8,7 @@ protocol HomePasteboardContents {
     var fileURLs: [URL] { get }
     func hasType(_ types: [NSPasteboard.PasteboardType]) -> Bool
     func data(forType type: NSPasteboard.PasteboardType) -> Data?
+    func string(forType type: NSPasteboard.PasteboardType) -> String?
 }
 
 extension NSPasteboard: HomePasteboardContents {
@@ -21,8 +22,10 @@ extension NSPasteboard: HomePasteboardContents {
 
 /// What a pasteboard (drop or paste) offers as attachments: file URLs
 /// first; else picture bytes the data side takes (it converts TIFF and HEIF
-/// itself), but only when there is no text (rich text often carries a
-/// picture of itself). Types follow `HomeComposerCheck`, the data side's rule.
+/// itself), but only when there is no real text (rich text often carries a
+/// picture of itself). A string that is only the picture's link (a browser's
+/// Copy Image adds one) or blank is not text, so such a paste attaches the
+/// picture. Types follow `HomeComposerCheck`, the data side's rule.
 enum HomeAttachmentIntake {
     static let dragTypes: [NSPasteboard.PasteboardType] = [.fileURL] + pictureTypes
     /// Picture types a paste or drop may carry, in preference order.
@@ -35,14 +38,25 @@ enum HomeAttachmentIntake {
     /// what the drop will accept.
     static func offers(_ board: any HomePasteboardContents) -> Bool {
         if board.hasType([.fileURL]) { return board.fileURLs.contains(where: HomeComposerCheck.accepts) }
-        return !board.hasType([.string]) && acceptedPictureType(board) != nil
+        return !hasText(board) && acceptedPictureType(board) != nil
     }
 
     static func inputs(from board: any HomePasteboardContents) -> [HomeDraftInput] {
         let urls = board.fileURLs
         if !urls.isEmpty { return urls.map { .file($0) } }
-        guard !board.hasType([.string]), let type = acceptedPictureType(board), let data = board.data(forType: type) else { return [] }
+        guard !hasText(board), let type = acceptedPictureType(board), let data = board.data(forType: type) else { return [] }
         return [.data(data, typeIdentifier: type.rawValue)]
+    }
+
+    /// Whether the pasteboard carries text the person meant to paste: a
+    /// string that is not blank and not just one link.
+    static func hasText(_ board: any HomePasteboardContents) -> Bool {
+        guard board.hasType([.string]) else { return false }
+        let text = (board.string(forType: .string) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return false }
+        if text.contains(where: \.isWhitespace) { return true }
+        guard let url = URL(string: text), let scheme = url.scheme?.lowercased() else { return true }
+        return !["http", "https", "file", "data", "blob"].contains(scheme)
     }
 
     private static func acceptedPictureType(_ board: any HomePasteboardContents) -> NSPasteboard.PasteboardType? {
