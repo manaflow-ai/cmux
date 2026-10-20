@@ -19,9 +19,12 @@ public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendabl
 /// Read-only access to classic cmux's saved session file.
 public nonisolated struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
-    /// Snapshots are topology-only input, so a generous cap prevents a corrupt
-    /// or hostile file from consuming unbounded memory during onboarding.
-    public static let maximumSnapshotBytes = 64 * 1024 * 1024
+    /// A cap so a corrupt or hostile file cannot take unbounded memory. Classic
+    /// itself reads its session with no cap, and a heavy quit save (classic
+    /// keeps 400,000 characters of scrollback per terminal, up to 12 windows
+    /// of 128 workspaces) passes 64 MB at about 150 full terminals, so the
+    /// cap sits far above what classic writes in practice.
+    public static let maximumSnapshotBytes = 512 * 1024 * 1024
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -68,7 +71,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
     public func read() throws -> [ClassicSessionWorkspace] {
         guard let data = try readData() else { return [] }
-        return try decode(data)
+        return try decodeSnapshot(data, checkpoints: Self.checkpointFolder(for: fileURL)).workspaces
     }
 
     /// The saved workspaces for Import Workspaces from Classic cmux: a local
@@ -100,7 +103,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
     /// The whole saved session, window by window; nil when classic has no snapshot.
     public func readSnapshot() throws -> ClassicSessionSnapshot? {
         guard let data = try readData() else { return nil }
-        return try decodeSnapshot(data)
+        return try decodeSnapshot(data, checkpoints: Self.checkpointFolder(for: fileURL))
     }
 
     /// Decodes topology, names, directories, titles, pages, agent sessions,
@@ -109,17 +112,49 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         try decodeSnapshot(data).workspaces
     }
 
-    /// Decodes the snapshot with its windows, groups, and each workspace's
-    /// key, color, pin and group. Names are made unique across all windows.
-    public func decodeSnapshot(_ data: Data) throws -> ClassicSessionSnapshot {
+    /// The folder of scrollback checkpoints classic keeps beside `sessionFile`
+    /// (`session-<bundle>-scrollback/`, one `<panel id>.json` per terminal);
+    /// nil for a `session-history` archive, whose terminals are older.
+    public static func checkpointFolder(for sessionFile: URL) -> URL? {
+        let name = sessionFile.lastPathComponent
+        guard name.hasPrefix("session-"), name.hasSuffix(".json"), sessionFile.deletingLastPathComponent().lastPathComponent != "session-history"
+        else { return nil }
+        var stem = String(name.dropLast(".json".count))
+        if stem.hasSuffix("-previous") { stem = String(stem.dropLast("-previous".count)) }
+        return sessionFile.deletingLastPathComponent().appendingPathComponent("\(stem)-scrollback", isDirectory: true)
+    }
+
+    /// ``decodeSnapshot(_:)``, with each terminal's scrollback taken from
+    /// classic's checkpoint in `checkpoints` when the snapshot itself carries
+    /// no scrollback at all: an 8 s autosave, the last save before classic
+    /// crashed, was force quit or the Mac lost power. A quit save's own
+    /// scrollback always wins, as in classic's restore.
+    public func decodeSnapshot(_ data: Data, checkpoints: URL?) throws -> ClassicSessionSnapshot {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClassicSessionImportError.notASnapshot
         }
+        return decodeSnapshot(root, checkpoints: checkpoints)
+    }
+
+    /// Decodes the snapshot with its windows, groups, and each workspace's
+    /// key, color, pin and group. Names are made unique across all windows.
+    public func decodeSnapshot(_ data: Data) throws -> ClassicSessionSnapshot {
+        try decodeSnapshot(data, checkpoints: nil)
+    }
+
+    private func decodeSnapshot(_ root: [String: Any], checkpoints: URL?) -> ClassicSessionSnapshot {
         let windows = (root["windows"] as? [[String: Any]]) ?? []
         let managers = windows.map { window in
             window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
         }
         let perWindow = managers.map { ($0["workspaces"] as? [[String: Any]]) ?? [] }
+        // Classic merges checkpoints only after an unclean exit, whose last
+        // save is an autosave: one without any scrollback.
+        let saved = Self.carriesScrollback(perWindow.flatMap { $0 })
+        let scrollback: (String) -> String? = { panel in
+            guard !saved, let checkpoints else { return nil }
+            return Self.checkpoint(panel, in: checkpoints)
+        }
         var names = Self.names(perWindow.flatMap { $0 }.map(Self.clues))[...]
         let decoded = zip(windows, zip(managers, perWindow)).map { window, pair in
             let (manager, workspaces) = pair
@@ -130,7 +165,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                 frame: Self.rect(window["frame"]),
                 selectedWorkspace: (manager["selectedWorkspaceIndex"] as? NSNumber)?.intValue
                     ?? (manager["selected_workspace_index"] as? NSNumber)?.intValue,
-                workspaces: zip(workspaces, mine).map { Self.workspace($0, name: $1) },
+                workspaces: zip(workspaces, mine).map { Self.workspace($0, name: $1, checkpoint: scrollback) },
                 groups: ((manager["workspaceGroups"] as? [[String: Any]]) ?? (manager["workspace_groups"] as? [[String: Any]]) ?? [])
                     .compactMap(Self.group))
         }
@@ -175,12 +210,37 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         (value["currentDirectory"] as? String) ?? (value["current_directory"] as? String) ?? NSHomeDirectory()
     }
 
-    private static func workspace(_ value: [String: Any], name: String) -> ClassicSessionWorkspace {
+    /// Whether any terminal in `workspaces` carries its own scrollback (a quit save).
+    private static func carriesScrollback(_ workspaces: [[String: Any]]) -> Bool {
+        workspaces.contains { workspace in
+            ((workspace["panels"] as? [[String: Any]]) ?? []).contains { panel in
+                ((panel["terminal"] as? [String: Any])?["scrollback"] as? String).map { !$0.isEmpty } ?? false
+            }
+        }
+    }
+
+    /// The scrollback classic's checkpoint holds for `panel`
+    /// (`<folder>/<PANEL UUID>.json`, `{panelId, scrollback, ...}`); nil
+    /// when there is none or it records another panel.
+    private static func checkpoint(_ panel: String, in folder: URL) -> String? {
+        let name = panel.uppercased()
+        // Panel ids are UUIDs; anything else is not a file name to read.
+        guard UUID(uuidString: name) != nil else { return nil }
+        // concurrency-allow: called from readSnapshot, which callers run on a detached utility task.
+        guard let data = FileManager.default.contents(atPath: folder.appendingPathComponent("\(name).json").path),
+              let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (record["panelId"] as? String)?.uppercased() == name,
+              let text = record["scrollback"] as? String, !text.isEmpty else { return nil }
+        return text
+    }
+
+    private static func workspace(_ value: [String: Any], name: String,
+                                  checkpoint: (String) -> String? = { _ in nil }) -> ClassicSessionWorkspace {
         let cwd = Self.directory(value)
         let panels = (value["panels"] as? [[String: Any]]) ?? []
         let panelEntries = panels.compactMap { panel -> (String, ClassicSessionTab)? in
             guard let id = panel["id"] as? String else { return nil }
-            return Self.tab(panel).map { (id, $0) }
+            return Self.tab(panel, checkpoint: { checkpoint(id) }).map { (id, $0) }
         }
         // Panels nothing here can show (markdown, file preview) stay in classic.
         let leftOutPanels = panels.contains { !["terminal", "browser"].contains($0["type"] as? String ?? "terminal") }
@@ -211,7 +271,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
 
     /// A terminal or browser panel as a tab; nil for a panel nothing here can
     /// show (markdown, file preview). Old snapshots name no type.
-    private static func tab(_ panel: [String: Any]) -> ClassicSessionTab? {
+    private static func tab(_ panel: [String: Any], checkpoint: () -> String? = { nil }) -> ClassicSessionTab? {
         switch panel["type"] as? String ?? "terminal" {
         case "terminal":
             let terminal = panel["terminal"] as? [String: Any]
@@ -220,7 +280,7 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             return ClassicSessionTab(workingDirectory: directory, title: panel["customTitle"] as? String ?? panel["title"] as? String,
                                      agent: Self.agent(terminal?["agent"] as? [String: Any], directory: directory)
                                         ?? Self.endedAgent(terminal?["resumeBinding"] as? [String: Any], directory: directory),
-                                     scrollback: (terminal?["scrollback"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+                                     scrollback: (terminal?["scrollback"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? checkpoint())
         case "browser":
             let browser = panel["browser"] as? [String: Any]
             guard let url = browser?["urlString"] as? String ?? browser?["url_string"] as? String, !url.isEmpty else { return nil }
@@ -307,11 +367,15 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                          folder: folder.isEmpty || folder == "/" ? "Imported workspace" : folder)
     }
 
+    /// The longest workspace name cmux-next's daemon takes, in UTF-8 bytes.
+    public static let maximumNameBytes = 1024
+
     /// The user's own title; else a running command or tab title, the
     /// agent it ran, or the folder's name. Names several workspaces share
     /// take each one's branch, and a number only as the last resort.
     static func names(_ clues: [NameClues]) -> [String] {
-        var names = clues.map { $0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder }
+        // Room left for a branch or a number, so the final name fits the daemon's limit.
+        var names = clues.map { fitting($0.custom ?? $0.titles.first ?? $0.agent ?? $0.folder, bytes: maximumNameBytes - 128) }
         let counts = Dictionary(names.map { ($0, 1) }, uniquingKeysWith: +)
         for index in names.indices where counts[names[index], default: 0] > 1 && clues[index].custom == nil {
             if let branch = clues[index].branch, branch != names[index] { names[index] += " · \(branch)" }
@@ -320,8 +384,16 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return names.map { name in
             seen[name, default: 0] += 1
             let count = seen[name, default: 1]
-            return count == 1 ? name : "\(name) \(count)"
+            return fitting(count == 1 ? name : "\(name) \(count)", bytes: maximumNameBytes)
         }
+    }
+
+    /// `name` cut at a character so it takes at most `bytes` UTF-8 bytes.
+    private static func fitting(_ name: String, bytes: Int) -> String {
+        guard name.utf8.count > bytes else { return name }
+        var cut = Substring(name)
+        while cut.utf8.count > bytes { cut = cut.dropLast() }
+        return String(cut)
     }
 
     private static func layout(_ value: [String: Any], panels: [String: ClassicSessionTab]) -> ClassicSessionLayout {

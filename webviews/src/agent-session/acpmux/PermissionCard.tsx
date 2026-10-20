@@ -56,9 +56,17 @@ export function permissionOptionLabel(
   return option.name;
 }
 
+/// The command the ask would run: the request's own, else a command ask's title without its
+/// "Run" (codex-acp titles a command "Run npm test"; an ask without a kind counts when its title
+/// says Run). Any other ask (an edit, a fetch, an MCP tool) has no command, so its title is not
+/// drawn again as one.
 function permissionCommand(permission: AcpmuxPermission): string {
+  const command = permission.command?.trim();
+  if (command) return command;
   const title = permission.title?.trim() ?? "";
-  return permission.command?.trim() || title.replace(/^(run|execute)\s+/i, "");
+  const verb = /^(run|execute)\s+/i;
+  if (permission.kind === "execute" || (!permission.kind && verb.test(title))) return title.replace(verb, "");
+  return "";
 }
 
 function permissionAction(permission: AcpmuxPermission, t: Translate): string {
@@ -136,11 +144,14 @@ export function PermissionCard({
   onAnswer,
   harness,
   focusComposer,
+  waiting = 0,
 }: {
   permission: AcpmuxPermission;
   onAnswer(optionId: string): void;
   harness?: string;
   focusComposer?: () => void;
+  /// More asks waiting behind this one, answered after it.
+  waiting?: number;
 }) {
   const t = useT();
   const keys = useMemo(
@@ -221,6 +232,7 @@ export function PermissionCard({
       <div className="acpmux-permission-request" data-harness={harness || undefined}>
         <div className="acpmux-permission-request-label">{permissionAction(permission, t)}</div>
         {permission.description && <p className="acpmux-permission-request-description">{permission.description}</p>}
+        {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {permissionCommand(permission) && (
           <details className="acpmux-permission-command">
             <summary>

@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "zorunlu: bu makine ekiple paylaşılıyor" },
   "agentHarness": {
     "title": "Algılanan harness yapılandırması",
     "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",

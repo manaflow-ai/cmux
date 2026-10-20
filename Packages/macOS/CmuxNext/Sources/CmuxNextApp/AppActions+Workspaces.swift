@@ -60,9 +60,17 @@ extension AppActions {
                 services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
+        // Reply to Selection (Cmd-Shift-R on Home, the palette): the same path as the transcript's menu item.
+        registry.bind("home.replyToSelection") {
+            guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window), view.replyToSelection() else {
+                services.registry.refuse(RefusalStrings.homeReplyNoSelection)
+                return
+            }
+        }
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
         bindHomeGroups(services)
+        bindHomeMessaging(services)
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY): MessagesLab's flight recorder dump.
         registry.bind("home.saveFlightRecording") {
             if HomeFlightRecording.saveLastSeconds() == nil { services.registry.refuse(RefusalStrings.homeFlightRecorderOff) }

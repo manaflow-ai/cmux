@@ -14,6 +14,10 @@ extension HomeNativeTranscriptView {
     /// branch, any depth, once the transcript holds it.
     public func reveal(message: String) { transcript.reveal(message: message) }
 
+    /// Reply to Selection (`home.replyToSelection`, Cmd-Shift-R): the text selected in one message
+    /// becomes the reply's quote, as the message menu's item does. False: no such selection.
+    public func replyToSelection() -> Bool { transcript.replyToSelection() }
+
     /// The build's link scheme, for "Copy Link" in the message menu.
     public var linkScheme: String? {
         get { transcript.linkScheme }
