@@ -487,10 +487,13 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
+        // What a paused agent pair held here, and its resumes (`agent_pairs.rs`).
+        let mut pair_records: Vec<EventRecord> = Vec::new();
         let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
             let turn_id = e.msg.get("turnId");
             match e.kind.as_str() {
                 "queued" => waiting.push(e),
+                "agent_pair_held" | "agent_pair_resumed" => pair_records.push(e),
                 "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
                 "transfer_aborted" | "imported" => moving = None,
                 "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
@@ -525,6 +528,7 @@ impl Hub {
             }
             true
         });
+        self.restore_agent_pairs(&session.id, pair_records);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;
