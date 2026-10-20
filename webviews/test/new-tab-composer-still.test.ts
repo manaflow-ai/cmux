@@ -220,6 +220,8 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
   }
 
   const cases: [string, number][] = [
+    ["cards", 900],
+    ["cards", 560],
     ["default", 900],
     ["default", 560],
     ["composer", 900],

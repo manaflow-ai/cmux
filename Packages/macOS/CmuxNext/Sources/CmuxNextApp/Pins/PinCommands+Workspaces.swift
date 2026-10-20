@@ -45,6 +45,32 @@ extension PinCommands {
         }
     }
 
+    /// Pins or unpins every workspace in `ids` as one undo step (Pin on a selection).
+    func setWorkspacesPinned(_ ids: [String], pinned: Bool, origin: ActionOrigin) throws {
+        guard ids.count > 1 else {
+            if let id = ids.first { try setWorkspacePinned(id, pinned: pinned, origin: origin) }
+            return
+        }
+        let title = pinned ? PinStrings.pinWorkspace : PinStrings.unpinWorkspace
+        if let store = SidebarDocStore.current, store.isActive {
+            let items = ids.compactMap { SidebarDocWiring.item(workspace: $0, context.services.machines) }
+            if items.count == ids.count { return pinned ? store.pin(items, title: title) : store.unpin(items, title: title) }
+        }
+        if pinsAreTiles {
+            let pins = try ids.map { id in
+                guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
+                return (ref: ref, label: context.services.machines.workspace(id: id)?.0.displayName)
+            }
+            return try sendLayout(layout.document.pinOps(pins, pinned: pinned), title: title, origin: origin)
+        }
+        let changed = ids.filter { id in context.services.machines.workspace(id: id).map { $0.0.pinned != pinned } ?? false }
+        for id in changed { try setLegacyPinned(id, pinned: pinned) }
+        guard origin == .user, !changed.isEmpty else { return }
+        registerUndo(title: title) { commands in
+            for id in changed { try? commands.setLegacyPinned(id, pinned: !pinned) }
+        }
+    }
+
     /// Whether sidebar workspace `id` shows in the top rows (not as a tile).
     func isWorkspaceOnTopRows(_ id: String) -> Bool {
         guard pinsAreTiles, let ref = refs.ref(forWorkspace: id) else { return false }
