@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
-# Installs tracked pre-commit checks and the post-merge merge-driver refresh
-# without hiding custom hooks.
+# Installs tracked pre-commit checks, the post-merge merge-driver refresh and a
+# prepare-commit-msg that runs the contributor's global one, without hiding
+# custom hooks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -30,6 +31,7 @@ case "$PYTHON3_BIN" in
 esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+install -m 0755 scripts/git-hooks/prepare-commit-msg "$TRUSTED_HOOK_DIR/prepare-commit-msg"
 install -m 0755 scripts/git-hooks/check-git-remotes.sh "$TRUSTED_HOOK_DIR/check-git-remotes.sh"
 install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DIR/validate_test_execution_registry.py"
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
