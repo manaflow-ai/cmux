@@ -915,6 +915,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [

@@ -1492,3 +1492,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_risk_tier.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
