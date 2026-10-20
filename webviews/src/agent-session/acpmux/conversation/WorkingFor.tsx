@@ -1,14 +1,16 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
-// or held at `durationMs` while text streams. After the time it counts the work still going in
-// the background, as Claude's phone app does ("Working… · 5 running tasks"): "· 2 agents ·
-// 1 command", only subagents still running and background shells that have not ended. Each count
-// opens what it counts. The counts follow the label on the same fixed-height line, so one that
-// comes or goes moves neither the label nor the rows below. When the turn ends, the "Worked for"
-// disclosure takes its place.
+// or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
+// that call beside the time instead, as Claude desktop's line does, after the same small animated
+// mark as "Thinking". After that it counts the work still going in the background, as Claude's
+// phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
+// running and background shells that have not ended. Each count opens what it counts. The counts
+// follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
+// rows below. When the turn ends, the "Worked for" disclosure takes its place.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "./turns";
+import { WorkingMark } from "./WorkingMark";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -35,6 +37,7 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
     const timer = setInterval(() => setTime(now()), 1000);
     return () => clearInterval(timer);
   }, [now, held]);
+  const until = held ? row.at + row.durationMs! : time;
   const parts = counts
     ? [
         counts.agents > 0 && {
@@ -49,9 +52,19 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         },
       ].filter((part) => part !== false)
     : [];
+  // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
+  // line is not painted either: the call it names is matched on its own tool row.
   return (
-    <div className="cv-worked has-divider">
-      <span className="cv-worked__label">{workingLabel(t, row.at, held ? row.at + row.durationMs! : time)}</span>
+    <div className="cv-worked has-divider" data-find-skip>
+      <WorkingMark />
+      {row.doing ? (
+        <>
+          <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
+          <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
+        </>
+      ) : (
+        <span className="cv-worked__label">{workingLabel(t, row.at, until)}</span>
+      )}
       {parts.map((part) => (
         <span key={part.key} className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
