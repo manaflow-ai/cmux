@@ -865,6 +865,8 @@ export function Composer({
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
+      // Holding Esc down is one press: its auto-repeat is not the second.
+      if (event.repeat) return;
       const press = escapeStopPress(escapeArmedAt.current, Date.now(), escapeDoublePress);
       escapeArmedAt.current = press.armedAt;
       setEscapeArmed(press.armedAt);
@@ -932,9 +934,15 @@ export function Composer({
   // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
   // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
   // typed text, so with only attachments staged it says just that Return queues.
-  // The hint lasts the double press's window, and only while there is a turn to stop. Typing
-  // (any key) disarms it at once, in keyDown.
+  // The hint lasts the double press's window, and only while there is a turn to stop. Any other
+  // key disarms it at once, in keyDown.
   const escapeHint = escapeArmed !== undefined && stop;
+  // A turn that ends (or a prompt typed) takes the arm with it, so the next turn starts unarmed.
+  useEffect(() => {
+    if (stop || escapeArmedAt.current === undefined) return;
+    escapeArmedAt.current = undefined;
+    setEscapeArmed(undefined);
+  }, [stop]);
   useEffect(() => {
     if (escapeArmed === undefined) return;
     const timer = window.setTimeout(() => {

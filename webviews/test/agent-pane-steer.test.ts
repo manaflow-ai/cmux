@@ -403,7 +403,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // The send guard ignores a stop right after a send; nothing was sent here.
       await page.keyboard.press("Escape");
       await page.locator(".acpmux-md-placeholder", { hasText: "Press Esc again to stop" }).waitFor({ timeout: 2_000 });
-      await page.waitForTimeout(300);
+      // The second press must land inside the 800 ms window, so no long wait here.
       expect(cancels.length).toBe(0);
       await page.keyboard.press("Escape");
       const deadline = Date.now() + 5_000;

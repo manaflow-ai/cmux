@@ -74,7 +74,7 @@ struct AgentPaneHarnessSwitchTunableTests {
 struct AgentPaneEscapeStopTunableTests {
     @Test func isOnByDefaultAndRidesTheComposerEvent() {
         #expect(AgentPaneTunables.escapeStopDoublePress.descriptor.key == "agent.escapeStopDoublePress")
-        #expect(AgentPaneTunables.escapeStopDoublePress.value == true)
+        #expect(AgentPaneTunables.escapeStopDoublePress.defaultValue == true)
         #expect(AgentPaneTunables.all.contains { $0.key == "agent.escapeStopDoublePress" })
         let value = AgentPageEvent.composer(.fallback).value.objectValue
         #expect(value?["escapeDoublePress"]?.boolValue == AgentPaneTunables.escapeStopDoublePress.value)
