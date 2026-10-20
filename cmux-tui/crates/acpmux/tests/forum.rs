@@ -504,7 +504,88 @@ async fn an_urgent_retirement_reaches_a_session_still_answering_the_rule() {
         .await;
     assert_eq!(u["pushed"], json!([s.as_str()]), "{u}");
     gate.open().await;
-    app.ok("_acpmux/wait", json!({"sessions": [s], "until": ["ready"], "timeoutMs": 20000})).await;
+    // Queued behind the held turn: the pushed prompt runs before this one.
+    app.prompt(&s, "next").await;
     let replies = app.replies(&s).await.join("\n");
-    assert!(replies.contains("retired by leo"), "{replies}");
+    assert!(replies.contains("Urgent cmux rule. [ci] retired by leo"), "{replies}");
+}
+
+#[tokio::test]
+async fn a_waiting_prompt_carries_an_urgent_rule_pushed_behind_it() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let s = app.new_session().await;
+    app.prompt(&s, "warm up").await;
+    let gate = Gate::new();
+    gate.hold(&hub, &s).await;
+    // The person's prompt waits behind the held turn; the urgent rule waits behind it.
+    let mut bg = Client::person(&hub).await;
+    let mine = json!({"sessionId": s, "prompt": [{"type": "text", "text": "mine"}]});
+    let queued = tokio::spawn(async move { bg.call("session/prompt", mine).await });
+    let mut c = Client::person(&hub).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hub.session_summary(&hub.resolve(&s).unwrap())["queued"] != json!(1) {
+        assert!(tokio::time::Instant::now() < deadline, "the prompt never queued");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let u = c
+        .ok(ANNOUNCE, json!({"key": "ci", "body": "CI waits use glaeda-gh.", "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([s.as_str()]), "{u}");
+    gate.open().await;
+    queued.await.unwrap();
+    app.prompt(&s, "after").await;
+    let replies = app.replies(&s).await;
+    let mine = replies.iter().find(|r| r.starts_with("echo: mine")).unwrap();
+    assert!(mine.contains("CI waits use glaeda-gh."), "{replies:?}");
+    // Told by the waiting prompt: the push behind it is not sent as well.
+    assert!(!replies.iter().any(|r| r.contains("Urgent cmux rule")), "{replies:?}");
+}
+
+#[tokio::test]
+async fn a_restored_agent_session_is_told_a_rule_its_transcript_holds_was_retired() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let r = app.new_session_with(json!({"harness": "noload"})).await;
+    app.prompt(&r, "warm up").await;
+    let u = app
+        .ok(ANNOUNCE, json!({"key": "hosts", "body": "Mailbox is cmux-lawrence.", "urgent": true, "account": "leo"}))
+        .await;
+    assert_eq!(u["pushed"], json!([r.as_str()]), "{u}");
+    app.prompt(&r, "seen").await;
+    app.ok(
+        "session/prompt",
+        json!({"sessionId": r, "prompt": [{"type": "text", "text": "answer-then-exit"}]}),
+    )
+    .await;
+    let session = hub.resolve(&r).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while hub.session_summary(&session)["status"] != "disconnected" {
+        assert!(tokio::time::Instant::now() < deadline, "the agent never exited");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Retired while no agent runs: the restored transcript still holds the rule.
+    app.ok(ANNOUNCE, json!({"key": "hosts", "retire": true, "account": "leo"})).await;
+    let got = app.prompt(&r, "back").await;
+    assert!(got.contains("<restored_transcript") && got.contains("Mailbox is cmux-lawrence."));
+    assert!(got.contains("[hosts] retired by leo"), "{got}");
+}
+
+#[tokio::test]
+async fn rules_follow_the_tools_an_agent_was_launched_with_not_a_reloaded_preset() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let iso = app.new_session_with(json!({"preset": "iso"})).await;
+    app.prompt(&iso, "warm up").await;
+    // The preset now gives cmux tools; the running agent still has none.
+    hub.config.write().await.presets.get_mut("iso").unwrap().env.remove("ACPMUX_AGENT_TOOLS");
+    let u = app
+        .ok(
+            ANNOUNCE,
+            json!({"key": "focus", "body": "Ship the forum.", "urgent": true, "account": "leo"}),
+        )
+        .await;
+    assert_eq!(u["pushed"], json!([]), "{u}");
+    let got = app.prompt(&iso, "compact this").await;
+    assert!(!got.contains("Ship the forum."), "{got}");
 }
