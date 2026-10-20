@@ -127,3 +127,23 @@ export { attachmentHeldBy, cleanLinkPreviewPart, LINK_PREVIEW_LIMITS, validLinkU
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
 export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
 export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"
+export {
+  cursorOf,
+  focusOf,
+  INLINE_MAX,
+  inboxViewFor,
+  isLarge,
+  MAX_GROUP_MEMBERS,
+  memberCount,
+  memberOf,
+  MEMBERS_PAGE_LIMIT,
+  membersPage,
+  recordOf,
+  ROSTER_HUMANS,
+  TABLE_MEMBER,
+  type InboxView,
+  type MemberRow,
+  type MembersPage
+} from "./large.ts"
+export { checkGrant, checkOver, checkWriter, grantableRole, isManager, rankOf, roleOf, ROLES } from "./roles.ts"
+export { DEFAULT_GRANT_HOURS, DEFAULT_GRANT_USES, MAX_GRANT_HOURS, MAX_GRANT_USES, MAX_OPEN_GRANTS, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"

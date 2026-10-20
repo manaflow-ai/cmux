@@ -321,6 +321,24 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.tab], cliName: "tab mute-unmute"
             ),
             ActionDescriptor(
+                id: "tab.muteAudio",
+                title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette], targets: [.tab], cliName: "tab mute"
+            ),
+            ActionDescriptor(
+                id: "tab.unmuteAudio",
+                title: String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.wave.2",
+                surfaces: [.palette], targets: [.tab], cliName: "tab unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteOtherAudio",
+                title: String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence", "others"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
+            ),
+            ActionDescriptor(
                 id: "disconnectRemoteTab",
                 title: String(localized: "action.disconnectRemoteTab", defaultValue: "Disconnect SSH Tab", bundle: .module),
                 keywords: ["tab", "ssh", "remote"], category: .tab, symbol: "bolt.horizontal", surfaces: [.contextMenu],
@@ -331,6 +349,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy Identifiers", bundle: .module),
                 keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
+            ),
+            // A PNG of the tab's content, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette, CLI, MCP.
+            ActionDescriptor(
+                id: "tab.screenshot",
+                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                cliName: "tab screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
             ),
             ActionDescriptor(
                 id: "palette.copyPaneID",

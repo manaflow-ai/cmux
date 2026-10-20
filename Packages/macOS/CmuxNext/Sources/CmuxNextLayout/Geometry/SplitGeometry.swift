@@ -6,7 +6,7 @@ public nonisolated struct DividerGeometry: Hashable, Sendable {
     public var axis: SplitAxis
     /// Visible divider line.
     public var frame: CGRect
-    /// Draggable area, centered on `frame`.
+    /// Draggable area, centered on `frame` (`DividerBand`).
     public var hitFrame: CGRect
     /// The rect the split node divides; the drag maps pointer position into it.
     public var container: CGRect
@@ -90,8 +90,10 @@ public nonisolated enum SplitGeometry {
                 divider = CGRect(x: rect.minX, y: rect.minY + aExtent, width: rect.width, height: t)
                 bRect = CGRect(x: rect.minX, y: divider.maxY, width: rect.width, height: max(0, rect.maxY - divider.maxY))
             }
-            let grow = max(0, style.effectiveDividerHitThickness - t) / 2
-            let hit = axis == .horizontal ? divider.insetBy(dx: -grow, dy: 0) : divider.insetBy(dx: 0, dy: -grow)
+            let hit = DividerBand(axis: axis, center: axis == .horizontal ? divider.midX : divider.midY, lineThickness: t,
+                                  hitThickness: style.effectiveDividerHitThickness,
+                                  crossStart: axis == .horizontal ? rect.minY : rect.minX,
+                                  crossLength: axis == .horizontal ? rect.height : rect.width, scale: scale).hit
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
                                                    minimumA: minimumA, minimumB: minimumB))
             layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result)

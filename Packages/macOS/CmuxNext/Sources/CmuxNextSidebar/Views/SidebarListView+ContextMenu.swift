@@ -8,7 +8,7 @@ extension SidebarListViewComponents {
             // A right-click on a group opens its editor (cx-rcby, as Chrome's
             // group bubble), like its more button; the editor's More Group
             // Actions row shows the full menu (Lawrence 2026-10-14).
-            groupEditing.open(id)
+            groupEditing.open(id, from: .pointer(point))
             return nil
         }
         guard let contextMenuProvider else { return nil }

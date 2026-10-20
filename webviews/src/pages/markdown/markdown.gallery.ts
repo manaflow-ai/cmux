@@ -3,6 +3,8 @@
 // (main.tsx) over an in-page cmuxPage host (src/gallery/frame/pages.ts).
 import { markdownPageEntry } from "../../gallery/format";
 import SHOWCASE from "../../gallery/fixtures/markdown-showcase.md?raw";
+// The user's five table cases (MARKDOWN-TABLE-SCROLL, test/markdown-table-scroll-cases.test.ts).
+import TABLE_SCROLL_CASES from "../../gallery/fixtures/markdown-table-scroll-cases.md?raw";
 import SHOWCASE_SVG from "../../gallery/fixtures/markdown-showcase-assets/sample.svg?raw";
 
 const README = `# Atlas web
@@ -82,6 +84,74 @@ export const WIDE_LINE = "${"a long code line that does not wrap ".repeat(8)}";
 \`\`\`
 
 ${Array.from({ length: 30 }, (_, index) => `Paragraph ${index + 1} so the page itself scrolls up and down.`).join("\n\n")}
+`;
+
+// A small table for selection, keys, column resizing and border compositing
+// (test/markdown-table-obsidian.test.ts, MARKDOWN-OBSIDIAN-PARITY).
+const TABLE_EDITING = `# Team
+
+| Name | Role | Team |
+| --- | :---: | ---: |
+| Ada | Engineer | Core |
+| Grace | Admiral | Navy |
+| Linus | Maintainer | Kernel |
+
+After the table.
+`;
+
+// Obsidian's syntax, drawn Live Preview style (test/markdown-obsidian-syntax.test.ts).
+const OBSIDIAN = `# Obsidian syntax
+
+Some ==highlighted words==, a %%hidden comment%%, tags #project/alpha and #todo, and links to
+[[Project Plan]] and [[notes/ideas#Next|the ideas]].
+
+> [!note] A note callout
+> Callouts take a type and an optional title.
+
+> [!warning]
+> No title: the type is the title.
+
+> [!tip]- Folded at first
+> Click the chevron to open it.
+
+Energy is $E = mc^2$, and the sum is:
+
+$$
+\\sum_{n=1}^{N} n = \\frac{N(N+1)}{2}
+$$
+
+- [x] Done
+- [ ] Open
+`;
+
+// Text selection over every kind of block (test/markdown-selection.test.ts, MARKDOWN-SELECTION): a
+// drag across paragraphs, highlights, math, a list, a table, code and a diagram keeps the text
+// under the pointer where it is, and a reload from disk keeps the selection on the same words.
+const SELECTION = `# Selection guide
+
+First paragraph with a [docs link](https://example.com/docs) and **bold words** in it.
+
+Second paragraph with ==highlighted words== and the formula $E = mc^2$ inline.
+
+- First list item
+- Second list item
+
+| Name | Role |
+| --- | --- |
+| Ada | Engineer |
+
+\`\`\`ts
+const answer = 42;
+\`\`\`
+
+\`\`\`mermaid
+graph LR
+  A --> B
+\`\`\`
+
+## Closing heading
+
+Last paragraph ends the guide.
 `;
 
 const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
@@ -199,6 +269,26 @@ export default markdownPageEntry({
       note: "A table and a code line wider than the column: each scrolls sideways on its own.",
       path: "/Users/you/src/atlas-web/MATRIX.md",
       text: WIDE_TABLE,
+    },
+    "table-scroll": {
+      note: "Five tables: 20 columns, a long cell and code cells scroll sideways; 40 rows and a small table fit.",
+      path: "/Users/you/fun/markdown-table-scroll-test.md",
+      text: TABLE_SCROLL_CASES,
+    },
+    "table-editing": {
+      note: "A small table: cell selection, Tab and Return, column resizing.",
+      path: "/Users/you/src/atlas-web/TEAM.md",
+      text: TABLE_EDITING,
+    },
+    obsidian: {
+      note: "Obsidian syntax: highlights, comments, tags, wikilinks, callouts, math.",
+      path: "/Users/you/src/atlas-web/VAULT.md",
+      text: OBSIDIAN,
+    },
+    selection: {
+      note: "Text selection across paragraphs, highlights, math, a list, a table, code and a diagram.",
+      path: "/Users/you/src/atlas-web/SELECTION.md",
+      text: SELECTION,
     },
     long: {
       note: "A long document (40 sections).",

@@ -1128,6 +1128,15 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.freezeHiddenTabs" : {
+      "default" : 30,
+      "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
+      "enum" : [
+        "off"
+      ],
+      "title" : "Freeze Hidden Tabs",
+      "type" : "string"
+    },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
       "description" : "browser.hibernatePinnedTabs",
@@ -2050,6 +2059,16 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefBubbleStyle" : {
+      "default" : "imessage",
+      "description" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.",
+      "enum" : [
+        "imessage",
+        "theme"
+      ],
+      "title" : "Bubble Style",
+      "type" : "string"
+    },
     "home.chiefPetEnabled" : {
       "default" : false,
       "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
@@ -2136,6 +2155,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
     },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
@@ -2465,7 +2490,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2784,6 +2809,23 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "screenshots.findTools" : {
+      "default" : true,
+      "description" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
+      "title" : "Find Screenshot Apps",
+      "type" : "boolean"
+    },
+    "screenshots.folders" : {
+      "default" : [
+
+      ],
+      "description" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "More Screenshot Folders",
+      "type" : "array"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2883,6 +2925,57 @@
       "default" : true,
       "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
       "title" : "Show Hover Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.layout" : {
+      "default" : "timeline",
+      "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
+      "enum" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "title" : "Workspace Card Layout",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.maxRows" : {
+      "default" : 20,
+      "description" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Workspace Card History Lines",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.sections.git" : {
+      "default" : true,
+      "description" : "The workspace's branch and pull request.",
+      "title" : "Show Branch in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.ports" : {
+      "default" : true,
+      "description" : "The ports the workspace listens on.",
+      "title" : "Show Ports in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.prompts" : {
+      "default" : true,
+      "description" : "Each prompt you sent and when, in the card's history.",
+      "title" : "Show Prompts in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.timings" : {
+      "default" : true,
+      "description" : "How long the workspace has worked or waited, and how long its command has run.",
+      "title" : "Show Running Times in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.waiting" : {
+      "default" : true,
+      "description" : "When an agent waited for your input or finished its turn, in the card's history.",
+      "title" : "Show Waits in Workspace Cards",
       "type" : "boolean"
     },
     "sidebar.minimal" : {
@@ -3519,9 +3612,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "default",
+      "default" : "cards",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "cards",
         "default",
         "composer",
         "threads",

@@ -17,7 +17,7 @@ import { apnsHomePushSender, decideHomePush, drainHomePush, feedHomePushQuiet } 
 import { CLOSE_RETRY_MS, flushInstallCloses, markAgentClosing, markInstallClosing, nextCloseAt, registerSocketOwner } from "./socket-registry.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
-import { readInboxOp } from "./user-inbox.ts"
+import { pullLargeRows, readInboxOp } from "./user-inbox.ts"
 import { checkPresenceKey, type PresenceKeyBody } from "./user-presence-key.ts"
 import { homeRateTakeSql, type HomeRateGate, type HomeRateOp } from "./home-rate.ts"
 
@@ -230,7 +230,8 @@ export class UserDO extends OwnerDO<UserState> {
     if (principal.agent !== undefined) return { ok: false, code: "auth.forbidden", message: "a chief token cannot read the owner's inbox" }
     const refused = this.inboxRefusal(entity, principal, op)
     if (refused) return { ok: false, code: refused.code, message: refused.message }
-    return readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
+    const result = readInboxOp(this.inbox, entity, op, params, () => this.scheduleAlarm())
+    return op === "inbox.list" ? pullLargeRows(this.env, entity, result) : result
   }
 
   /** RPC for the Worker's reach check (home-reach.ts, home-messaging.md section 16): only the user's
