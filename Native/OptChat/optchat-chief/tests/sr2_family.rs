@@ -79,13 +79,19 @@ fn an_empty_engine_compacts_on_the_users_own_claude_cli() {
     use optchat_chief::host::{compactor_harness_for, default_harness};
     let engine = optchat_chief::engine::EngineChoice::default();
     let turn = default_harness(&answer());
-    assert_eq!(compactor_harness_for(&answer(), None, turn, &engine), "claude");
+    assert_eq!(
+        compactor_harness_for(&answer(), None, turn, &engine),
+        "claude"
+    );
     // An explicit choice still wins.
     let set = optchat_chief::engine::EngineChoice {
         harness: Some("claude-sr2".into()),
         ..Default::default()
     };
-    assert_eq!(compactor_harness_for(&answer(), None, turn, &set), "claude-sr2");
+    assert_eq!(
+        compactor_harness_for(&answer(), None, turn, &set),
+        "claude-sr2"
+    );
 }
 
 /// `chief engine show` names the CLI each role runs (path and version), from

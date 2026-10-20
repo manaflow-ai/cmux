@@ -592,8 +592,7 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await
-        {
+        let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
             Ok(v) => v,
             Err(e) => return Err(Self::explain_start_failure(session, e).await),
         };

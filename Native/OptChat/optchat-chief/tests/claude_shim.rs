@@ -61,13 +61,20 @@ fn a_claude_started_from_a_chief_session_gets_the_users_own_config() {
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{text} {}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{text} {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     // The user's real claude ran, with the arguments as given.
     assert!(text.contains("argv=-p reply with: hi"), "{text}");
     // None of the harness's planted variables reached it, so Claude Code
     // reads ~/.claude/settings.json and the user's login.
     for (key, _) in POISON {
-        assert!(text.contains(&format!("{key}=unset")), "{key} leaked: {text}");
+        assert!(
+            text.contains(&format!("{key}=unset")),
+            "{key} leaked: {text}"
+        );
     }
     // Everything else passes through.
     assert!(text.contains("KEEP_ME=kept"), "{text}");
@@ -84,5 +91,8 @@ fn chief_keep_claude_env_keeps_the_inherited_config() {
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(text.contains("CLAUDE_CONFIG_DIR=/x/.codex-accounts/claude/_p1"), "{text}");
+    assert!(
+        text.contains("CLAUDE_CONFIG_DIR=/x/.codex-accounts/claude/_p1"),
+        "{text}"
+    );
 }
