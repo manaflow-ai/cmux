@@ -9396,6 +9396,45 @@
       "title_table" : "HomeActions"
     },
     {
+      "cli" : "liveInput",
+      "cli_name" : "action home-reply-to-selection",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+        {
+          "keys" : [
+            {
+              "key" : "r",
+              "modifiers" : [
+                "shift",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.replyToSelection",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reply to Selection",
+      "title_key" : "action.home.replyToSelection",
+      "title_table" : "HomeActions"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "action home-new-message",
       "context_menu" : "noObject",
