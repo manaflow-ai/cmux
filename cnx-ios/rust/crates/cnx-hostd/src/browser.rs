@@ -738,7 +738,19 @@ async fn launch_process(
     std::fs::create_dir_all(&cache).map_err(|e| format!("cache {}: {e}", cache.display()))?;
     let log = std::fs::File::create(cache.join("host.log")).map_err(|e| format!("host log: {e}"))?;
     let mut child = tokio::process::Command::new(exe)
-        .args(["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--url", &request.url])
+        // `--use-mock-keychain` reaches Chromium through the host's argv: a host binary
+        // built without the switch in rb_shim.mm (the pin e9bed2bc) otherwise waits for
+        // the login Keychain's "Chromium Safe Storage" key it can never read, and every
+        // http(s) load hangs on about:blank (PR #22555 smoke).
+        .args([
+            "--serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--lifeline",
+            "--use-mock-keychain",
+            "--url",
+            &request.url,
+        ])
         .env("CMUX_RB_CACHE_DIR", &cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
