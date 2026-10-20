@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// One total network deadline covers ICO, HTML discovery and two previously untried candidates.

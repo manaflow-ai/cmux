@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -38,10 +38,40 @@ const account: AccountsRow = {
   confirm: null,
   paste: null,
 };
+const cmuxSignedIn: AccountsCmux = {
+  title: "cmux Account",
+  detail: "s…@e…",
+  status: "Signed in",
+  statusKind: "success",
+  busy: false,
+  buttons: [
+    button("cmux.switchAccount", "Switch Account…"),
+    { ...button("cmux.signOut", "Sign Out"), destructive: true },
+  ],
+  note: null,
+  error: null,
+};
+const cmuxSignedOut: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signed out",
+  statusKind: "attention",
+  buttons: [button("cmux.signIn", "Sign In to cmux")],
+  error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
+};
+const cmuxSigningIn: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signing in…",
+  statusKind: "neutral",
+  busy: true,
+  buttons: [button("cmux.continueInBrowser", "Open in Browser"), button("cmux.cancelSignIn", "Cancel")],
+  note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
+};
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
   refresh: "Refresh",
   refreshing: false,
-  signIn: null,
+  cmux: cmuxSignedIn,
   removeTitle: "Remove from CodeRouter",
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
@@ -166,23 +196,6 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
-  }),
-  // Leo, 10-19: "the knob, the slider still doesn't work". Over a picture the Opacity slider starts
-  // at the legibility floor the app reports (62% here, on the grid at 65%) and says why.
-  "backdrops-opacity-floor": variant("appearance", {
-    options: { values: { "appearance.background": "starryNight" } },
-    host: {
-      ...host,
-      derived: { "appearance.backgroundOpacity": 0.7 },
-      derived_min: { "appearance.backgroundOpacity": 0.62 },
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    backdropImages: { starryNight: VAN_GOGH_STARRY_NIGHT },
-    steps: [
-      wait('[data-card="backdrop"]'),
-      { selector: '[data-card="backdrop"] input[type="range"]', action: "focus" },
-    ],
-    note: "Over a picture the Opacity slider's travel is 65% to 95%, every step of which changes the window; the summary says why it starts at 65%.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
@@ -742,7 +755,11 @@ Object.assign(variants, {
     note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
-  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
+  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-cmux-signing-in": variant("accounts", {
+    accounts: accounts({}, { cmux: cmuxSigningIn }),
+    note: "Sign In to cmux in progress: open it in the browser, or cancel.",
+  }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
       { busy: true, status: "Refreshing", statusKind: "neutral", buttons: [button("reauth", "Re-authenticate", true)] },

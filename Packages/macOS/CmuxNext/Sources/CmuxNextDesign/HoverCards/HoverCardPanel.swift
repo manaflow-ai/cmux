@@ -6,13 +6,17 @@ public enum HoverCardPlacement: Sendable {
     case below
     /// Over the target, left-aligned (a tab strip at the bottom, R109).
     case above
-    /// Right of the target, top-aligned (sidebar rows).
+    /// Right of the target, top-aligned (the update card).
     case beside
+    /// Beside a sidebar row with an empty escape slot next to it: the card's near edge on the
+    /// row's middle, so the pointer leaves it in a few points (`HoverCardEscapeGeometry`).
+    case besideRow
 }
 
 /// The one hover card window of the app: a borderless, non-activating,
 /// click-through child window holding a glass card (opaque under Reduce
-/// Transparency, `OverlaySurfaceView`) in the popup style (`PopupStyle`). The coordinator owns
+/// Transparency, `OverlaySurfaceView`) in the popup style (`PopupStyle`), shaped like the other
+/// floating glass panels (`cornerRadius`). The coordinator owns
 /// the only instance and swaps the card's body (a tab card or a workspace
 /// card view, each reused) into it.
 ///
@@ -45,6 +49,9 @@ final class HoverCardPanel: NSPanel {
     static var entryOffset: CGFloat { motion.entryOffset }
     /// The entrance and exit every hover card plays (the update card's too).
     static let motion = HoverCardMotion.standard
+    /// The card's continuous radius: the floating glass panels' (the palette, dialogs), not a
+    /// menu's 8 pt (Leo 2026-10-20: the hover card in iOS's glass style). The shadow follows it.
+    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private(set) weak var body: NSView?
@@ -66,15 +73,25 @@ final class HoverCardPanel: NSPanel {
     private weak var parentWindowRef: NSWindow?
     private var anchor: CGRect = .zero
     private(set) var placement: HoverCardPlacement = .below
+    /// The side the card rests on now: `placement`, or the other side when the screen has no room.
+    private(set) var restingPlacement: HoverCardPlacement = .below
     private var applyTheme: (() -> Void)?
+    /// A `.besideRow` card's geometry at rest: its row, its frame and its escape slot.
+    private(set) var escapeGeometry: HoverCardEscapeGeometry?
     /// The scope the card draws in; a retarget within it adopts nothing again.
     private weak var adoptedScope: ThemeScope?
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
+        // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius)
+        // The card is its clear window's whole content: before macOS 26 its blur samples what is
+        // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
+        glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         Self.liveInstances += 1
-        adoptPopupStyle(card: glass).travelMargin = Self.travel
+        let host = adoptPopupStyle(card: glass)
+        host.travelMargin = Self.travel
+        host.cornerRadius = Self.cornerRadius
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
@@ -167,6 +184,8 @@ final class HoverCardPanel: NSPanel {
         }
         self.anchor = anchor
         self.placement = placement
+        // The density setting may have changed the floating panels' radius since the last card.
+        host?.cornerRadius = Self.cornerRadius
         place()
         if let previous {
             // A visible card: it slides from where it is drawn to its new place, and resizes
@@ -177,7 +196,7 @@ final class HoverCardPanel: NSPanel {
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
             // away from its target (`HoverCardMotion`, shared with the update card).
-            Self.motion.enter(self, placement: placement, leading: isLeading)
+            Self.motion.enter(self, placement: restingPlacement, leading: isLeading)
         }
     }
 
@@ -186,7 +205,7 @@ final class HoverCardPanel: NSPanel {
     func slide(from offset: CGVector) {
         guard let slideLayer else { return }
         let start = CATransform3DMakeTranslation(offset.dx, offset.dy, 0)
-        Motion.set(slideLayer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
+        Motion.hoverCards.set(slideLayer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
                    from: NSValue(caTransform3D: start))
     }
 
@@ -194,7 +213,7 @@ final class HoverCardPanel: NSPanel {
     /// edge the placement keeps fixed (the top beside or below a target, the bottom above
     /// one), at most `travel` each way.
     private func offset(of from: CGRect, to: CGRect) -> CGVector {
-        let dy = placement == .above ? from.minY - to.minY : from.maxY - to.maxY
+        let dy = restingPlacement == .above ? from.minY - to.minY : from.maxY - to.maxY
         let travel = Self.travel
         return CGVector(dx: min(max(from.minX - to.minX, -travel), travel), dy: min(max(dy, -travel), travel))
     }
@@ -209,7 +228,7 @@ final class HoverCardPanel: NSPanel {
     /// its edge and its shadow stay one card that slides. Off at speed off; short under Reduce
     /// Motion.
     func crossfadeContent() {
-        let duration = Motion.duration(.crossfade)
+        let duration = Motion.hoverCards.duration(.crossfade)
         let content = glass.contentView
         content.wantsLayer = true
         guard duration > 0, Motion.canAnimate(in: glass), let layer = content.layer else { return }
@@ -249,20 +268,19 @@ final class HoverCardPanel: NSPanel {
         // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
         let fitting = glass.fittingSize
         let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
-        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
-        isLeading = false
-        if let screen = parentWindowRef?.screen ?? NSScreen.main {
-            let visible = screen.visibleFrame
-            let margin = Metrics.space2
-            // Beside a target with no room on its right (a sidebar on the right): its left, so
-            // the card never covers what it describes (as NSPopover flipped).
-            if placement == .beside, origin.x + size.width > visible.maxX - margin {
-                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
-                isLeading = true
-            }
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
-            origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
-        }
+        let screen = parentWindowRef?.screen ?? NSScreen.main
+        let rest = Self.rest(for: placement, anchor: anchor, size: size, screen: screen?.frame,
+                             visible: screen?.visibleFrame, window: parentWindowRef?.frame,
+                             margin: Metrics.space2, scale: scale)
+        let origin = rest.origin
+        isLeading = rest.isLeading
+        restingPlacement = rest.placement
+        // A row card keeps its escape slot (`HoverCardEscapeGeometry`); `rest` placed it the same way.
+        escapeGeometry = placement == .besideRow
+            ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
+                                      visible: screen.map { $0.visibleFrame.insetBy(dx: Metrics.space2, dy: Metrics.space2) },
+                                      scale: scale)
+            : nil
         // R131: the window moves in the same frame (a window-frame slide restarted on every tab
         // trailed the pointer); a retarget's slide runs inside it (`slide(from:)`).
         let margin = Self.windowMargin
@@ -300,7 +318,73 @@ final class HoverCardPanel: NSPanel {
 
 extension HoverCardPanel: ThemeResponsive {}
 
+/// Where a card rests on screen and on which side of its target.
+struct HoverCardRest: Equatable {
+    var origin: CGPoint
+    var placement: HoverCardPlacement
+    /// The card's trailing edge is on its target's side: left of a row, or a tab card lined up
+    /// with its tab's trailing edge (the morph and the entrance grow from that side).
+    var isLeading = false
+}
+
 extension HoverCardPanel {
+    /// The card's rest place next to `anchor`, kept on `screen`: `visible` is the screen's
+    /// visible frame, `window` the parent window's frame (all screen coordinates, y up).
+    ///
+    /// The card stays on its target, as Chrome's and Helium's tab cards do (Lawrence
+    /// 2026-10-20: "Tab cards are still disjoint from the tab itself"). It may use the visible
+    /// frame and the parent window's part of the screen: a full-screen window's tabs sit in the
+    /// menu bar and notch band, which the visible frame leaves out, and clamping to it pushed the
+    /// card down below the toolbar. A tab or chip card keeps its touching edge on the target and
+    /// its leading edge on the target's, or its trailing edge on the target's when the screen
+    /// ends first; with no room on its side it flips to the other side. Only a card that fits on
+    /// neither side is clamped.
+    static func rest(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, screen: CGRect?, visible: CGRect?,
+                     window: CGRect?, margin: CGFloat, scale: CGFloat = 2) -> HoverCardRest {
+        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
+        guard var area = visible ?? screen else { return HoverCardRest(origin: origin, placement: placement) }
+        var isLeading = false
+        if let window {
+            let onScreen = screen.map { window.intersection($0) } ?? window
+            if !onScreen.isNull, !onScreen.isEmpty { area = area.union(onScreen) }
+        }
+        let room = area.insetBy(dx: margin, dy: margin)
+        func clampX(_ x: CGFloat) -> CGFloat { min(max(x, room.minX), room.maxX - size.width) }
+        func clampY(_ y: CGFloat) -> CGFloat { min(max(y, room.minY), room.maxY - size.height) }
+        var side = placement
+        switch placement {
+        case .below, .above:
+            // Leading edges aligned; trailing edges when the screen ends first.
+            if origin.x + size.width > room.maxX {
+                origin.x = anchor.maxX - size.width
+                isLeading = true
+            }
+            origin.x = clampX(origin.x)
+            let fitsBelow = Self.origin(for: .below, anchor: anchor, size: size, scale: scale).y >= room.minY
+            let fitsAbove = Self.origin(for: .above, anchor: anchor, size: size, scale: scale).y + size.height <= room.maxY
+            if placement == .below, !fitsBelow, fitsAbove { side = .above }
+            if placement == .above, !fitsAbove, fitsBelow { side = .below }
+            origin.y = Self.origin(for: side, anchor: anchor, size: size, scale: scale).y
+            if side == placement, !(placement == .below ? fitsBelow : fitsAbove) { origin.y = clampY(origin.y) }
+        case .beside:
+            // Right of the row; left of it when the screen ends first. Top-aligned, kept on screen.
+            if origin.x + size.width > room.maxX {
+                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
+                isLeading = true
+            }
+            origin.x = clampX(origin.x)
+            origin.y = clampY(origin.y)
+        case .besideRow:
+            // Beside a sidebar row, its escape slot kept: it flips above the row's middle or to
+            // the row's left rather than clamping over the slot. The visible frame only, as before.
+            let room = (visible ?? screen ?? area).insetBy(dx: margin, dy: margin)
+            let geometry = HoverCardEscapeGeometry(anchor: anchor, cardSize: size, visible: room, scale: scale)
+            origin = geometry.card.origin
+            isLeading = geometry.isLeading
+        }
+        return HoverCardRest(origin: origin, placement: side, isLeading: isLeading)
+    }
+
     /// The room between a card and its target: none. The card touches its tab (or row), so the
     /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
     /// between ... such that there is no gap in between").
@@ -320,6 +404,8 @@ extension HoverCardPanel {
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
         // The card's leading edge on the row's trailing edge, top-aligned.
         case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
+        // Right of the row, below its escape slot (before any flip the screen needs).
+        case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale).card.origin
         }
     }
 }

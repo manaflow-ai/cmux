@@ -119,6 +119,7 @@ export function SummaryCard({
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
     count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
+    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
     count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
   ].filter(Boolean);
   const title = threadDetails ? t("summary.threadDetails") : t("summary.open");

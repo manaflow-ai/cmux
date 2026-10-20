@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// Discovers passive HTTPS icons from a bounded, possibly truncated HTML document.

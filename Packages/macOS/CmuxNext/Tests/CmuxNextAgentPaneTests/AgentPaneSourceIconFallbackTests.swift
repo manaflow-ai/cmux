@@ -1,7 +1,8 @@
-import Foundation
-import Testing
 @testable import CmuxNextAgentPane
 @testable import CmuxNextPages
+@testable import CmuxNextRemoteFetch
+import Foundation
+import Testing
 
 struct AgentPaneSourceIconFallbackTests {
     private actor Resolver: RemoteAddressResolving {

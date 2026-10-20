@@ -31,8 +31,6 @@ public final class LayoutRootView: NSView {
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
     private var reportedVisible: Set<PaneID> = []
-    /// The agent chat column last posted (`reportAgentChatColumn`).
-    var reportedAgentChatColumn: CGRect?
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
@@ -365,7 +363,6 @@ public final class LayoutRootView: NSView {
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
-        reportAgentChatColumn()
         if needsFrames || snapshot.gestureActive { driver.start() }
     }
 
@@ -373,7 +370,7 @@ public final class LayoutRootView: NSView {
 
     func advanceFrame(_ dt: Double) -> Bool {
         // One motion policy per frame (it reads the animation settings), not one per spring.
-        let policy = Motion.policy
+        let policy = Motion.panes.policy
         var moving = false
         for view in screenViews.values where !view.isHidden {
             if view.step(dt, policy: policy) { moving = true }
@@ -439,7 +436,6 @@ public final class LayoutRootView: NSView {
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)
-        reportAgentChatColumn()
     }
 
     override public func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -504,7 +500,6 @@ public final class LayoutRootView: NSView {
             }
         }
         updateVisibility()
-        reportAgentChatColumn()
     }
 
 }

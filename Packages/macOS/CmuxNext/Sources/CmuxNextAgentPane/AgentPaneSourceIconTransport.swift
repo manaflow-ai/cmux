@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 
 /// One chain's HTTP answers, including redirect hops; failed connections may try another checked address.

@@ -167,9 +167,13 @@
 .nt-screen[data-template="console"] .nt-field {
   font-size: 15px;
 }
+/* The composer template's card sits about the window's middle, at a fixed place: centering the
+   page's content moved it up with every row under it (Now Playing, a notice), every pasted image
+   and every line of a long draft (Leo 2026-10-19: the composer kept "going to places"). 102px puts
+   it where centering put the resting page (the composer and the create row, 212px between 32px
+   and 24px insets). */
 .nt-screen[data-template="composer"] {
-  justify-content: center;
-  padding-top: 32px;
+  padding-top: max(32px, calc(50vh - 102px));
 }
 .nt-screen[data-template="composer"] .nt-box {
   border-radius: 24px;
@@ -351,6 +355,16 @@
 }
 .nt-box {
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
+  --acpmux-attach-inset: 18px;
+  --acpmux-attach-gap: 6px;
+  --acpmux-attach-height: 64px;
+  --acpmux-attach-radius: 6px;
+}
+/* The attachments sit under the field (NewTabScreen), so the text keeps its place as they come:
+   the field's own bottom inset is the gap above them, a short one below. */
+.nt-box > .acpmux-attachments {
+  padding: 0 var(--acpmux-attach-inset) 8px;
 }
 /* A chat with the chats its agent started (ChatCards.tsx, list layout only): its row, a count that
    opens them before the row's harness icon, and when open the children indented below it. The
@@ -851,6 +865,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"][data-pill] .nt-box {
   border-radius: 999px;
+  --acpmux-attach-inset: 22px;
+}
+/* With attachments under the field the pill is taller than a line: its ends would cut into the
+   tiles, so it rounds as the composer template's card does. */
+.nt-screen[data-template="cards"] .nt-box:has(> .acpmux-attachments) {
+  border-radius: 28px;
 }
 .nt-screen[data-template="cards"][data-pill] .nt-input {
   align-items: center;

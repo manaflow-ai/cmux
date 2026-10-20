@@ -13,6 +13,7 @@ import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
+import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
 import { isDeniedPath, linkPath, pathName } from "./paths";
@@ -38,21 +39,27 @@ export function remoteImageHost(src: string): string | undefined {
   }
 }
 
-const loaded = new Map<string, string>();
 /// Sources an automatic load started for, so a render twice in a row asks the host once.
 const started = new Set<string>();
+/// Images that loaded on their own (a file in the folders, a web image under "always"), the most
+/// recently drawn first. One it forgets loads again on its own when it draws.
+const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
+/// Images the reader loaded with "Load image". They stay: loading one again would need another
+/// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
+const clicked = new Map<string, string>();
 
 function useImageLoad(src: string, auto: boolean) {
   const [state, setState] = useState<State>(() => {
-    const known = loaded.get(src);
+    const known = clicked.get(src) ?? loaded.get(src);
     return known ? { kind: "shown", src: known } : { kind: "idle" };
   });
-  const load = () => {
+  const load = (byClick: boolean) => {
     setState({ kind: "loading" });
     void callChipHost("image.load", { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
-        loaded.set(src, data);
+        if (byClick) clicked.set(src, data);
+        else loaded.set(src, data);
         setState({ kind: "shown", src: data });
       } else {
         started.delete(src);
@@ -62,9 +69,9 @@ function useImageLoad(src: string, auto: boolean) {
   };
   if (auto && state.kind === "idle" && !started.has(src)) {
     started.add(src);
-    queueMicrotask(load);
+    queueMicrotask(() => load(false));
   }
-  return { state, load };
+  return { state, load: () => load(true) };
 }
 
 /// A shown image: a click opens it in the image viewer where the pane has one.

@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 
 /// Tracks lookup failures separately from the fetch guard's definitive address refusals.
 actor AgentPaneSourceIconResolver: RemoteAddressResolving {

@@ -138,7 +138,11 @@ fn ended(out: &[(String, Value)]) -> Vec<(String, String)> {
 #[tokio::test]
 async fn a_background_subagent_outlives_its_launch_result() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
-    t.inbound(&background_spawn_line("toolu_1")).await;
+    let out = updates(&t.inbound(&background_spawn_line("toolu_1")).await);
+    // Its spawn says it runs in the background, so a client keeps it running
+    // past a stopped turn.
+    assert_eq!(out[0].1["sessionUpdate"], "subagent_spawned");
+    assert_eq!(out[0].1["background"], true, "{out:?}");
     // The launch result returns at once; the subagent keeps running.
     assert_eq!(ended(&updates(&t.inbound(&tool_result("toolu_1")).await)), vec![]);
     let text = json!({"type": "stream_event", "parent_tool_use_id": "toolu_1", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "still going"}}});
@@ -158,7 +162,14 @@ async fn a_subagent_moved_to_the_background_ends_by_its_task() {
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "t1", "tool_use_id": "toolu_1", "description": "Branch A", "is_backgrounded": false});
     t.inbound(&started).await;
     let moved = json!({"type": "system", "subtype": "task_updated", "task_id": "t1", "patch": {"is_backgrounded": true}});
-    t.inbound(&moved).await;
+    // Moved to the background, it says so.
+    let out = updates(&t.inbound(&moved).await);
+    assert_eq!(
+        out.iter().map(|(_, u)| u.clone()).collect::<Vec<_>>(),
+        vec![
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_1", "background": true})
+        ]
+    );
     assert_eq!(ended(&updates(&t.inbound(&tool_result("toolu_1")).await)), vec![]);
     // A stopped task (by task id alone) is a cancelled subagent.
     let stopped = json!({"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "stopped", "output_file": "", "summary": ""});

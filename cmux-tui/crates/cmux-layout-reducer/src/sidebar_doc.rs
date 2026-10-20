@@ -33,6 +33,8 @@ pub mod reset;
 pub mod view;
 
 #[cfg(test)]
+mod host_group_tests;
+#[cfg(test)]
 mod nested_group_tests;
 
 pub use doc::Doc;

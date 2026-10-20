@@ -1,4 +1,5 @@
-public import CmuxNextPages
+import CmuxNextPages
+public import CmuxNextRemoteFetch
 public import Foundation
 
 /// The pane module's bounded, cookieless fetch queue for passive Thread details icons.

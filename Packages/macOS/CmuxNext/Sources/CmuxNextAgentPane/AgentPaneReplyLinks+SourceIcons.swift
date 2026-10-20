@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import CmuxNextSettings
 import Foundation
 

@@ -148,6 +148,11 @@ async function setVisibility(next: DocumentVisibilityState) {
   await act(async () => {
     window.document.dispatchEvent(new window.Event("visibilitychange"));
   });
+  // Shown again: its first frame back passes (shared/pageReveal.ts settles until then).
+  if (next === "visible")
+    await act(async () => {
+      for (let frame = 0; frame < 2; frame += 1) await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
 }
 
 const chats = [card("a", "Fix the flaky upload test"), card("b", "Sidebar hover sticks"), card("c", "Release notes")];

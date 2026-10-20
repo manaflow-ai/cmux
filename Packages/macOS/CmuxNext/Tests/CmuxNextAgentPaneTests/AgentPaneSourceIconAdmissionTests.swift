@@ -1,7 +1,8 @@
+@testable import CmuxNextAgentPane
 import CmuxNextPages
+import CmuxNextRemoteFetch
 import Foundation
 import Testing
-@testable import CmuxNextAgentPane
 
 struct AgentPaneSourceIconAdmissionTests {
     private actor Resolver: RemoteAddressResolving {
