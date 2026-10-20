@@ -67,11 +67,14 @@ async function render(node: (strings: unknown) => ReactNode) {
   await act(async () => root!.render(node(createStrings(table))));
 }
 
-/** Every element under `selector` whose hover would show a tooltip naming a change. */
+/** Every tooltip in the change list `selector` (its rows, titles and links): there should be none.
+ * The dismiss x and the popover heading's build tooltip sit outside these lists. */
 function titleTooltips(selector: string): string[] {
-  return [...host.querySelectorAll(`${selector} [title], ${selector} [data-tooltip], ${selector}[title]`)]
-    .map((el) => el.getAttribute("title") ?? el.getAttribute("data-tooltip") ?? "")
-    .filter((text) => titles.some((title) => text.includes(title)) || /^#?\d+$/.test(text));
+  return [
+    ...host.querySelectorAll(
+      `${selector}[title], ${selector}[data-tooltip], ${selector} [title], ${selector} [data-tooltip]`,
+    ),
+  ].map((el) => el.getAttribute("title") ?? el.getAttribute("data-tooltip") ?? "");
 }
 
 const noop = () => undefined;
@@ -82,7 +85,7 @@ test("the Updated card's change titles show no hover preview", async () => {
     <UpdatedCard data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
   ));
   expect(host.querySelectorAll(".wn-card-changes li").length).toBe(2);
-  expect(titleTooltips(".wn-card")).toEqual([]);
+  expect(titleTooltips(".wn-card-changes")).toEqual([]);
 });
 
 test("the Update Ready popover's change titles show no hover preview", async () => {
@@ -91,7 +94,7 @@ test("the Update Ready popover's change titles show no hover preview", async () 
     <UpdateReadyHighlights data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
   ));
   expect(host.querySelectorAll(".wn-pop-list li").length).toBe(2);
-  expect(titleTooltips(".wn-pop")).toEqual([]);
+  expect(titleTooltips(".wn-pop-list")).toEqual([]);
 });
 
 test("the changelog page's change list shows no hover preview, and its pull request links still open", async () => {
@@ -108,7 +111,7 @@ test("the changelog page's change list shows no hover preview, and its pull requ
       }
     />
   ));
-  expect(titleTooltips(".cl-changes")).toEqual([]);
+  expect(titleTooltips(".cl-changes ul")).toEqual([]);
   const links = [...host.querySelectorAll<HTMLAnchorElement>(".cl-changes a.cl-pr")].map((a) => a.href);
   expect(links).toEqual([
     "https://github.com/manaflow-ai/cmux/pull/22001",
