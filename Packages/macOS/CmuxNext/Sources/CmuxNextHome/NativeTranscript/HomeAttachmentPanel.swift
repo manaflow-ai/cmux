@@ -10,16 +10,18 @@ import CoreGraphics
 /// app, 2026-10-20). The "+" button made a new panel on every click and
 /// opened it a turn of the run loop later, so the sheet came up 0.7 s or
 /// more after the click. One panel is made while the person is idle and
-/// reused: a click pays only the sheet.
+/// reused: a click pays only the sheet. The warm-up still costs that main-thread
+/// time once, at a pause or while cmux is in the background.
 @MainActor
 enum HomeAttachmentPanel {
     private static var made: NSOpenPanel?
-    private static var showing = false
 
-    /// The configured panel; made now when the idle warm-up has not run.
+    /// A configured panel: the one made ahead when it is free, else a new one
+    /// (it shows on another window).
     static func panel() -> NSOpenPanel {
-        let panel = made ?? NSOpenPanel()
-        made = panel
+        let free = made.flatMap { $0.isVisible || $0.sheetParent != nil ? nil : $0 }
+        let panel = free ?? NSOpenPanel()
+        if made == nil { made = panel }
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -28,14 +30,12 @@ enum HomeAttachmentPanel {
         return panel
     }
 
-    /// Opens the picker as a sheet on `window` at once (no task hop). A second
-    /// click while it shows does nothing.
+    /// Opens the picker as a sheet on `window` at once (no task hop). A window
+    /// that already shows a sheet (the picker, a second click) opens none.
     static func present(for window: NSWindow, done: @escaping (_ urls: [URL]?) -> Void) {
-        guard !showing, window.attachedSheet == nil else { return }
+        guard window.attachedSheet == nil else { return }
         let panel = panel()
-        showing = true
         panel.beginSheetModal(for: window) { response in
-            showing = false
             done(response == .OK ? panel.urls : nil)
         }
     }
@@ -53,8 +53,10 @@ enum HomeAttachmentPanel {
     private static func check(after delay: Duration, triesLeft: Int) {
         timer.schedule(after: delay) { @MainActor in
             guard made == nil else { return }
+            // In the background the person types elsewhere: nothing here waits on the main thread.
+            // In front, the time since the last input event (kCGAnyInputEventType, ~0).
             let anyInput = CGEventType(rawValue: ~0) ?? .null
-            let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+            let idle = NSApp.isActive ? CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput) : .infinity
             guard idle >= 1 else {
                 if triesLeft > 1 { check(after: .seconds(1), triesLeft: triesLeft - 1) }
                 return

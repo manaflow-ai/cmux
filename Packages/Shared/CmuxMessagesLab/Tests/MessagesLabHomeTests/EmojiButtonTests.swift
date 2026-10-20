@@ -75,6 +75,25 @@ import Testing
         #expect(opened == [true])
     }
 
+    /// The emoji goes in at the person's caret, not at the end of the draft.
+    @Test func theCaretStaysWhereItWas() async {
+        let p = pane()
+        p.window.makeFirstResponder(p.field)
+        p.field.insertText("Hello world", replacementRange: p.field.selectedRange())
+        p.field.setSelectedRange(NSRange(location: 5, length: 0))
+        p.window.makeFirstResponder(p.controller.host.scrollView.document)
+        var opened = 0
+        p.controller.openEmojiPalette = { opened += 1 }
+
+        p.controller.host.fieldChrome.onEmoji()
+        await nextTurn()
+
+        let focused = p.window.firstResponder === p.field
+        #expect(focused)
+        #expect(p.field.selectedRange() == NSRange(location: 5, length: 0))
+        #expect(opened == 1)
+    }
+
     /// While the Chief works the round button is Stop: it never opens the picker.
     @Test func whileWorkingTheButtonStops() async {
         let p = pane()
