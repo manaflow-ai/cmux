@@ -98,6 +98,8 @@ final class ClassicUpgradeSimulator {
     private let launcher: DaemonLauncher
     /// Seconds since the migration started at which each workspace name first showed (``watch()``).
     private(set) var appeared: [String: Double] = [:]
+    /// The last run's outcome (launch, relaunch, import), for its failures.
+    private(set) var lastOutcome: ClassicMigrationOutcome?
     /// Workspaces the launch made before the migration (its empty New Tab page).
     private(set) var launchMade: Set<String> = []
     private var watcher: Task<Void, Never>?
@@ -147,7 +149,9 @@ final class ClassicUpgradeSimulator {
         launchMade = Set(made().keys)
         watch(from: migrating)
         switch await run.result {
-        case .success(let outcome): result.outcome = outcome
+        case .success(let outcome):
+            result.outcome = outcome
+            lastOutcome = outcome
         case .failure(let error): result.failure = error
         }
         result.migration = clock.now - migrating
@@ -162,12 +166,16 @@ final class ClassicUpgradeSimulator {
 
     /// A later launch's run on the same tree (what a relaunch restores).
     func relaunch() async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)
+        let outcome = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)
+        lastOutcome = outcome
+        return outcome
     }
 
     /// Import Workspaces from Classic cmux.
     func manualImport() async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual)
+        let outcome = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual)
+        lastOutcome = outcome
+        return outcome
     }
 
     func shutdown() async {
@@ -249,6 +257,9 @@ final class ClassicUpgradeSimulator {
         let decoded = try ClassicSessionImporter(fileURL: file).decodeSnapshot(Data(contentsOf: file))
         let ledger = try mac.readLedger()
         let made = made().filter { !ignoring.contains($0.key) }
+        if let outcome = lastOutcome, let failure = outcome.failures.first {
+            Issue.record("\(label): \(outcome.failures.count) workspaces failed, first: \(failure.value)", sourceLocation: sourceLocation)
+        }
         let windows = windows()
         // The decoder keeps classic's order and count, so it lines up with the profile.
         var expectedIDs: [[String]] = []

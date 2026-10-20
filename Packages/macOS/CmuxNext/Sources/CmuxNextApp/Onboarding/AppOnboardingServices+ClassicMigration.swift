@@ -13,6 +13,8 @@ struct ClassicMigrationOutcome: Equatable {
     var summary = ClassicImportSummary()
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
+    /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
+    var failures: [String: String] = [:]
 }
 
 /// The one-time migration from classic cmux (plans/cmux-next/classic-migration-DESIGN.md).
@@ -261,6 +263,7 @@ extension AppOnboardingServices {
         } catch {
             // Stays pending with its half-made workspace: the next manual run closes and remakes it.
             run.lastError = error
+            run.outcome.failures[saved.key] = String(describing: error)
             return
         }
         // Nothing came over (an SSH host that did not connect): the next manual run tries again.
@@ -282,45 +285,57 @@ extension AppOnboardingServices {
         let local = services.machines.local
         let store = local.store
         guard let connection = local.connection, local.store.servesStateResources, let session = store.registryID else { return }
-        let rowKey: (String) -> String? = { id in store.workspace(id: id)?.key.map { $0.rawValue } }
+        // Rows are named `<session>/<key>`: the daemon's index counts every session's rows.
+        let rowKey: (String) -> String? = { id in store.workspace(id: id)?.key.map { "\(session)/\($0.rawValue)" } }
+        let rows: @MainActor @Sendable () -> [String] = {
+            store.personal.workspaces.sorted { $0.index < $1.index }.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
+        }
         // The rows of what this run made, once the store has them (they arrive with the daemon's events).
         let wanted = Set(made.values.joined().compactMap(rowKey))
-        let listed: @MainActor @Sendable () -> Bool = {
-            wanted.isSubset(of: store.personal.workspaces.filter { $0.sessionID == session }.map(\.workspaceKey.rawValue))
-        }
-        if !listed() {
-            let outcome = FirstOutcome<Bool>()
-            let watch = Task { @MainActor in
-                for await ready in ObservationStream(listed) where ready {
-                    outcome.resolve(true)
-                    return
-                }
-            }
-            // A bounded wait: the rows normally arrive within one event turn; without them nothing moves.
-            let bound = DemandTimer(owner: "ClassicMigration.placeRows")
-            bound.schedule(after: .seconds(5)) { outcome.resolve(false) }
-            let ready = await outcome.value()
-            watch.cancel()
-            bound.cancel()
-            guard ready else { return }
-        }
+        guard await Self.awaitStore({ wanted.isSubset(of: rows()) }) else { return }
+        // Every window's moves worked out on one order, the order the daemon applies them to.
+        var order = rows()
+        var moves: [(String, Int)] = []
         for (index, window) in plan.windows.enumerated() {
             guard let fresh = made[index], !fresh.isEmpty else { continue }
             // Classic's whole window, as it is here: what earlier runs made too.
             let classic = window.workspaces.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }.compactMap(rowKey)
-            let order = store.personal.workspaces.filter { $0.sessionID == session }.sorted { $0.index < $1.index }.map(\.workspaceKey.rawValue)
-            let moves = ClassicMigrationPlanner().placements(order: order, classic: classic, made: Set(fresh.compactMap(rowKey)))
-            for (key, position) in moves {
-                do {
-                    let workspaceKey = WorkspaceKey(rawValue: key)
-                    try await connection.state.placePersonalWorkspace(session: session, key: workspaceKey,
-                                                                      resource: store.personalStateID(session: session, key: workspaceKey),
-                                                                      index: position)
-                } catch {
-                    services.daemon.logger.error("classic workspace not placed: \(String(describing: error), privacy: .public)")
-                }
+            for (row, position) in ClassicMigrationPlanner().placements(order: order, classic: classic, made: Set(fresh.compactMap(rowKey))) {
+                order.removeAll { $0 == row }
+                order.insert(row, at: position)
+                moves.append((row, position))
             }
         }
+        do {
+            for (row, position) in moves {
+                let workspaceKey = WorkspaceKey(rawValue: String(row.dropFirst(session.count + 1)))
+                try await connection.state.placePersonalWorkspace(session: session, key: workspaceKey,
+                                                                  resource: store.personalStateID(session: session, key: workspaceKey),
+                                                                  index: position)
+            }
+        } catch {
+            // Later moves would land against a different order: stop; every workspace is still here.
+            services.daemon.logger.error("classic workspace not placed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
+    private static func awaitStore(_ ready: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+        if ready() { return true }
+        let outcome = FirstOutcome<Bool>()
+        let watch = Task { @MainActor in
+            for await done in ObservationStream(ready) where done {
+                outcome.resolve(true)
+                return
+            }
+        }
+        // A bounded wait: the daemon's event normally lands within one turn.
+        let bound = DemandTimer(owner: "ClassicMigration.awaitStore")
+        bound.schedule(after: .seconds(5)) { outcome.resolve(false) }
+        let done = await outcome.value()
+        watch.cancel()
+        bound.cancel()
+        return done || ready()
     }
 
     fileprivate func save(_ ledger: ClassicMigrationLedger, to repository: ClassicMigrationRepository) async throws {
@@ -409,8 +424,13 @@ extension AppOnboardingServices {
     /// The workspace's classic color, pin and group, on its new cmux-next workspace.
     fileprivate func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
         let local = services.machines.local
-        guard let connection = local.connection, let key = local.store.workspace(id: id)?.key else { return }
         let store = local.store
+        // The create returns before the store mirrors the new workspace: its look would be dropped.
+        guard await Self.awaitStore({ store.workspace(id: id)?.key != nil }),
+              let connection = local.connection, let key = store.workspace(id: id)?.key else {
+            services.daemon.logger.error("classic workspace look not kept: \(id, privacy: .public) never showed")
+            return
+        }
         do {
             if let color = saved.color {
                 try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color))
