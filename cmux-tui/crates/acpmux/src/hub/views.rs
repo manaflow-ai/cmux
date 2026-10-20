@@ -398,7 +398,7 @@ impl Hub {
         }
         json!({
             "version": VERSION,
-            "build": BUILD,
+            "build": build(),
             "pid": std::process::id(),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):

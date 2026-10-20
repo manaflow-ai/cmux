@@ -16,7 +16,15 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+[features]
+default = ["build-id"]
+# The stamped build id (acpmux-build-id) as the default of `hub::build()`.
+# The cmux-tui binary turns it off and installs the same value at start, so
+# a new stamp does not recompile this crate (acpmux-build-id docs).
+build-id = ["dep:acpmux-build-id"]
+
 [dependencies]
+acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
