@@ -2502,7 +2502,7 @@ pre.cv-math-source {
   gap: 6px;
   padding-left: 22.5px;
   line-height: 18px;
-  font-size: 12px;
+  font-size: var(--text-detail);
   color: var(--cv-text-dim);
 }
 .cv-session-start__compaction-text {
