@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Runs `/usr/bin/osascript` with arguments and returns its standard output: the seam that
@@ -51,9 +52,36 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
         return String(decoding: stdout, as: UTF8.self)
     }
 
-    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`; a `FileHandle` is not).
+    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`), without holding a
+    /// thread: FileHandle hands each chunk to a readability handler as it arrives, and the empty
+    /// chunk at EOF resumes the wait once.
     @concurrent private static func drain(_ fd: Int32) async -> Data {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        return (try? handle.readToEnd()) ?? Data()
+        let collected = PipeOutput()
+        let data = await withCheckedContinuation { continuation in
+            handle.readabilityHandler = { handle in
+                // concurrency-allow: FileHandle calls a readability handler on its own background queue, when data is ready.
+                let chunk = handle.availableData
+                guard chunk.isEmpty else { return collected.append(chunk) }
+                handle.readabilityHandler = nil
+                continuation.resume(returning: collected.data)
+            }
+        }
+        // The handle owns the readability source: keep it until EOF.
+        withExtendedLifetime(handle) {}
+        return data
+    }
+}
+
+/// One pipe's output so far, appended by its readability handler.
+private nonisolated final class PipeOutput: Sendable {
+    private let storage = Mutex(Data())
+
+    func append(_ chunk: Data) {
+        storage.withLock { $0.append(chunk) }
+    }
+
+    var data: Data {
+        storage.withLock { $0 }
     }
 }

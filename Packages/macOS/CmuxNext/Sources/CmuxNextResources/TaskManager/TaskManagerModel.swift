@@ -1,9 +1,11 @@
+import CmuxNextWakeups
 import Foundation
 public import Observation
 
 /// The Task Manager page's state: the latest ``TaskManagerSnapshot`` and the
 /// selected rows. While started it takes one sample per `interval` from its
-/// ``TaskManagerSampleSource``; stopped, it samples nothing.
+/// ``TaskManagerSampleSource``, each next sample a one-shot ``DemandTimer`` deadline armed after
+/// the previous one finished; stopped, it samples nothing.
 ///
 /// Kill Process goes through `kill`, which the App wires to the
 /// `taskManager.killProcess` action (one path for the row menu, the page's
@@ -21,14 +23,16 @@ public final class TaskManagerModel {
     /// Samples taken since the model was made (tests, diagnostics).
     public private(set) var sampleCount = 0
     /// True while the periodic refresh runs.
-    public var isRunning: Bool { loop != nil }
+    public var isRunning: Bool { running }
 
     @ObservationIgnored public let interval: Duration
     @ObservationIgnored private weak var source: (any TaskManagerSampleSource)?
-    @ObservationIgnored private let clock: any Clock<Duration>
+    @ObservationIgnored private let timer: DemandTimer
     @ObservationIgnored private let killAction: @MainActor (ProcessKey) -> Void
     @ObservationIgnored private var previous: TaskManagerSampleSet?
-    @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var running = false
+    /// Bumped by stop(), so a sample or deadline of an earlier start does nothing.
+    @ObservationIgnored private var generation: UInt64 = 0
 
     /// - Parameters:
     ///   - source: Takes the samples; held weakly (the App owns it).
@@ -39,7 +43,7 @@ public final class TaskManagerModel {
                 clock: any Clock<Duration> = ContinuousClock(), kill: @escaping @MainActor (ProcessKey) -> Void) {
         self.source = source
         self.interval = interval
-        self.clock = clock
+        self.timer = DemandTimer(owner: "TaskManager.sample", clock: clock)
         self.killAction = kill
     }
 
@@ -48,23 +52,28 @@ public final class TaskManagerModel {
 
     /// Starts sampling once per `interval` (a sample at once). Idempotent.
     public func start() {
-        guard loop == nil else { return }
-        let clock = clock, interval = interval
-        loop = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self else { return }
-                await self.refresh()
-                // A bounded delay between samples (the refresh period), cancelled by stop().
-                do { try await clock.sleep(for: interval) } catch { return }
-            }
-        }
+        guard !running else { return }
+        running = true
+        let generation = generation
+        Task { [weak self] in await self?.sample(generation) }
     }
 
     /// Stops sampling and forgets the last sample (the next start has no CPU until its second sample).
     public func stop() {
-        loop?.cancel()
-        loop = nil
+        timer.cancel()
+        generation &+= 1
+        running = false
         previous = nil
+    }
+
+    /// One periodic sample, then the deadline for the next; nothing once stop() ran.
+    private func sample(_ generation: UInt64) async {
+        guard generation == self.generation else { return }
+        await refresh()
+        guard generation == self.generation else { return }
+        timer.schedule(after: interval) { @MainActor [weak self] in
+            await self?.sample(generation)
+        }
     }
 
     /// Takes one sample now and updates the rows.
