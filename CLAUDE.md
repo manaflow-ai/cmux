@@ -40,6 +40,18 @@ Read the matching skill before changing an area, then only the references needed
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
 
+## Web lint before push
+
+Run `scripts/web-lint.sh` before you push web or webviews changes; the pre-push
+hook enforces it. It runs, on what you changed against `origin/feat-cmux-next`,
+the `bun run check` that CI runs for `webviews/` and `cmux-tui/frontends/web/`
+(Oxfmt, Oxlint with the type check, browser-lane and style checks) and ESLint on
+changed `web/` files. `scripts/web-lint.sh --fix` autofixes what the tools can;
+commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
+`scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
+`CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
+`web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
+
 ## Swift namespace convention
 
 Public and package types in package source must expose an instance surface or

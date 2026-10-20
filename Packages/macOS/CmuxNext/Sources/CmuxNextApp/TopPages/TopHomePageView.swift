@@ -31,6 +31,7 @@ final class TopHomePageView: NSView {
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
     private var accountObservation: Task<Void, Never>?
+    private var requestsObservation: Task<Void, Never>?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -59,6 +60,7 @@ final class TopHomePageView: NSView {
             selectionObservation?.cancel()
             chiefObservation?.cancel()
             accountObservation?.cancel()
+            requestsObservation?.cancel()
         }
     }
 
@@ -109,6 +111,7 @@ final class TopHomePageView: NSView {
             Task { _ = await home.startConversation([.contact(person)], title: "") }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
+        list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
     }
 
@@ -122,6 +125,7 @@ final class TopHomePageView: NSView {
         rowsObservation = Task { [weak self] in
             // The Chiefs listed when their engines (the rows' badges) were last read.
             var badgedChiefs: Set<String>?
+            var listed: Set<ConversationID> = []
             for await (all, archived, _, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
                  sidebar.ownerRows, home.directory.chiefHarnesses)
@@ -133,6 +137,8 @@ final class TopHomePageView: NSView {
                     home.refreshChiefHarnesses()
                 }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
+                // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
+                if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
                 if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
@@ -157,6 +163,10 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation). Another account has its own pins.
         accountObservation = Task {
             for await _ in ObservationStream({ auth.user?.id }) { sidebar.reloadPins() }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation)
+        requestsObservation = Task { [weak self] in
+            for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
@@ -256,6 +266,16 @@ final class TopHomePageView: NSView {
         let sheet = HomeInviteSheet(prefill: prefill, pending: pending)
         sheet.onSend = { address in await home.invite(address) }
         present(sheet)
+    }
+
+    /// Message Requests: Accept opens the conversation; Decline and Block stay silent to the sender.
+    func presentRequests() {
+        guard let services else { return }
+        let requests = services.home.requests
+        let sheet = HomeRequestsSheet(requests: requests.items)
+        sheet.onAnswer = { id, answer in await requests.answer(id, answer) }
+        present(sheet)
+        requests.refresh()
     }
 
     func presentNewChief() {

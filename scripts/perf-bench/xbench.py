@@ -473,6 +473,21 @@ def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconSer
     return ChromiumBrowser(name, bundle, helper, server)
 
 
+def can_launch_apps() -> bool:
+    """Whether LaunchServices starts an app for this process (Calculator, quit at once)."""
+    calculator = "/System/Applications/Calculator.app"
+    if subprocess.run(["open", "-g", "-j", "-n", "-a", calculator], capture_output=True, timeout=30).returncode != 0:
+        return False
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        pid = procs.main_pid(calculator)
+        if pid:
+            os.kill(pid, signal.SIGKILL)
+            return True
+        time.sleep(0.2)  # bench: waiting for the probe app
+    return False
+
+
 # ---------------------------------------------------------------- run
 
 
@@ -702,11 +717,12 @@ class Run:
         with open(meta_path, "w") as handle:
             json.dump(meta, handle, indent=1)
         log(f"machine {json.dumps(meta['machine'])}")
-        if meta["machine"]["session"] != "Aqua":
-            # LaunchServices refuses to start apps outside a logged-in GUI session
-            # (RBSRequestErrorDomain Code=5 "Launch failed"): no row can be measured.
-            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}, not Aqua: this host cannot "
-                  "launch browsers (needs a worker in a logged-in GUI session)", flush=True)
+        if not can_launch_apps():
+            # LaunchServices refuses to start apps for a process outside a logged-in
+            # console user's session (RBSRequestErrorDomain Code=5 "Launch failed"):
+            # no row can be measured on this host.
+            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
+                  "here (needs a host with a logged-in console user)", flush=True)
             sys.exit(3)
         if not meta["machine"]["displays"].get("count"):
             log("WARNING: no active display: paint, switch and video rows may not be meaningful")

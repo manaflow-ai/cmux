@@ -281,6 +281,7 @@ public final class BrowserChromeView: NSView {
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {
@@ -339,7 +340,7 @@ public final class BrowserChromeView: NSView {
             showsStop = loading
             reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
+        addressBar.update(url: Self.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)

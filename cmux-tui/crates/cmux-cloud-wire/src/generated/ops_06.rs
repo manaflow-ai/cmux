@@ -4,6 +4,13 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationListResult {
+    pub connections: Vec<Connection>,
+    pub providers: Vec<IntegrationListResultProvidersItem>,
+    pub revision: String,
+}
+
 wire_errors! {
     /// The error codes integration.list declares.
     IntegrationListError {

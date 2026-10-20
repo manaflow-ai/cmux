@@ -58,6 +58,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/normalize-pbxproj.py",
             "scripts/lint_swift_namespaces.py",
             "scripts/swift_source_mask.py",
+            "scripts/web_lint_prepush.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -147,9 +148,10 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertNotIn("scripts/lint_swift_namespaces.py", hook)
 
     def test_default_install_does_not_enable_namespace_fix_hook(self):
+        # pre-push is installed for the web lint; the namespace fixer stays opt-in.
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((Path(self.local_hooks_path()) / "pre-push").exists())
+        self.assertFalse((Path(self.local_hooks_path()) / "lint_swift_namespaces.py").exists())
 
     def test_installed_hooks_do_not_follow_checked_out_hook_changes(self):
         result = self.install()

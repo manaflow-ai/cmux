@@ -198,6 +198,11 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
+        // Cmd-P / Cmd-Shift-P (as bound) in a web view outside a main window: the native palette.
+        if routesNativePaletteKey(event, in: window) {
+            cancelChord()
+            return true
+        }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
@@ -260,7 +265,7 @@ final class KeyRouter: BrowserKeyRouting {
         return true
     }
 
-    private func run(_ candidate: Candidate, context: KeyContext, window: String) {
+    func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
         // A New Tab key predicts a browser tab: warm Chromium before its tab opens (ChromiumWarmup).
         if candidate.id.rawValue.hasPrefix("newTab") { services?.chromiumWarmup.tabSignal(.newTabKey) }

@@ -1,24 +1,37 @@
 #!/bin/bash
-# Optional namespace autofix hook. Installed only with
-# scripts/install-git-hooks.sh --namespace-fix.
+# cmux pre-push hook, installed by scripts/install-git-hooks.sh as a clone-local
+# copy outside the checkout.
+# 1. Web lint (always): runs the web checks CI runs on what the push changes and
+#    refuses the push when they fail. Skip once with
+#    CMUX_WEB_LINT_SKIP_REASON="<the failing check and the base SHA where it also fails>".
+# 2. Namespace autofix (opt-in): only when installed with --namespace-fix.
 set -euo pipefail
 
 HOOK_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd -P)"
 PYTHON_PATH_FILE="$HOOK_DIR/python3-path"
 if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE" \
     || [[ "$PYTHON3_BIN" != /* ]] || [[ ! -x "$PYTHON3_BIN" ]]; then
-    echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh --namespace-fix." >&2
-    exit 1
-fi
-SCANNER="$HOOK_DIR/lint_swift_namespaces.py"
-MASKER="$HOOK_DIR/swift_source_mask.py"
-if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
-    echo "pre-push: trusted namespace helpers are missing; rerun scripts/install-git-hooks.sh --namespace-fix." >&2
+    echo "pre-push: trusted Python interpreter metadata is missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
+
+WEB_LINT="$HOOK_DIR/web_lint_prepush.py"
+if [[ -f "$WEB_LINT" ]]; then
+    "$PYTHON3_BIN" -I "$WEB_LINT" --pre-push --repo "$REPO_ROOT"
+else
+    echo "pre-push: web lint helper is missing; rerun scripts/install-git-hooks.sh." >&2
+    exit 1
+fi
+
+SCANNER="$HOOK_DIR/lint_swift_namespaces.py"
+MASKER="$HOOK_DIR/swift_source_mask.py"
+if [[ ! -f "$SCANNER" || ! -f "$MASKER" ]]; then
+    exit 0  # the namespace autofix is opt-in (install-git-hooks.sh --namespace-fix)
+fi
+
 before="$(git status --porcelain --untracked-files=normal)"
 enum_roots=()
 for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
