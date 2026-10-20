@@ -35,18 +35,24 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
+    /// `home.chiefBubbleStyle`: the Chief chat's bubbles, `imessage` (Messages' blue and grey) when unset or `theme`.
+    public var homeChiefBubbleStyle = HomeChiefBubbleStyleSetting.defaultStyle
     /// `browser.builtInAdBlocker`; on when unset.
-    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting.fallback
-    /// `home.attachments.keepLocation`; off (strip location) when unset.
-    public var homeKeepLocation = false
+    public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
+    /// `browser.showAgentCursor`; on when unset.
+    public var browserShowAgentCursor = AgentCursorSetting().fallback
+    /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
+    public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
-    /// `browser.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
-    public var terminalLinkRouting: TerminalLinkRouting = .fallback
+    /// `browser.openLinksInCmuxBrowser` (classic: `.openTerminalLinksInCmuxBrowser`), `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
+    public var linkRouting: LinkRouting = .fallback
+    /// `files.textEditor`: the app for a path's Open in Text Editor; empty for the system's.
+    public var textEditor = TextEditorSetting()
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
@@ -58,7 +64,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     public var animationKinds = AnimationKindsSetting()
-    /// `ui.paneAnimations`; off when unset or invalid.
+    /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback
@@ -67,6 +73,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarSections = SidebarSectionsPreferences.defaults
     /// `sidebar.hoverCards.*`: hover cards on, and their delay.
     public var hoverCards = HoverCardSettings()
+    /// `sidebar.nowPlaying.*`: the Now Playing player shows.
+    public var nowPlaying = NowPlayingSettings()
+    /// `appearance.colorTransition.*` (cx-3rf4z).
+    public var colorTransition = ColorTransitionSetting()
     /// `layout.splitSizing`, `layout.newColumnWidth`, docked defaults and the
     /// minimum pane size (`ColumnLayoutSettings`).
     public var splitSizing: SplitSizing = ColumnLayoutSettings.splitSizingFallback
@@ -77,6 +87,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
+    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it (default on).
+    public var focusPaneOnScroll: Bool = ColumnLayoutSettings.focusPaneOnScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -118,7 +130,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
-    /// `appearance.focusIndicator`; "both" when unset or invalid.
+    /// `appearance.focusIndicator`; "tabs" when unset or invalid.
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
@@ -143,10 +155,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.overflow`; shrink when unset or invalid.
+    public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
     public var swapCmdTAndCmdN: Bool = SwapCmdTAndCmdNSetting.fallback
-    /// `tabs.tabBar.<kind>`; Automatic when unset or invalid.
-    public var paneTabBars = PaneTabBarDefaults()
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -183,6 +195,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var computerUse = ComputerUseSettings()
     /// `freeModel.*`: the free AI model while signed out (cx-ds09i).
     public var freeModel = FreeModelSettings()
+    /// `sessions.*`: what this Mac does while agents work (keep awake).
+    public var sessions = SessionSettings()
+    /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
+    public var subsessions = SubsessionSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
     public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
@@ -216,20 +232,19 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (hints, hintsDiagnostic) = ModifierHoldHintsSetting().parse(root)
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
-        let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
-        snapshot.browserDefaultEngine = engine
-        if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
-        let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
-        snapshot.browserNewTabPage = newTabPage
-        if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
+        snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
+        snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
-        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
+        snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
+        snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
+        snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
-        snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
+        snapshot.take(LinkRouting.parse(root), \.linkRouting)
+        snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
@@ -242,15 +257,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
-        let (scrollbar, scrollbarDiagnostic) = StripScrollbarSetting.parse(root)
-        snapshot.stripScrollbar = scrollbar
-        if let scrollbarDiagnostic { snapshot.diagnostics.append(scrollbarDiagnostic) }
-        let (closeFocus, closeFocusDiagnostic) = CloseFocusSetting.parse(root)
-        snapshot.closeFocus = closeFocus
-        if let closeFocusDiagnostic { snapshot.diagnostics.append(closeFocusDiagnostic) }
+        snapshot.take(StripScrollbarSetting.parse(root), \.stripScrollbar)
+        snapshot.take(CloseFocusSetting.parse(root), \.closeFocus)
         snapshot.defaultColumnWidth = DefaultColumnWidthSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarSections = SidebarSectionsSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.hoverCards = HoverCardSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.nowPlaying = NowPlayingSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.colorTransition = ColorTransitionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.chromeStyle = ChromeStyleSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sidebarBorder = SidebarBorderSetting.parse(root, defaultShows: snapshot.chromeStyle.sidebarBorder ?? false,
                                                             diagnostics: &snapshot.diagnostics)
@@ -305,12 +318,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
         if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
-        let (paneTabBars, paneTabBarDiagnostics) = PaneTabBarDefaults.parse(root)
-        snapshot.paneTabBars = paneTabBars
-        snapshot.diagnostics += paneTabBarDiagnostics
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -328,12 +339,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.computerUse = ComputerUseSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
-        let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
-        snapshot.appTheme = appTheme
-        if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
-        let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
-        snapshot.chromeTheme = chromeTheme
-        if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.take(AppThemeSetting().parse(root), \.appTheme)
+        snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
         snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent

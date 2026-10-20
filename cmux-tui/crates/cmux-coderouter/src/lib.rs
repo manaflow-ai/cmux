@@ -19,13 +19,15 @@ use std::{
     sync::Arc,
 };
 #[cfg(unix)]
-use tokio::net::{UnixListener, UnixStream};
+use tokio::net::UnixListener;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::TcpListener,
 };
 use tower_http::limit::RequestBodyLimitLayer;
 
+mod admin_socket;
+pub use admin_socket::{MAX_SOCKET_PATH_BYTES, admin_socket_path};
 pub mod free_tier;
 use free_tier::FreeTier;
 use zeroize::Zeroize;
@@ -323,6 +325,18 @@ fn disable_core_dumps() {
     }
 }
 
+/// One admin connection: its read and write halves, and its peer as read
+/// from the whole socket at accept, before the split
+/// ([`free_tier::ProviderPeer`]: the attestation provider check needs it).
+pub type AdminConnection = (
+    Box<dyn AsyncRead + Send + Unpin>,
+    Box<dyn AsyncWrite + Send + Unpin>,
+    free_tier::ProviderPeer,
+);
+/// Accepted admin connections; an error ends the router as a failed accept
+/// does.
+pub type AdminConnections = tokio::sync::mpsc::Receiver<std::io::Result<AdminConnection>>;
+
 /// Start the admin UDS and loopback data-plane listener. Returns when the
 /// router is told to stop (`shutdown`) or when its last owner is gone: with
 /// `CMUX_ROUTER_OWNER_FIFO` set, the router reads that FIFO and stops once
@@ -330,12 +344,50 @@ fn disable_core_dumps() {
 /// do), also while it still waits on router.lock.
 #[cfg(unix)]
 pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
+    serve_with_admin(home, |socket_path| {
+        let admin = UnixListener::bind(socket_path)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        tokio::spawn(async move {
+            loop {
+                let accepted = admin.accept().await.map(|(stream, _)| {
+                    let peer = free_tier::ProviderPeer::of_unix(&stream);
+                    let (read, write) = stream.into_split();
+                    (Box::new(read) as _, Box::new(write) as _, peer)
+                });
+                let failed = accepted.is_err();
+                if tx.send(accepted).await.is_err() || failed {
+                    break;
+                }
+            }
+        });
+        Ok(rx)
+    })
+    .await
+}
+
+/// The router with its admin socket bound by `bind_admin` (given the socket
+/// path, after the router lock is held and a stale socket file removed):
+/// Unix binds a unix socket ([`serve`]); the Windows host binds its local
+/// socket (AF_UNIX with same-user checks) and hands each connection over.
+pub async fn serve_with_admin(
+    home: impl AsRef<Path>,
+    bind_admin: impl FnOnce(&Path) -> anyhow::Result<AdminConnections>,
+) -> anyhow::Result<()> {
     install_panic_hook();
     disable_core_dumps();
+    // Windows has no owner FIFO: the daemon's kill-on-close job object ends
+    // the router with the daemon (acpmux daemon/router_owner.rs).
+    #[cfg(unix)]
     let owners =
         std::env::var_os("CMUX_ROUTER_OWNER_FIFO").map(std::path::PathBuf::from).map(watch_owners);
+    #[cfg(not(unix))]
+    let owners = None;
     tokio::select! {
-        result = serve_owned(home.as_ref()) => result,
+        result = serve_owned(home.as_ref(), bind_admin) => result,
         () = owners_gone(owners) => {
             tracing::info!("the local router has no owner left; it stops");
             Ok(())
@@ -345,7 +397,6 @@ pub async fn serve(home: impl AsRef<Path>) -> anyhow::Result<()> {
 
 /// True once the owner watch saw no writer left: `adopt` is refused from
 /// then on, so a daemon never adopts a router that is stopping.
-#[cfg(unix)]
 static OWNERS_GONE: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
 
 /// Where this run's install secret lives, for `status` (`install_secret`):
@@ -420,7 +471,6 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
 }
 
 /// Resolves when the owners are gone; never without an owner FIFO.
-#[cfg(unix)]
 async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
     match owners {
         Some(receiver) => {
@@ -430,8 +480,10 @@ async fn owners_gone(owners: Option<tokio::sync::oneshot::Receiver<()>>) {
     }
 }
 
-#[cfg(unix)]
-async fn serve_owned(home: &Path) -> anyhow::Result<()> {
+async fn serve_owned(
+    home: &Path,
+    bind_admin: impl FnOnce(&Path) -> anyhow::Result<AdminConnections>,
+) -> anyhow::Result<()> {
     // reqwest is built without a default TLS provider; the relay's upstream calls need one.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let router_dir = home.join("router");
@@ -467,14 +519,10 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     // gets an answer.
     let store: Arc<dyn InstallSecretStore> = Arc::new(RandomInstallSecretStore::new("default")?);
     let _ = INSTALL_SECRET_KIND.set(INSTALL_SECRET_EPHEMERAL);
-    let socket_path = router_dir.join("router.sock");
+    // `<home>/router/router.sock`, or a short path for a long home (admin_socket.rs).
+    let socket_path = admin_socket_path(home);
     let _ = tokio::fs::remove_file(&socket_path).await;
-    let admin = UnixListener::bind(&socket_path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        tokio::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600)).await?;
-    }
+    let admin = bind_admin(&socket_path)?;
     let bind_address: SocketAddr = "127.0.0.1:0".parse()?;
     let listener = TcpListener::bind(LoopbackAddr::try_from(bind_address)?.address()).await?;
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
@@ -538,29 +586,25 @@ async fn data_server(
         .with_state(state);
     let _ = axum::serve(listener, app.into_make_service()).await;
 }
-#[cfg(not(unix))]
-pub async fn serve(_home: impl AsRef<Path>) -> anyhow::Result<()> {
-    anyhow::bail!("the local router admin socket requires Unix")
-}
-#[cfg(unix)]
 async fn admin_loop(
-    listener: UnixListener,
+    mut admin: AdminConnections,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
     free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
-    loop {
-        let (stream, _) = listener.accept().await?;
+    while let Some(accepted) = admin.recv().await {
+        let connection = accepted?;
         let keys = keys.clone();
         let upstream = upstream.clone();
         let free = free.clone();
         let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys, upstream, free, port, stop).await;
+            let _ = admin_connection(connection, keys, upstream, free, port, stop).await;
         });
     }
+    anyhow::bail!("the router admin listener ended")
 }
 
 /// The build of the acpmux that started this router (`CMUX_ROUTER_BUILD`):
@@ -568,7 +612,6 @@ async fn admin_loop(
 fn router_build() -> String {
     std::env::var("CMUX_ROUTER_BUILD").unwrap_or_default()
 }
-#[cfg(unix)]
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum AdminRequest {
@@ -610,16 +653,15 @@ enum AdminRequest {
     /// app's replies until it ends.
     AttestProvider(free_tier::Register),
 }
-#[cfg(unix)]
 async fn admin_connection(
-    stream: UnixStream,
+    connection: AdminConnection,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
     free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
-    let (read, mut write) = stream.into_split();
+    let (read, mut write, peer) = connection;
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
         let request: AdminRequest = match serde_json::from_str(&line) {
@@ -682,8 +724,9 @@ async fn admin_connection(
                 serde_json::json!({"upstream": null})
             }
             AdminRequest::AttestProvider(register) => {
-                // The peer check runs on this very connection, before anything is written to it.
-                if !free_tier::provider_peer_allowed(lines.get_ref().get_ref().as_ref()) {
+                // The peer check runs on this connection's peer (read at
+                // accept), before anything is written to it.
+                if !free_tier::provider_peer_allowed(&peer) {
                     write.write_all(b"{\"error\":\"provider refused\"}\n").await?;
                     return Ok(());
                 }

@@ -49,7 +49,7 @@ impl Mux {
         }
         Some(ResourceError::operation_failed(
             operation,
-            "no browser engine: no cmux-browser provider is attached, so a browser tab cannot start",
+            "no browser engine: neither the cmux app nor a cmux-browser provider is attached to this session, so a browser tab cannot start; open the cmux app (it renders browser tabs for every session it shows), or launch cmux-browser",
             serde_json::json!({"code":"engine_unavailable"}),
         ))
     }

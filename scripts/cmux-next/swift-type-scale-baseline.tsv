@@ -5,7 +5,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/AgentQuestionPillButton.sw
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabElsewhereView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift	size	1
-Packages/macOS/CmuxNext/Sources/CmuxNextApp/Popups/BrowserPopupPanel.swift	size	2
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalPlaceholderView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/RemoteTerminalPlaceholderView.swift	weight	1
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/RemoteView/MachineBrowserPageTab.swift	weight	1
@@ -34,9 +33,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedNoticeRow.swift	size	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift	size	10
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedPromptSummary.swift	weight	2
 Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Views/FeedView.swift	size	1
-Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	size	8
+Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	size	6
 Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	weight	2
-Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/HomeChiefSidebar.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Steps/ImportConsentView.swift	size	1
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Views/OnboardingMetrics.swift	size	3
 Packages/macOS/CmuxNext/Sources/CmuxNextRemoteView/Pane/RemoteChromeControls.swift	size	2

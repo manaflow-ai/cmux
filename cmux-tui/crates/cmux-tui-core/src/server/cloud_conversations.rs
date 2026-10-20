@@ -39,6 +39,17 @@ pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
 /// connection that echoes `conversation-runs-v1` (advertised with
 /// `cloud-conversations-v1`).
 pub(super) const CLOUD_RUNS_CAPABILITY: &str = "cloud-conversation-runs-v1";
+/// A Cloud Chief's live frames through the daemon (`chief-live-v1` on the
+/// Cloud socket): the `cloud-conversation-live` event of a subscribed
+/// conversation, for a connection that echoes `chief-live-v1`, and
+/// `cloud-conversation-live`, which asks the owner for its `run.live`
+/// snapshot (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_LIVE_CAPABILITY: &str = "cloud-chief-live-v1";
+/// `cloud-conversation-typing`: the owner's ephemeral `typing` frame
+/// through the daemon, and the `cloud-conversation-typing` event (the owner's
+/// `conversation-typing` broadcast of a subscribed conversation) for a
+/// connection that echoes it (advertised with `cloud-conversations-v1`).
+pub(super) const CLOUD_TYPING_CAPABILITY: &str = "cloud-conversation-typing-v1";
 
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
@@ -196,8 +207,16 @@ pub(super) struct TargetParams {
     conversation: String,
 }
 
-/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
-/// client cannot name a chief (the queue is the lease token's).
+/// `cloud-conversation-typing`.
+#[derive(Deserialize)]
+pub(super) struct TypingParams {
+    conversation: String,
+    on: bool,
+}
+
+/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
+/// fields at all, so a client cannot name a chief (the queue is the lease
+/// token's) or another person (the requests are the lease's).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NoParams {
@@ -330,6 +349,11 @@ pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> any
     Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
 }
 
+/// `cloud-requests-list`: the person's open message requests (`home.requests.list`).
+pub(super) fn requests_list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.requests_list()?)
+}
+
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.snapshot(&params.conversation, params.tail)?)
 }
@@ -399,6 +423,18 @@ pub(super) fn subscribe(
     Ok(lease_user(mux, client)?.subscribe(client, target)?)
 }
 
+/// `cloud-conversation-live`: the subscriber asks for the owner's
+/// `run.live` snapshot; it arrives as a `cloud-conversation-live` event.
+pub(super) fn live(mux: &Mux, client: u64, params: TargetParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.request_live(client, &params.conversation)?)
+}
+
+/// `cloud-conversation-typing`: the lease's participant is typing or
+/// stopped, as the owner's `typing` frame on the shared socket.
+pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.typing(client, &params.conversation, params.on)?)
+}
+
 pub(super) fn unsubscribe(
     mux: &Mux,
     client: u64,
@@ -455,6 +491,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::CloudInboxList(_)
+            | Command::CloudRequestsList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -601,3 +638,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_lease_gate_tests.rs"]
 mod lease_gate_tests;
+
+#[cfg(test)]
+#[path = "cloud_request_tests.rs"]
+mod request_tests;

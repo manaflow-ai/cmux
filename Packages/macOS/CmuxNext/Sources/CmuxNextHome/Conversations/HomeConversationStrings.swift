@@ -31,7 +31,44 @@ enum HomeConversationStrings {
     static var mentioned: String { String(localized: "home.list.mentioned", defaultValue: "Mentions you", bundle: .module) }
     static var pinnedLabel: String { String(localized: "home.list.pinnedLabel", defaultValue: "Pinned", bundle: .module) }
     static var invitedLabel: String { String(localized: "home.list.invitedLabel", defaultValue: "Waiting for them to join", bundle: .module) }
+    /// The quiet line under the list for the Cloud rows' state (`home-inbox` `cloud`): only `unavailable`
+    /// has one (hq-6d 2026-10-15: signed out shows nothing; the account menu already says so).
+    static func cloudNote(_ state: String?) -> String? {
+        guard state == "unavailable" else { return nil }
+        return String(localized: "home.list.cloudUnavailable", defaultValue: "Cloud conversations are not available right now.", bundle: .module)
+    }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
+
+    // MARK: Message requests (home-messaging-invites DESIGN 2.3, 2.5)
+
+    /// The sender's row while the other person has not joined.
+    static func waitingFor(_ name: String) -> String {
+        String(format: String(localized: "home.invite.waitingFor", defaultValue: "Waiting for %@ to accept", bundle: .module), name)
+    }
+    /// The sidebar's button to the requests.
+    static func requestsBar(_ count: Int) -> String {
+        String(format: String(localized: "home.requests.bar", defaultValue: "Message Requests (%lld)", bundle: .module), count)
+    }
+    static var requestsTitle: String { String(localized: "home.requests.title", defaultValue: "Message Requests", bundle: .module) }
+    static var requestsBody: String {
+        String(localized: "home.requests.body",
+               defaultValue: "People you have not talked to yet. They do not get notified, and they do not know if you read their message.",
+               bundle: .module)
+    }
+    static var requestsNone: String { String(localized: "home.requests.none", defaultValue: "No message requests.", bundle: .module) }
+    static var requestsDone: String { String(localized: "home.requests.done", defaultValue: "Done", bundle: .module) }
+    static var requestAccept: String { String(localized: "home.requests.accept", defaultValue: "Accept", bundle: .module) }
+    static var requestDecline: String { String(localized: "home.requests.decline", defaultValue: "Decline", bundle: .module) }
+    static var requestBlock: String { String(localized: "home.requests.block", defaultValue: "Block", bundle: .module) }
+    static var requestTrusted: String { String(localized: "home.requests.trusted", defaultValue: "Same company", bundle: .module) }
+    /// A group request's line: "Invited you to Lunch".
+    static func requestGroup(_ title: String) -> String {
+        String(format: String(localized: "home.requests.group", defaultValue: "Invited you to %@", bundle: .module), title)
+    }
+    static var requestGroupUntitled: String {
+        String(localized: "home.requests.groupUntitled", defaultValue: "Invited you to a group", bundle: .module)
+    }
+    static var requestFailed: String { String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module) }
 
     // MARK: New Message
 
@@ -79,6 +116,7 @@ enum HomeConversationStrings {
     }
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .module) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .module) }
+    static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .module) }
 
     // MARK: Sidebar previews
 
@@ -136,7 +174,8 @@ enum HomeConversationStrings {
         }
     }
 
-    /// A refused invite's reason as the user reads it (the owner's codes).
+    /// A refused invite's reason as the user reads it (the owner's codes). A code with no
+    /// sentence of its own reads as the generic failure: a raw code is never shown.
     static func inviteRefusal(_ code: String) -> String {
         switch code {
         case "invite.blocked", "invite.recipient_limited":
@@ -147,7 +186,8 @@ enum HomeConversationStrings {
         case "home.not_configured":
             String(localized: "home.outcome.inviteUnavailable", defaultValue: "Invites aren’t available on this server.",
                    bundle: .module)
-        default: code
+        default:
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         }
     }
 }

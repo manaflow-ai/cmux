@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 448a7e266da536ab3d7ddb0c5c2ea7dcc3c7f6d121b31a87eec89f7b36b2f607. */
+/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -338,6 +338,15 @@ export type ConversationTabRecord = {
   "route"?: string;
 };
 
+export type ConversationTabSplit = {
+  /** The side of pane the new pane takes: right, down, left or up. */
+  "direction": string;
+  /** Caller-minted public id of the new pane (pane_ and 32 hex digits), as split-client-keys-v1; refused when it exists or ever existed. */
+  "pane_id"?: (string) | null;
+  /** Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed. */
+  "split_id"?: (string) | null;
+};
+
 export type ConversationTextRun = {
   "length": number;
   "link"?: string;
@@ -538,6 +547,7 @@ export type IdMapping = {
 };
 
 export type IdentifyResult = {
+  "api_revision"?: (number) | null;
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
@@ -548,7 +558,11 @@ export type IdentifyResult = {
   "ghostty_commit"?: (string) | null;
   "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
+  "machine_capabilities"?: Array<string>;
+  "machine_id"?: string;
   "machine_name"?: string;
+  "machine_platform"?: MachinePlatform;
+  "min_api_revision"?: (number) | null;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -590,6 +604,8 @@ export type Layout = ({ "type": "leaf" } & {
   "ratio": number;
   /** Stable for the lifetime of this split node. */
   "split"?: Id;
+  /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+  "split_id"?: string;
   "type": "split";
 }) | ({ "type": "stack" } & {
   "expanded": Id;
@@ -638,6 +654,11 @@ export type MachineListeningTcpResult = {
   "stdout": string;
 };
 
+export type MachinePlatform = {
+  "arch": string;
+  "os": string;
+};
+
 export type MachineUsage = {
   "api_equivalent_usd": number;
   "as_of": (string) | null;
@@ -676,6 +697,8 @@ export type MoveTerminalResult = {
   "workspace": (Id) | null;
   "workspace_key": string;
 };
+
+export type NameSource = "user" | "auto";
 
 export type NewRowResult = {
   "pane": Id;
@@ -1488,12 +1511,16 @@ export type Workspace = {
   "id": Id;
   "key"?: string;
   "name": string;
+  "name_revision"?: string;
+  "name_source"?: NameSource;
   "screens": Array<Screen>;
   "short_id"?: string;
 };
 
 export type WorkspaceMutationResult = {
   "changed"?: boolean;
+  /** close-workspace with end_terminals and report_closed_ids: the closed.list groups the close stored, oldest first; closed.reopen of each restores exactly what it closed. */
+  "closed_ids"?: Array<string>;
   "generation": string;
   "index": bigint;
   "key": string;

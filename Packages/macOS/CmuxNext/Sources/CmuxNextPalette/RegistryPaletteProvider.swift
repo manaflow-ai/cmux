@@ -76,7 +76,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
-                title: descriptor.title,
+                // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+                title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
                 accessory: entry.isBound || override != nil ? nil : unbound,

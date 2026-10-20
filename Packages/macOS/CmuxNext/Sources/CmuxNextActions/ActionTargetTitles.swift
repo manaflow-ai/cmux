@@ -39,6 +39,14 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
+    /// Sets the palette row's title of a bound action for the focused object;
+    /// nil keeps the catalog title. The CLI and MCP keep the catalog title and id.
+    public static func setPaletteTitle(_ id: ActionID, in registry: ActionRegistry, _ title: @escaping @MainActor () -> String?) {
+        guard var action = registry.action(for: id) else { return }
+        action.paletteTitle = title
+        registry.register(action)
+    }
+
     /// Applies the target's title, its toggle state and the target-aware
     /// disabled reason (Chromium in a build without CEF) to a context menu item.
     static func decorate(_ item: NSMenuItem, id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) {

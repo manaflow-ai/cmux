@@ -17,13 +17,17 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   onAccent: "--agent-on-accent",
   danger: "--agent-danger",
   warning: "--agent-warning",
+  success: "--agent-success",
   highlight: "--agent-highlight",
   highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
   palette: null,
   borders: null,
   chatWidth: null,
+  codexToolRuns: null,
+  turnActionsPlacement: null,
   motion: null,
+  statusIndicators: null,
 };
 
 const motionVariables = {
@@ -48,6 +52,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
   if (theme.borders === "none") root.dataset.borders = "none";
   else delete root.dataset.borders;
+  // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
+  if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
+  else delete root.dataset.statusIndicators;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;

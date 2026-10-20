@@ -21,6 +21,10 @@ struct World {
     home: PathBuf,
     bin: PathBuf,
     work: PathBuf,
+    /// The working directory of each run; `work` when `None`.
+    cwd: Option<PathBuf>,
+    /// Environment set after the defaults (HOME, CODEX_HOME, ...).
+    env: Vec<(&'static str, PathBuf)>,
 }
 
 impl World {
@@ -30,8 +34,14 @@ impl World {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
         let dir = Path::new("/tmp")
             .join(format!("cmux-agents-doctor-{name}-{}-{stamp}-{n}", std::process::id()));
-        let world =
-            Self { home: dir.join("home"), bin: dir.join("bin"), work: dir.join("work"), dir };
+        let world = Self {
+            home: dir.join("home"),
+            bin: dir.join("bin"),
+            work: dir.join("work"),
+            cwd: None,
+            env: Vec::new(),
+            dir,
+        };
         for path in [&world.home, &world.bin, &world.work] {
             std::fs::create_dir_all(path).unwrap();
         }
@@ -73,7 +83,7 @@ impl World {
             .arg("--app-socket")
             .arg(app_socket)
             .args(args)
-            .current_dir(&self.work)
+            .current_dir(self.cwd.as_ref().unwrap_or(&self.work))
             .env("HOME", &self.home)
             .env("PATH", &self.bin)
             .env("LC_ALL", locale)
@@ -86,9 +96,75 @@ impl World {
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_MUX_SOCKET")
             .env_remove("CMUX_SOCKET_PATH")
+            .envs(self.env.iter().map(|(key, value)| (*key, value)))
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+}
+
+impl World {
+    /// A real `cmux mcp serve` in the same environment as `run_in` (the
+    /// server switched on by a settings file outside HOME): initializes,
+    /// sends each `tools/call` and returns their results in order.
+    fn mcp(&self, app_socket: &Path, calls: &[Value]) -> Vec<Value> {
+        let config = self.dir.join("cmux-next.json");
+        std::fs::write(&config, r#"{"mcp": {"enabled": true}}"#).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--app-socket")
+            .arg(app_socket)
+            .args(["mcp", "serve"])
+            .current_dir(self.cwd.as_ref().unwrap_or(&self.work))
+            .env("HOME", &self.home)
+            .env("PATH", &self.bin)
+            .env("LC_ALL", "C")
+            .env("CMUX_NEXT_CONFIG_FILE", &config)
+            .env_remove("LANG")
+            .env_remove("LC_MESSAGES")
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("CMUX_AGENT_SESSION")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_MUX_SOCKET")
+            .env_remove("CMUX_SOCKET_PATH")
+            .envs(self.env.iter().map(|(key, value)| (*key, value)))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let mut messages = vec![
+            json!({"jsonrpc": "2.0", "id": "init", "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "agents-doctor-test", "version": "1"}}}),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        ];
+        for (index, arguments) in calls.iter().enumerate() {
+            messages.push(json!({"jsonrpc": "2.0", "id": index, "method": "tools/call",
+                "params": {"name": "agents_doctor", "arguments": arguments}}));
+        }
+        for message in messages {
+            writeln!(stdin, "{message}").unwrap();
+        }
+        drop(stdin);
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let answers: Vec<Value> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .collect();
+        (0..calls.len())
+            .map(|index| {
+                let answer = answers
+                    .iter()
+                    .find(|answer| answer["id"] == index)
+                    .unwrap_or_else(|| panic!("no answer to call {index}; stderr: {stderr}"));
+                assert!(answer.get("error").is_none(), "{answer}");
+                answer["result"].clone()
+            })
+            .collect()
     }
 }
 
@@ -107,6 +183,31 @@ struct FakeApp {
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
+fn serve_app(stream: std::os::unix::net::UnixStream, status: &Value, methods: &Mutex<Vec<String>>) {
+    stream.set_nonblocking(false).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut writer = stream;
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+        let Ok(request) = serde_json::from_str::<Value>(&line) else { break };
+        line.clear();
+        let method = request["method"].as_str().unwrap_or("").to_owned();
+        let response = if method == "computer_use.status" {
+            json!({"id": request["id"], "ok": true, "result": status})
+        } else {
+            json!({"id": request["id"], "ok": false, "error": {"code": "method_not_found", "message": "unknown method"}})
+        };
+        // The MCP server's catalog reads and event stream are not the doctor's.
+        if !matches!(method.as_str(), "action.list" | "events.stream") {
+            methods.lock().unwrap().push(method);
+        }
+        if writeln!(writer, "{response}").is_err() {
+            break;
+        }
+    }
+}
+
 impl FakeApp {
     fn start(dir: &Path, status: Value) -> Self {
         let socket = dir.join("app.sock");
@@ -119,26 +220,11 @@ impl FakeApp {
             std::thread::spawn(move || {
                 loop {
                     match listener.accept() {
+                        // One thread per connection: `cmux mcp serve` keeps one
+                        // open for the app's events while it answers calls.
                         Ok((stream, _)) => {
-                            stream.set_nonblocking(false).unwrap();
-                            stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
-                            let mut reader = BufReader::new(stream.try_clone().unwrap());
-                            let mut writer = stream;
-                            let mut line = String::new();
-                            while reader.read_line(&mut line).unwrap_or(0) > 0 {
-                                let request: Value = serde_json::from_str(&line).unwrap();
-                                line.clear();
-                                let method = request["method"].as_str().unwrap_or("").to_owned();
-                                let response = if method == "computer_use.status" {
-                                    json!({"id": request["id"], "ok": true, "result": status})
-                                } else {
-                                    json!({"id": request["id"], "ok": false, "error": {"code": "method_not_found", "message": "unknown method"}})
-                                };
-                                methods.lock().unwrap().push(method);
-                                if writeln!(writer, "{response}").is_err() {
-                                    break;
-                                }
-                            }
+                            let (status, methods) = (status.clone(), methods.clone());
+                            std::thread::spawn(move || serve_app(stream, &status, &methods));
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             if done.load(Ordering::Relaxed) {
@@ -349,10 +435,7 @@ fn agents_doctor_reports_configured_wiring_and_app_grants() {
     assert_eq!(claude_mcp["reason"], "configured", "{report}");
     let codex_mcp = row(&report, "mcp.codex");
     assert_eq!(codex_mcp["status"], "ok", "{report}");
-    assert!(
-        codex_mcp["detail"].as_str().unwrap().contains(codex_config.to_str().unwrap()),
-        "{report}"
-    );
+    assert!(codex_mcp["detail"].as_str().unwrap().contains("~/.codex/config.toml"), "{report}");
 
     let pending = self::report(&pending);
     assert_row_schema(&pending);
@@ -432,4 +515,249 @@ fn agents_doctor_fix_commands_are_runnable() {
         }
     }
     assert!(!world.marker("claude").exists(), "doctor ran the claude it found");
+}
+
+/// The status an MCP finding has for a CLI row: a missing harness fails
+/// only when no harness is installed.
+fn mcp_status(row: &Value, report: &Value) -> &'static str {
+    let any_harness =
+        report["checks"].as_array().unwrap().iter().any(|row| {
+            row["id"].as_str().unwrap().starts_with("harness.") && row["status"] == "ok"
+        });
+    match row["status"].as_str().unwrap() {
+        "ok" | "not_applicable" => "ok",
+        "cmux_only" | "unknown" => "warn",
+        "missing" if row["id"].as_str().unwrap().starts_with("harness.") && any_harness => "warn",
+        "missing" => "fail",
+        other => panic!("unknown CLI status {other}"),
+    }
+}
+
+/// `agents_doctor` over a real `cmux mcp serve` reports the CLI's rows:
+/// the same ids in order, each status mapped to ok/warn/fail, the detail
+/// as its summary and the CLI's fix as `fix.text`, with the System
+/// Settings pane both as the `open` command and the url. It is read-only.
+#[test]
+fn agents_doctor_mcp_tool_reports_the_cli_findings() {
+    let world = World::new("mcp");
+    world.harness("claude");
+    std::fs::write(
+        world.work.join(".mcp.json"),
+        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+    )
+    .unwrap();
+    let claude_json = r#"{"mcpServers":{}}"#;
+    std::fs::write(world.home.join(".claude.json"), claude_json).unwrap();
+    let app = FakeApp::start(
+        &world.dir,
+        json!({"phase": "ready", "accessibility": false, "screen_recording": true}),
+    );
+
+    let cli = report(&world.run(&app.socket, &["--json", "agents", "doctor"]));
+    let results = world.mcp(
+        &app.socket,
+        &[
+            json!({}),
+            json!({"checks": ["mcp.codex", "harness.claude"]}),
+            json!({"checks": ["harness.nope"]}),
+            json!({"checks": "harness.claude"}),
+            json!({"checks": ["harness.claude", "harness.claude"]}),
+            json!({"fix": true}),
+        ],
+    );
+    let methods = app.stop();
+
+    let tool = &results[0];
+    assert_eq!(tool["isError"], false, "{tool}");
+    let findings = tool["structuredContent"]["findings"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no findings: {tool}"));
+    let rows = cli["checks"].as_array().unwrap();
+    assert_eq!(findings.len(), rows.len(), "{tool}\n{cli}");
+    for (finding, row) in findings.iter().zip(rows) {
+        let mut keys: Vec<&str> = finding.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["fix", "id", "reason", "status", "summary"], "{finding}");
+        assert_eq!(finding["id"], row["id"], "{finding} vs {row}");
+        assert_eq!(finding["reason"], row["reason"], "{finding} vs {row}");
+        assert_eq!(finding["status"], mcp_status(row, &cli), "{finding}");
+        let summary = finding["summary"].as_str().unwrap();
+        assert!(summary.ends_with(row["detail"].as_str().unwrap()), "{finding} vs {row}");
+        match row["fix"].as_str() {
+            None => assert_eq!(finding["fix"], Value::Null, "{finding} vs {row}"),
+            Some(text) => {
+                let fix = &finding["fix"];
+                let mut keys: Vec<&str> =
+                    fix.as_object().unwrap().keys().map(String::as_str).collect();
+                keys.sort_unstable();
+                assert_eq!(keys, ["command", "palette", "text", "url"], "{finding}");
+                assert_eq!(fix["text"], text, "{finding} vs {row}");
+                assert_eq!(fix["url"], row["fix_url"], "{finding} vs {row}");
+                if let Some(url) = row["fix_url"].as_str() {
+                    assert_eq!(fix["command"], format!("open '{url}'"), "{finding}");
+                }
+                if let Some(command) = fix["command"].as_str() {
+                    assert!(text.contains(&format!("`{command}`")), "{finding}");
+                }
+                if let Some(palette) = fix["palette"].as_str() {
+                    assert!(text.contains(palette), "{finding}");
+                }
+            }
+        }
+    }
+    if cfg!(target_os = "macos") {
+        let accessibility = findings.iter().find(|f| f["id"] == "grant.accessibility").unwrap();
+        assert_eq!(accessibility["status"], "fail", "{tool}");
+        assert_eq!(accessibility["fix"]["url"], ACCESSIBILITY_URL, "{tool}");
+        // The CLI and the full MCP report each asked once; the subset never did.
+        assert_eq!(methods, vec!["computer_use.status".to_owned(); 2], "{tool}");
+    } else {
+        assert!(methods.is_empty(), "{methods:?}");
+    }
+
+    // `checks` keeps the report's order and asks the app nothing it does not need.
+    let subset = &results[1];
+    assert_eq!(subset["isError"], false, "{subset}");
+    let ids: Vec<&str> = subset["structuredContent"]["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|finding| finding["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["harness.claude", "mcp.codex"], "{subset}");
+
+    // Unknown ids, a non-array and arguments it does not take are refused, not run.
+    for refused in &results[2..] {
+        assert_eq!(refused["isError"], true, "{refused}");
+        assert_eq!(refused["structuredContent"]["state"], "not_run", "{refused}");
+    }
+    assert!(
+        results[2]["structuredContent"]["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("harness.nope")),
+        "{}",
+        results[2]
+    );
+
+    // Read-only: no config changed, nothing new in HOME, the harness never ran.
+    assert_eq!(std::fs::read_to_string(world.home.join(".claude.json")).unwrap(), claude_json);
+    assert_eq!(std::fs::read_dir(&world.home).unwrap().count(), 1);
+    assert!(!world.marker("claude").exists(), "doctor ran the claude it found");
+
+    // Codex missing beside an installed Claude Code is a warning; with no
+    // harness at all, each missing one fails.
+    let codex = findings.iter().find(|finding| finding["id"] == "harness.codex").unwrap();
+    assert_eq!(codex["status"], "warn", "{tool}");
+    std::fs::remove_file(world.bin.join("claude")).unwrap();
+    let no_app = world.dir.join("no-app.sock");
+    let none = world.mcp(&no_app, &[json!({"checks": ["harness.codex"]})]).remove(0);
+    let none = &none["structuredContent"]["findings"];
+    assert_eq!(none[0]["id"], "harness.codex", "{none}");
+    assert_eq!(none[0]["status"], "fail", "{none}");
+}
+
+/// Neither the CLI (JSON and table) nor the MCP tool prints the home
+/// directory or the text of a config it could not parse, which may hold a
+/// secret: paths under HOME read `~/...` and a parse error names its line.
+#[test]
+fn agents_doctor_mcp_and_cli_redact_home_and_config_text() {
+    const SECRET: &str = "sk-cmux-doctor-secret-4242";
+    let world = World::new("redact");
+    world.harness("codex");
+    std::fs::create_dir_all(world.home.join(".codex")).unwrap();
+    std::fs::write(
+        world.home.join(".codex/config.toml"),
+        format!("model = \"x\"\napi_key = \"{SECRET}\" trailing\n"),
+    )
+    .unwrap();
+    let no_app = world.dir.join("no-app.sock");
+
+    let json_report = world.run(&no_app, &["--json", "agents", "doctor"]);
+    let table = world.run(&no_app, &["agents", "doctor"]);
+    let tool = world.mcp(&no_app, &[json!({})]).remove(0);
+
+    let home = world.home.to_str().unwrap();
+    for (surface, text) in [
+        ("cli --json", String::from_utf8_lossy(&json_report.stdout).into_owned()),
+        ("cli table", String::from_utf8_lossy(&table.stdout).into_owned()),
+        ("mcp", tool.to_string()),
+    ] {
+        assert!(!text.contains(SECRET), "{surface} printed the config's secret: {text}");
+        assert!(!text.contains(home), "{surface} printed HOME: {text}");
+        assert!(text.contains("~/.codex/config.toml"), "{surface}: {text}");
+    }
+    let report = report(&json_report);
+    let codex = row(&report, "mcp.codex");
+    assert_eq!(codex["reason"], "config_unreadable", "{report}");
+    assert!(codex["detail"].as_str().unwrap().contains("line 2"), "{report}");
+}
+
+/// A HOME reached through a symlink (`/home -> /var/home`) still prints as
+/// `~`: the working directory is the resolved path, so a project under HOME
+/// must not print it. `CODEX_HOME` and `CLAUDE_CONFIG_DIR` print by name.
+#[test]
+fn agents_doctor_mcp_and_cli_redact_symlinked_home_and_config_dirs() {
+    let mut world = World::new("symlink");
+    world.harness("claude");
+    world.harness("codex");
+    let real_home = world.dir.join("real-home");
+    let link_home = world.dir.join("link-home");
+    let project = real_home.join("proj");
+    std::fs::create_dir_all(&project).unwrap();
+    std::os::unix::fs::symlink(&real_home, &link_home).unwrap();
+    std::fs::write(real_home.join(".claude.json"), r#"{"mcpServers":{}}"#).unwrap();
+    std::fs::write(
+        project.join(".mcp.json"),
+        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+    )
+    .unwrap();
+    let codex_home = world.dir.join("codex-home");
+    std::fs::create_dir_all(&codex_home).unwrap();
+    std::fs::write(codex_home.join("config.toml"), "[mcp_servers\n").unwrap();
+    let claude_config = world.dir.join("claude-config");
+    std::fs::create_dir_all(&claude_config).unwrap();
+    std::fs::write(
+        claude_config.join(".claude.json"),
+        r#"{"mcpServers":{"cmux-cua":{"command":"cmux-cua"}}}"#,
+    )
+    .unwrap();
+    world.cwd = Some(link_home.join("proj"));
+    world.env = vec![("HOME", link_home.clone()), ("CODEX_HOME", codex_home.clone())];
+    let no_app = world.dir.join("no-app.sock");
+
+    let mut forbidden: Vec<String> = [&real_home, &link_home, &codex_home, &claude_config]
+        .into_iter()
+        .flat_map(|path| [path.clone(), std::fs::canonicalize(path).unwrap()])
+        .map(|path| path.to_str().unwrap().to_owned())
+        .collect();
+    forbidden.sort();
+    forbidden.dedup();
+    let check = |surface: &str, text: &str, expected: &[&str]| {
+        for path in &forbidden {
+            assert!(!text.contains(path.as_str()), "{surface} printed {path}: {text}");
+        }
+        for want in expected {
+            assert!(text.contains(want), "{surface} does not name {want}: {text}");
+        }
+    };
+
+    // Project config under the symlinked HOME and a broken $CODEX_HOME config.
+    let expected = ["~/proj/.mcp.json", "$CODEX_HOME/config.toml"];
+    let cli = world.run(&no_app, &["--json", "agents", "doctor"]);
+    report(&cli);
+    check("cli --json", &String::from_utf8_lossy(&cli.stdout), &expected);
+    let table = world.run(&no_app, &["agents", "doctor"]);
+    check("cli table", &String::from_utf8_lossy(&table.stdout), &expected);
+    let tool = world.mcp(&no_app, &[json!({})]).remove(0);
+    assert_eq!(tool["isError"], false, "{tool}");
+    check("mcp", &tool.to_string(), &expected);
+
+    // Claude Code configured in $CLAUDE_CONFIG_DIR.
+    world.env.push(("CLAUDE_CONFIG_DIR", claude_config));
+    let expected = ["$CLAUDE_CONFIG_DIR/.claude.json"];
+    let cli = world.run(&no_app, &["--json", "agents", "doctor"]);
+    report(&cli);
+    check("cli --json", &String::from_utf8_lossy(&cli.stdout), &expected);
+    let tool = world.mcp(&no_app, &[json!({})]).remove(0);
+    check("mcp", &tool.to_string(), &expected);
 }

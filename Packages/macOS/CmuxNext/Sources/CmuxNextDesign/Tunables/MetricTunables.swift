@@ -65,6 +65,20 @@ public nonisolated enum MetricTunables {
                                                          compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",
                                                        compact: 200, comfortable: 240, key: .tabMaxWidth)
+    /// Chrome's minimums (Lawrence 2026-10-16: "chrome 32"), from the shared tokens (design-tokens.json `motion.tabStrip`, the same in both
+    /// densities); `appearance.metrics.*` overrides them. `TabStripMetrics` keeps min <= max.
+    public static let tabMinActiveWidth = MetricTunable.make(
+        "tabMinActiveWidth", .tabs, "Tab min width (active)", help: "Narrowest the selected tab gets when the strip is crowded.",
+        compact: MotionTabStrip(comfortable: false).minActiveWidth, comfortable: MotionTabStrip(comfortable: true).minActiveWidth,
+        key: .tabMinActiveWidth, range: 32...320)
+    public static let tabMinInactiveWidth = MetricTunable.make(
+        "tabMinInactiveWidth", .tabs, "Tab min width (inactive)", help: "Narrowest the other tabs get before the strip scrolls.",
+        compact: MotionTabStrip(comfortable: false).minInactiveWidth, comfortable: MotionTabStrip(comfortable: true).minInactiveWidth,
+        key: .tabMinInactiveWidth, range: 16...320)
+    public static let tabPinnedWidth = MetricTunable.make(
+        "tabPinnedWidth", .tabs, "Pinned tab width", help: "Width of a pinned tab.",
+        compact: MotionTabStrip(comfortable: false).pinnedWidth, comfortable: MotionTabStrip(comfortable: true).pinnedWidth,
+        key: .tabPinnedWidth, range: 24...120)
     public static let tabMinWidth = MetricTunable.make("tabMinWidth", .tabs, "Tab min width", help: "Icon-only width (pinned and fully shrunk tabs).",
                                                        compact: 32, comfortable: 40)
 
@@ -101,7 +115,7 @@ public nonisolated enum MetricTunables {
 
     static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
-         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
+         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

@@ -101,13 +101,6 @@ body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  animation: proto-space-in 0.18s ease-out;
-}
-@keyframes proto-space-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px);
-  }
 }
 .proto-stack-label {
   display: flex;
@@ -784,7 +777,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .proto-stack-list,
   .proto-mini {
     animation: none;
   }

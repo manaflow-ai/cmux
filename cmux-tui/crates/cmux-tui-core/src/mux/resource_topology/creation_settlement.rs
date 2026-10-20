@@ -14,14 +14,18 @@ impl Mux {
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         debug_assert!(is_created_path_operation(operation));
+        crate::debug_spans::mark("creation.start");
         let _execution = self.resource_creation_execution.lock().unwrap();
+        crate::debug_spans::mark("creation.execution_locked");
         let operation_name = operation_name(operation);
         let correlation_key =
             fields.get("correlation_key").and_then(Value::as_str).unwrap_or(&mutation.id);
         self.reconcile_interrupted_resource_creation(correlation_key)?;
+        crate::debug_spans::mark("creation.reconciled");
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
             let mut registry = self.workspace_registry.lock().unwrap();
+            crate::debug_spans::mark("creation.registry_locked");
             match registry.lookup_resource_creation(
                 correlation_key,
                 &mutation.id,
@@ -42,7 +46,9 @@ impl Mux {
                     )?,
                 Some(preparation) => preparation,
                 None => {
+                    crate::debug_spans::mark("creation.looked_up");
                     let mut state = self.lock_state_pinned(&registry).unwrap();
+                    crate::debug_spans::mark("creation.state_locked");
                     let selectors = self.select_live_creation_selectors(
                         operation,
                         &selector_candidates,
@@ -57,6 +63,7 @@ impl Mux {
                         &mut state,
                         &registry,
                     )?;
+                    crate::debug_spans::mark("creation.intent_built");
                     registry.prepare_resource_creation_for(
                         correlation_key,
                         mutation,
@@ -70,6 +77,7 @@ impl Mux {
                 }
             }
         };
+        crate::debug_spans::mark("creation.prepared");
         let commit = match preparation {
             ResourceCreationPreparation::Created { created_path, revision, .. } => {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
@@ -91,6 +99,7 @@ impl Mux {
                     .unwrap()
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
+                crate::debug_spans::mark("creation.executing_marked");
                 let result = match self.execute_resource_topology_effect(
                     &mutation.actor,
                     operation,
@@ -108,6 +117,7 @@ impl Mux {
                         );
                     }
                 };
+                crate::debug_spans::mark("creation.effect_done");
                 match self.commit_full_resource_effect_projection(
                     &idempotency_key,
                     &operation_name,
@@ -130,7 +140,9 @@ impl Mux {
                 }
             }
         }?;
+        crate::debug_spans::mark("creation.projection_committed");
         self.activate_created_terminal_launch(&commit.result)?;
+        crate::debug_spans::mark("creation.launch_activated");
         Ok(commit)
     }
 
