@@ -1,264 +1,133 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "action.links.openInCmuxBrowser": {
+    "action.agentPane.sideQuestion": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Links: Open in cmux Browser"
+            "value": "Ask a Side Question…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الروابط: فتح في متصفح cmux"
+            "value": "اطرح سؤالًا جانبيًا…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linkovi: Otvori u cmux pregledniku"
+            "value": "Postavi sporedno pitanje…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Links: Åbn i cmux-browser"
+            "value": "Stil et sidespørgsmål…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Links: In cmux-Browser öffnen"
+            "value": "Nebenfrage stellen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enlaces: Abrir en el navegador de cmux"
+            "value": "Hacer una pregunta aparte…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Liens : Ouvrir dans le navigateur cmux"
+            "value": "Poser une question annexe…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Link: Apri nel browser di cmux"
+            "value": "Fai una domanda a parte…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "リンク: cmux ブラウザで開く"
+            "value": "サイドで質問…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "តំណ៖ បើកក្នុងកម្មវិធីរុករក cmux"
+            "value": "សួរសំណួរចំហៀង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "링크: cmux 브라우저에서 열기"
+            "value": "곁가지 질문하기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lenker: Åpne i cmux-nettleser"
+            "value": "Still et sidespørsmål…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Linki: Otwieraj w przeglądarce cmux"
+            "value": "Zadaj pytanie poboczne…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Links: Abrir no navegador do cmux"
+            "value": "Fazer uma pergunta paralela…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ссылки: открывать в браузере cmux"
+            "value": "Задать побочный вопрос…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลิงก์: เปิดในเบราว์เซอร์ cmux"
+            "value": "ถามคำถามข้างเคียง…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bağlantılar: cmux Tarayıcısında Aç"
+            "value": "Yan soru sor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Посилання: відкривати в браузері cmux"
+            "value": "Поставити побічне запитання…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Liên kết: Mở trong trình duyệt cmux"
+            "value": "Hỏi câu hỏi bên lề…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "链接：在 cmux 浏览器中打开"
+            "value": "提出旁支问题…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "連結：在 cmux 瀏覽器中開啟"
-          }
-        }
-      }
-    },
-    "action.links.openInDefaultBrowser": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Links: Open in Default Browser"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الروابط: فتح في المتصفح الافتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linkovi: Otvori u zadanom pregledniku"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links: Åbn i standardbrowser"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links: Im Standardbrowser öffnen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enlaces: Abrir en el navegador predeterminado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Liens : Ouvrir dans le navigateur par défaut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Link: Apri nel browser predefinito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "リンク: デフォルトのブラウザで開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "តំណ៖ បើកក្នុងកម្មវិធីរុករកលំនាំដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "링크: 기본 브라우저에서 열기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lenker: Åpne i standardnettleser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Linki: Otwieraj w domyślnej przeglądarce"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Links: Abrir no navegador padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ссылки: открывать в браузере по умолчанию"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลิงก์: เปิดในเบราว์เซอร์เริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantılar: Varsayılan Tarayıcıda Aç"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Посилання: відкривати в типовому браузері"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Liên kết: Mở trong trình duyệt mặc định"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "链接：在默认浏览器中打开"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "連結：在預設瀏覽器中開啟"
+            "value": "提出旁支問題…"
           }
         }
       }
@@ -79795,6 +79664,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "使用無彈跳動畫"
+          }
+        }
+      }
+    },
+    "action.links.openInCmuxBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links: Open in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الروابط: فتح في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi: Otvori u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: Åbn i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: In cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces: Abrir en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens : Ouvrir dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link: Apri nel browser di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンク: cmux ブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណ៖ បើកក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크: cmux 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker: Åpne i cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki: Otwieraj w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: Abrir no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки: открывать в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์: เปิดในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantılar: cmux Tarayıcısında Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання: відкривати в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết: Mở trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "链接：在 cmux 浏览器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連結：在 cmux 瀏覽器中開啟"
+          }
+        }
+      }
+    },
+    "action.links.openInDefaultBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links: Open in Default Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الروابط: فتح في المتصفح الافتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkovi: Otvori u zadanom pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: Åbn i standardbrowser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: Im Standardbrowser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enlaces: Abrir en el navegador predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liens : Ouvrir dans le navigateur par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link: Apri nel browser predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンク: デフォルトのブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណ៖ បើកក្នុងកម្មវិធីរុករកលំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크: 기본 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lenker: Åpne i standardnettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linki: Otwieraj w domyślnej przeglądarce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Links: Abrir no navegador padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ссылки: открывать в браузере по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์: เปิดในเบราว์เซอร์เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantılar: Varsayılan Tarayıcıda Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Посилання: відкривати в типовому браузері"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Liên kết: Mở trong trình duyệt mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "链接：在默认浏览器中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連結：在預設瀏覽器中開啟"
           }
         }
       }

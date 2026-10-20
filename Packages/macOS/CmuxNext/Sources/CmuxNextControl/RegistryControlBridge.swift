@@ -232,5 +232,6 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.signedOut, "signedOut"),
         (.cloudWorkspace, "cloudWorkspace"),
         (.homeChannelsEnabled, "homeChannelsEnabled"),
+        (.sideSessions, "sideSessions"),
     ]
 }

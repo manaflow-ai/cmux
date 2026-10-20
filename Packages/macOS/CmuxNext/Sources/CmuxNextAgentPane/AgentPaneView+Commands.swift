@@ -8,13 +8,12 @@ extension AgentPaneView {
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
     public func archiveChat() { send("archiveChat") }
-    private func send(_ command: String) {
-        deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
-    }
-    /// Switch Model… (Ctrl-Cmd-M) and Search Files… (Cmd-P, cx-ncc.69): the page takes the keyboard,
-    /// then opens its model picker, or the composer's file search (a pick mentions the file).
+    private func send(_ command: String) { deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"]) }
+    /// Switch Model… (Ctrl-Cmd-M), Search Files… (Cmd-P, cx-ncc.69), Ask a Side Question…: the page takes the keyboard, then
+    /// opens its model picker, the composer's file search, or prefills `/btw ` (ignored while Side sessions is off).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    public func askSideQuestion() { showWithKeyboard("sideQuestion") }
     private func showWithKeyboard(_ command: String) {
         if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
         send(command)
