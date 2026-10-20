@@ -141,8 +141,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
       const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
       return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : row.committed === false ? "pending" as const : "live" as const;
     }),
-    pendingCreation: (tenantId, cmuxId) => Effect.sync(() => {
-      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId && live(r) && r.committed === false);
+    creationKey: (tenantId, cmuxId) => Effect.sync(() => {
+      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
       return row?.creation?.key ?? null;
     }),
     find: (tenantId, kind, cmuxId) =>

@@ -69,8 +69,8 @@ export interface OwnershipStoreService {
    * recorded but unfinished one ("pending"). No private IDs leave this read.
    */
   readonly allocationStatus: (tenantId: TenantId, cmuxId: string) => Effect.Effect<"absent" | "pending" | "live" | "deleted", StoreError>;
-  /** The creation key of this live VM while its creation has not committed, else null. */
-  readonly pendingCreation: (tenantId: TenantId, cmuxId: string) => Effect.Effect<string | null, StoreError>;
+  /** The creation key that made this VM, live or deleted, committed or not; null for a VM made without one. */
+  readonly creationKey: (tenantId: TenantId, cmuxId: string) => Effect.Effect<string | null, StoreError>;
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
@@ -163,8 +163,8 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
         Effect.flatMap(decodeRows(Schema.Struct({ deleted: Schema.Boolean, committed: Schema.Boolean }), "ownership.allocationStatus")),
         Effect.map((rows) => rows[0] === undefined ? "absent" as const : rows[0].deleted ? "deleted" as const : rows[0].committed ? "live" as const : "pending" as const),
       ),
-      pendingCreation: (tenantId, cmuxId) => sql.query("ownership.pendingCreation", `SELECT creation_key AS key FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' AND deleted_at IS NULL AND NOT committed AND creation_key IS NOT NULL LIMIT 1`, [tenantId, cmuxId]).pipe(
-        Effect.flatMap(decodeRows(Schema.Struct({ key: Schema.String }), "ownership.pendingCreation")),
+      creationKey: (tenantId, cmuxId) => sql.query("ownership.creationKey", `SELECT creation_key AS key FROM cmux_vm.resources WHERE tenant_id = $1 AND cmux_id = $2 AND kind = 'vm' AND creation_key IS NOT NULL LIMIT 1`, [tenantId, cmuxId]).pipe(
+        Effect.flatMap(decodeRows(Schema.Struct({ key: Schema.String }), "ownership.creationKey")),
         Effect.map((rows) => rows[0]?.key ?? null),
       ),
       find: (tenantId, kind, cmuxId) =>
