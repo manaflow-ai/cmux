@@ -117,7 +117,7 @@ Savings are in the DMG / on disk. "Done" means pushed to feat-cmux-next.
 
 | # | Cut | DMG | Disk | Risk | Status |
 |---|---|---:|---:|---|---|
-| 1 | Remove LC_ATOM_INFO (mergeable-library link data) from bundled frameworks; Sentry 9.7 → 3.1 MB, all symbols kept | −0.85 MB | −6.6 MB | none: dyld never reads it; dlopen and all 281 ObjC classes check out | **done** (d42c678b88b) |
+| 1 | Remove LC_ATOM_INFO (mergeable-library link data) from bundled frameworks; Sentry 9.7 → 3.1 MB, all symbols kept | −0.85 MB | −6.6 MB | none: dyld never reads it; dlopen and all 281 ObjC classes check out | **done** (655b4a9f2ee) |
 | 2 | Byte budget + ratchet in CI and nightly | — | — | none (non-blocking) | **done** |
 | 3 | V8 snapshot of the other arch in arm64 builds | −0.2 MB | −0.76 MB | none | already gone in today's artifact; the budget forbids it from coming back |
 | 4 | **Official CEF build** (`is_official_build=true`: ThinLTO, ICF, no debug-only paths; same feature switches) | est. −15 to −25 MB | est. −60 to −90 MB | low. It is the config Google ships. Build is much longer; A/B speed too | **building**: fork `cmux/8037-cmux28-official` af04123c56e, fleet job 70436914a38e |
