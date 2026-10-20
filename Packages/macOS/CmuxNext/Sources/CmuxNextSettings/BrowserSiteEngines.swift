@@ -49,8 +49,22 @@ public nonisolated struct BrowserSiteEngines: Sendable, Hashable {
     /// - Parameter url: The page a tab opens.
     /// - Returns: The rule's engine, or nil.
     public func engine(for url: URL?) -> BrowserDefaultEngine? {
-        _ = url
-        return nil
+        guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              var host = url.host?.lowercased(), !host.isEmpty else { return nil }
+        if host.hasSuffix(".") { host.removeLast() }
+        let path = url.path.isEmpty ? "/" : url.path.lowercased()
+        var best: (hostLength: Int, pathLength: Int, engine: BrowserDefaultEngine)?
+        for (pattern, engine) in rules {
+            let (patternHost, patternPath) = Self.split(pattern)
+            guard host == patternHost || host.hasSuffix("." + patternHost) else { continue }
+            if let patternPath {
+                guard path == patternPath || path.hasPrefix(patternPath + "/") else { continue }
+            }
+            let rank = (patternHost.count, patternPath?.count ?? 0)
+            if let current = best, (current.hostLength, current.pathLength) >= rank { continue }
+            best = (rank.0, rank.1, engine)
+        }
+        return best?.engine
     }
 
     /// The value cmux.json holds for these rules.
