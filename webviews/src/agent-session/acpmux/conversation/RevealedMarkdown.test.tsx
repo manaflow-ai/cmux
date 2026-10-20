@@ -110,9 +110,10 @@ test("the newest words fade in, each word whole", () => {
   const shown = frames(0, 90);
   expect(shown.at(-1)).toBe("Hello there");
   render("Hello there world, again", true);
-  frames(90 * 16, 4);
+  frames(90 * 16, 8);
   const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "");
   // Only whole words fade in: " world," arrived whole; "again" may still grow.
+  expect(fresh.length).toBeGreaterThan(0);
   expect(
     fresh
       .join("")
@@ -131,6 +132,11 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge("alpha beta", 10, true, 0)).toBe(10);
   // Never less than what already shows.
   expect(wordEdge("alpha beta gam", 8, false, 7)).toBe(7);
+  // Chinese, Japanese and Korean write no spaces: each character is whole.
+  expect(wordEdge("构建已经通过", 4, false, 0)).toBe(4);
+  expect(wordEdge("构建已经通过", 6, false, 0)).toBe(6);
+  expect(wordEdge("ビルドは成功", 3, false, 0)).toBe(3);
+  expect(wordEdge("빌드 성공", 2, false, 0)).toBe(2);
   const url = `see https://example.com/${"a".repeat(80)}`;
   expect(wordEdge(url, url.length, false, 0)).toBe(url.length);
 });

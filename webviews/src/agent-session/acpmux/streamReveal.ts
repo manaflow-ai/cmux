@@ -138,6 +138,9 @@ export class StreamReveal {
   }
 }
 
+/// Han, kana, Hangul and full-width punctuation: scripts that write no spaces between words.
+const CJK = /[\u3000-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/;
+
 /// A word longer than this (a URL, a hash) shows as it arrives instead of waiting for its end.
 export const LONG_WORD_CHARS = 48;
 
@@ -149,8 +152,13 @@ export function wordEdge(text: string, raw: number, done: boolean, shown: number
   const limit = Math.min(raw, text.length);
   if (done && limit >= text.length) return text.length;
   let end = limit;
-  // The word ending at `end` is whole only when what follows it has arrived and is a space.
-  while (end > shown && !(end < text.length && /\s/.test(text[end]!) && !/\s/.test(text[end - 1]!))) end -= 1;
+  // The word ending at `end` is whole when what follows it has arrived and is a space. Chinese,
+  // Japanese and Korean put no spaces between words: each of their characters is whole.
+  const whole = (at: number) =>
+    (at < text.length && /\s/.test(text[at]!) && !/\s/.test(text[at - 1]!)) ||
+    CJK.test(text[at - 1]!) ||
+    (at < text.length && CJK.test(text[at]!));
+  while (end > shown && !whole(end)) end -= 1;
   if (limit - end > LONG_WORD_CHARS) return limit;
   return Math.max(end, Math.min(shown, text.length));
 }
