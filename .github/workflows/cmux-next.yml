@@ -2372,7 +2372,7 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
           SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "6"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests' --skip BranchStateResourcesTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|ClassicImportTests|ClassicMigrationTests' --skip BranchStateResourcesTests
 
       - name: Run state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}

@@ -39,6 +39,11 @@ public final class MessagesLabHomeView: NSView {
 
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
     private var motionObservers: [any NSObjectProtocol] = []
+    /// An open came before the message field existed: the field takes the keyboard when it is
+    /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
+    private var openKeyboardWaits = false
+    private weak var openKeyboardFrom: NSResponder?
+    private var opensOnInstall = false
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -253,6 +258,35 @@ public final class MessagesLabHomeView: NSView {
     @discardableResult
     public func recallPrimaryInputHistory(older: Bool) -> Bool {
         controller.recallHistoryFromOutside(older ? .older : .newer)
+    }
+
+    /// The person opened this conversation (a click on its row or pinned tile, Return in the list,
+    /// a switch key): the message field takes the keyboard, as in Messages. While the first page
+    /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
+    /// the keyboard moved somewhere else in between (a click in another field, a text selection).
+    /// Never brings the window forward.
+    public func takeKeyboardOnOpen() {
+        guard !ChatController.noFocus, let window else { return }
+        if let field = controller.demo?.compose.textView.view {
+            openKeyboardWaits = false
+            if window.firstResponder !== field { window.makeFirstResponder(field) }
+            return
+        }
+        openKeyboardWaits = true
+        openKeyboardFrom = window.firstResponder
+        guard !opensOnInstall else { return }
+        opensOnInstall = true
+        controller.onInstalled.append { [weak self] _ in self?.finishOpenKeyboard() }
+    }
+
+    /// The field is installed: it takes the keyboard for an open that waited, if nothing else took it.
+    private func finishOpenKeyboard() {
+        guard openKeyboardWaits else { return }
+        openKeyboardWaits = false
+        guard let window, let field = controller.demo?.compose.textView.view else { return }
+        let now = window.firstResponder
+        guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) else { return }
+        window.makeFirstResponder(field)
     }
 
     /// Puts text in the field (first-run suggestions).
