@@ -11,7 +11,7 @@ import CmuxNextSidebar
 final class AgentPageChats {
     private(set) var chats: [AgentPaneDeviceChat] = []
     /// The Recently Closed section's newest items (NewTabClosed).
-    var closed: [AgentPaneClosedItem] = []
+    var closed: AgentPaneClosedList = .empty
     private(set) var open: (@MainActor (String) -> Void)?
     private(set) var openInTerminal: (@MainActor (String) -> Void)?
     /// A row of the New Tab page's All chats: the chat opens in that page's tab, which becomes the

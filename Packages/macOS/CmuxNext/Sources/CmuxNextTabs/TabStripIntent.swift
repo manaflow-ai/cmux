@@ -28,6 +28,9 @@ public enum TabStripIntent: Equatable, Sendable {
     case closeToRight(of: TabID)
     /// Drag reorder inside one strip. `to` is the final index of the tab.
     case reorder(TabID, from: Int, to: Int)
+    /// A drag of several selected tabs inside one strip (`TabSelectionMove`): `order` is every
+    /// tab's final display order.
+    case reorderTabs([TabID])
     /// `after` is nil for the new-tab button and empty-space double-click (append).
     /// `opensWorkspace` is a one-shot Option-double-click override for terminal tabs.
     /// `sameKind`: Option-click on the + (New <Kind> Tab, cmuxterm-hq#1829).
@@ -39,6 +42,9 @@ public enum TabStripIntent: Equatable, Sendable {
     /// `name` (trimmed; empty clears the custom name).
     case renameCommitted(TabID, name: String)
     case duplicate(TabID)
+    /// The speaker of a tab playing sound (or muted) was clicked: mute the
+    /// tab, or unmute it (Chrome's tab alert button). The App runs Mute Tab.
+    case toggleAudioMute(TabID)
     case moveToNewSplit(TabID, TabSplitDirection)
     case moveToNewColumn(TabID)
     /// A tab was dragged out of the strip. The App's drag session takes over

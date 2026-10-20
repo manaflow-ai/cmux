@@ -36,7 +36,9 @@ final class HoverCardPanel: NSPanel {
     /// shadow band. A retarget farther away jumps the rest at once (the card never trails).
     static let travel: CGFloat = 48
     /// How far a first show moves the card, away from its target, while it fades in.
-    static let entryOffset: CGFloat = 6
+    static var entryOffset: CGFloat { motion.entryOffset }
+    /// The entrance and exit every hover card plays (the update card's too).
+    static let motion = HoverCardMotion.standard
     /// The window's clear band around the card: the shadow band plus the slide's room.
     private static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private weak var body: NSView?
@@ -142,14 +144,11 @@ final class HoverCardPanel: NSPanel {
             // A visible card: it slides from where it is drawn to its new place (a quick return
             // during the fade-out fades back in from the alpha it reached).
             slide(from: offset(of: previous, to: cardFrame))
-            if wasDismissing || alphaValue < 1 { Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 } }
+            if wasDismissing || alphaValue < 1 { Self.motion.resume(self) }
         } else {
             // A first show: from clear, the card fades in while it moves the last few points
-            // away from its target.
-            Motion.withoutAnimation { animator().alphaValue = 0 }
-            orderFront(nil)
-            slide(from: Self.entryVector(for: placement))
-            Motion.animateTimed(.fadeIn, in: contentView) { animator().alphaValue = 1 }
+            // away from its target (`HoverCardMotion`, shared with the update card).
+            Self.motion.enter(self, placement: placement)
         }
     }
 
@@ -173,11 +172,7 @@ final class HoverCardPanel: NSPanel {
 
     /// Where a first show starts, from its rest place: toward the target it describes.
     static func entryVector(for placement: HoverCardPlacement) -> CGVector {
-        switch placement {
-        case .below: CGVector(dx: 0, dy: entryOffset)
-        case .above: CGVector(dx: 0, dy: -entryOffset)
-        case .beside: CGVector(dx: -entryOffset, dy: 0)
-        }
+        motion.entryVector(for: placement)
     }
 
     /// The card's next content fades over its last frame (the body is reused, so its text,
@@ -239,7 +234,7 @@ final class HoverCardPanel: NSPanel {
     func dismiss() {
         guard isVisible, !isDismissing else { return }
         isDismissing = true
-        Motion.animateTimed(.fadeOut, in: contentView, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Self.motion.exit(self, completion: { [weak self] in
             guard let self, self.isDismissing else { return }
             self.isDismissing = false
             self.parentWindowRef?.removeChildWindow(self)

@@ -55,7 +55,7 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// Seconds for `token`; 0 means apply at once. Under Reduce Motion a fade
     /// is at most one crossfade long, and hover feedback is instant.
     public func duration(_ token: MotionFade) -> TimeInterval {
-        guard animatesFades, !(reduceMotion && (token == .hover || token == .hoverOut)) else { return 0 }
+        guard animatesFades, !(reduceMotion && (token == .hover || token == .hoverReveal || token == .hoverOut)) else { return 0 }
         let scaled = token.baseDuration * speed.timeScale
         return reduceMotion ? min(scaled, MotionFade.crossfade.baseDuration) : scaled
     }

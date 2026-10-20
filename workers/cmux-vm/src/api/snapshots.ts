@@ -7,7 +7,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { Conflict, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
-import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
+import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
 const RetentionSeconds = Schema.Int.pipe(Schema.between(60, MAX_RETENTION_SECONDS));
@@ -76,6 +76,7 @@ export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("
 }) {}
 
 export const ListSnapshotsParams = Schema.Struct({
+  createdBy: Schema.optional(CreatedByCaller),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
   cursor: Schema.optional(Schema.String.pipe(Schema.maxLength(512))),
   /** Only snapshots taken from this VM. */

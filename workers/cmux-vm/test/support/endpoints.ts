@@ -3,7 +3,7 @@
  * request for it. The isolation suite runs each one as another tenant and as a
  * key without the scope, and checks that this table covers openapi.json.
  */
-import type { Scope } from "../../src/domain/scopes.ts";
+import { SCOPES, type Scope } from "../../src/domain/scopes.ts";
 
 export interface VmEndpointCase {
   readonly name: string;
@@ -17,6 +17,12 @@ export interface VmEndpointCase {
 }
 
 export const VM_ENDPOINTS: ReadonlyArray<VmEndpointCase> = [
+  { name: "getVmInstanceIdentity", method: "GET", template: "/v1/vms/{vmId}/identity", path: (id) => `/v1/vms/${id}/identity`, scope: "vm:read" },
+  { name: "statFile", method: "GET", template: "/v1/vms/{vmId}/files/stat", path: (id) => `/v1/vms/${id}/files/stat?path=%2Fsrv%2Fteam`, scope: "vm:files" },
+  { name: "retireVm", method: "POST", template: "/v1/vms/{vmId}/retire", path: (id) => `/v1/vms/${id}/retire`, scope: "vm:write" },
+  { name: "resizeVm", method: "POST", template: "/v1/vms/{vmId}/resize", path: (id) => `/v1/vms/${id}/resize`, scope: "vm:write", json: { resources: { vcpus: 8 } } },
+  { name: "replaceVmHttpsProxy", method: "PUT", template: "/v1/vms/{vmId}/https-proxies/{hostname}",
+    path: (id) => `/v1/vms/${id}/https-proxies/api.example.test`, scope: "vm:network", json: { destination: "https://proxy.example.test" } },
   { name: "getVm", method: "GET", template: "/v1/vms/{vmId}", path: (id) => `/v1/vms/${id}`, scope: "vm:read" },
   { name: "startVm", method: "POST", template: "/v1/vms/{vmId}/start", path: (id) => `/v1/vms/${id}/start`, scope: "vm:write" },
   { name: "stopVm", method: "POST", template: "/v1/vms/{vmId}/stop", path: (id) => `/v1/vms/${id}/stop`, scope: "vm:write" },
@@ -91,6 +97,7 @@ export const SNAPSHOT_ENDPOINTS = [
 export const TENANT_ENDPOINTS = [
   { name: "createVm", method: "POST", template: "/v1/vms", scope: "vm:write" },
   { name: "listVms", method: "GET", template: "/v1/vms", scope: "vm:read" },
+  { name: "listVmImages", method: "GET", template: "/v1/vm-images", scope: "vm:read" },
   { name: "listSnapshots", method: "GET", template: "/v1/snapshots", scope: "snapshot:read" },
   // API key management (cx-b4h.12); test/workers/api-keys.test.ts runs the isolation cases.
   { name: "createApiKey", method: "POST", template: "/v1/api-keys", scope: "admin" },
@@ -98,25 +105,7 @@ export const TENANT_ENDPOINTS = [
   { name: "revokeApiKey", method: "DELETE", template: "/v1/api-keys/{keyId}", scope: "admin" },
 ] as const;
 
-export const ALL_SCOPES: ReadonlyArray<Scope> = [
-  "vm:read",
-  "vm:write",
-  "vm:exec",
-  "vm:files",
-  "vm:terminal",
-  "snapshot:*",
-  "snapshot:read",
-  "snapshot:write",
-  "domain:*",
-  "deploy:*",
-  "git:*",
-  "mesh:read",
-  "mesh:write",
-  "mesh:join",
-  "acl:read",
-  "acl:write",
-  "admin",
-];
+export const ALL_SCOPES: ReadonlyArray<Scope> = SCOPES;
 
 /**
  * Mesh experiment endpoints (cx-0op); test/workers/mesh.test.ts runs the

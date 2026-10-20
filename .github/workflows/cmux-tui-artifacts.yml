@@ -1183,6 +1183,39 @@ jobs:
           short="${SHA:0:12}"
           echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
 
+  sentry-dsyms:
+    # The macOS client's debug symbols (cmux-tui, cmux-tui-host, acpmux, ...),
+    # so Sentry symbolicates their crashes in the app bundle, where the
+    # binaries are stripped. Never blocks a publish: a failed upload is a warning.
+    name: upload cmux-tui dSYMs to Sentry
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' }}
+    needs: build-ok
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts
+      - name: Download the dSYMs
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-tui-dsyms-*
+          path: dsyms
+      - name: Upload to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        run: |
+          if [ ! -d dsyms ] || [ -z "$(ls -A dsyms)" ]; then
+            echo "::warning title=No cmux-tui dSYMs::this build made none; its crashes will not symbolicate."
+            exit 0
+          fi
+          ./scripts/upload-sentry-dsyms.sh dsyms
+
   publish:
     # R2 upload credentials only. A commit-addressed cmux-tui build is not a
     # production release: cmux-next pins daemon builds from helper branches.
@@ -2479,7 +2512,7 @@ jobs:
     # is often the branch run of the same tree.
     needs: [tree-preflight, tree-owner-wait, publish-tree-tested]
     if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree-tested.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree-tested.result == 'success')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
     permissions:

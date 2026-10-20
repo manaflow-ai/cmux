@@ -129,6 +129,7 @@ export default agentPaneEntry({
   },
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
+    "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
     "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
