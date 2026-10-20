@@ -32,6 +32,29 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
                 targets: [.tab]
             ),
+            // Cmd-T's tab in a named place, whatever `tabs.newTabPosition` says (Lawrence
+            // 2026-10-20). New Tab to the Right stays the tab menu's row (Chrome's name).
+            ActionDescriptor(
+                id: "newTab.afterCurrent",
+                title: String(localized: "action.newTab.afterCurrent", defaultValue: "New Tab After Current Tab", bundle: .module),
+                keywords: ["tab", "new", "after", "current", "right", "next to", "beside", "insert", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-after-current"
+            ),
+            ActionDescriptor(
+                id: "newTab.atStart",
+                title: String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module),
+                keywords: ["tab", "new", "start", "first", "beginning", "left", "front", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-at-start"
+            ),
+            ActionDescriptor(
+                id: "newTab.atEnd",
+                title: String(localized: "action.newTab.atEnd", defaultValue: "New Tab at End", bundle: .module),
+                keywords: ["tab", "new", "end", "last", "append", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-at-end"
+            ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),

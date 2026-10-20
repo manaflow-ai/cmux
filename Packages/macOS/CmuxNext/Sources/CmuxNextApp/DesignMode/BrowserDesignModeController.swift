@@ -2,14 +2,15 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextHome
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
 /// Design mode in browser panes (plans/cmux-next/design-mode-DESIGN.md): turns it on and off for a
 /// tab (`toggleBrowserDesignMode`: the toolbar button, the palette, Ctrl-Opt-Cmd-D and the CLI all
-/// run this one path), and sends each new highlight as a card to the agent chat of the browser's
-/// workspace whose pane was focused last.
+/// run this one path), and sends each new highlight as a card to the Chief's Home composer shown in
+/// the browser's window, else to the agent chat of the browser's workspace whose pane was focused last.
 @MainActor
 final class BrowserDesignModeController {
     private weak var services: AppServices?
@@ -48,19 +49,35 @@ final class BrowserDesignModeController {
         let made = tracker.receive(message, pageURL: page.state.url)
         cards[key] = tracker
         guard !made.isEmpty else { return }
-        guard let chat = chatView(near: key) else {
+        // The Chief's Home composer in the browser's window first (Home on the left, the page on
+        // the right), else the workspace's last-used agent chat.
+        let home = HomeNativeTranscriptView.shown(in: page.contentView.window).flatMap { $0.canAttach ? $0 : nil }
+        let chat = home == nil ? chatView(near: key) : nil
+        guard home != nil || chat != nil else {
             services.cache.existingBrowser(key)?.chrome.showNotice(strings.noAgentChat)
             return
         }
-        Task { [weak page, weak chat] in
+        Task { [weak page, weak chat, weak home] in
             guard let page else { return }
             let shot = await Self.capture(page)
             for card in made {
                 let png = shot.flatMap { Self.crop($0, to: card) }
-                guard let chat else { return }
-                AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
+                if let home {
+                    Self.attach(card, png: png, to: home)
+                } else if let chat {
+                    AgentPaneDesignSelection(id: card.id, name: card.name, text: card.text, png: png).push(to: chat)
+                }
             }
         }
+    }
+
+    /// Gives the Home composer `card` as files, through its own intake (as a drop).
+    private static func attach(_ card: BrowserDesignModeCard, png: Data?, to home: HomeNativeTranscriptView) {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-design-mode", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        guard let files = try? BrowserDesignModeCardFiles(folder: folder).write(card, png: png) else { return }
+        _ = home.attachFiles(paths: files.map(\.path), via: .drop)
     }
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
