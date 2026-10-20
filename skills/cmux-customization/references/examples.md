@@ -1,8 +1,10 @@
 # cmux Customization Examples
 
-This file is the catalog of shipped workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
+This file is the catalog of workflow recipes. (`cmux docs workflows` was removed with the Swift CLI.)
 
-Merge only the relevant top-level keys into the file named above each block. Unlabeled JSON targets `cmux.json`. Preserve unrelated sections, then run `cmux settings reload-configuration`. Prefer project-local `.cmux/cmux.json` for team workflows and global `~/.config/cmux/cmux.json` for personal preferences.
+Most recipes here were written for classic cmux. cmux-next reads `~/.config/cmux/cmux-next.json` only, and does not yet run `workspaceCommand` or `workspace` actions, `commands` layouts, `ui.newWorkspace.*`, Dock files or project-local `.cmux/cmux.json`; see [the skill](../SKILL.md#choose-the-right-surface). Use a recipe on cmux-next only when it needs none of those.
+
+Merge only the relevant top-level keys into `~/.config/cmux/cmux-next.json` (classic recipes name `cmux.json` or `.cmux/cmux.json`). Preserve unrelated sections, then run `cmux settings reload-configuration`.
 
 ## Worktree Agents
 

@@ -166,6 +166,7 @@ fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
     };
     let mut client = CmuxClient::connect(config(request))?;
     client.set_client_info(SetClientInfoRequest {
+        api_revision: Optional::Missing,
         capabilities: Optional::Missing,
         device_id: Optional::Missing,
         device_kind: Optional::Missing,

@@ -3,7 +3,7 @@
 Each pull request into `feat-cmux-next` is labeled `risk:low`, `risk:medium` or `risk:high`
 from the paths it changes. The label decides what evidence the description needs before merge.
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check, and
-`gh-merge-green` won't merge while that check is red on the exact head.
+Nothing merges while that check is red on the exact head: `next-autoland` into `feat-cmux-next` and `gh-merge-green` into `main` both refuse it.
 
 Why: in the two weeks to 2026-10-18, 2,049 pull requests merged into `feat-cmux-next`. 932 of them
 had a failing check on their merged head that wasn't a review bot or a report-only lane. Pull

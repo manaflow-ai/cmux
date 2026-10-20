@@ -104,6 +104,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // a layout move keeps the pane listed, so its tabs stay.
         services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
+        DebugTabSwitch.forget(self)
         view.dropParked()
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -306,16 +307,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         workspace?.setNeedsTopology()
     }
 
-    /// A terminal, browser or agent page parked in this pane (`PaneContentView+Parking`)
-    /// whose tab closed, moved away or got a new view leaves the window.
+    /// Content parked in this pane (`PaneContentView+Parking`) whose tab closed, moved away or
+    /// got a new view leaves the window. Live views come from `existingContent(for:)`, the one
+    /// lookup of every content kind, so a kind that parks (a page tab) is never dropped as closed.
     private func dropClosedParked(_ snapshot: Snapshot) {
         guard !view.parked.isEmpty else { return }
-        let agentTabs = services.agentTabs
-        let live = Set(snapshot.items.flatMap { item -> [NSView] in
-            let key = item.id.rawValue
-            return [services.cache.existingBrowser(key)?.chrome, agentTabs.existingView(key),
-                    services.cache.existingTerminal(key)?.session.view].compactMap { $0 }
-        }.map(ObjectIdentifier.init))
+        let live = Set(snapshot.items.compactMap { existingContent(for: $0.id.rawValue)?.view }.map(ObjectIdentifier.init))
         view.prunePark { live.contains(ObjectIdentifier($0)) }
     }
 
@@ -357,12 +354,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
             view.clearLaunchImage()
         }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
+        DebugTabSwitch.mark(self, "withdraw")
         // May replace a stale surface, displacing the view shown here.
         let content = key.flatMap(content(for:))
+        DebugTabSwitch.mark(self, "content")
+        if let content { DebugTabSwitch.kind(self, content.switchKind) }
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
+        DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { view.stripView.syncFromModel() } // strip + content: one transaction (L4)
+        DebugTabSwitch.mark(self, "stripSync")
         view.show(content?.view)
+        DebugTabSwitch.mark(self, "view")
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }

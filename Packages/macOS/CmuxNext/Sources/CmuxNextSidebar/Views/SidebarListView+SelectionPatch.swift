@@ -34,7 +34,12 @@ extension SidebarListViewComponents {
             guard let view = rowViews[.workspace(id)] as? WorkspaceRowView else { continue }
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
         }
-        revealPatchedActive(newActive.map { SidebarRowKey.workspace($0) })
+        if takeTopReveal() {
+            revealedActive = newActive.map { SidebarRowKey.workspace($0) }
+            scrollToTop()
+        } else {
+            revealPatchedActive(newActive.map { SidebarRowKey.workspace($0) })
+        }
         return true
     }
 
