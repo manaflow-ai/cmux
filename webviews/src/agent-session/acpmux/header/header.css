@@ -39,7 +39,7 @@
 .acpmux-stage{--acpmux-viewer-width:320px}
 @container (min-width:820px){
   html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-header,html[data-lab-chat-viewer="on"] .acpmux-reviewing:has(>.acpmux-file-viewer)>.acpmux-scroll{visibility:visible;margin-right:var(--acpmux-viewer-width)}
-  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
+  html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{left:auto;bottom:auto;height:100vh;width:var(--acpmux-viewer-width);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);background:var(--agent-page-bg)}
   /* Files and a file read as Thread details' column does (Lucas 2026-10-19): rounded, its shadow, 8px in,
      a 28px title row with no line under it, the X as its close. */
   html[data-lab-chat-viewer="on"] .acpmux-reviewing>.acpmux-file-viewer{box-sizing:border-box;padding:8px 8px 10px;overflow:hidden;border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation);border-left:var(--cmux-hairline,.5px) solid var(--agent-border);font-size:var(--text-control);line-height:18px}
@@ -166,7 +166,7 @@
 
 /* The chat's folder in the viewer (FilesView.tsx). */
 .acpmux-files-search{padding:6px 12px 2px}
-.acpmux-files-search input{width:100%;box-sizing:border-box;height:28px;padding:0 10px;border:.5px solid var(--agent-border);border-radius:7px;background:transparent;color:inherit;font:inherit}
+.acpmux-files-search input{width:100%;box-sizing:border-box;height:28px;padding:0 10px;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:7px;background:transparent;color:inherit;font:inherit}
 .acpmux-files-list{list-style:none;margin:0;padding:0}
 .acpmux-files-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-files-row:hover{background:color-mix(in srgb,currentColor 6%,transparent)}
