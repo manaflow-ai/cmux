@@ -475,6 +475,8 @@ agent message --reply-to <message-id> [--from <name>] [--] <text...|->
 agent message release <message-id> --recipient <agent> --approve|--decline
 agent message unsend <message-id> [--recipient <agent>]
 agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
+agent link [--web|--trailer|--footer]
+agent artifacts [<harness>/<session>] [--repo <dir>] [--github]
 agent report --terminal <selector> --state <state> --source <source>
 agent hook emit --source <provider> --event <native-event> [--terminal <id>]
 agent hook install|uninstall|status [provider...]
@@ -926,6 +928,32 @@ own address when it has one, else every message. `--state` is any delivery
 state: held, queued, delivered, acknowledged, failed, unsent, retracted or
 declined. `--ack` marks the listed queued, delivered or failed messages
 acknowledged for that recipient.
+
+## Agent provenance
+
+Every artifact an agent makes links back to its session, and the session
+lists its artifacts (manaflow-ai/cmuxterm-hq#2555). Both commands are local:
+they read the environment and git, and never open a protocol connection.
+
+`agent link` prints the address of the agent session it runs in:
+`cmux://agent/<harness>/<session>?host=<machine>&name=<agent>`, the cmux NEXT
+deep link that reveals that session's tab. `--web` prints the
+`https://cmux.com/deeplink/agent?…` fallback, `--trailer` the
+`Agent-Session: <web link>` commit trailer and `--footer` one PR-body line.
+The session comes from `CMUX_AGENT_SESSION_ID` (with `CMUX_AGENT_HARNESS`,
+default `cmux`), else `CLAUDE_CODE_SESSION_ID` (claude), `CODEX_THREAD_ID` or
+`CODEX_SESSION_ID` (codex), or `OPENCODE_SESSION_ID` (opencode). The host hint is
+`CMUX_AGENT_HOST`, else the short hostname; the name hint is `CMUX_AGENT_NAME`,
+else the lane part of `AGENT_LEASE_HOLDER`. Outside an agent session it exits 1
+with `local.agent_session`. A link is an address, not a credential: it never
+carries an account or a working directory.
+
+`agent artifacts` lists, newest first, up to 200 commits on any ref of `--repo`
+(default the current directory) whose `Agent-Session:` trailer names the
+session: the one given as `<harness>/<session>` or an agent link, else the
+caller's own. A commit that only mentions the id elsewhere in its message does
+not count. `--github` also lists, through `gh`, the pull requests that contain
+those commits (each once) and up to 20 CI runs per commit.
 
 ## Local agent plugins
 
