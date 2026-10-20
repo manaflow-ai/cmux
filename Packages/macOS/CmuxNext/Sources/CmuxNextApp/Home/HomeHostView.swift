@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
@@ -45,7 +46,8 @@ final class HomeHostView: NSView {
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
+                                              diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         super.init(frame: .zero)
