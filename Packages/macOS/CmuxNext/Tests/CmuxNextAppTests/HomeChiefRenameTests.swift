@@ -24,6 +24,25 @@ import Testing
         #expect(view.commitName() == nil)
     }
 
+    /// The Home reads the title again on every transcript or typing change, so the old name
+    /// arrives while the rename is on its way: a refusal still says so.
+    @Test func aRefusalSaysSoAfterTheOldTitleArrivedAgain() async throws {
+        let view = Self.view()
+        let (answers, answer) = AsyncStream.makeStream(of: Bool.self)
+        view.onRename = { _ in
+            for await accepted in answers { return accepted }
+            return true
+        }
+        view.setName("Chief")
+        view.nameField.stringValue = "Ada"
+        let rename = try #require(view.commitName())
+        view.setName("Chief")
+        answer.yield(false)
+        await rename.value
+        #expect(view.nameField.stringValue == "Chief")
+        #expect(!view.failure.isHidden)
+    }
+
     @Test func anAcceptedRenameKeepsTheNewName() async throws {
         let view = Self.view()
         var sent: [String] = []
