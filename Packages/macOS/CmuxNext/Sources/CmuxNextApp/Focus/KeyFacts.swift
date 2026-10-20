@@ -43,4 +43,7 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused code editor waits for the second key of its own key sequence (Monaco's
     /// Cmd-K Cmd-0): the next key goes to it, not to an app binding (`cmux.editor.keySequence`).
     var pageKeySequencePending = false
+    /// A terminal's TextBox composer has the keyboard (`textBoxFocused`): its Shift-Tab cycles the
+    /// submit action instead of reaching the terminal.
+    var textBoxFocused = false
 }

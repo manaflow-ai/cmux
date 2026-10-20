@@ -80,6 +80,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
+    /// The right sidebar (`WindowController+RightSidebar`), on the edge
+    /// opposite the sidebar; nil until it first shows.
+    var rightPanel: RightSidebarView? {
+        didSet {
+            guard rightPanel !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
+            needsLayout = true
+        }
+    }
+    /// The right sidebar's on-screen width (0 while hidden): the main pane
+    /// is inset by it (`applyMainPane`).
+    var rightPanelWidth: CGFloat = 0 {
+        didSet {
+            guard rightPanelWidth != oldValue else { return }
+            applyMainPane()
+            layoutSubtreeIfNeeded()
+        }
+    }
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -257,6 +276,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        layoutRightPanel(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }
