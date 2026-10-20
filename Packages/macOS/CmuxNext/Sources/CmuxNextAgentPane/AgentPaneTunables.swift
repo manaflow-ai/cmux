@@ -213,7 +213,7 @@ public nonisolated struct AgentPaneTunables {
     /// full while it streams. Only applies while ``foldLongThoughts`` is on. New agent tabs read it.
     public static let liveThoughtViewport = Tunable<Bool>.toggle(
         "agentPane.debug.liveThoughtViewport", PageTunables.section, "Live thought viewport",
-        help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
+        help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
     /// An open "Worked for" folds each run of two or more calls under one summary line ("Read files,

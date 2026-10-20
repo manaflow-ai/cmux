@@ -99,6 +99,9 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended. Each step shows on its own line,
   /// unless a Debug toggle folds each run there (conversation/toolRunSummary.ts `foldsRun`).
   settled?: boolean;
+  /// When the row after this step row in its turn started (conversation/turns.ts), so a thought
+  /// that ends the row lasts until then ("Thought for 4s").
+  nextAt?: number;
   /// A running turn's run that a later row followed, drawn as one summary line (Codex-style runs,
   /// conversation/turns.ts `codexRuns`).
   foldRun?: boolean;

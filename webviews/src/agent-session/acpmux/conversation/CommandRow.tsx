@@ -1,9 +1,11 @@
-// One command in a "Ran N commands" group: the command line in mono, cut to the row, then its
-// exit status and run time, opening to its Shell block.
+// One command in a "Ran N commands" group: the command line in mono without a leading
+// `cd <folder> &&` (its Shell block names the folder), cut to the row, then its exit status and run
+// time, opening to its Shell block.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { commandFolder } from "./commandSummary";
 import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner } from "./icons";
@@ -34,7 +36,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         onClick={() => setOpen((value) => !value)}
       >
         <code className="cv-command__line" data-find-skip={open || undefined}>
-          {tool.command}
+          {tool.command && commandFolder(tool.command).rest}
         </code>
         <span className="cv-command__meta">
           {running ? (

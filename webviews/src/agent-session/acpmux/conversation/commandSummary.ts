@@ -1,16 +1,18 @@
 // What a shell call did, as a row reads it (Leo 2026-10-13): "Fetched feat-cmux-next and diffed
 // HEAD~1" for `cd ~/wt/lanes/x && git fetch -q origin feat-cmux-next && git diff HEAD~1 | cut -c1-80`.
 // Setup steps (cd, export, a variable) say nothing and drop; a pipe into a reader (head, cut, grep,
-// ...) only shapes the output and drops too. It fails closed: a pipe into anything else (xargs, sh),
-// a redirect, a background `&`, an option it does not know, a step not known here, or more than
-// three steps leaves no summary, and the row reads "Ran {command}" without its leading cd. A
+// ...) only shapes the output and drops too. It fails closed: a pipe into anything else (xargs, sh)
+// or a reader told to write (`sort -o`), a redirect, a background `&`, a `||` (its right side may
+// not run), a backslash, an option it does not know, a step not known here, or more than three
+// steps leaves no summary, and the row reads "Ran {command}" without its leading cd. A
 // summary that claims what the command did not do is worse than the command itself.
 import { currentLanguage, type StringKey, type Translate } from "../i18n";
 
 type Phrase = { key: StringKey; values?: Record<string, string> };
 
 /// Leading `cd <dir> &&` steps split off: the last folder's last part, and the command that ran
-/// there. `cd ..` and `cd -` name no folder.
+/// there. `cd ..`, `cd ~` and `cd -` name no folder, so the command keeps its prefix: nothing it
+/// ran is ever hidden.
 export function commandFolder(command: string): { folder?: string; rest: string } {
   let rest = command;
   let dir: string | undefined;
@@ -21,7 +23,7 @@ export function commandFolder(command: string): { folder?: string; rest: string 
     rest = rest.slice(match[0].length);
   }
   const folder = dir?.split("/").at(-1);
-  return { folder: folder && !["~", ".", "..", "-"].includes(folder) ? folder : undefined, rest };
+  return folder && !["~", ".", "..", "-"].includes(folder) ? { folder, rest } : { rest: command };
 }
 
 /// The row's summary, or undefined when the command does not read as known steps.
@@ -42,12 +44,12 @@ function midSentence(phrase: string): string {
 }
 
 export function commandPhrases(command: string): Phrase[] | undefined {
-  if (/[`\n]|\$\(|<\(/.test(command)) return undefined;
+  if (/[`\n\\]|\$\(|<\(/.test(command)) return undefined;
   const split = steps(command);
   if (!split) return undefined;
   const phrases: Phrase[] = [];
   for (const [first, ...piped] of split) {
-    if (piped.some((stage) => !READERS.has(programWords(stage)?.[0] ?? ""))) return undefined;
+    if (piped.some((stage) => !readsOnly(programWords(stage)))) return undefined;
     const words = programWords(first!);
     if (words === null) return undefined;
     if (!words) continue;
@@ -63,7 +65,18 @@ export function commandPhrases(command: string): Phrase[] | undefined {
 /// Programs a pipe can end in without doing more than shaping what it reads.
 const READERS = new Set(["head", "tail", "cut", "wc", "sort", "uniq", "grep", "rg", "jq", "tr", "column", "cat", "nl"]);
 
-/// Each `&&`, `||` or `;` step as its pipe stages, outside quotes; undefined for a background `&`.
+/// A pipe stage that only shapes what it reads: a reader not told to write a file (`sort -o out`,
+/// `uniq in out`).
+function readsOnly(words: string[] | undefined | null): boolean {
+  if (!words || !READERS.has(words[0]!)) return false;
+  const args = words.slice(1);
+  if (words[0] === "sort" && args.some((word) => word.startsWith("--output") || /^-[^-]*o/.test(word))) return false;
+  if (words[0] === "uniq" && args.filter((word) => !word.startsWith("-")).length > 1) return false;
+  return true;
+}
+
+/// Each `&&` or `;` step as its pipe stages, outside quotes; undefined for a background `&` or a
+/// `||`, whose right side may not have run.
 function steps(command: string): string[][] | undefined {
   const out: string[][] = [];
   let stages: string[] = [];
@@ -81,7 +94,8 @@ function steps(command: string): string[][] | undefined {
     } else if (c === "'" || c === '"') {
       quote = c;
       current += c;
-    } else if ((c === "&" || c === "|") && command[i + 1] === c) {
+    } else if (c === "|" && command[i + 1] === "|") return undefined;
+    else if (c === "&" && command[i + 1] === "&") {
       end();
       out.push(stages);
       stages = [];
@@ -185,10 +199,22 @@ function stepPhrase([program, ...rest]: string[]): Phrase | undefined {
           if (!plain) return undefined;
           return plain[0] ? { key: "tools.cmd.diffed", values: { ref: plain[0] } } : { key: "tools.cmd.diffedChanges" };
         }
+        // A dry run, or an option it does not know, pushed or committed nothing it can say.
         case "push":
-          return { key: "tools.cmd.pushed" };
+          return positional(more, {
+            flags: "uqvf",
+            long: ["set-upstream", "quiet", "verbose", "force-with-lease", "tags"],
+          })
+            ? { key: "tools.cmd.pushed" }
+            : undefined;
         case "commit":
-          return { key: "tools.cmd.committed" };
+          return positional(more, {
+            flags: "aqsSm",
+            valued: "mF",
+            long: ["all", "quiet", "amend", "no-edit", "signoff"],
+          })
+            ? { key: "tools.cmd.committed" }
+            : undefined;
         case "status":
           return { key: "tools.cmd.status" };
         case "log":

@@ -61,13 +61,15 @@ function groupStart(group: ToolGroup | undefined): number | undefined {
 
 /// One entry of a run: a group, a message card, a lone call or a thought. `live`: the entry is the
 /// last of the live turn's latest row, so a thought there may still stream. `next` is the entry
-/// after it, whose start ends a thought ("Thought for 4s").
+/// after it, whose start ends a thought ("Thought for 4s"); the last entry's thought ends when the
+/// row after its row started (`nextAt`).
 function groupNode(
   group: ToolGroup,
   index: number,
   rowId: string,
   live: boolean,
   next: ToolGroup | undefined,
+  nextAt: number | undefined,
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -85,7 +87,13 @@ function groupNode(
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
-        <ThoughtRow key={index} id={`${rowId}:${index}`} item={group.item} streaming={live} until={groupStart(next)} />
+        <ThoughtRow
+          key={index}
+          id={`${rowId}:${index}`}
+          item={group.item}
+          streaming={live}
+          until={next ? groupStart(next) : nextAt}
+        />
       );
   }
 }
@@ -119,6 +127,7 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
         row.id,
         row.live === true && first + at === groups.length - 1,
         groups[first + at + 1],
+        row.nextAt,
       ),
     );
   // Find opens what holds its current match in this row only (chatFind.ts).

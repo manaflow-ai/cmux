@@ -6,6 +6,7 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { commandFolder } from "./commandSummary";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -20,7 +21,9 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  return (tool ? [tool.command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
+  // A shell call's Shell block draws its command without a leading `cd <folder> &&` (commandSummary.ts).
+  const command = tool?.command && commandFolder(tool.command).rest;
+  return (tool ? [command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */

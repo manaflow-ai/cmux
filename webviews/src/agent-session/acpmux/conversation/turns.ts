@@ -320,7 +320,12 @@ function shapeTurn(
       durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
     });
     if (open)
-      shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
+      shaped.push(
+        ...settledCopies(
+          work,
+          body.filter((row) => row.kind !== "typing"),
+        ),
+      );
   }
   shaped.push(...groups, ...renderRows(body, version));
   if (answer) shaped.push(answer);
@@ -415,11 +420,35 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   const version = work.reduce((sum, row) => sum + row.version, 0);
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
-    ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
+    ...(open ? settledCopies(work, rows) : []),
     ...before.filter(staysOut),
     ...(final >= 0 ? rows.slice(final) : []),
     ...editsCard(edits),
   ];
+}
+
+/// Work copied under an open "Worked for" (`settled`), each step row with when the row after it in
+/// the turn (`order`) started (`nextAt`), so a thought that ends its row lasts until then
+/// (ThoughtRow.tsx thoughtDuration). A copy's version is its own (odd, a quarter step past the
+/// live and Codex-run versions), so the height cache never takes a folded run's height for it.
+function settledCopies(work: readonly AcpmuxRow[], order: readonly AcpmuxRow[]): AcpmuxRow[] {
+  const ids = new Set(work.map((row) => row.id));
+  return withNextAt(order)
+    .filter((row) => ids.has(row.id))
+    .map((row) => ({
+      ...row,
+      id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+      settled: true,
+      version: row.version * 4 + 3,
+    }));
+}
+
+/// Each step row with when the row after it started (`nextAt`); other rows as they are.
+function withNextAt(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
+  return rows.map((row, index) => {
+    const next = rows[index + 1];
+    return row.kind === "activity" && next ? { ...row, nextAt: next.at } : row;
+  });
 }
 
 /// The live status, shaped as the turn will fold when it ends: rows before the latest text are
@@ -428,7 +457,8 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveRuns = false): AcpmuxRow[] {
-  const drawn = turn.filter((row) => row.kind !== "typing");
+  // A step row learns when the next row started only once one follows it, when its version moves too.
+  const drawn = withNextAt(turn.filter((row) => row.kind !== "typing"));
   const rows = liveRuns ? codexRuns(drawn) : drawn;
   const last = rows.at(-1);
   if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];

@@ -35,6 +35,8 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const running = isRunning(tool);
   const output = tool.output?.replace(/\n$/, "");
   const receipt = output && /^delivered to (\S+?)(?: \(id [^)]*\))?\s*$/im.exec(output);
+  // What else the send printed: its output without the receipt line, which the status line says.
+  const rest = receipt && !failed ? output.replace(receipt[0], "").trim() : output;
   const delivery = failed ? "failed" : running ? "sending" : receipt ? "delivered" : "sent";
   const status =
     delivery === "failed"
@@ -97,7 +99,7 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         <span className="cv-message__status">{status}</span>
       </div>
       {/* What else the send printed (a tool's own reply), and all of it when the send failed. */}
-      {open && output && (!receipt || failed) && <pre className="cv-tool-output">{output}</pre>}
+      {open && rest && <pre className="cv-tool-output">{rest}</pre>}
     </div>
   );
 }
