@@ -30,3 +30,6 @@ pub mod wire;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod receiver_client_tests;
