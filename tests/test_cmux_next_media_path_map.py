@@ -35,6 +35,9 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowBadgeView.swift"), ["core"])
         self.assertEqual(
             path_map.tours_for_path("agent-chat/src/agent-pane/harnesses.css"), ["agent-pane"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift"),
+            ["hover-card"])
 
 
 class WebviewPathTests(unittest.TestCase):

@@ -24,8 +24,8 @@ nonisolated enum ProfileMenuActionCatalog: ActionCatalogGroup {
     }
 }
 
-/// What the profile menu holds, top to bottom: the "Profiles" section (the
-/// current profile with its "…" options), the submenus, Settings,
+/// What the profile menu holds, top to bottom: the current profile (with its
+/// options submenu), the submenus, Settings,
 /// then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
@@ -47,15 +47,13 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         public var symbol: String
     }
 
-    public var sectionTitle: String
     public var profileActions: [ActionID]
     public var submenus: [Submenu]
     public var settings: Row
     public var creation: [Row]
 
     public init() {
-        sectionTitle = Self.text("menu.profile.section", "Profiles")
-        // The current profile's "…": its own options (real switching and
+        // The current profile's submenu: its own options (real switching and
         // creating come with the profiles lane).
         profileActions = ["browserProfile.rename", "browserProfile.setColor", "browserProfile.setIcon", "browserProfile.manageExtensions"]
         submenus = [

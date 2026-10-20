@@ -226,6 +226,11 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): the recap card's
+  /// yes (RecapCard.tsx). Set only while that card shows.
+  onEmptyCommandReturn?(): void;
+  /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
+  onShellChange?(shell: boolean): void;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -270,6 +275,8 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
+  onEmptyCommandReturn,
+  onShellChange,
   handle,
   sessionId,
   switching,
@@ -303,7 +310,13 @@ export function Composer({
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
-  const [shell, setShell] = useState(false);
+  const [shell, setShellState] = useState(false);
+  const shellChange = useRef(onShellChange);
+  shellChange.current = onShellChange;
+  const setShell = (on: boolean) => {
+    setShellState(on);
+    shellChange.current?.(on);
+  };
   const [shellText, setShellText] = useState("");
   const shellRef = useRef({ shell, shellText });
   shellRef.current = { shell, shellText };
@@ -801,17 +814,25 @@ export function Composer({
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
     // Quick Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
-    if (
-      event.key === "Enter" &&
-      event.metaKey &&
-      !event.shiftKey &&
-      !event.altKey &&
-      !event.ctrlKey &&
-      steerable &&
-      !quick
-    ) {
+    const commandReturn =
+      event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
+    if (commandReturn && steerable) {
       event.preventDefault();
       send(false, true);
+      return;
+    }
+    // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
+    if (
+      commandReturn &&
+      onEmptyCommandReturn &&
+      !shell &&
+      remote.canSend &&
+      !snapshot.isWorking &&
+      !text.trim() &&
+      attachments.length === 0
+    ) {
+      event.preventDefault();
+      onEmptyCommandReturn();
       return;
     }
     // The @ picker owns arrows (and Ctrl-N/P/J/K), Return and Tab while it lists files, and Esc.
