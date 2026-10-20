@@ -19,6 +19,8 @@ export type ClaimedRunAttempt = {
   readonly leaseId: string;
   readonly leaseUntil: Date;
   readonly workerId: string;
+  /** First claim time; bounds how long an in-progress VM create is retried. */
+  readonly startedAt: Date | null;
 };
 
 export type RunAttemptWorkerResult =
@@ -142,7 +144,7 @@ export async function claimNextRunAttempt(input: {
       where a.id = candidate.id
       returning a.run_id::text, a.id::text, a.ordinal, a.variant,
         a.lease_id::text, a.lease_until, a.worker_id,
-        a.checkpoint, a.retained_until, a.cleanup_state,
+        a.checkpoint, a.retained_until, a.cleanup_state, a.started_at,
         candidate.user_id, candidate.owner_team_id, candidate.spec
     `) as readonly Record<string, unknown>[];
     const row = rows[0];
@@ -161,6 +163,7 @@ export async function claimNextRunAttempt(input: {
       leaseId: rowString(row, "lease_id"),
       leaseUntil: rowDate(row, "lease_until"),
       workerId: rowString(row, "worker_id"),
+      startedAt: row.started_at ? rowDate(row, "started_at") : null,
     } satisfies ClaimedRunAttempt;
     await tx.execute(sql`update runs set status = 'running', updated_at = ${now.toISOString()}::timestamptz where id = ${claimed.runId}::uuid and status <> 'cancelled'`);
     await appendRunEvent(tx, claimed.runId, claimed.attemptId, "attempt.started", { workerId: claimed.workerId, leaseId: claimed.leaseId });

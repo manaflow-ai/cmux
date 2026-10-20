@@ -1429,6 +1429,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var lastVisibleFrameFitTopologySignature: [MainWindowVisibleFrameTopologySignatureEntry]?
     var didObserveUnknownVisibleFrameFitTopology = false
     var didObserveUnknownDisplayConfiguration = false
+    /// Set by a CoreGraphics display reconfiguration, cleared once a reconcile
+    /// has a trusted signature. Lets reconcile tell a display flap that settled
+    /// on the same configuration apart from a Dock resize.
+    var didObserveDisplayReconfigurationSinceReconcile = false
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
     var isScreenChangeCaptureSuppressed = false
@@ -18412,7 +18416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 onExecuted?()
                 return true
             }
-        case .command, .agent, .workspaceCommand, .workspace, .setting:
+        case .command, .text, .agent, .workspaceCommand, .workspace, .setting:
             guard let cmuxConfigStore = context.cmuxConfigStore else {
                 return false
             }

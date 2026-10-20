@@ -5860,7 +5860,7 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   });
 }
 
-function requireUserVm(input: ExistingVmAccessInput) {
+export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({

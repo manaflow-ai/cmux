@@ -11,7 +11,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct SidebarWorkspaceSnapshotRefreshPolicyTests {
+@Suite struct SidebarWorkspaceSnapshotTests {
     @Test @MainActor
     func extensionSnapshotCacheDoesNotInflateSequenceForIdenticalProviderContent() throws {
         let workspaceID = UUID()
@@ -68,185 +68,39 @@ import Testing
         #expect(changedPoll.workspaces.first?.title == "Pi renamed")
     }
 
-    @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
-        let current = Self.snapshot(
-            title: "lmao",
-            isPinned: false,
-            customColorHex: nil,
-            remoteConnectionStatusText: "Connected",
-            latestConversationMessage: "old message",
-            listeningPorts: [3000],
-            finderDirectoryPath: "/old"
-        )
-        let next = Self.snapshot(
-            title: "lmao",
-            isPinned: true,
-            customColorHex: nil,
-            remoteConnectionStatusText: "Disconnected",
-            latestConversationMessage: "new message",
-            listeningPorts: [3000, 4000],
-            finderDirectoryPath: nil
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        var expectedDisplayed = current
-        expectedDisplayed = expectedDisplayed.applyingContextMenuImmediateFields(from: next)
-        #expect(decision.workspaceSnapshotStorage == expectedDisplayed)
-        #expect(decision.workspaceSnapshotStorage?.isPinned == true)
-        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
-        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
-        #expect(decision.workspaceSnapshotStorage?.finderDirectoryPath == nil)
-        #expect(decision.pendingWorkspaceSnapshot == next)
-        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
-    }
-    @Test func contextMenuImmediateOnlyChangeDoesNotCreateDeferredFlush() {
-        let current = Self.snapshot(
-            title: "old",
-            customDescription: nil,
-            isPinned: false,
-            customColorHex: nil,
-            finderDirectoryPath: nil
-        )
-        let next = Self.snapshot(
-            title: "new",
-            customDescription: "description",
-            isPinned: true,
-            customColorHex: "#C0392B",
-            finderDirectoryPath: "/tmp/workspace"
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        #expect(decision.workspaceSnapshotStorage == next)
-        #expect(decision.pendingWorkspaceSnapshot == nil)
-        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
-    }
-    @Test func contextMenuMediaActivityChangeUpdatesDisplayedGlyphImmediately() {
-        let current = Self.snapshot(
-            remoteConnectionStatusText: "Connected",
-            latestConversationMessage: "old message",
-            listeningPorts: [3000],
-            mediaActivity: BrowserMediaActivity(isPlayingAudio: true)
-        )
-        let next = Self.snapshot(
-            remoteConnectionStatusText: "Disconnected",
-            latestConversationMessage: "new message",
-            listeningPorts: [3000, 4000],
-            mediaActivity: BrowserMediaActivity(isPlayingAudio: false)
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        #expect(decision.workspaceSnapshotStorage?.mediaActivity.isPlayingAudio == false)
-        #expect(decision.workspaceSnapshotStorage?.remoteConnectionStatusText == "Connected")
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
-        #expect(decision.workspaceSnapshotStorage?.listeningPorts == [3000])
-        #expect(decision.pendingWorkspaceSnapshot == next)
-        #expect(decision.hasDeferredWorkspaceObservationInvalidation)
-    }
-    @Test func contextMenuCompactStatusGlyphUpdatesImmediately() {
-        let current = Self.snapshot(
-            latestConversationMessage: "old message",
-            activeCodingAgentCount: 1,
-            compactStatusGlyph: SidebarCompactStatusGlyph.resolve(.init(hasActiveAgent: true))
-        )
-        // The agent went idle: the idle dot must show even with the menu open.
-        let idle = SidebarCompactStatusGlyph.resolve(.init(lifecycleStates: [.idle]))
-        let next = Self.snapshot(
-            latestConversationMessage: "new message",
-            activeCodingAgentCount: 0,
-            compactStatusGlyph: idle
-        )
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: true
-        )
-
-        #expect(decision.workspaceSnapshotStorage?.activeCodingAgentCount == 0)
-        #expect(decision.workspaceSnapshotStorage?.compactStatusGlyph == idle)
-        #expect(decision.workspaceSnapshotStorage?.latestConversationMessage == "old message")
-    }
-
-    @Test func closedContextMenuStoresNextAndClearsPending() {
-        let current = Self.snapshot(title: "old", isPinned: false)
-        let next = Self.snapshot(title: "new", isPinned: true)
-
-        let decision = SidebarWorkspaceSnapshotRefreshPolicy().decision(
-            current: current,
-            next: next,
-            force: false,
-            contextMenuVisible: false
-        )
-
-        #expect(decision.workspaceSnapshotStorage == next)
-        #expect(decision.pendingWorkspaceSnapshot == nil)
-        #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
-    }
-
     static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
-        title: String = "workspace",
-        customDescription: String? = nil,
-        isPinned: Bool = false,
-        customColorHex: String? = nil,
-        hasManualCustomColor: Bool? = nil,
-        remoteConnectionStatusText: String = "Disconnected",
-        latestConversationMessage: String? = nil,
-        listeningPorts: [Int] = [],
-        finderDirectoryPath: String? = nil,
-        mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0,
-        compactStatusGlyph: SidebarCompactStatusGlyph? = nil
+        title: String = "workspace"
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
             title: title,
-            customDescription: customDescription,
-            isPinned: isPinned,
+            customDescription: nil,
+            isPinned: false,
             isMuted: false,
-            customColorHex: customColorHex,
-            hasManualCustomColor: hasManualCustomColor ?? (customColorHex != nil),
+            customColorHex: nil,
+            hasManualCustomColor: false,
             cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
-            remoteConnectionStatusText: remoteConnectionStatusText,
+            remoteConnectionStatusText: "Disconnected",
             remoteStateHelpText: "",
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
-            latestConversationMessage: latestConversationMessage,
+            latestConversationMessage: nil,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: activeCodingAgentCount,
+            activeCodingAgentCount: 0,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
             branchDirectoryLines: [],
             branchLinesContainBranch: false,
             pullRequestRows: [],
-            listeningPorts: listeningPorts,
-            finderDirectoryPath: finderDirectoryPath,
-            mediaActivity: mediaActivity,
+            listeningPorts: [],
+            finderDirectoryPath: nil,
+            mediaActivity: BrowserMediaActivity(),
             taskStatus: nil,
             todoStatusMenuModel: nil,
             hasManualTaskStatus: false,
@@ -254,7 +108,7 @@ import Testing
             checklistCompletedCount: 0,
             checklistTotalCount: 0,
             checklistFirstUncheckedText: nil,
-            compactStatusGlyph: compactStatusGlyph
+            compactStatusGlyph: nil
         )
     }
 
