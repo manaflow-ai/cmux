@@ -77,6 +77,8 @@ public final class AgentCLIUpdateActions {
         var inputs: [AgentCLIUpdateIntent] = []
         var busy = false
         var restored = false
+        /// Child keys of starts whose reply was lost, by family; refresh replays them.
+        @ObservationIgnored var unsent: [String: String] = [:]
 
         var profile: String? { invocation["id"]?.stringValue }
 
@@ -206,6 +208,7 @@ public final class AgentCLIUpdateActions {
     /// Explicit refresh observes retained terminals, never starts a new update.
     public func refresh() async {
         do { try await recover() } catch { return }
+        await replayUnsent()
         await observeRetained()
     }
 
@@ -280,9 +283,12 @@ public final class AgentCLIUpdateActions {
         defer { intent.busy = false }
         try await recover()
         await observeRetained()
-        guard intent.route.isCurrent() else { throw DaemonError.notConnected }
-        let inventory = try await intent.route.inventory()
-        guard intent.route.isCurrent() else { throw DaemonError.notConnected }
+        // The owner this intent captured. Showing or refreshing may swap `intent.route` for a
+        // re-capture after a reconnect, but a start never continues on another connection.
+        let route = intent.route
+        guard route.isCurrent() else { throw DaemonError.notConnected }
+        let inventory = try await route.inventory()
+        guard route.isCurrent() else { throw DaemonError.notConnected }
         let rows = inventory.harnesses.filter { intent.profile == nil ? $0.outdated : $0.id == intent.profile }
         let families = Set(rows.compactMap { row -> String? in
             guard let family = row.family, family != .unknown,
@@ -296,14 +302,14 @@ public final class AgentCLIUpdateActions {
         var failures: [String] = []
         var inputs: [AgentCLIUpdateIntent] = []
         for family in families {
-            guard intent.route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
+            guard route.isCurrent(), let cli = AgentCLIFamily(rawValue: family) else { throw DaemonError.notConnected }
             // Any session's row blocks: an unreachable session may still be a live server on this
             // machine running the updater. The ledger's seven-day read bound retires true orphans.
             guard !retained.contains(where: { row in
-                row.intent.machine == intent.route.machine && row.intent.cli == family && !settled.contains(row.intent.key)
+                row.intent.machine == route.machine && row.intent.cli == family && !settled.contains(row.intent.key)
             }), !intents.values.contains(where: { other in
                 other !== intent && other.jobs.contains { job in
-                    job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
+                    job["machine"]?.stringValue == route.machine.rawValue && job["cli"]?.stringValue == family
                         && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
                 } && owner(of: other) != nil
             }) else {
@@ -313,8 +319,8 @@ public final class AgentCLIUpdateActions {
             // Batch children derive from the original intent and family, not row order.
             let childKey = intent.profile != nil ? key
                 : SHA256.hash(data: Data("cmux/agent-update/\(family)/\(key)".utf8)).map { String(format: "%02x", $0) }.joined()
-            inputs.append(try AgentCLIUpdateIntent(key: childKey, rootKey: key, machine: intent.route.machine,
-                session: intent.route.session, cli: cli, profiles: rows.filter { $0.family?.rawValue == family }.map(\.id)))
+            inputs.append(try AgentCLIUpdateIntent(key: childKey, rootKey: key, machine: route.machine,
+                session: route.session, cli: cli, profiles: rows.filter { $0.family?.rawValue == family }.map(\.id)))
         }
         intent.inputs = inputs
         intent.jobs = inputs.map(Self.job)
@@ -326,31 +332,19 @@ public final class AgentCLIUpdateActions {
                 throw error
             }
         }
-        for input in inputs {
-            guard intent.route.isCurrent() else { throw DaemonError.notConnected }
-            let receipt: AgentCLIJobReceipt
+        // A batch that stops early (the route went away, or a receipt for another owner) never
+        // sent its remaining families: they settle, so no unsent row blocks a later update.
+        for (sent, input) in inputs.enumerated() {
+            guard route.isCurrent() else {
+                for left in inputs[sent...] { await settle(left.key, in: intent) }
+                throw DaemonError.notConnected
+            }
             do {
-                receipt = try await intent.route.start(input.family, input.key)
+                try await send(input, intent: intent, route: route, failures: &failures)
             } catch {
-                // A refusal created nothing: the intent settles instead of staying resumable.
-                // A lost reply may have created the terminal and stays unknown.
-                if Self.refusedBeforeCreation(error) { await settle(input.key, in: intent) }
-                failures.append("\(input.cli): \(Self.text(error))")
-                guard intent.route.isCurrent() else { throw error }
-                continue
+                for left in inputs[(sent + 1)...] { await settle(left.key, in: intent) }
+                throw error
             }
-            guard receipt.machine == input.machine, receipt.session == input.session, receipt.cli == input.family else {
-                // Another owner's terminal is not this update's, and this route cannot observe it:
-                // the intent settles, so it leaves no job or ledger row that blocks.
-                await settle(input.key, in: intent)
-                throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
-            }
-            try remember(receipt, for: input, in: intent)
-            do { try await persistence.attach(input, receipt) } catch {
-                // The update started and stays tracked; its recorded row lets recovery resolve it.
-                failures.append("\(input.cli): \(Self.text(error))")
-            }
-            guard intent.route.isCurrent() else { throw DaemonError.notConnected }
         }
         guard failures.isEmpty else { throw ActionFailure(message: failures.joined(separator: "\n")) }
         return .array(intent.jobs)
@@ -378,7 +372,13 @@ public final class AgentCLIUpdateActions {
     static func refusedBeforeCreation(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
         // Busy: the owner may be running this very key, so it stays tracked.
-        return code.hasPrefix("agent_cli_job.") && code != "agent_cli_job.busy"
+        return code.hasPrefix("agent_cli_job.") && !busy(error)
+    }
+
+    /// The owner's execution lock or inventory reservation is held.
+    static func busy(_ error: any Error) -> Bool {
+        guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
+        return code == "agent_cli_job.busy"
     }
 
     /// `terminal.wait_exit` on a closed terminal: `terminal.closed`, or `selector.not_found`

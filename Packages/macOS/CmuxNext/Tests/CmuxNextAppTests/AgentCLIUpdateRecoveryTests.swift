@@ -338,6 +338,37 @@ import Testing
         #expect(h.owner.starts.map(\.1) == ["recorded"])
     }
 
+    /// Refresh replays a lost start reply by its key (#21447); its ledger row follows the
+    /// owner's answer: a receipt attaches, a refusal or another owner's receipt settles it,
+    /// and busy (the key's original request may still run) keeps it.
+    @Test(arguments: ["receipt", "refused", "mismatch", "busy"])
+    func aReplayedStartKeepsItsLedgerRowConsistent(answer: String) async throws {
+        let h = Harness(); h.owner.loseReply = true
+        let (actions, registry) = h.make()
+        do { _ = try await actions.runSettings(id: "work-profile", context: gesture("lost-start"), registry: registry) } catch {}
+        #expect(h.ledger.rows["lost-start"]?.receipt == nil)
+        h.owner.loseReply = false
+        switch answer {
+        case "refused": h.owner.refuse = [.codex]
+        case "mismatch": h.owner.mismatch = true
+        case "busy": h.owner.busy = [.codex]
+        default: break
+        }
+        await actions.refresh()
+        #expect(h.owner.starts.map(\.1) == ["lost-start", "lost-start"])
+        let row = h.ledger.rows["lost-start"]
+        switch answer {
+        case "receipt":
+            #expect(row?.receipt?.path.terminalID.rawValue == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            #expect(actions.state.arrayValue?.first?["terminal"] == "term_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        case "busy":
+            #expect(row != nil && row?.receipt == nil)
+            #expect(actions.state.arrayValue?.count == 1)
+        default:
+            #expect(row == nil && actions.state.arrayValue?.isEmpty == true)
+        }
+    }
+
     /// A creation still pending well after a first recovery saw it may be dismissed.
     @Test func aLongPendingCreationBecomesDismissable() async throws {
         let h = Harness(); let input = try h.retained()

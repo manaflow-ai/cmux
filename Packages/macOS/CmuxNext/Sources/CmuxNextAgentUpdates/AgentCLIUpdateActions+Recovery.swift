@@ -102,10 +102,11 @@ extension AgentCLIUpdateActions {
                 receipt = try await intent.route.start(input.family, input.key)
             } catch {
                 // A definitive refusal settles the intent; Resume would only be refused again.
-                if Self.refusedBeforeCreation(error) { await settle(key, in: intent) }
+                // A lost reply is replayed by refresh under this gesture, like a first start's.
+                if Self.refusedBeforeCreation(error) { await settle(key, in: intent) } else { intent.unsent[input.cli] = key }
                 throw error
             }
-            try remember(receipt, for: input, in: intent)
+            try await accept(receipt, for: input, in: intent)
             try await persistence.attach(input, receipt)
         case .failed:
             await settle(key, in: intent)
@@ -168,6 +169,71 @@ extension AgentCLIUpdateActions {
         ["machine": .string(input.machine.rawValue), "session": .string(input.session.rawValue),
          "cli": .string(input.cli), "intent_key": .string(input.key), "state": "unknown", "can_resume": false,
          "can_dismiss": false, "profiles": .array(input.profiles.map(JSONValue.string))]
+    }
+
+    /// One recorded family's start on the intent's captured route.
+    func send(_ input: AgentCLIUpdateIntent, intent: Intent, route: Route, failures: inout [String]) async throws {
+        guard let persistence else { throw DaemonError.notConnected }
+        let receipt: AgentCLIJobReceipt
+        do {
+            receipt = try await route.start(input.family, input.key)
+        } catch {
+            // A refusal created nothing: the intent settles instead of staying resumable. A lost
+            // reply (or busy: this key may be running) may have created the terminal: it stays
+            // unknown, and refresh sends the same key again to learn which.
+            if Self.refusedBeforeCreation(error) { await settle(input.key, in: intent) } else { intent.unsent[input.cli] = input.key }
+            failures.append("\(input.cli): \(Self.text(error))")
+            guard route.isCurrent() else { throw error }
+            return
+        }
+        try await accept(receipt, for: input, in: intent)
+        do { try await persistence.attach(input, receipt) } catch {
+            // The update started and stays tracked; its recorded row lets recovery resolve it.
+            failures.append("\(input.cli): \(Self.text(error))")
+        }
+        guard route.isCurrent() else { throw DaemonError.notConnected }
+    }
+
+    /// A start's receipt for this intent. Another owner's terminal is not this update's and
+    /// this route cannot observe it: the intent settles, leaving no job or ledger row that blocks.
+    func accept(_ receipt: AgentCLIJobReceipt, for input: AgentCLIUpdateIntent, in intent: Intent) async throws {
+        guard receipt.machine == input.machine, receipt.session == input.session, receipt.cli == input.family else {
+            await settle(input.key, in: intent)
+            throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
+        }
+        try remember(receipt, for: input, in: intent)
+    }
+
+    /// Sends each start whose reply was lost again with its own key, on the intent's owner (a
+    /// re-capture after a reconnect included), under the gesture that sent it first; the owner
+    /// replays an accepted key. A receipt attaches to the ledger row, a refusal settles it, and
+    /// busy (the key's original request may still run) or another lost reply keeps both.
+    func replayUnsent() async {
+        for intent in intents.values where !intent.busy {
+            for (family, key) in intent.unsent.sorted(by: { $0.key < $1.key }) {
+                guard let route = owner(of: intent) else { break }
+                // Recovery may have attached its receipt already, or the key settled.
+                guard let input = intent.inputs.first(where: { $0.key == key }),
+                      intent.jobs.contains(where: { $0["intent_key"]?.stringValue == key && $0["terminal"] == nil }) else {
+                    intent.unsent[family] = nil
+                    continue
+                }
+                do {
+                    let receipt = try await route.start(input.family, key)
+                    guard route.isCurrent(), intent.unsent[family] == key else { continue }
+                    intent.unsent[family] = nil
+                    try await accept(receipt, for: input, in: intent)
+                    // A failed attach keeps the row; the next recovery attaches the known receipt.
+                    try? await persistence?.attach(input, receipt)
+                } catch where Self.refusedBeforeCreation(error) {
+                    guard intent.unsent[family] == key else { continue }
+                    intent.unsent[family] = nil
+                    await settle(key, in: intent)
+                } catch {
+                    // Lost again or busy: the job and row stay, and the next refresh replays the key.
+                }
+            }
+        }
     }
 
     func remember(_ receipt: AgentCLIJobReceipt, for input: AgentCLIUpdateIntent, in intent: Intent) throws {
