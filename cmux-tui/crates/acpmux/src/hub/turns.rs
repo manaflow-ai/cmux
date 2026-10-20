@@ -84,6 +84,9 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.run_prompt(session, blocks, client, steer, opts).await;
         };

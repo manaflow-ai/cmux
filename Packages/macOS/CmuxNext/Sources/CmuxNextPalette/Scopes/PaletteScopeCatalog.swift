@@ -9,6 +9,13 @@ nonisolated extension PaletteScopeID {
     public static let settings: PaletteScopeID = "settings"
     public static let shortcuts: PaletteScopeID = "shortcuts"
     public static let scopes: PaletteScopeID = "scopes"
+    /// Search (Cmd-P and the sidebar's Search button, plans/cmux-next/sidebar-search.md,
+    /// search-everything-DESIGN.md section 10): every kind the other scopes and the App's
+    /// contributed pages list, in one page.
+    public static let search: PaletteScopeID = "search"
+    /// Chats & agents (Cmd-Shift-A, `search.chats`): Search narrowed to the agent chats and
+    /// sessions the App contributes; it opens on top of Search, so Backspace searches everything.
+    public static let chats: PaletteScopeID = "chats"
 }
 
 /// The built-in scopes and the root, as descriptors.
@@ -22,14 +29,20 @@ nonisolated extension PaletteScopeDescriptor {
     /// Built-in scopes whose sources exist. English keywords always work;
     /// the localized title also works as a keyword.
     public static func builtIns(tabs: Bool, workspaces: Bool, settings: Bool) -> [PaletteScopeDescriptor] {
-        var scopes: [PaletteScopeDescriptor] = []
+        // Search goes first in the scope list: it is the one that finds everything.
+        var scopes: [PaletteScopeDescriptor] = [
+            scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
+                  keywords: ["search", "everything", "all"], openAction: "goToWorkspace"),
+            scope(PaletteScopeID.chats, PaletteStrings.chatsAndAgentsTitle, "bubble.left.and.bubble.right", PaletteStrings.chatsAndAgentsPlaceholder,
+                  keywords: ["chats", "agents", "chat"], openAction: "search.chats"),
+        ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,
                                 prefix: "@", keywords: ["tabs", "tab"], openAction: "tab.search", emptyQuerySelection: 1))
         }
         if workspaces {
             scopes.append(scope(PaletteScopeID.workspaces, PaletteStrings.sectionWorkspaces, "rectangle.stack", PaletteStrings.workspacesPlaceholder,
-                                prefix: "#", keywords: ["workspaces", "workspace"], openAction: "goToWorkspace"))
+                                prefix: "#", keywords: ["workspaces", "workspace"]))
         }
         scopes.append(scope(PaletteScopeID.commands, PaletteStrings.commandsTitle, "command", PaletteStrings.searchPlaceholder,
                             prefix: ">", keywords: ["commands", "actions"]))

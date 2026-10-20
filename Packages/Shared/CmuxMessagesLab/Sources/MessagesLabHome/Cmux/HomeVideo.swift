@@ -65,7 +65,7 @@ final class HomeVideo {
             layer.frame = body
             let mask = masks[key] ?? CAShapeLayer()
             masks[key] = mask
-            mask.path = BubblePath.cached(size: body.size, outgoing: p.outgoing, tail: p.tail)
+            mask.path = BubblePath.balloon(frame: CGRect(origin: .zero, size: body.size), row: p).cgPath  // cmux: the shared bubble outline
             mask.frame = CGRect(origin: .zero, size: body.size)
             layer.mask = mask
             let badge = badges[key] ?? Self.makeBadge()

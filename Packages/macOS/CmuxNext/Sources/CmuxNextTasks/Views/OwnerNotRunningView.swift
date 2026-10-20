@@ -27,6 +27,7 @@ struct OwnerNotRunningView: View {
                 }
                 .buttonStyle(.plain).foregroundStyle(colors.secondary)
                 .themedHelp(TasksStrings.copyCommand)
+                .accessibilityLabel(TasksStrings.copyCommand).accessibilityIdentifier("cmux.tasks.copyCommand")
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 7).fill(colors.hover))

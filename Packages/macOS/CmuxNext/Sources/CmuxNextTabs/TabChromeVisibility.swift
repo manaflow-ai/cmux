@@ -11,7 +11,9 @@ public import CoreGraphics
 ///   the title, so a narrow selected tab is icon and x only;
 /// - a tab narrower than the minimum inactive width (closing, growing in)
 ///   shows nothing.
-/// One difference: the x shows only on the hovered tab (nxdog9). The
+/// Differences: the x shows only on the hovered tab (nxdog9), and a hovered
+/// tab shows it from `TabStripMetrics.faviconCloseWidth`, where the favicon
+/// and the x both fit whole, not from Helium's 56 pt of contents. The
 /// selected tab also keeps it once its contents are narrower than Chromium's
 /// close-button threshold, where it costs no title text.
 public struct TabChromeVisibility: Hashable, Sendable {
@@ -42,7 +44,9 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let roomy = contents >= metrics.closeMinContentsWidth
         let wantsClose: Bool
         switch style {
-        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : (isHovered && roomy)
+        // A hovered inactive tab also shows its x once the favicon and the x both fit whole (Lawrence
+        // 2026-10-20: the default minimum width is that room), where Helium waits for 56 of contents.
+        case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : (isHovered && (roomy || width + 0.5 >= metrics.faviconCloseWidth))
         case .compact: wantsClose = isHovered
         }
         // A tab that cannot close (Home's tab, `pinned-dock-v1`) never shows its x.
