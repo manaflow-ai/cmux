@@ -89,6 +89,18 @@ final class HomeNewMessageView: NSView {
 
     func focusRecipients() { window?.makeFirstResponder(field.primaryInput) }
 
+    /// A key typed while Home had the keyboard outside a text input: the
+    /// page's input takes the keyboard (caret at the end, nothing selected)
+    /// and the key.
+    func beginTyping(with event: NSEvent) {
+        let target = focusTarget
+        guard let window, window.makeFirstResponder(target) else { return }
+        if let editor = (target as? NSTextField)?.currentEditor() {
+            editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
+        }
+        window.firstResponder?.keyDown(with: event)
+    }
+
     func focusMessageBox() {
         guard let box = messageBox else { return }
         window?.makeFirstResponder(box)
