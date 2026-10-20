@@ -338,3 +338,8 @@ opt-level = 3
 # before it joins this list.
 [profile.dev.package.acpmux]
 opt-level = 0
+
+# The JSON rewriter sits on every translated daemon message; tests and the
+# Rex parity bench (tests/rex_parity_bench.rs) measure it optimized.
+[profile.dev.package.cmux-api-compat]
+opt-level = 3

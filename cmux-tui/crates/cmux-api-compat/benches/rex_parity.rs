@@ -146,14 +146,22 @@ fn us(d: Duration) -> f64 {
     d.as_secs_f64() * 1e6
 }
 
+#[allow(dead_code)] // The test harness includes this file and calls `run` instead.
 fn main() {
+    run(&mut std::io::stdout(), 2000);
+}
+
+/// Runs every scenario and writes one line per scenario to `out`.
+pub fn run(out: &mut dyn std::io::Write, runs: usize) {
     let input = body();
     let top = BASE + REVISIONS;
-    println!(
+    writeln!(
+        out,
         "rex_parity: body={} bytes, chain={} revisions (Rex: ~35 us upgrade, 20 KB, 10k chain)",
         input.len(),
         REVISIONS
-    );
+    )
+    .unwrap();
     for name in ["rename-churn", "wide-unrelated", "mixed-streaming", "mixed-materializing"] {
         let compat = build(name);
         let start = Instant::now();
@@ -174,10 +182,11 @@ fn main() {
         );
 
         let (up_med, up_p99) =
-            time(|| drop(black_box(up.rewrite(black_box(&input)).unwrap())), 2000);
+            time(|| drop(black_box(up.rewrite(black_box(&input)).unwrap())), runs);
         let (down_med, down_p99) =
-            time(|| drop(black_box(down.rewrite(black_box(&up_out)).unwrap())), 2000);
-        println!(
+            time(|| drop(black_box(down.rewrite(black_box(&up_out)).unwrap())), runs);
+        writeln!(
+        out,
             "scenario={name} trie_nodes={} compile_up_ms={:.2} compile_down_ms={:.2} upgrade_median_us={:.1} upgrade_p99_us={:.1} downgrade_median_us={:.1} downgrade_p99_us={:.1}",
             up.trie_size(),
             compile_up.as_secs_f64() * 1e3,
@@ -186,7 +195,8 @@ fn main() {
             us(up_p99),
             us(down_med),
             us(down_p99),
-        );
+        )
+        .unwrap();
     }
 
     // Broadcast: 1,000 peers spread over 4 revisions -> 4 translations, not 1,000.
@@ -205,19 +215,23 @@ fn main() {
             }
             translations = broadcast.translations();
         },
-        200,
+        runs / 10,
     );
-    println!(
+    writeln!(
+        out,
         "scenario=broadcast peers={} distinct_chains={translations} total_median_us={:.1} total_p99_us={:.1}",
         peers.len(),
         us(med),
         us(p99)
-    );
+    )
+    .unwrap();
 
     // Copy floor: the cost of touching every byte once.
-    let (med, _) = time(|| drop(black_box(black_box(&input).to_vec())), 2000);
-    println!("scenario=memcpy-floor median_us={:.2}", us(med));
-    let (med, _) =
-        time(|| drop(black_box(serde_json::from_slice::<Value>(black_box(&input)).unwrap())), 500);
-    println!("scenario=serde-parse-only median_us={:.1}", us(med));
+    let (med, _) = time(|| drop(black_box(black_box(&input).to_vec())), runs);
+    writeln!(out, "scenario=memcpy-floor median_us={:.2}", us(med)).unwrap();
+    let (med, _) = time(
+        || drop(black_box(serde_json::from_slice::<Value>(black_box(&input)).unwrap())),
+        runs / 4,
+    );
+    writeln!(out, "scenario=serde-parse-only median_us={:.1}", us(med)).unwrap();
 }
