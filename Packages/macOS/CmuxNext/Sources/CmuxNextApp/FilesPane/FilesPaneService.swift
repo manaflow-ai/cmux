@@ -39,6 +39,7 @@ final class FilesPaneService: InternalPageProvider {
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
+            // task-owner: the handles are kept in volumeWatch, owned by this app-lifetime service.
             Task { @MainActor in
                 for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { sidebar.refreshLocations() }
             }

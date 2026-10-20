@@ -41,6 +41,12 @@ ALLOWED = [
     # protocol: no local CLI can serve that host, so updating its cmux-tui is
     # the fix (a remote route never re-execs; cx-ytw1).
     ("cmux-tui/crates/cmux-tui/src/localization/remote_client.rs", "remote_link_unknown_option"),
+    # The version handshake refuses a peer older than the oldest revision it
+    # serves (plans/cmux-next/tui-tester-rollout.md #4): no installed CLI can talk to it, so
+    # the refusal names that side's exact update command (or every one).
+    ("cmux-tui/crates/cmux-tui-core/src/release.rs", "update the cmux app (cmux > Check for Updates)"),
+    ("cmux-tui/crates/cmux-tui-core/src/release.rs", 'PYPI_UPDATE: &str = "uv tool upgrade cmux"'),
+    ("cmux-tui/crates/cmux-tui-core/src/release.rs", "update cmux: `{NPM_UPDATE}` (npm)"),
 ]
 
 

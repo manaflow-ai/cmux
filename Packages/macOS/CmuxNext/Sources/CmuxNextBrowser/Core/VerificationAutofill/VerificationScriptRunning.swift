@@ -51,9 +51,15 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
         return String(decoding: stdout, as: UTF8.self)
     }
 
-    /// Reads a pipe to its end, by raw descriptor (an `Int32` is `Sendable`; a `FileHandle` is not).
+    /// Reads a pipe to its end without blocking a thread, by raw descriptor (an `Int32` is
+    /// `Sendable`; a `FileHandle` is not).
     @concurrent private static func drain(_ fd: Int32) async -> Data {
-        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: false)
-        return (try? handle.readToEnd()) ?? Data()
+        var data = Data()
+        do {
+            for try await byte in FileHandle(fileDescriptor: fd, closeOnDealloc: false).bytes { data.append(byte) }
+        } catch {
+            // A read error ends the output early; the exit status still decides.
+        }
+        return data
     }
 }

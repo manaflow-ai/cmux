@@ -31,7 +31,8 @@ public struct FolderWatcher: FolderWatching {
     public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
-        AsyncStream { continuation in
+        // A reader that falls 64 batches behind gets `.rescan` (FolderWatchStream.deliver).
+        AsyncStream(bufferingPolicy: .bufferingNewest(FolderWatchStream.buffer)) { continuation in
             let box = FolderWatchStream(folder: folder.standardizedFileURL.resolvingSymlinksInPath(),
                                         latency: latency, continuation: continuation)
             continuation.onTermination = { _ in box.stop() }

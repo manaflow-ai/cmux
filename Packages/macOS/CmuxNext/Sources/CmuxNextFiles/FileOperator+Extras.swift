@@ -110,19 +110,34 @@ extension FileOperator {
         process.standardOutput = FileHandle.nullDevice
         let errors = Pipe()
         process.standardError = errors
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            // The handler runs once, after exit; it is the only resume after a successful run().
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: FileBrowserError.failed(error.localizedDescription))
-            }
+        let exited = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
+        process.terminationHandler = { process in
+            exited.continuation.yield(process.terminationStatus)
+            exited.continuation.finish()
         }
+        do {
+            try process.run()
+        } catch {
+            throw FileBrowserError.failed(error.localizedDescription)
+        }
+        // Standard error is read while ditto runs, so a long report cannot fill the pipe and stall it.
+        let message = String(decoding: await drain(errors.fileHandleForReading.fileDescriptor), as: UTF8.self)
+        var status: Int32 = -1
+        for await code in exited.stream { status = code }
         guard status == 0 else {
-            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(status)" : message)
         }
+    }
+
+    /// Reads a pipe to its end without blocking a thread, by raw descriptor (an `Int32` is
+    /// `Sendable`; a `FileHandle` is not).
+    @concurrent private static func drain(_ fd: Int32) async -> Data {
+        var data = Data()
+        do {
+            for try await byte in FileHandle(fileDescriptor: fd, closeOnDealloc: false).bytes { data.append(byte) }
+        } catch {
+            // A read error ends the text early; the exit status still decides.
+        }
+        return data
     }
 }

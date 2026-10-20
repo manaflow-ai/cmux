@@ -591,15 +591,20 @@ class PathRoutingStructure(unittest.TestCase):
         # dispatch gates to feat-cmux-next must also run there, or the batch
         # would pass with its macOS tiers skipped.
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        # Hands a DEV build to the publisher (#21403): a batch never publishes.
+        publishers = {"request-cmux-next-dev-publish"}
         gated = {name: job for name, job in jobs.items()
-                 if "refs/heads/feat-cmux-next" in str(job.get("if", ""))
+                 if name not in publishers
+                 and "refs/heads/feat-cmux-next" in str(job.get("if", ""))
                  and "workflow_dispatch" in str(job.get("if", ""))}
         self.assertGreaterEqual(len(gated), 6)
         for name, job in gated.items():
             with self.subTest(job=name):
                 self.assertIn("startsWith(github.ref, 'refs/heads/next-batch/')", job["if"])
-        # Nightly promotion and the dogfood artifact stay feat-cmux-next pushes only.
+        # Nightly promotion, DEV publication and the dogfood artifact stay feat-cmux-next only.
         self.assertNotIn("next-batch", jobs["request-nightly-next"]["if"])
+        for name in publishers:
+            self.assertNotIn("next-batch", jobs[name]["if"])
 
     def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
         for filename, job_id in (("cmux-next.yml", "push-head-preflight"),

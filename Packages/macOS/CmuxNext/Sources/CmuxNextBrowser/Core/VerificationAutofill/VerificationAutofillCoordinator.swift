@@ -104,9 +104,11 @@ public final class VerificationAutofillCoordinator {
         guard loop == nil else { return }
         let (clock, interval) = (clock, pollInterval)
         loop = Task { [weak self] in
+            // wakeup-allow: Mail has no change signal; the loop runs only while a page waits
+            // (at most its 10-minute window) and ends when none waits or the setting turns off.
             while !Task.isCancelled {
-                // A bounded, cancellable pause between reads of an external source with no change
-                // signal; the loop ends when no page waits or the setting turns off.
+                // wakeup-allow: a bounded, cancellable pause between reads of an external source with
+                // no change signal; the loop ends when no page waits or the setting turns off.
                 do { try await clock.sleep(for: interval) } catch { return }
                 guard let self else { return }
                 await self.pollOnce()

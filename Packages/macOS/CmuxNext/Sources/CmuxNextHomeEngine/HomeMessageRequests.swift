@@ -44,6 +44,7 @@ public final class HomeMessageRequests {
     }
 
     private func readLoop() async {
+        // wakeup-allow: one pass per refresh() that arrived during the last read; each awaits the source once.
         repeat {
             again = false
             // A failed read keeps the last list (offline, or no lease yet).

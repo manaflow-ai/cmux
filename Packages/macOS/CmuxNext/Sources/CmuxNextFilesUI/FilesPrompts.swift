@@ -1,10 +1,11 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextFiles
 
 /// The Files sheets: Go to Folder, the name-conflict question and rename for tiles.
 @MainActor
 struct FilesPrompts {
-    /// The window the sheets attach to.
+    /// The window the dialogs block.
     let window: () -> NSWindow?
 
     /// Asks for a path (Go to Folder). Nil when cancelled.
@@ -19,27 +20,28 @@ struct FilesPrompts {
 
     /// Asks what to do with a taken name (Keep Both, Stop, Replace, Skip, Apply to All).
     func conflict(_ conflict: FileConflict) async -> ConflictAnswer {
-        let alert = NSAlert()
-        alert.messageText = FilesStrings.conflict(conflict.existing.lastPathComponent)
-        alert.addButton(withTitle: FilesStrings.keepBoth)
-        alert.addButton(withTitle: FilesStrings.stop)
-        alert.addButton(withTitle: FilesStrings.replace)
-        alert.addButton(withTitle: FilesStrings.skip)
-        alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = FilesStrings.applyToAll
-        let response = await run(alert)
-        let choice: ConflictChoice = switch response {
-        case .alertFirstButtonReturn: .keepBoth
-        case .alertThirdButtonReturn: .replace
-        case NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1): .skip
+        let spec = CmuxDialogSpec(
+            title: FilesStrings.conflict(conflict.existing.lastPathComponent),
+            fields: [.check(id: "all", title: FilesStrings.applyToAll, on: false)],
+            buttons: [CmuxDialogButton(id: "stop", title: FilesStrings.stop, role: .cancel),
+                      CmuxDialogButton(id: "skip", title: FilesStrings.skip, key: "s"),
+                      CmuxDialogButton(id: "replace", title: FilesStrings.replace, role: .destructive, key: "r"),
+                      CmuxDialogButton(id: "keepBoth", title: FilesStrings.keepBoth, role: .default)],
+            identifier: "cmux.files.conflict")
+        let answer = await present(spec)
+        let choice: ConflictChoice = switch answer.button {
+        case "keepBoth": .keepBoth
+        case "replace": .replace
+        case "skip": .skip
         default: .stop
         }
-        return ConflictAnswer(choice, applyToAll: alert.suppressionButton?.state == .on)
+        return ConflictAnswer(choice, applyToAll: answer.isOn("all"))
     }
 
     /// Rename Items… for several items. Nil when cancelled.
     func batchRename(_ names: [String]) async -> BatchRename? {
         let sheet = BatchRenameSheet(names: names)
+        // dialog-keys-exempt: the live-example accessory (mode, fields, preview) has no CmuxDialogSpec field yet.
         let alert = NSAlert()
         alert.messageText = FilesStrings.renameItemsTitle(names.count)
         alert.addButton(withTitle: FilesStrings.rename)
@@ -51,26 +53,25 @@ struct FilesPrompts {
 
     /// Delete Immediately asks first: it cannot be undone.
     func confirmDelete(_ count: Int) async -> Bool {
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = FilesStrings.deleteConfirm(count)
-        alert.informativeText = FilesStrings.deleteCannotUndo
-        alert.addButton(withTitle: FilesStrings.delete)
-        alert.addButton(withTitle: FilesStrings.cancel)
-        return await run(alert) == .alertFirstButtonReturn
+        let spec = CmuxDialogSpec(
+            title: FilesStrings.deleteConfirm(count), lines: [FilesStrings.deleteCannotUndo],
+            buttons: [.cancel(FilesStrings.cancel),
+                      CmuxDialogButton(id: "delete", title: FilesStrings.delete, role: .destructive, key: "d")],
+            identifier: "cmux.files.deleteImmediately")
+        return await present(spec).button == "delete"
     }
 
     private func textSheet(title: String, initial: String, button: String) async -> String? {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.addButton(withTitle: button)
-        alert.addButton(withTitle: FilesStrings.cancel)
-        let field = NSTextField(string: initial)
-        field.frame = NSRect(x: 0, y: 0, width: 360, height: 24)
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        let response = await run(alert)
-        return response == .alertFirstButtonReturn ? field.stringValue : nil
+        let spec = CmuxDialogSpec(
+            title: title, fields: [.text("name", initial: initial)],
+            buttons: [.cancel(FilesStrings.cancel), CmuxDialogButton(id: "ok", title: button, role: .default)],
+            identifier: "cmux.files.text")
+        let answer = await present(spec)
+        return answer.button == "ok" ? answer.text("name") ?? initial : nil
+    }
+
+    private func present(_ spec: CmuxDialogSpec) async -> CmuxDialogAnswer {
+        await CmuxDialogCenter.shared.present(spec, in: window().map(CmuxDialogScope.window) ?? .app)
     }
 
     private func run(_ alert: NSAlert) async -> NSApplication.ModalResponse {
