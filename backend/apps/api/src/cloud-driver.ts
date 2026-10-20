@@ -8,6 +8,7 @@ import { FakeCloudDriver } from "./cloud-driver-fake.ts"
 import { redactReason } from "./cloud-redact.ts"
 import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
+import { vmApiSettings } from "./cloud-vm-api-config.ts"
 export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
@@ -464,7 +465,7 @@ export class FreestyleCloudDriver implements RawCloudDriver {
 
 
 /** The deployment's Cloud config: plan (stub outside production), name prefix (only with a usable provider) and image. */
-export const cloudConfig = (env: Env): CloudConfig => {
+const directCloudConfig = (env: Env): CloudConfig => {
   const want = ENV_PREFIX[env.ENVIRONMENT]
   const prefixOk = Boolean(want) && env.CLOUD_NAME_PREFIX === want
   const keyOk = fake(env) || Boolean(env.CLOUD_FREESTYLE_API_KEY)
@@ -481,15 +482,26 @@ export const cloudConfig = (env: Env): CloudConfig => {
   }
 }
 
+export const cloudConfig = (env: Env): CloudConfig => {
+  if (env.CLOUD_VM_TRANSPORT === undefined || env.CLOUD_VM_TRANSPORT === "direct") return { ...directCloudConfig(env), transport: "direct" }
+  const api = env.CLOUD_VM_TRANSPORT === "vm-api" ? vmApiSettings(env) : null
+  const prefix = ENV_PREFIX[env.ENVIRONMENT]
+  return {
+    environment: env.ENVIRONMENT, allowedTeams: parseAllowedTeams(env.CLOUD_ALLOWED_TEAMS), transport: "vm-api",
+    prefix: api && prefix && env.CLOUD_NAME_PREFIX === prefix ? prefix : null,
+    image: api?.image.id ?? null
+  }
+}
+
 const fake = (env: Env) => env.ENVIRONMENT === "test" && env.CLOUD_DRIVER === "fake"
 /** The configured snapshot; the test fake boots a named test image lane snapshot unless a test sets one. */
 const imageOf = (env: Env): string | undefined => env.CLOUD_FREESTYLE_SNAPSHOT || (fake(env) ? `${ENV_IMAGE_PREFIX.test}fake` : undefined)
 
 /** A usable provider: this environment's exact prefix, a key (or the test fake) and this environment's snapshot. */
-const cloudRawDriverReady = (env: Env): boolean => cloudConfig(env).image !== null
+const cloudRawDriverReady = (env: Env): boolean => directCloudConfig(env).image !== null
 
 /** Whether this deployment has a usable provider (key or test fake, this environment's prefix, its image). */
-export const cloudProviderReady = (env: Env): boolean => cloudRawDriverReady(env)
+export const cloudProviderReady = (env: Env): boolean => cloudRawDriverReady(env) || Boolean(vmApiSettings(env) && ENV_PREFIX[env.ENVIRONMENT] === env.CLOUD_NAME_PREFIX)
 
 /** The guarded driver, or null when this deployment has no usable provider. */
 export const cloudDriver = (env: Env, sql: SqlStore): GuardedCloudDriver | null => {
