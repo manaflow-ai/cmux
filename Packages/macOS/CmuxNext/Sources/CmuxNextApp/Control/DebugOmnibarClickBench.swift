@@ -47,7 +47,23 @@ enum DebugOmnibarClickBench {
         let point = InputJournal.topLeftPoint(NSPoint(x: field.midX, y: field.midY), in: window, relativeTo: window)
         frames.start()
         BenchSpans.begin()
-        bar.benchProbe = { BenchSpans.mark($0) }
+        // `debug.timings` `omnibar_clicks`: as a palette open, input_ms is the mouse-down's age when
+        // the field took focus and key_to_frame_ms runs to the commit of that frame's transaction.
+        let engine = bar.allowsChromiumSchemes ? "chromium" : "webkit"
+        var timed = false
+        bar.benchProbe = { name in
+            BenchSpans.mark(name)
+            guard !timed, name == "field.becameFirstResponder",
+                  let down = NSApp.currentEvent, down.type == .leftMouseDown else { return }
+            timed = true
+            let pressed = down.timestamp
+            let input = (ProcessInfo.processInfo.systemUptime - pressed) * 1_000
+            CATransaction.setCompletionBlock {
+                let frame = (ProcessInfo.processInfo.systemUptime - pressed) * 1_000
+                // The times are taken here; only the record hops to the main actor.
+                Task { @MainActor in DebugTimings.omnibarClicked(engine: engine, input: input, keyToFrame: frame) }
+            }
+        }
         defer { bar.benchProbe = nil }
         let start = ContinuousClock.now
         let posted = DebugMouse.send(["action": .string("click"), "x": .number(point.x), "y": .number(point.y),
@@ -63,7 +79,7 @@ enum DebugOmnibarClickBench {
         if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
         let snapshot = bar.debugSnapshot
         return .object([
-            "engine": .string(bar.allowsChromiumSchemes ? "chromium" : "webkit"),
+            "engine": .string(engine),
             "posted": posted,
             "app_active": .bool(NSApp.isActive),
             "key_window_before": .string(keyBefore),
