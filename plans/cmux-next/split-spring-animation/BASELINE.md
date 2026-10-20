@@ -41,11 +41,49 @@ gets one target, on the `exit` spring (0.24 s, critically damped).
 with the reply's sizing at frame 12 (100 ms). Widths in points of p1, p2, p3 (the new pane), on
 the red commit (the old behavior):
 
-FRAMES_BEFORE
+| frame | ms | p1 | p2 | p3 |
+|---|---|---|---|---|
+| 0 | 0 | 600.0 | 599.0 | 0.0 |
+| 1 | 8 | 600.0 | 584.5 | 14.5 |
+| 3 | 25 | 600.0 | 514.5 | 84.2 |
+| 6 | 50 | 600.0 | 413.3 | 185.1 |
+| 9 | 75 | 600.0 | 352.7 | 245.5 |
+| 12 | 100 | 600.0 | 322.6 | 275.5 |
+| 13 | 108 | 590.3 | 321.6 | 286.1 |
+| 14 | 117 | 569.0 | 327.8 | 301.2 |
+| 16 | 133 | 518.6 | 347.1 | 332.3 |
+| 18 | 150 | 476.2 | 365.0 | 356.8 |
+| 21 | 175 | 435.8 | 382.7 | 379.5 |
+| 24 | 200 | 415.7 | 391.8 | 390.5 |
+| 30 | 250 | 402.7 | 397.7 | 397.5 |
+| 36 | 300 | 400.4 | 398.8 | 398.8 |
+| 43 | 358 | 400.0 | 399.0 | 399.0 |
+
+p1 stands still for 100 ms, then starts from rest; p2 shrinks to 322.6 and grows back to 399 (a reversal); rest at frame 43 (358 ms).
 
 After the fix (same test, green commit):
 
-FRAMES_AFTER
+| frame | ms | p1 | p2 | p3 |
+|---|---|---|---|---|
+| 0 | 0 | 600.0 | 599.0 | 0.0 |
+| 1 | 8 | 596.9 | 595.9 | 6.2 |
+| 3 | 25 | 577.8 | 576.8 | 44.3 |
+| 6 | 50 | 536.6 | 535.6 | 126.4 |
+| 9 | 75 | 496.7 | 495.7 | 206.1 |
+| 12 | 100 | 464.7 | 463.7 | 270.0 |
+| 13 | 108 | 456.0 | 455.0 | 287.3 |
+| 14 | 117 | 448.3 | 447.3 | 302.7 |
+| 16 | 133 | 435.4 | 434.4 | 328.3 |
+| 18 | 150 | 425.6 | 424.6 | 347.9 |
+| 21 | 175 | 415.4 | 414.4 | 368.4 |
+| 24 | 200 | 408.9 | 407.9 | 381.2 |
+| 30 | 250 | 402.7 | 401.7 | 393.6 |
+| 36 | 300 | 400.7 | 399.7 | 397.6 |
+| 46 | 383 | 400.0 | 399.0 | 399.0 |
+
+Every pane moves from frame 1; p1 and p2 only shrink and p3 only grows (no reversal); the
+reply at frame 12 changes no target; the three are at rest together by frame 46 (383 ms). Fleet run:
+the green commit's `SplitSpringMotionTests` shard, 2026-10-20.
 
 ## Content and PTY
 
