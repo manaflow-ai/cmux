@@ -1,6 +1,6 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
@@ -441,6 +441,11 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  /** Message request trust (home-routes.ts): the domain of this user's verified email, or null. Never the address itself. */
+  async homeVerifiedEmailDomain(entity: string): Promise<string | null> {
+    const u = this.existing()?.currentState.user
+    return u && u.id === entity && u.email_verified ? invites.emailDomain(u.email) : null
+  }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {

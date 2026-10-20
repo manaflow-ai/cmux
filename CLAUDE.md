@@ -39,13 +39,8 @@ When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
 pre-push hook runs the fixer and stops so changed files can be reviewed,
 staged, and committed. CI keeps the non-mutating lint as the backstop.
 
-Claude Code and Codex also have repo-local post-edit hooks in
-`.claude/settings.json` and `.codex/hooks.json`. They pass only edited
-`Packages/**/*.swift` files to `scripts/ci/lint-swift-post-edit.sh`, which runs
-the same fixer without blocking the edit. A clean scoped check is silent; a
-repair is printed, and a fixer failure is an advisory warning. The hook is
-best-effort so an unavailable Python interpreter or an incomplete edit never
-turns an agent edit into a failed tool call.
+Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
+run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 
 ## Area instructions
 
@@ -84,16 +79,21 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
   A bug-fix PR body names that command, its failure on the base and its pass on the head,
   then an `### Observed / Not run` section: what you ran and saw, then what you only read
-  or didn't run. `gh-merge-green` warns when a fix PR lacks it; it does not block.
+  or didn't run.
 - Check executed tests on the current SHA; green skipped jobs do not establish coverage.
-  Ordinary PRs use the normal fast, path-routed coverage by default. Add `full-ci` only for a
-  user-requested or agreed broad validation plan, naming the extra lanes and why
-  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never add it merely for a fresh
-  rerun, queue movement, cache warming, or extra confidence.
+  Add `full-ci` only for an agreed broad validation plan, naming the extra lanes and why
+  ([CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)); never for a rerun or extra confidence.
 - Keep branches current locally with `scripts/merge-main.sh`; follow
   [the merge-main guide](docs/ci/merge-main.md) and never force-push over its merge.
+- `gh pr merge` saying "base branch policy prohibits the merge" means the token lacks the `workflow`
+  scope or GitHub timed out, not a rule: run `gh auth refresh -h github.com -s workflow`, or merge with
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge -f merge_method=squash -f sha=SHA`, which names the cause. Never `--admin`.
 - A first implementation pass ends with passed scoped verification and an open PR;
   do not watch CI or run speculative reviews by default.
+- Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
+  `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
+- Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
+  Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - Every `feat-cmux-next` PR gets a `risk:low|medium|high` label from its paths, and the
   `risk evidence` check stays red until the description has that tier's evidence
   ([risk tiers](docs/ci/risk-tiers.md)). Low: no red of its own (green CI into main). Medium (UI): a screenshot under
@@ -115,6 +115,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   `ready-to-land` label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
+- A red on every PR is a base red: fix it first in its own PR, which lands at once. Two fixes that
+  are each red on the other's red get combined into one PR. A base lint red also skips the tests
+  after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
   defect (fix it), a base finding (the same check red at the base tip or on several unrelated PRs
   at once: link it in a PR comment; it does not block), a wrapper such as `Web status` (follow its root check), or a

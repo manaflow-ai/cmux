@@ -2868,7 +2868,7 @@
       "type" : "string"
     },
     "sidebar.nowPlaying.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
       "title" : "Show Now Playing",
       "type" : "boolean"
