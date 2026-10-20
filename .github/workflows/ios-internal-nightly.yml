@@ -212,7 +212,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/notes"
           python3 -I scripts/ci/ios_internal_notes.py notes --sha "$SHA" --base "$BASE" --asc-ref "$ASC_REF" \
             --out "$RUNNER_TEMP/notes/what-to-test.txt"
-          { echo '```'; cat "$RUNNER_TEMP/notes/what-to-test.txt"; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          sed 's/^/    /' "$RUNNER_TEMP/notes/what-to-test.txt" >> "$GITHUB_STEP_SUMMARY"  # indented: a fence in a PR line cannot break out
 
       - name: Hand the note to the signer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

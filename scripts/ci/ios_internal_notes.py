@@ -89,7 +89,7 @@ CATEGORY_LINE = re.compile(
     r"^(?:\*\*|__)?\s*(?P<cat>[A-Za-z]+)\s*(?:\*\*|__)?\s*(?::|\s[-–—]\s?)\s*(?:\*\*|__)?\s*(?P<rest>.*)$")
 THEMATIC_BREAK = re.compile(r"(?:-\s*){3,}|(?:\*\s*){3,}|(?:_\s*){3,}")
 FOOTER = re.compile(r"generated with \[?claude|^co-authored-by:|^signed-off-by:", re.I)
-NONE_LINE = re.compile(r"^(?:none|n/?a|no user[- ]visible changes?)\b", re.I)
+NONE_LINE = re.compile(r"^(?:none|n/?a|no user[- ]visible changes?)\s*(?:[-\u2013\u2014:,]\s*.*|\(.*\))?\.?$", re.I)
 
 
 def _clean(text: str) -> str:
@@ -132,8 +132,10 @@ def parse_changelog(body: str | None) -> list[Entry] | None:
     if start is None:
         return None
     entries: list[Entry] = []
-    current: str | None = None
+    current: str | None = None  # from a category heading or a bare "Fixed:" line
+    last: str | None = None  # the last inline category: a plain bullet after "Fixed: A" is a fix too
     saw_text = False
+    in_details = False
     in_fence = False
     for line in lines[start:]:
         stripped = line.strip()
@@ -151,12 +153,18 @@ def parse_changelog(body: str | None) -> list[Entry] | None:
             break
         if THEMATIC_BREAK.fullmatch(stripped) or FOOTER.search(stripped):
             break  # what follows is a footer (a bot badge, "Generated with ...", trailers)
+        if re.match(r"(?i)<details\b", stripped):
+            in_details = True
+        if in_details:
+            in_details = not re.search(r"(?i)</details>", stripped)
+            continue  # collapsed detail is for reviewers
         if stripped.startswith("<"):
             continue  # HTML: images, badges
         text = BULLET.sub("", stripped).strip()
         if not text:
             continue
         first, saw_text = not saw_text, True
+        bulleted = text != stripped
         plain = _clean(text)
         if NONE_LINE.match(plain.strip(" .")):
             continue
@@ -169,8 +177,9 @@ def parse_changelog(body: str | None) -> list[Entry] | None:
             if NONE_LINE.match(rest.strip(" .")):
                 continue
             entries.append(Entry(_category(m.group("cat")), rest))
-        elif current or first:
-            entries.append(Entry(current or "Changed", plain))
+            last = _category(m.group("cat"))
+        elif current or first or bulleted:
+            entries.append(Entry(current or last or "Changed", plain))
         # else: prose after the release lines (a note to reviewers), not a line for testers
     if not saw_text:
         return None
@@ -255,7 +264,8 @@ def format_note(lead: str, intro: str | None, groups: dict[str, list[str]], limi
         n -= 1
     text = render(n)
     if ui_len(text) > limit:  # the lead and intro alone are over the limit (never in practice)
-        text = text[:limit]
+        while text and ui_len(text) > limit:
+            text = text[:-1]
     return text
 
 
@@ -388,7 +398,7 @@ def app_version(repo: str, sha: str) -> str | None:
 
 def app_commits(repo: str, rev_range: list[str], prefixes: tuple[str, ...], limit: int | None = None) -> list[dict]:
     """Non-merge commits (newest first) that change the app's paths, with the app files each changed."""
-    args = ["log", "--no-merges", "--format=%x1e%H%x1f%s", "--name-only"]
+    args = ["log", "--no-merges", "--no-renames", "--format=%x1e%H%x1f%s", "--name-only"]
     if limit:
         args.append(f"-n{limit}")
     out = _git(repo, *args, *rev_range, "--", *[p.rstrip("/") for p in prefixes])
@@ -414,8 +424,17 @@ BODY_FIELDS = "number title body"
 def _graphql(fields: list[str]) -> dict:
     owner, name = REPO.split("/")
     query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {" ".join(fields)} }} }}'
-    data = _gh(["graphql", "--input", "-"], stdin=json.dumps({"query": query}))
-    return (data.get("data") or {}).get("repository") or {}
+    # `gh api graphql` exits 1 when any field errors (a "(#N)" that names an issue, not a PR),
+    # but the other fields' data still comes back: keep it, and fail only with no data.
+    proc = subprocess.run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}),
+                          capture_output=True, text=True)
+    try:
+        data = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    except json.JSONDecodeError:
+        data = {}
+    if not data.get("data"):
+        raise subprocess.CalledProcessError(proc.returncode or 1, "gh api graphql", proc.stdout, proc.stderr)
+    return data["data"].get("repository") or {}
 
 
 def _batched(items: list, size: int, read) -> dict:
@@ -427,8 +446,10 @@ def _batched(items: list, size: int, read) -> dict:
         try:
             out.update(read(batch))
         except subprocess.CalledProcessError:
-            if len(batch) <= 1:
-                raise
+            if len(batch) <= 1:  # one item GitHub keeps refusing: it falls back alone, the rest keep their PRs
+                key = batch[0]["oid"] if isinstance(batch[0], dict) else batch[0]
+                out[key] = None
+                continue
             half = len(batch) // 2
             pending[:0] = [batch[:half], batch[half:]]
     return out
@@ -554,24 +575,23 @@ def cmd_asc_previous(app_id: str) -> int:
 
 def find_base(repo: str, sha: str, base: str | None, asc_ref: str | None) -> tuple[str | None, str]:
     """BASE and where it came from: the dispatch input, App Store Connect's newest build, or the last upload run."""
+    # A candidate equal to sha (a rebuild of an uploaded commit) gives no range: try the next source.
     resolved = resolve(repo, base)
-    if resolved:
+    if resolved and resolved != sha:
         return resolved, ""
     resolved = resolve(repo, asc_ref)
-    if resolved:
+    if resolved and resolved != sha:
         return resolved, "from App Store Connect"
     try:
         resolved = resolve(repo, pick_previous_run(builder_runs(), sha, os.environ.get("GITHUB_RUN_ID")))
     except (subprocess.CalledProcessError, json.JSONDecodeError, OSError):
         resolved = None
-    return (resolved, "from the last upload run") if resolved else (None, "")
+    return (resolved, "from the last upload run") if resolved and resolved != sha else (None, "")
 
 
 def cmd_notes(sha: str, base: str | None, asc_ref: str | None, repo: str, out: Path | None) -> int:
     sha = resolve(repo, sha) or sys.exit(f"notes: {sha} is not a commit here")
     base, source = find_base(repo, sha, base, asc_ref)
-    if base == sha:
-        base, source = None, ""
     prefixes = app_prefixes(repo, sha)
     if base:
         commits = app_commits(repo, [f"{base}..{sha}"], prefixes)

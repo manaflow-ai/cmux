@@ -102,6 +102,22 @@ class ParseChangelogTests(unittest.TestCase):
         self.assertEqual(notes.parse_changelog("## Changelog\nAdded: X\n\n---\nCo-Authored-By: someone\nmore prose"),
                          [E("Added", "X")])
 
+    def test_every_plain_bullet_is_a_line(self):
+        self.assertEqual(notes.parse_changelog(body("- Foo works\n- Bar works")),
+                         [E("Changed", "Foo works"), E("Changed", "Bar works")])
+        self.assertEqual(notes.parse_changelog(body("Fixed: A\n- B also")), [E("Fixed", "A"), E("Fixed", "B also")])
+
+    def test_a_line_that_starts_with_the_word_none_is_kept(self):
+        self.assertEqual(notes.parse_changelog(body("None of the tabs flicker now")),
+                         [E("Changed", "None of the tabs flicker now")])
+        self.assertEqual(notes.parse_changelog(body("Fixed: None of the tabs flicker now")),
+                         [E("Fixed", "None of the tabs flicker now")])
+        self.assertEqual(notes.parse_changelog(body("none - CI only")), [])
+
+    def test_collapsed_details_are_skipped(self):
+        text = "Added: Shown\n<details>\n<summary>more</summary>\n\nAdded: hidden\n</details>\n- Also shown"
+        self.assertEqual(notes.parse_changelog(body(text)), [E("Added", "Shown"), E("Added", "Also shown")])
+
     def test_crlf_bodies(self):
         self.assertEqual(notes.parse_changelog("## Changelog\r\n\r\nAdded: Dark icons\r\n"), [E("Added", "Dark icons")])
 
@@ -347,6 +363,26 @@ class GitRangeTests(unittest.TestCase):
         self.assertEqual(notes.find_base(self.repo, self.head, self.base, None), (self.base, ""))
         self.assertEqual(notes.find_base(self.repo, self.head, None, self.base[:12]), (self.base, "from App Store Connect"))
         self.assertEqual(notes.find_base(self.repo, self.head, "not-a-sha", self.base[:10]), (self.base, "from App Store Connect"))
+
+    def test_find_base_skips_a_candidate_equal_to_the_build(self):
+        notes_builder_runs, notes.builder_runs = notes.builder_runs, lambda: []
+        try:
+            self.assertEqual(notes.find_base(self.repo, self.head, self.head, self.base[:12]), (self.base, "from App Store Connect"))
+            self.assertEqual(notes.find_base(self.repo, self.head, None, self.head[:12]), (None, ""))
+        finally:
+            notes.builder_runs = notes_builder_runs
+
+
+class BatchTests(unittest.TestCase):
+    def test_a_refused_item_falls_back_alone(self):
+        def read(batch):
+            if any(c["oid"] == "bad" for c in batch):
+                raise subprocess.CalledProcessError(1, "gh")
+            return {c["oid"]: 1 for c in batch}
+        items = [{"oid": o} for o in ("a", "b", "bad", "c", "d")]
+        self.assertEqual(notes._batched(items, 4, read), {"a": 1, "b": 1, "bad": None, "c": 1, "d": 1})
+        self.assertEqual(notes._batched([7, 8], 2, lambda b: (_ for _ in ()).throw(subprocess.CalledProcessError(1, "gh"))),
+                         {7: None, 8: None})
 
 
 class WorkflowTests(unittest.TestCase):
