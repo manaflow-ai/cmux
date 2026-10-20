@@ -9,7 +9,9 @@ with one-click "record and send as product feedback".
 
 One `phone` surface that shows an iPhone screen in a pane tab, takes touch and
 keyboard input, takes screenshots, records clips, and is drivable from the
-palette, the `cmux phone ...` CLI and MCP. The same surface works with three
+palette, the `cmux phone ...` CLI and MCP. Opening the raw screen and taking a
+screenshot are person-only until automation has authenticated device-scoped
+identity. The same surface works with three
 backends; the user picks a device, not a backend.
 
 | Mode | Backend | Screen | Input | Screenshot | Record | Logs |
@@ -95,8 +97,9 @@ Actions (registered once in the action catalog, `cli: true`, palette-visible):
 `phone.input.swipe`, `phone.input.text`, `phone.openurl`, `phone.list`.
 CLI: `cmux phone open|boot|screenshot|record|stop|feedback|open-url|paste` (two words each; tap, swipe and type come with phase 2)
 maps 1:1 onto those actions (Rust CLI forwards to `action.run`). MCP: the same
-actions appear in the `phone` tool family through the action catalog, so agents
-drive the phone exactly like a person.
+actions appear in the `phone` tool family through the action catalog. Agents
+can list and control devices, but `phone open` and `phone screenshot` fail closed
+as person-only raw-pixel actions until callers have authenticated device scope.
 
 ## Phases
 

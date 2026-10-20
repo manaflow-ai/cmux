@@ -48,8 +48,9 @@ What was bad:
    splits, restore and reopen already work (no Rust change).
 2. One service, one action path. `PhoneService` is the only place that does
    anything to a phone. The tab, the palette, `cmux phone …` and the MCP
-   `app_phone_*` tools all call the same actions (`PhoneActionCatalog`), so an
-   agent drives a phone exactly as a person does.
+   `app_phone_*` tools all call the same actions (`PhoneActionCatalog`).
+   Raw-pixel open and screenshot actions are person-only until agents have
+   authenticated device scope.
 3. Use what the platform already gives. Xcode ships `simctl` and SimulatorKit;
    the Android SDK ships `adb` and `emulator`. cmux bundles no tools, no
    images, no runtimes.
@@ -137,6 +138,11 @@ All are `PhoneActionCatalog` actions, so each is a `cmux phone <verb>` CLI
 command and an `app_phone_<verb>` MCP tool. `--device` takes an id or a name;
 without it, the recorded phone, else the first booted simulator.
 
+`phone open` and `phone screenshot` are advertised for discovery but fail closed
+for CLI/MCP callers: opening starts a raw frame stream, and screenshots return raw
+pixels. A person can run both inside cmux; automation needs a future authenticated,
+device-scoped principal before either is re-enabled.
+
 | Verb | Does | Answers |
 |---|---|---|
 | `phone list` | every phone with capabilities | `devices` (JSON), `count`, `missing` (xcode, android-sdk) |
@@ -154,7 +160,8 @@ without it, the recorded phone, else the first booted simulator.
 | `phone logs` | log stream in a new terminal tab beside | |
 | `phone record` / `phone stop` / `phone feedback` | recordings and Send to Chief (phone.md) | |
 
-`pane new-simulator` (the existing pane-menu action) opens the phone tab.
+`pane new-simulator` (the existing pane-menu action) opens the phone tab for a
+person and is refused over CLI/MCP under the same raw-pixel policy as `phone open`.
 
 ## 7. Multiple devices
 

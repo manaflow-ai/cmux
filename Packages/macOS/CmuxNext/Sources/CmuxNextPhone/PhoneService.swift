@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+import CmuxNextCompat
 import Observation
 
 /// The app's one phone service: device list, input (logged into the running
@@ -135,18 +136,36 @@ public final class PhoneService {
         return try await backend.accessibilityTree(id)
     }
 
-    /// Saves a PNG of `id`'s screen to `file` (a new scratch file when nil) and returns its path.
+    /// Saves a PNG of `id`'s screen to a new `file` (a new scratch file when nil) and returns its path.
+    /// An explicit path's parent must exist; an existing final path is never replaced or followed.
     public func screenshot(_ id: PhoneDeviceID, to file: URL? = nil) async throws -> URL {
-        let target = file ?? scratch.appendingPathComponent("screenshot-\(UUID().uuidString.prefix(8)).png")
-        try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try await backend.screenshot(id, to: target)
-        return target
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        guard let file else {
+            let target = scratch.appendingPathComponent("screenshot-\(UUID().uuidString.prefix(8)).png")
+            try await backend.screenshot(id, to: target)
+            return target
+        }
+
+        // Device tools write by pathname and may replace it. Capture under our scratch directory,
+        // then publish through an exclusive descriptor-relative create in the person's directory.
+        let staged = scratch.appendingPathComponent("screenshot-staged-\(UUID().uuidString).png")
+        try await backend.screenshot(id, to: staged)
+        try await ExclusiveFileWriter().copy(from: staged, to: file)
+        // Do not unlink this pathname: another same-UID process can replace it while either await
+        // suspends, turning cleanup into deletion of a different file. The OS temporary directory
+        // owns staged-file lifecycle; correctness takes precedence over eager cleanup.
+        return file
     }
 
     /// The still frame a phone tab shows: one file per device, rewritten.
     public func frame(_ id: PhoneDeviceID) async throws -> URL {
         let safe = id.description.replacingOccurrences(of: ":", with: "-")
-        return try await screenshot(id, to: scratch.appendingPathComponent("frame-\(safe).png"))
+        let target = scratch.appendingPathComponent("frame-\(safe).png")
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        try await backend.screenshot(id, to: target)
+        return target
     }
 
     @discardableResult
