@@ -175,16 +175,42 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         for section in sections {
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
+            // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
+            // subgroups: a group under a collapsed or hidden one hides too, and with a filter a
+            // group shows while a group under it has a match (the path to the match).
+            var hiddenGroups = Set<GroupID>()
+            var pathToMatch = Set<GroupID>()
+            if filtering {
+                let parents = Dictionary(section.nodes.compactMap { node -> (GroupID, GroupID?)? in
+                    if case let .group(group) = node { (group.id, group.parent) } else { nil }
+                }, uniquingKeysWith: { first, _ in first })
+                for node in section.nodes {
+                    guard case let .group(group) = node, group.workspaces.contains(where: visible) else { continue }
+                    var parent = group.parent
+                    while let id = parent, pathToMatch.insert(id).inserted { parent = parents[id] ?? nil }
+                }
+            }
             for node in section.nodes {
                 switch node {
                 case let .workspace(ws):
                     if visible(ws) { nodes.append((node, [ws])) }
                 case let .group(group):
-                    if group.id == o.excludedGroup { continue }
+                    if let parent = group.parent, hiddenGroups.contains(parent) {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
+                    if group.id == o.excludedGroup {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
                     let children = group.workspaces.filter(visible)
                     // A group emptied by the drag keeps its header (it is a
                     // valid target); a group emptied by the filter hides.
-                    if filtering && children.isEmpty { continue }
+                    if filtering && children.isEmpty && !pathToMatch.contains(group.id) {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
+                    if group.isCollapsed && !filtering { hiddenGroups.insert(group.id) }
                     nodes.append((node, children))
                 case let .item(item):
                     // A link or app row matches no workspace filter.
@@ -206,7 +232,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            let flat = o.flattensMachines && section.machine != nil
+            // A remote group (remote-groups-DESIGN.md slice 4) is a section of its own in one list too.
+            let flat = o.flattensMachines && section.machine != nil && !section.isHostGroup
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -225,7 +252,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil
+            let showsHeader = !isDocSection && (section.machine == nil || section.isHostGroup
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
@@ -303,12 +330,16 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
-                    let header = SidebarRow(
+                    var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
                     )
+                    header.depth = group.depth
                     rows.append(header)
+                    // Every row appended below is this group's member: one level in from its header.
+                    let memberRowsStart = rows.count
+                    defer { for i in memberRowsStart..<rows.count { rows[i].depth = group.depth + 1 } }
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
                         // Keep the selected workspace as the one visible member

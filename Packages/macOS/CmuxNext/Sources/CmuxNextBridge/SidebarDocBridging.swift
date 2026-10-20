@@ -131,9 +131,18 @@ public final class SidebarDocSections {
         // A group of Pinned or a custom section is mapped with its machine's rows; the sidebar
         // model lists it in that section (`SidebarDocProjection.arrange`).
         flush()
-        for group in projection.bandGroups {
-            let members = group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
-            guard !members.isEmpty else { continue }
+        // A band group lists with this machine's rows when it or a group under it holds one of them.
+        let bandMembers = projection.bandGroups.map { group in
+            group.members.filter { $0.sessionID == session }.compactMap { byResource[$0.workspaceID] }
+        }
+        var shownBand = Set<String>()
+        for (group, members) in zip(projection.bandGroups, bandMembers) where !members.isEmpty {
+            var id: String? = group.id
+            while let current = id, shownBand.insert(current).inserted {
+                id = projection.bandGroups.first { $0.id == current }?.parent
+            }
+        }
+        for (group, members) in zip(projection.bandGroups, bandMembers) where shownBand.contains(group.id) {
             listed.formUnion(members.map(\.id))
             sections.append(CmuxNextDaemon.SidebarSection(group: model(group), workspaces: members))
         }
@@ -148,7 +157,8 @@ public final class SidebarDocSections {
     private func model(_ group: SidebarDocProjection.Group) -> WorkspaceGroupModel {
         let snapshot = WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: group.id), name: group.name, color: group.color,
                                               collapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
-                                              icon: group.icon, pinned: group.pinned)
+                                              icon: group.icon, pinned: group.pinned,
+                                              parent: group.parent.map(WorkspaceGroupID.init(rawValue:)), depth: group.depth)
         if let model = groups[group.id] {
             model.apply(document: snapshot)
             return model
