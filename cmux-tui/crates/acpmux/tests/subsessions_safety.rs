@@ -576,3 +576,32 @@ async fn a_queued_message_is_checked_again_when_it_would_run() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
+
+#[tokio::test]
+async fn a_prompt_preview_is_masked_before_it_is_cut() {
+    let s = Scratch::new("preview");
+    let own = s.dir("own");
+    let hub = hub(&s);
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&own, "fake").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child =
+        p.ok(START, json!({"prompt": "echo c"})).await["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    // A key that straddles the 200-character preview cut: its first 14
+    // characters fall before the cut.
+    let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+    let lead = "gate: ".len() + s.root.to_string_lossy().len() + 2;
+    let pad = s.dir(&"p".repeat(186 - lead));
+    let gate = pad.join(&key);
+    assert!(std::process::Command::new("mkfifo").arg(&gate).status().unwrap().success());
+    let text = format!("gate: {}", gate.display());
+    assert_eq!(text.find(&key), Some(186));
+    p.ok(SEND, json!({"sessionId": child, "text": text})).await;
+    let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
+    let list = app.ok("_acpmux/sessions", json!({})).await;
+    tokio::task::spawn_blocking(move || std::fs::write(gate, "go")).await.unwrap().unwrap();
+    assert!(got["turn"]["prompt"].is_string(), "{got}");
+    assert!(!got.to_string().contains(&key[..10]), "{got}");
+    assert!(!list.to_string().contains(&key[..10]), "{list}");
+}
