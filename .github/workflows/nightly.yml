@@ -1921,6 +1921,18 @@ jobs:
         run: |
           set -euo pipefail
           chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
+          # A trusted NEXT worker keeps Chief binaries keyed by their inputs
+          # (optchat-chief-input-key.py: the path-dependency closure, the
+          # regenerated inspector page, toolchain, SDK and cargo settings), so
+          # a push that changes none of them skips cargo. The step took 90-114 s
+          # on every build (runs 39349353760 to 39374887542); about 6 in 10
+          # consecutive promotions on 2026-10-19/20 left these inputs unchanged.
+          case "${RUNNER_NAME:-}" in
+            *-glaeda|*-glaeda-[0-9]*)
+              export CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1
+              export CMUX_NEXT_OPTCHAT_CHIEF_CACHE="$HOME/Library/Caches/cmux-nightly-next/$RUNNER_NAME/caches/optchat-chief"
+              ;;
+          esac
           CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$NIGHTLY_COMPILE_ARCHS" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
           echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
           echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"

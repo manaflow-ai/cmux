@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+"""Print a key for everything an optchat-chief release build reads.
+
+build-optchat-chief.sh keys its cache by commit, so a nightly-next build
+rebuilt the Chief on every push (about 90 s of the warm build slot) although
+most pushes change none of its sources. With CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1
+it keys the cache by this instead. The key covers:
+
+- every local crate the binary links (the path-dependency closure of
+  Native/OptChat/optchat-chief, through `workspace = true` entries too), as
+  its committed tree plus the content of any file that differs from it
+  (build-web-bundles.sh regenerates the tracked inspector page in place);
+- the Cargo.toml of each workspace those crates inherit from, and every
+  .cargo/config(.toml) cargo reads from the crate or those workspaces;
+- the build scripts, the Rust toolchain, the architectures, the Xcode
+  developer dir and SDK, and the environment cargo or build.rs read.
+
+Dev-dependencies are left out: a release build of the binary does not link
+them. Exits 3, printing nothing, when the inputs cannot be read (no git, an
+unparsable manifest); the caller then keys by commit as before.
+
+Usage: optchat-chief-input-key.py --archs "arm64 x86_64" --toolchain CHANNEL
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+from pathlib import Path
+import posixpath
+import subprocess
+import sys
+import tomllib
+
+ROOT = Path(__file__).resolve().parents[2]
+CRATE = "Native/OptChat/optchat-chief"
+SCRIPTS = ("scripts/cmux-next/build-optchat-chief.sh", "scripts/cmux-next/optchat-chief-input-key.py")
+# Variables cargo, rustc or build.rs read that change the binary. The build
+# script sets OPTCHAT_BUILD_COMMIT and OPTCHAT_REQUIRE_INSPECTOR_PAGE itself.
+ENV_EXACT = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC", "RUSTC_WRAPPER", "MACOSX_DEPLOYMENT_TARGET", "SDKROOT", "DEVELOPER_DIR")
+ENV_PREFIXES = ("CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_AARCH64_APPLE_DARWIN_", "CARGO_TARGET_X86_64_APPLE_DARWIN_")
+ENV_SKIP_PREFIX = ("OPTCHAT_BUILD_COMMIT", "OPTCHAT_REQUIRE_INSPECTOR_PAGE")
+
+
+class InputError(Exception):
+    pass
+
+
+def git(*args: str) -> str:
+    try:
+        return subprocess.run(["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise InputError(f"git {' '.join(args)}: {error}") from None
+
+
+def manifest(directory: str) -> dict:
+    path = ROOT / directory / "Cargo.toml"
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise InputError(f"{path}: {error}") from None
+
+
+def workspace_root(directory: str) -> str | None:
+    """The nearest strict ancestor whose Cargo.toml declares [workspace]."""
+    parts = directory.split("/")
+    for end in range(len(parts) - 1, 0, -1):
+        candidate = "/".join(parts[:end])
+        path = ROOT / candidate / "Cargo.toml"
+        if path.is_file() and "workspace" in manifest(candidate):
+            return candidate
+    return None
+
+
+def dependency_tables(data: dict) -> list[dict]:
+    tables = [data.get("dependencies", {}), data.get("build-dependencies", {})]
+    for target in data.get("target", {}).values():
+        tables += [target.get("dependencies", {}), target.get("build-dependencies", {})]
+    return tables
+
+
+def path_closure() -> tuple[list[str], list[str]]:
+    """Local crates the binary builds from, and the workspace roots they inherit from."""
+    crates: set[str] = set()
+    workspaces: set[str] = set()
+    stack = [CRATE]
+    while stack:
+        directory = stack.pop()
+        if directory in crates:
+            continue
+        crates.add(directory)
+        data = manifest(directory)
+        root = None if "workspace" in data else workspace_root(directory)
+        inherited: dict = {}
+        if root is not None:
+            workspaces.add(root)
+            inherited = manifest(root).get("workspace", {}).get("dependencies", {})
+        for table in dependency_tables(data):
+            for name, spec in table.items():
+                if not isinstance(spec, dict):
+                    continue
+                base, path = directory, spec.get("path")
+                if path is None and spec.get("workspace") is True and root is not None:
+                    entry = inherited.get(spec.get("package", name), inherited.get(name))
+                    if isinstance(entry, dict):
+                        base, path = root, entry.get("path")
+                if path is not None:
+                    resolved = posixpath.normpath(posixpath.join(base, path))
+                    if resolved.startswith("../") or not (ROOT / resolved / "Cargo.toml").is_file():
+                        raise InputError(f"{directory}: path dependency {name} -> {resolved} is not a crate in this checkout")
+                    stack.append(resolved)
+    return sorted(crates), sorted(workspaces)
+
+
+def cargo_configs(directories: list[str]) -> list[str]:
+    """Every .cargo/config(.toml) cargo reads from these directories upward."""
+    found: set[str] = set()
+    for directory in directories:
+        parts = directory.split("/")
+        for end in range(len(parts), -1, -1):
+            for name in ("config", "config.toml"):
+                candidate = posixpath.join(*parts[:end], ".cargo", name) if end else posixpath.join(".cargo", name)
+                if (ROOT / candidate).is_file():
+                    found.add(candidate)
+    return sorted(found)
+
+
+def file_digest(relative: str) -> str:
+    path = ROOT / relative
+    if not path.exists():
+        return "absent"
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def tree_state(directory: str) -> list[str]:
+    """The committed tree, plus every file the working tree changed under it."""
+    lines = [f"tree {directory} {git('rev-parse', f'HEAD:{directory}').strip()}"]
+    # -z keeps odd file names intact; ignored files (target/) are not inputs.
+    status = git("status", "--porcelain=v1", "-z", "--untracked-files=all", "--", directory)
+    entries = status.split("\0")
+    index = 0
+    changed: set[str] = set()
+    while index < len(entries):
+        entry = entries[index]
+        index += 1
+        if not entry:
+            continue
+        code, path = entry[:2], entry[3:]
+        if code[0] in "RC":
+            index += 1  # the rename's source follows; its content is gone from the tree
+        changed.add(path)
+    for path in sorted(changed):
+        lines.append(f"changed {path} {file_digest(path)}")
+    return lines
+
+
+def sdk_identity() -> str:
+    try:
+        return subprocess.run(["xcrun", "--sdk", "macosx", "--show-sdk-build-version"], check=True,
+                              capture_output=True, text=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "none"
+
+
+def key(archs: str, toolchain: str) -> str:
+    crates, workspaces = path_closure()
+    lines = ["optchat-chief-inputs v1", f"archs {archs}", f"toolchain {toolchain}", f"sdk {sdk_identity()}"]
+    for directory in crates:
+        lines += tree_state(directory)
+    for root in workspaces:
+        lines.append(f"workspace {root}/Cargo.toml {file_digest(f'{root}/Cargo.toml')}")
+    for config in cargo_configs(crates + workspaces):
+        lines.append(f"cargo-config {config} {file_digest(config)}")
+    cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+    for name in ("config", "config.toml"):
+        path = cargo_home / name
+        if path.is_file():
+            lines.append(f"cargo-home-config {name} {hashlib.sha256(path.read_bytes()).hexdigest()}")
+    for script in SCRIPTS:
+        lines.append(f"script {script} {file_digest(script)}")
+    for name in sorted(os.environ):
+        if name.startswith(ENV_SKIP_PREFIX):
+            continue
+        if name in ENV_EXACT or name.startswith(ENV_PREFIXES):
+            lines.append(f"env {name}={os.environ[name]}")
+    if os.environ.get("CMUX_NEXT_OPTCHAT_CHIEF_KEY_DEBUG") == "1":
+        print("\n".join(lines), file=sys.stderr)
+    return hashlib.sha256(("\n".join(lines) + "\n").encode()).hexdigest()
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--archs", required=True)
+    parser.add_argument("--toolchain", required=True)
+    args = parser.parse_args(argv)
+    try:
+        print(key(args.archs, args.toolchain))
+    except InputError as error:
+        print(f"optchat-chief-input-key: {error}; keying by commit", file=sys.stderr)
+        return 3
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
