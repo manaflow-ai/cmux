@@ -117,7 +117,8 @@ const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: str
       .then(({ closed }) => {
         if (closed) console.log(JSON.stringify({ msg: "team hub retired", closed }))
       })
-      .catch(() => retired.delete(name))
+      // Logged, not retried on every request (another isolate tries again on its first use of the team).
+      .catch((e) => console.log(JSON.stringify({ msg: "team hub retire failed", error: String(e) })))
   )
 }
 /**

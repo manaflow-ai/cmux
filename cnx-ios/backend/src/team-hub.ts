@@ -112,6 +112,11 @@ export class TeamHub extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.sql = ctx.storage.sql
+    this.schema()
+  }
+
+  /** The tables (again after `retireTeamHub` deleted them: the constructor does not rerun while the object stays in memory). */
+  private schema() {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS macs (device_id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_user_id TEXT NOT NULL, last_seen_at INTEGER)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL)`)
@@ -123,6 +128,8 @@ export class TeamHub extends DurableObject<Env> {
     addColumn("macs", "owner_project_id")
     addColumn("macs", "team_id")
     addColumn("devices", "team_id")
+    // Devices deleted here, so a database read that raced the deletion cannot seed them back.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS forgotten (device_id TEXT PRIMARY KEY)`)
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
@@ -147,6 +154,7 @@ export class TeamHub extends DurableObject<Env> {
    */
   async register(d: HubDevice): Promise<void> {
     this.bind(d.ownerKey)
+    this.sql.exec(`DELETE FROM forgotten WHERE device_id = ?`, d.deviceId)
     const prevTeam = this.sql.exec<{ team_id: string | null }>(`SELECT team_id FROM devices WHERE device_id = ?`, d.deviceId).toArray()[0]?.team_id ?? null
     const prevMac = this.macRow(d.deviceId)
     const oldTeam = prevTeam ?? prevMac?.team_id ?? null
@@ -190,19 +198,23 @@ export class TeamHub extends DurableObject<Env> {
 
   /**
    * The owner's Macs from the database, once per hub: a new hub (every user's first after the move from team
-   * hubs) would otherwise list no offline Mac in `hello` until each registers again. Rows the hub already has win.
+   * hubs) would otherwise list no offline Mac in `hello` until each registers again. Rows the hub already has
+   * win, and a device deleted here since (the database read may have raced the deletion) is not brought back.
    */
   async seed(ownerKey: string, owner: { userId: string; projectId: string }, macs: ReadonlyArray<SeedMac>): Promise<void> {
     this.bind(ownerKey)
+    if (this.seeded()) return
     for (const m of macs)
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(device_id) DO NOTHING`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at)
+         SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM forgotten WHERE device_id = ?) ON CONFLICT(device_id) DO NOTHING`,
         m.deviceId,
         m.name,
         owner.userId,
         owner.projectId,
         m.teamId,
-        m.lastSeenAt ? Date.parse(m.lastSeenAt) : null
+        m.lastSeenAt ? Date.parse(m.lastSeenAt) : null,
+        m.deviceId
       )
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('seeded', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
   }
@@ -214,6 +226,7 @@ export class TeamHub extends DurableObject<Env> {
   async forgetDevice(ownerKey: string, deviceId: string): Promise<void> {
     this.bind(ownerKey)
     this.sql.exec(`DELETE FROM devices WHERE device_id = ?`, deviceId)
+    this.sql.exec(`INSERT INTO forgotten (device_id) VALUES (?) ON CONFLICT(device_id) DO NOTHING`, deviceId)
     const mac = this.macRow(deviceId)
     if (mac) {
       this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
@@ -244,7 +257,7 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta"]) this.sql.exec(`DELETE FROM ${t}`)
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 
@@ -252,12 +265,15 @@ export class TeamHub extends DurableObject<Env> {
    * Migration from team hubs (PROTOCOL.md 0.10.0): called on a hub by its old name (the team id). Hibernated
    * sockets survive a deploy, so a Mac could stay in its team hub while its phone reconnects into the user hub
    * and finds it offline. This closes every socket here with 1012 (clients reconnect, now into their user hub)
-   * and deletes the stored rows, which mixed the team's users. A user hub (it has an owner) is never touched.
+   * and deletes the stored rows, which mixed the team's users. A user hub is never touched: only one whose own
+   * id is the id of `user:<its owner>` counts as one (an older Worker could have written an owner into a team hub).
    */
   async retireTeamHub(): Promise<{ closed: number }> {
-    if (this.sql.exec(`SELECT 1 FROM meta WHERE key = 'owner'`).toArray().length > 0) return { closed: 0 }
+    const owner = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
+    if (owner !== undefined && this.isUserHubOf(owner)) return { closed: 0 }
     let closed = 0
     for (const ws of this.ctx.getWebSockets()) {
+      if (this.attach(ws)?.replaced) continue
       this.setAttach(ws, { ...this.attach(ws), replaced: true })
       try {
         ws.close(1012, "moved to the user hub")
@@ -266,7 +282,9 @@ export class TeamHub extends DurableObject<Env> {
     }
     this.live.clear()
     this.sessions.clear()
+    this.ownerKey = undefined
     await this.ctx.storage.deleteAll()
+    this.schema()
     return { closed }
   }
 
@@ -409,8 +427,17 @@ export class TeamHub extends DurableObject<Env> {
     return primaryProject(this.env).id
   }
 
-  /** Binds this hub to its owner on first use; any other owner afterwards is a routing bug and is refused. */
-  private bind(ownerKey: string) {
+  /** Whether this object is the hub named `user:<ownerKey>` (its id derives from its name). */
+  private isUserHubOf(ownerKey: string): boolean {
+    return this.env.TEAM_HUB.idFromName(userHubName(ownerKey)).equals(this.ctx.id)
+  }
+
+  /**
+   * Binds this hub to its owner: the key must name this very object (`user:<ownerKey>`), so neither a routing bug
+   * nor an older Worker calling a team hub can bind one, and once bound any other owner is refused.
+   */
+  private bind(ownerKey: unknown) {
+    if (typeof ownerKey !== "string" || !ownerKey || !this.isUserHubOf(ownerKey)) throw new WrongHubError("not this user's hub")
     if (this.ownerKey === undefined)
       this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
     if (this.ownerKey === null) {

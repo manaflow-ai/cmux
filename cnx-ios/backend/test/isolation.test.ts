@@ -277,7 +277,7 @@ describe("migration from team hubs", () => {
     expect((await call("GET", "/v1/teams/team-legacy/macs", uma)).json).toEqual({ macs: [] })
     const tables = async () =>
       runInDurableObject(legacy, (_hub, state) => ({
-        macs: state.storage.sql.exec(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'macs'`).one().n as number,
+        macs: state.storage.sql.exec(`SELECT count(*) AS n FROM macs`).one().n as number,
         open: state.getWebSockets().filter((w) => !(w.deserializeAttachment() as { replaced?: boolean }).replaced).length
       }))
     const deadline = Date.now() + 3000
@@ -287,6 +287,55 @@ describe("migration from team hubs", () => {
       t = await tables()
     }
     expect(t).toEqual({ macs: 0, open: 0 })
+  })
+
+  it("retiring twice on one live object works, and a team hub an older Worker bound to an owner is still retired", async () => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const legacy = ns.get(ns.idFromName("team-legacy-2"))
+    const park = () =>
+      runInDurableObject(legacy, (_hub, state) => {
+        const pair = new WebSocketPair()
+        state.acceptWebSocket(pair[1], ["22222222-2222-4222-8222-222222222222"])
+        pair[1].serializeAttachment({ userId: "vic", projectId: DEV_PROJECT, deviceId: "22222222-2222-4222-8222-222222222222", kind: "mac", name: "Vic parked" })
+        // What the previous Worker's slow path could leave during the deploy overlap: an owner in a team hub.
+        state.storage.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', 'vic') ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
+        state.storage.sql.exec(`INSERT INTO macs (device_id, name, owner_user_id) VALUES ('22222222-2222-4222-8222-222222222222', 'Vic parked', 'vic') ON CONFLICT(device_id) DO NOTHING`)
+      })
+    await park()
+    expect(await legacy.retireTeamHub()).toEqual({ closed: 1 })
+    // Same live object again: the tables were recreated, so this neither throws nor skips a newly parked socket.
+    await park()
+    expect(await legacy.retireTeamHub()).toEqual({ closed: 1 })
+    expect(await legacy.retireTeamHub()).toEqual({ closed: 0 })
+  })
+
+  it("a stale database read cannot seed back a Mac deleted from the hub", async () => {
+    const yan = await token("yan")
+    const mac = await register(yan, "mac", "personal-yan", "Gone")
+    expect((await call("DELETE", `/v1/devices/${mac}`, yan)).status).toBe(200)
+    // The slow path read the database before the deletion and seeds afterwards.
+    await hubOf("yan").seed("yan", { userId: "yan", projectId: DEV_PROJECT }, [{ deviceId: mac, name: "Gone", teamId: "personal-yan", lastSeenAt: null }])
+    expect((await hubOf("yan").macs("yan")).map((m) => m.deviceId)).not.toContain(mac)
+    // Registering it again is a new registration: it is listed.
+    expect((await call("POST", "/v1/devices", yan, { deviceId: mac, kind: "mac", name: "Back", teamId: "personal-yan" })).status).toBe(200)
+    expect((await hubOf("yan").macs("yan")).map((m) => m.deviceId)).toContain(mac)
+  })
+
+  it("a device id deleted by one user and registered by another is admitted only for the new owner", async () => {
+    const uma = await token("uma")
+    const vic = await token("vic")
+    const id = await register(uma, "phone", TEAM, "Uma old phone")
+    const first = await connect(uma, TEAM, id)
+    await hello(first)
+    expect((await call("DELETE", `/v1/devices/${id}`, uma)).status).toBe(200)
+    await first.until((s) => s.closed)
+    expect((await call("POST", "/v1/devices", vic, { deviceId: id, kind: "phone", name: "Vic phone", teamId: TEAM })).status).toBe(200)
+    const asUma = await worker.fetch(`https://api.test/v1/teams/${TEAM}/signal?deviceId=${id}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${uma}` } })
+    expect(asUma.status).toBe(403)
+    const v = await connect(vic, TEAM, id)
+    await hello(v)
+    expect(v.frames[0].macs.every((m: any) => m.ownerUserId === "vic")).toBe(true)
+    v.ws.close()
   })
 
   it("never retires a user hub", async () => {
