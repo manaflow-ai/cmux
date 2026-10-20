@@ -3342,9 +3342,12 @@ jobs:
       # A console that draws no frames skips the drag lag and theme blend checks
       # with a warning; lanes run those on the GUI host with --frames required.
       # The step does not fail this job: the perf-gate job below reads its outcome.
+      # It runs after a red launch-time budget (timing, host-dependent) too, so
+      # that red cannot hide a counter regression; CMUX_NEXT_DERIVED_DATA is set
+      # only once the scheme compile built the app.
       - name: Perf counter gate
         id: perf-gate
-        if: inputs.dev_daily != true
+        if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
         # The perf-gate job reports the result.
         continue-on-error: true
         timeout-minutes: 15
@@ -3409,8 +3412,10 @@ jobs:
 
   # The perf counter gate (I8, cx-8w027.7) runs in cmux-scheme-compile on the
   # app that job built (one compile, one launch). This job is its check: red
-  # when a counter budget broke. A scheme compile that failed before the gate
-  # ran is that job's own red, so this job passes then.
+  # when a counter budget broke. The gate step runs whenever the app was built,
+  # even after a red launch-time budget, so it is skipped only when the scheme
+  # compile itself failed; that is the compile job's own red, so this job
+  # passes then.
   perf-gate:
     needs: [cmux-scheme-compile]
     if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
