@@ -9,6 +9,10 @@ struct Conversation: Codable, Equatable {
     var title: String
     var participants: [Participant]
     var messages: [Message]
+    /// cmux: a group conversation (CmuxHomeCore `ConversationSummary.kind(me:) == .group`): the transcript
+    /// names the first bubble of each run of another person's messages and draws their avatar beside the
+    /// last (RowBuilder). nil or false: a direct or Chief chat, no names or avatars.
+    var cmuxGroup: Bool? = nil
 }
 
 struct Participant: Codable, Equatable {
