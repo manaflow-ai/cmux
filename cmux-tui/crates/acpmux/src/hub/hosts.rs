@@ -860,7 +860,11 @@ impl Hub {
             session_id: session.id.clone(),
             program: std_cmd.get_program().to_string_lossy().into_owned(),
             args: std_cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect(),
-            env: crate::agent::command_env(&cmd),
+            env: if meta.remote_origin {
+                crate::agent::command_env_cleared(&cmd)
+            } else {
+                crate::agent::command_env(&cmd)
+            },
             cwd: meta.cwd.clone(),
             codex_bridge,
             translator,

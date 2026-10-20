@@ -13,9 +13,8 @@ pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
 /// Recorded with every remote durable host. A changed or missing id means
 /// that host predates this process-authority boundary and is not adopted.
 pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v2";
-/// `Command` exposes its env edits but not `env_clear`; this harmless internal
-/// value records that clear for the agent-host environment projection
-/// (`command_env`). The projection consumes it instead of forwarding it.
+/// Reserved legacy projection marker. A profile cannot control internal
+/// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
 
 /// The harness command line and environment, as acpmux runs it: the login
@@ -152,11 +151,6 @@ pub(crate) fn harness_command(
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
         .envs(env.iter());
-    if remote_environment {
-        // Keep the hosted projection's env-clear proof after every profile
-        // entry, even if an old config used the internal marker's name.
-        cmd.env(REMOTE_ENV_CLEARED_KEY, "1");
-    }
     cmd
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
@@ -173,13 +167,13 @@ pub(crate) fn harness_command(
     cmd.process_group(0);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
-    crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
+    crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
     // A Chief turn or compactor (fresh process per turn): one sticky
     // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
     let claude_code = profile.kind == crate::config::HarnessKind::ClaudeStdio
         || family.is_some_and(|f| f.starts_with("claude"));
     if claude_code {
-        let env = command_env(&cmd);
+        let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
@@ -187,7 +181,9 @@ pub(crate) fn harness_command(
     }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
-        (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),
+        (true, Some((id, _))) => {
+            crate::claude_auth::remember(id, &command_env_with(&cmd, !remote_environment))
+        }
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
     }
@@ -225,6 +221,17 @@ fn resolved_profile_env(
 
 /// The full environment `cmd` gives its child (inherited, then changed).
 pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
+    command_env_with(cmd, true)
+}
+
+/// The full environment of an `env_clear` command, for a remote durable
+/// host's SpawnSpec. The caller owns the remote-origin fact; it is never
+/// inferred from profile-controlled environment edits.
+pub(crate) fn command_env_cleared(cmd: &Command) -> Vec<(String, String)> {
+    command_env_with(cmd, false)
+}
+
+fn command_env_with(cmd: &Command, inherit_ambient: bool) -> Vec<(String, String)> {
     let changes: Vec<(String, Option<String>)> = cmd
         .as_std()
         .get_envs()
@@ -235,11 +242,8 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
             )
         })
         .collect();
-    let cleared = changes
-        .iter()
-        .any(|(key, value)| key == REMOTE_ENV_CLEARED_KEY && value.as_deref() == Some("1"));
     let mut env: std::collections::BTreeMap<String, String> =
-        if cleared { Default::default() } else { std::env::vars().collect() };
+        if inherit_ambient { std::env::vars().collect() } else { Default::default() };
     for (k, v) in changes {
         if k == REMOTE_ENV_CLEARED_KEY {
             continue;
@@ -319,7 +323,7 @@ mod tests {
         profile.kind = crate::config::HarnessKind::Acp;
         let command =
             harness_command("remote", &profile, &std::env::temp_dir(), None, None).unwrap();
-        let env = command_env(&command);
+        let env = command_env_cleared(&command);
         assert!(
             !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
             "hosted projection recovered the daemon environment"
