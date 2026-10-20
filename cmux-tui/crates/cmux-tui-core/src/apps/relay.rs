@@ -35,6 +35,7 @@
 //! App hosts never reach the `credential` family (`provider.rs`).
 
 use serde_json::{Value, json};
+use std::time::Duration;
 
 use super::provider::{
     self, Ending, MAX_OUTSTANDING, MAX_PARAMS_BYTES, ProviderCall, Target, deadline_ms,
@@ -81,6 +82,23 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         ));
     }
     if line["type"] == "relay.session" {
+        if line["ensure_native"] == true {
+            let valid = line["expected_scope"].as_str().is_some_and(|scope| {
+                scope.len() == 64
+                    && scope.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            });
+            if !valid {
+                return Err(relay_error(
+                    id,
+                    "validation.invalid",
+                    "Native startup needs its checked Cloud scope",
+                ));
+            }
+            return Ok((
+                "credential.session",
+                json!({"ensure_native": true, "expected_scope": line["expected_scope"]}),
+            ));
+        }
         return Ok(("credential.session", json!({})));
     }
     let invalid = |why: &str| relay_error(id, "validation.invalid", why);
@@ -145,6 +163,10 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
                 "signed_in": body["signed_in"].as_bool().unwrap_or(false), "team": body["team"].as_str()});
             if let Some(scope) = body["scope"].as_str() {
                 reply["scope"] = json!(scope);
+            }
+            // Keep malformed bindings visible too: the consumer must refuse them, never silently fall back.
+            if let Some(native) = body.get("native_link") {
+                reply["native_link"] = native.clone();
             }
             reply
         }
@@ -234,7 +256,11 @@ impl Supervisor {
         let version =
             inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
 
-        let deadline = self.config.provider_deadline;
+        let deadline = if params["ensure_native"] == true {
+            self.config.provider_deadline.max(Duration::from_secs(120))
+        } else {
+            self.config.provider_deadline
+        };
         inner.next_provider_request += 1;
         let request_id = inner.next_provider_request;
         let me = self.me.clone();
