@@ -52,6 +52,14 @@ import Testing
 
     private struct GitFailed: Error { let message: String }
 
+    private func executableGitHelper(_ name: String) throws -> (path: String, marker: String) {
+        let path = root.appending(path: name).path
+        let marker = path + ".ran"
+        try "#!/bin/sh\n: > \"$0.ran\"\nexit 0\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)
+        return (path, marker)
+    }
+
     private func read(_ name: String) async -> MarkdownFileLocation {
         await MarkdownFileLocationReader(home: home).read(work.appending(path: name))
     }
@@ -105,5 +113,33 @@ import Testing
         let location = await MarkdownFileLocationReader(home: home).read(loose.appending(path: "notes.md"))
         #expect(location.git == nil)
         #expect(location.displayPath == "~/loose/notes.md")
+    }
+
+    /// Opening a document is a read, not permission for repository-selected programs to run.
+    @Test func openingMarkdownDoesNotRunConfiguredGitPrograms() async throws {
+        defer { cleanUp() }
+
+        let fsmonitor = try executableGitHelper("fsmonitor")
+        try Self.git(["config", "core.fsmonitor", fsmonitor.path], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: fsmonitor.marker))
+        try Self.git(["config", "--unset", "core.fsmonitor"], in: work)
+
+        try Data("# Readme\nchanged\n".utf8).write(to: work.appending(path: "README.md"))
+        try Data("README.md diff=hostile\n".utf8).write(to: work.appending(path: ".gitattributes"))
+        try Self.git(["add", "README.md", ".gitattributes"], in: work)
+        try Self.git(["commit", "-q", "-m", "second"], in: work)
+
+        let external = try executableGitHelper("external-diff")
+        try Self.git(["config", "diff.external", external.path], in: work)
+        try Self.git(["config", "diff.trustExitCode", "true"], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: external.marker))
+        try Self.git(["config", "--unset", "diff.external"], in: work)
+
+        let textconv = try executableGitHelper("textconv")
+        try Self.git(["config", "diff.hostile.textconv", textconv.path], in: work)
+        _ = await read("README.md")
+        #expect(!FileManager.default.fileExists(atPath: textconv.marker))
     }
 }
