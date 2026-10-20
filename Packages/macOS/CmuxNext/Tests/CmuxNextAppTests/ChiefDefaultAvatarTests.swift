@@ -29,3 +29,15 @@ import Testing
         #expect(HomeChiefFiles(muxHome: try Self.home()).tileAvatar() == nil)
     }
 }
+
+/// The header draws the Chief's own picture or text, else 🫡.
+@Suite struct ChiefDefaultHeaderAvatarTests {
+    @Test func theHeaderSalutesOnlyWithoutAnAvatar() {
+        #expect(HomeChiefAvatar.headerText(nil, hasPicture: false) == "🫡")
+        #expect(HomeChiefAvatar.headerText(nil, hasPicture: true) == nil)
+        #expect(HomeChiefAvatar.headerText("AB", hasPicture: false) == "AB")
+        #expect(HomeChiefAvatar.resolved(nil) == .text("🫡"))
+        #expect(HomeChiefAvatar.resolved(.text("🐙")) == .text("🐙"))
+        #expect(!HomeChiefAvatar.chiefDefault.isMonogram, "🫡 draws as an emoji, not a monogram")
+    }
+}

@@ -31,11 +31,8 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
-    /// The Chief's avatar when its profile sets none: the bundled cat
-    /// (160 px, sharp on the 40 pt header disc up to 4x).
-    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
-    /// The same cat for the Chief's tile in the conversation list.
-    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
+    /// The Chief's tile avatar when its profile sets none: 🫡.
+    static let defaultTileAvatar = HomeChiefAvatar.chiefDefault
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -304,10 +301,11 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            let picture = avatar.picture.flatMap(NSImage.init(data:))
+            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
             transcript.avatarPicture = picture
-            transcript.avatarText = avatar.text
-            settingsView.setAvatar(picture: picture, text: avatar.text)
+            transcript.avatarText = text
+            settingsView.setAvatar(picture: picture, text: text)
         }
     }
 
