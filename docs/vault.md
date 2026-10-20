@@ -8,16 +8,19 @@ Vault can omit non-interactive Claude Code Agent SDK transcripts and other sessi
 with filters in the same `vault` section. `hideClaudeSDKSessions` hides Claude
 transcripts whose `entrypoint` begins with `sdk-`. Each `exclude` rule is an AND
 of the fields it contains; multiple rules are ORed. Agent ids, folders, and
-entrypoints accept `*` and `?` wildcards. `labelPattern` (or its shorter `pattern`
-alias) matches the whole session label with those wildcards; prefix it with `re:`
-for a case-insensitive regular expression that may match anywhere in the label.
+entrypoints accept `*` and `?` wildcards; `*` also matches `/`, so `*/scratch/*`
+covers every folder below a `scratch` directory but not the directory itself.
+Codex sessions use their launch source (`cli`, `exec`, `vscode`, ...) as the
+entrypoint. `labelPattern` (or its shorter `pattern` alias) matches the whole
+session label with those wildcards; prefix it with `re:` for a case-insensitive
+regular expression that may match anywhere in the label.
 
 Filters in the global config apply everywhere. Filters in a project's
 `cmux.json` add to the global filters in folder views, folder-scoped agent tabs,
 and folder-scoped search for that project; the combined recent-session list uses
-only the global filters. A project can turn `hideClaudeSDKSessions` on but not off. Filters
-only change what Vault lists; a `vault.*` socket call that names a session by id
-still finds it.
+only the global filters. A project can turn `hideClaudeSDKSessions` on but not
+off. Filters only change what Vault lists; a `vault.*` socket call that names a
+session by id still finds it.
 
 ```jsonc
 {
@@ -25,6 +28,7 @@ still finds it.
     "hideClaudeSDKSessions": true,
     "exclude": [
       { "agent": "claude", "entrypoint": "sdk-*" },
+      { "folder": "*/scratch" },
       { "folder": "*/scratch/*" },
       { "labelPattern": "re:^(Review|Audit) this change" }
     ]

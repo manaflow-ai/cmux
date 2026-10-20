@@ -1271,6 +1271,10 @@ final class SessionIndexStore: ObservableObject {
                     out.entrypoint = entrypoint
                 } else if let entrypoint = payload?["entrypoint"] as? String, !entrypoint.isEmpty {
                     out.entrypoint = entrypoint
+                } else if type == "session_meta",
+                          let source = payload?["source"] as? String, !source.isEmpty {
+                    // Matches the `threads.source` column the SQL reader uses.
+                    out.entrypoint = source
                 }
             }
             if type == "session_meta", let p = payload {
@@ -1657,58 +1661,34 @@ final class SessionIndexStore: ObservableObject {
         }
 
         let exclusionMatchers = registry.compiledSessionExclusions(for: agent)
-        return await filteredSourcePage(
-            offset: safeOffset,
-            limit: safeLimit,
-            ceiling: max(safeOffset + safeLimit, searchMaxFiles),
-            shortReadMeansExhausted: agent != .claude,
-            load: { sourceLimit in
-                await loadRawAgentEntries(
-                    needle: needle,
-                    agent: agent,
-                    cwdFilter: cwdFilter,
-                    offset: 0,
-                    limit: sourceLimit,
-                    errorBag: errorBag,
-                    registry: registry,
-                    ampSessionRepository: ampSessionRepository
-                )
-            },
-            isIncluded: { !registry.excludes($0, matchers: exclusionMatchers) }
-        )
-    }
-
-    /// Pages a filtered view of one agent's sessions. A filtered page cannot
-    /// use the source offset directly: excluded recent sessions must not
-    /// consume the requested window. Reads restart from the newest session and
-    /// double until `offset + limit` sessions survive the filter, the source
-    /// runs out, or `ceiling` is reached, so the first page of a lightly
-    /// filtered agent reads a few dozen sessions rather than the whole cap.
-    /// `shortReadMeansExhausted` is true for loaders that keep scanning until
-    /// they fill the request; Claude's loader parses a fixed window and then
-    /// drops sessions outside the folder or search, so its short read is not
-    /// the end of the source.
-    nonisolated static func filteredSourcePage(
-        offset: Int,
-        limit: Int,
-        ceiling: Int,
-        shortReadMeansExhausted: Bool,
-        load: (Int) async -> [SessionEntry],
-        isIncluded: (SessionEntry) -> Bool
-    ) async -> [SessionEntry] {
-        let target = offset + limit
-        guard limit > 0, ceiling > 0 else { return [] }
-        var sourceLimit = target >= ceiling / 2 ? ceiling : target * 2
-        while true {
-            let sourcePage = await load(sourceLimit)
-            if Task.isCancelled { return [] }
-            let matches = sourcePage.filter(isIncluded)
-            let exhausted = shortReadMeansExhausted && sourcePage.count < sourceLimit
-            if matches.count >= target || exhausted || sourceLimit >= ceiling {
-                return Array(matches.dropFirst(offset).prefix(limit))
-            }
-            sourceLimit = sourceLimit >= ceiling / 2 ? ceiling : sourceLimit * 2
+        let isIncluded: @Sendable (SessionEntry) -> Bool = {
+            !registry.excludes($0, matchers: exclusionMatchers)
         }
+        // Excluded sessions must not consume the requested window, so the
+        // source offset cannot be used directly. Claude grows its window over
+        // one candidate snapshot. Other loaders take one bounded read from the
+        // newest session; that cost applies only to agents a rule can match.
+        if agent == .claude {
+            return await loadClaudeEntries(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: safeOffset,
+                limit: safeLimit,
+                isIncluded: isIncluded
+            )
+        }
+        let sourcePage = await loadRawAgentEntries(
+            needle: needle,
+            agent: agent,
+            cwdFilter: cwdFilter,
+            offset: 0,
+            limit: max(safeOffset + safeLimit, searchMaxFiles),
+            errorBag: errorBag,
+            registry: registry,
+            ampSessionRepository: ampSessionRepository
+        )
+        if Task.isCancelled { return [] }
+        return Array(sourcePage.filter(isIncluded).dropFirst(safeOffset).prefix(safeLimit))
     }
 
 #if compiler(>=6.2)
@@ -1854,8 +1834,12 @@ final class SessionIndexStore: ObservableObject {
     ///   set; we only parse files that actually contain the needle.
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
     ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
+    /// With `isIncluded`, the page holds only sessions it accepts and the
+    /// candidate snapshot is inspected in growing windows until the page
+    /// fills; discovery and ripgrep still run once per call.
     nonisolated private static func loadClaudeEntries(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        isIncluded: (@Sendable (SessionEntry) -> Bool)? = nil
     ) async -> [SessionEntry] {
         let roots = claudeSessionRoots()
         guard !roots.isEmpty else { return [] }
@@ -1924,110 +1908,148 @@ final class SessionIndexStore: ObservableObject {
 
         // Take a generous window of candidates to inspect in parallel. We need
         // enough to cover both targets and skipped files; we'll trim to
-        // (offset+limit) matches afterwards. Cap at searchMaxFiles.
-        let target = offset + limit
-        let workSize = min(target * 2, candidates.count, searchMaxFiles)
-        let workCandidates = Array(candidates.prefix(workSize))
+        // (offset+limit) matches afterwards. Cap at searchMaxFiles. A filtered
+        // page keeps inspecting later windows of the same snapshot.
+        let includes = isIncluded ?? { _ in true }
+        return await growingWindowPage(
+            candidateCount: candidates.count,
+            offset: offset,
+            limit: limit,
+            cap: searchMaxFiles,
+            grows: isIncluded != nil,
+            parse: { range in
+                let window = Array(candidates[range])
+                #if DEBUG
+                let loopStart = ProcessInfo.processInfo.systemUptime
+                #endif
 
-        #if DEBUG
-        let loopStart = ProcessInfo.processInfo.systemUptime
-        #endif
-
-        // Parallelize per-file work. Each file's read + parse is independent;
-        // running them in a TaskGroup lets the cooperative pool fan I/O out
-        // across cores instead of one-file-at-a-time blocking on disk.
-        let processed: [(Int, SessionEntry?, Bool)] = await withTaskGroup(
-            of: (Int, SessionEntry?, Bool).self
-        ) { group in
-            for (idx, candidate) in workCandidates.enumerated() {
-                group.addTask {
-                    // Cache hit
-                    let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
-                    if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (
-                            idx,
-                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
-                            true
-                        )
-                    }
-                    let head = readFileHead(url: candidate.url, byteCap: headByteCap)
-                    let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
-                    if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                        let combined = head + "\n" + tail
-                        if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
-                            return (idx, nil, false)
+                // Parallelize per-file work. Each file's read + parse is independent;
+                // running them in a TaskGroup lets the cooperative pool fan I/O out
+                // across cores instead of one-file-at-a-time blocking on disk.
+                let processed: [(Int, SessionEntry?, Bool)] = await withTaskGroup(
+                    of: (Int, SessionEntry?, Bool).self
+                ) { group in
+                    for (idx, candidate) in window.enumerated() {
+                        group.addTask {
+                            // Cache hit
+                            let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
+                            if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
+                                if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                                return (
+                                    idx,
+                                    cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                                    true
+                                )
+                            }
+                            let head = readFileHead(url: candidate.url, byteCap: headByteCap)
+                            let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                            if !needle.isEmpty && !candidate.prefilteredByRipgrep {
+                                let combined = head + "\n" + tail
+                                if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
+                                    return (idx, nil, false)
+                                }
+                            }
+                            if let cached {
+                                if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
+                                return (
+                                    idx,
+                                    cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
+                                    true
+                                )
+                            }
+                            var parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                            if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
+                            // A session named a few turns in and then used for a while
+                            // keeps its name between the two windows; the mtime cache
+                            // makes this one scan per change to the file. That record
+                            // is newer than anything in the head, so it sets the name
+                            // or, when empty, clears it back to the first prompt.
+                            if !parsed.tailSawCustomTitle, head.utf8.count >= headByteCap,
+                               let name = lastClaudeCustomTitle(url: candidate.url) {
+                                parsed.title = name.isEmpty ? parsed.promptTitle : name
+                            }
+                            let sid = candidate.url.deletingPathExtension().lastPathComponent
+                            // The head window is the whole file only when it came back
+                            // under the byte cap; otherwise the count is partial and
+                            // must stay nil rather than lie.
+                            let exactMessageCount = head.utf8.count < headByteCap
+                                ? parsed.headMessageLines
+                                : nil
+                            let entry = SessionEntry(
+                                id: "claude:" + candidate.url.path,
+                                agent: .claude,
+                                sessionId: sid,
+                                title: parsed.title,
+                                entrypoint: parsed.entrypoint,
+                                cwd: parsed.cwd,
+                                gitBranch: parsed.branch,
+                                pullRequest: parsed.pr,
+                                modified: candidate.mtime,
+                                fileURL: candidate.url,
+                                specifics: .claude(
+                                    model: parsed.model,
+                                    permissionMode: parsed.permissionMode,
+                                    configDirectoryForResume: candidate.resumeConfigDirectory
+                                ),
+                                created: candidate.created,
+                                messageCount: exactMessageCount
+                            )
+                            if needle.isEmpty {
+                                ClaudeMetadataCache.shared.put(
+                                    url: candidate.url,
+                                    mtime: candidate.mtime,
+                                    entry: entry
+                                )
+                            }
+                            return (idx, entry, false)
                         }
                     }
-                    if let cached {
-                        if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
-                        return (
-                            idx,
-                            cached.withClaudeConfigDirectoryForResume(candidate.resumeConfigDirectory),
-                            true
-                        )
-                    }
-                    var parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
-                    if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
-                    // A session named a few turns in and then used for a while
-                    // keeps its name between the two windows; the mtime cache
-                    // makes this one scan per change to the file. That record
-                    // is newer than anything in the head, so it sets the name
-                    // or, when empty, clears it back to the first prompt.
-                    if !parsed.tailSawCustomTitle, head.utf8.count >= headByteCap,
-                       let name = lastClaudeCustomTitle(url: candidate.url) {
-                        parsed.title = name.isEmpty ? parsed.promptTitle : name
-                    }
-                    let sid = candidate.url.deletingPathExtension().lastPathComponent
-                    // The head window is the whole file only when it came back
-                    // under the byte cap; otherwise the count is partial and
-                    // must stay nil rather than lie.
-                    let exactMessageCount = head.utf8.count < headByteCap
-                        ? parsed.headMessageLines
-                        : nil
-                    let entry = SessionEntry(
-                        id: "claude:" + candidate.url.path,
-                        agent: .claude,
-                        sessionId: sid,
-                        title: parsed.title,
-                        entrypoint: parsed.entrypoint,
-                        cwd: parsed.cwd,
-                        gitBranch: parsed.branch,
-                        pullRequest: parsed.pr,
-                        modified: candidate.mtime,
-                        fileURL: candidate.url,
-                        specifics: .claude(
-                            model: parsed.model,
-                            permissionMode: parsed.permissionMode,
-                            configDirectoryForResume: candidate.resumeConfigDirectory
-                        ),
-                        created: candidate.created,
-                        messageCount: exactMessageCount
-                    )
-                    if needle.isEmpty {
-                        ClaudeMetadataCache.shared.put(
-                            url: candidate.url,
-                            mtime: candidate.mtime,
-                            entry: entry
-                        )
-                    }
-                    return (idx, entry, false)
+                    var collected: [(Int, SessionEntry?, Bool)] = []
+                    collected.reserveCapacity(window.count)
+                    for await item in group { collected.append(item) }
+                    return collected
                 }
-            }
-            var collected: [(Int, SessionEntry?, Bool)] = []
-            collected.reserveCapacity(workCandidates.count)
-            for await item in group { collected.append(item) }
-            return collected
+                // Restore original mtime ordering (TaskGroup completes out-of-order).
+                let sorted = processed.sorted { $0.0 < $1.0 }
+                let matched = sorted.compactMap { $0.1 }
+                #if DEBUG
+                let cachedCount = sorted.filter { $0.2 }.count
+                let skippedCount = sorted.filter { $0.1 == nil }.count
+                let totalMs = (ProcessInfo.processInfo.systemUptime - loopStart) * 1000
+                cmuxDebugLog("session.claude.detail target=\(offset + limit) window=\(range.lowerBound)..<\(range.upperBound) matched=\(matched.count) cachedHits=\(cachedCount) skipped=\(skippedCount) parallelMs=\(Int(totalMs))")
+                #endif
+                return matched
+            },
+            isIncluded: includes
+        )
+    }
+
+    /// Pages a newest-first candidate snapshot. The first window is twice the
+    /// page; with `grows`, each later window doubles the inspected prefix and
+    /// parses only candidates not yet inspected, until `offset + limit`
+    /// sessions pass `isIncluded` or the snapshot (bounded by `cap`) is spent.
+    /// Excluded sessions therefore never consume the requested window, and the
+    /// snapshot is discovered once rather than once per window.
+    nonisolated static func growingWindowPage(
+        candidateCount: Int,
+        offset: Int,
+        limit: Int,
+        cap: Int,
+        grows: Bool,
+        parse: (Range<Int>) async -> [SessionEntry],
+        isIncluded: (SessionEntry) -> Bool
+    ) async -> [SessionEntry] {
+        let target = offset + limit
+        let maxWork = min(candidateCount, cap)
+        var inspected = 0
+        var windowEnd = target >= maxWork / 2 ? maxWork : target * 2
+        var matched: [SessionEntry] = []
+        while inspected < windowEnd {
+            matched.append(contentsOf: await parse(inspected..<windowEnd).filter(isIncluded))
+            inspected = windowEnd
+            if !grows || matched.count >= target || Task.isCancelled { break }
+            windowEnd = windowEnd >= maxWork / 2 ? maxWork : windowEnd * 2
         }
-        // Restore original mtime ordering (TaskGroup completes out-of-order).
-        let sorted = processed.sorted { $0.0 < $1.0 }
-        let matched = sorted.compactMap { $0.1 }
-        #if DEBUG
-        let cachedCount = sorted.filter { $0.2 }.count
-        let skippedCount = sorted.filter { $0.1 == nil && !$0.2 }.count + sorted.filter { $0.1 == nil && $0.2 }.count
-        let totalMs = (ProcessInfo.processInfo.systemUptime - loopStart) * 1000
-        cmuxDebugLog("session.claude.detail target=\(target) workSize=\(workSize) matched=\(matched.count) cachedHits=\(cachedCount) skipped=\(skippedCount) parallelMs=\(Int(totalMs))")
-        #endif
         return Array(matched.prefix(target).dropFirst(offset).prefix(limit))
     }
 
