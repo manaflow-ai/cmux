@@ -32,17 +32,19 @@ end of that turn, which can take an hour.
   removes each one (`_acpmux/queue_remove`) and sends the texts together as
   one default tell, which interrupts the turn.
 
-## Not changed
+## Follow-up (2026-10-20, same branch)
 
-- The human composer (`webviews/src/agent-session/acpmux/Composer.tsx`) does
-  not share this path. There, Enter queues and ⌘Enter steers or interrupts.
-  This follows Claude's composer (Leo, 2026-10-18), and
-  `composer-queued-placeholder.test.tsx` pins it. To change those keys is a
-  separate product decision. It is not part of this change.
-- A steer that acpmux accepted reaches Claude Code only at its next tool
-  boundary. A tool that runs for a long time (for example, `cmux-ci wait`)
-  still delays it. A deadline that converts a pending steer into an
-  interrupt is possible follow-up work.
+- acpmux stops a running turn for any prompt that does not ask to queue
+  (`_meta.acpmux.queue`, `acpmux send --queue`, config `busyPrompt`), so a
+  `queue` tell skips the steer and is sent as queued
+  (`AgentPort::start_prompt_queued`).
+- A steer Claude Code has not read within `steerReadDeadlineMs` (default
+  500) stops its running tool (`_acpmux/steer_now`): the turn goes on and it
+  reads every waiting message, in order. A tell during a long tool is read in
+  well under 1 s (`tests/hub_integration/tell_delivery.rs`).
+- The agent pane: Return mid-turn steers an agent that steers, else stops the
+  turn and runs next; Command-Return stops the turn now; Option-Return
+  queues. The hints say so in all 21 languages.
 
 ## Tests
 
