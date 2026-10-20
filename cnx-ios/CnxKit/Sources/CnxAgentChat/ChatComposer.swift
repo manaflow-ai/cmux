@@ -126,6 +126,9 @@ struct ChatComposer: View {
                     attachmentStrip
                 }
                 TextField(placeholder, text: $text, axis: .vertical)
+                    // Prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                     .font(.body)
                     .lineLimit(1...8)
                     .focused(focus)
@@ -525,6 +528,9 @@ struct QueuedPromptsView: View {
         .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
                presenting: editing) { item in
             TextField("Message", text: $editText, axis: .vertical)
+                // Prompts are code-like: no autocorrect, no capitals (full verify D5).
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
                 .disabled(editText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

@@ -293,6 +293,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .task { sources.refreshIfNeeded() }
         .alert("New Chief", isPresented: $namingChief) {
             TextField("Name", text: $newChiefName)
+                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
                 .accessibilityIdentifier("home.chief.newName")
             Button("Cancel", role: .cancel) {}
             Button("Create") {
