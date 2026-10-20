@@ -90,7 +90,9 @@ extension SidebarListViewComponents {
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
     }
     func realizationRect() -> NSRect {
-        let visible = enclosingScrollView?.contentView.bounds ?? pageViewport ?? bounds
+        // A space page never scrolls: the rows in its frame, no overscan.
+        if enclosingScrollView == nil, let pageViewport { return pageViewport }
+        let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
