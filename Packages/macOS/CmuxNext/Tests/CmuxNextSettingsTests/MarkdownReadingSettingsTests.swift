@@ -15,8 +15,10 @@ struct MarkdownReadingSettingsTests {
     }
 
     static let rows: [Row] = [
-        Row(key: "markdown.layout.width", fallback: .number(72), accepted: [.number(40), .number(100), .number(160)],
-            refused: [.number(10), .number(500), .string("72ch")]),
+        // Wide enough for an ultrawide monitor (user 2026-10-19); full width stays its own key.
+        Row(key: "markdown.layout.width", fallback: .number(72),
+            accepted: [.number(30), .number(100), .number(160), .number(500), .number(1000)],
+            refused: [.number(10), .number(1001), .number(4000), .string("72ch")]),
         Row(key: "markdown.layout.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         Row(key: "markdown.font.preset", fallback: .string("system"), accepted: [.string("serif"), .string("mono")],
             refused: [.string("comic")]),
@@ -24,8 +26,9 @@ struct MarkdownReadingSettingsTests {
             refused: [.number(0.5), .number(4)]),
         Row(key: "markdown.spacing.paragraph", fallback: .number(1), accepted: [.number(0), .number(3)],
             refused: [.number(-1), .number(5)]),
-        Row(key: "markdown.code.blockSize", fallback: .number(14), accepted: [.number(8), .number(32)],
-            refused: [.number(4), .number(64)]),
+        // Code is a share of the body size (user 2026-10-19: "code blocks' font size looks too big").
+        Row(key: "markdown.code.scale", fallback: .number(0.875), accepted: [.number(0.6), .number(0.85), .number(1.25)],
+            refused: [.number(0.5), .number(2), .string("85%")]),
         Row(key: "markdown.tables", fallback: .string("scroll"), accepted: [.string("wrap")], refused: [.string("hide")]),
         Row(key: "markdown.theme", fallback: .string("app"), accepted: [.string("light"), .string("dark")],
             refused: [.string("sepia")]),
@@ -40,6 +43,28 @@ struct MarkdownReadingSettingsTests {
         for value in row.accepted { #expect(descriptor.accepts(value), "\(row.key) accepts \(value)") }
         for value in row.refused { #expect(!descriptor.accepts(value), "\(row.key) refuses \(value)") }
         #expect(SettingsSchema.agentSettableKeys.contains(row.key))
+    }
+
+    @Test func theDefaultCodeSizeIsALittleSmallerThanTheText() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: ["markdown", "code", "scale"]))
+        guard case .number(let scale)? = descriptor.defaultValue else {
+            Issue.record("markdown.code.scale has no number default")
+            return
+        }
+        #expect(scale >= 0.85 && scale <= 0.9)
+    }
+
+    @Test func theFixedCodeBlockSizeStaysValidButOffTheSettingsPage() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: ["markdown", "code", "blockSize"]))
+        #expect(descriptor.defaultValue == nil)
+        #expect(descriptor.accepts(.number(13)))
+        #expect(!descriptor.isShownOnSettingsPage)
+    }
+
+    @Test func anUltrawideStoredWidthIsTheEffectiveValue() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: ["markdown", "layout", "width"]))
+        let root: JSONValue = .object(["markdown": .object(["layout": .object(["width": .number(640)])])])
+        #expect(descriptor.effectiveValue(in: root) == .number(640))
     }
 
     @Test func aStoredWidthIsTheEffectiveValue() throws {

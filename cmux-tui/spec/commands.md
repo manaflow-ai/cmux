@@ -1422,6 +1422,7 @@ CLI mapping: verb `apply-layout`; flags `[--workspace <id>] [--name <name>] [--c
 | since | protocol 5 |
 | `paste` field | protocol 7 additive extension |
 | `terminal_id` field | `terminal-input-while-creating-v1` additive extension |
+| `expect_foreground` field | `send-expect-foreground-v1` additive extension |
 
 Writes input to a PTY surface. `text`, when present, is UTF-8 encoded and written as bytes. `bytes`, when present, is standard base64 decoded and written as raw bytes. If both are present, v5 writes `text` first and `bytes` second. If neither is present, v5 returns success and writes nothing.
 
@@ -1436,6 +1437,16 @@ Params:
 | `text` | `string` | default null | Written before `bytes` when both are present |
 | `bytes` | `Base64` | default null | Decoded with standard base64 |
 | `paste` | `boolean` | default false | Protocol 7; conditionally wraps the combined non-empty payload when DEC mode 2004 is enabled |
+| `expect_foreground` | `string` | default null | `send-expect-foreground-v1`; needs `surface`; write only while the foreground executable is this one |
+
+With `send-expect-foreground-v1`, `expect_foreground` names the executable the caller saw in the
+foreground (`process-info`'s `foreground_executable`, compared byte for byte). Right before the write the
+server reads the surface's foreground process-group leader again; when it is a different executable, or
+cannot be read, the request fails with `foreground changed: ...` and writes nothing. A reply typed to an
+agent therefore never runs as a shell command after that agent exited. It needs `surface`: with
+`terminal_id` the request fails with `bad request`. A server without the capability ignores the field.
+The check is best effort: the program can still exit between the read and the write, a window of
+microseconds instead of a client round trip.
 
 With `terminal-input-while-creating-v1`, `terminal_id` addresses the terminal by its host id. A
 `split`, `new-pane`, `new-pane-right` or `new-tab` that names a caller-minted `terminal_id` makes that id
@@ -7158,7 +7169,7 @@ While the app's lease exists, `cloud-*` events reach only the app's
 reach every trusted local `subscribe` stream.
 
 While the app's lease exists it is the human's: every command that uses it
-(`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
+(`cloud-inbox-list`, `cloud-requests-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,
 `cloud-inbox-subscribe`, `cloud-conversation-subscribe`, `cloud-mux-subscribe`,
 `cloud-mux-ack`) from another connection is refused the same way and sends
@@ -7185,11 +7196,19 @@ with `reason` `forbidden`.
 
 `cloud-host-replica-set {api_base_url, install_token, expires_at,
 client_version?, host_name}` leases the app's install token. The daemon keeps
-it in memory only and never returns it; a chief token (`agt`) is refused. The
+it in memory only and never returns it; a chief token (`agt`) is refused. A
+lease for the same user, install and origin is a renewal: the token is swapped
+in place and the open socket stays. The daemon asks for a renewal with the
+`cloud-host-replica-needed` event (spec/events.md): `expiring` within two
+minutes of `expires_at`, `unauthenticated` when the cloud refused the token. The
 daemon enrolls the host (`host.enroll`, idempotent per install), opens
-`/v1/wire/host/<host>` and publishes `host:<host>/session` (the workspace
-tree that `list-workspaces` returns): a snapshot after each connect, then one
-event per settled change, each with the whole new state in `effects.state`.
+`/v1/wire/host/<host>` and publishes `host:<host>/session`: a projection of
+the `list-workspaces` tree with, per workspace, only `id`, `resource_id`,
+`short_id`, `name`, `name_revision`, `group`, `color`, `icon`, `pinned`,
+`marked_unread`, `unread_count` and `active`, plus `registry_id` and
+`generation` (no screens, tabs or titles). A snapshot after each connect, then
+one event per settled change, each with the whole new state in
+`effects.state`.
 It also answers the ops the cloud forwards from the host's owner. Only
 `workspace.rename` with the fields `workspace`, `name`,
 `expected_name_revision` and `expected_generation` runs, through the daemon's
@@ -7205,7 +7224,7 @@ lease goes when the cloud confirms. `cloud-host-replica-status` returns
 api_base_url?, expires_at?, host_name?, host?, stream?, seq?, purge_pending?,
 purge_unconfirmed?, last_error?}`. On `unauthenticated` the app sets a new
 lease; `forbidden` means this install is not the host's publisher or the
-cloud removed the host. A removed host stays `forbidden` through later leases
+cloud removed the host (or the owner deleted the replica with `host.replica.purge`). A removed host stays `forbidden` through later leases
 of the same install (a token refresh never enrolls it again) until
 `cloud-host-replica-clear`. `replaced` means another socket of the same
 install publishes the host now; the daemon waits for a new lease.
@@ -7305,7 +7324,8 @@ answer from a worker thread, so replies may arrive out of order (match by
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
 `participants.add`, `participants.remove`, `message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
-`title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
+`title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
+`request.dismiss {block?}`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
 Errors carry `error_code` (`cloud_conversation_rejected`, `cloud_signed_out`,
 `cloud_session_expired`, `cloud_unauthenticated`, `cloud_unavailable`),
@@ -7316,6 +7336,23 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+
+### cloud-requests-list
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-requests-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The lease person's open message requests (plans/cmux-next/home-messaging-invites/DESIGN.md
+2.3): `POST /v1/read home.requests.list {}` with the lease. Takes no fields (an
+unknown field is refused). Returns `object{requests}`, each row
+`{conversation, inviter, kind, title?, preview, created_at, expires_at, trusted}`
+as the owner sent it; a row whose `conversation` is not a conversation id is
+dropped. Accept with `cloud-conversation-op` `invite.accept_verified` and
+dismiss (or block, `block: true`) with `request.dismiss`, both naming the
+conversation. Errors as `cloud-inbox-list`.
 
 ### cloud-conversation-thread
 

@@ -145,7 +145,7 @@ enum SidebarCardFeed {
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
-        if let shown = updater.cardPresentation { return notice(shown) }
+        if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
         if let text = updater.testFeedCardText {
             return SidebarNoticeCard(id: testFeedCardID, symbol: "testtube.2", title: text.title, detail: text.detail,
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])
@@ -166,15 +166,17 @@ enum SidebarCardFeed {
     }
 
     /// The update status as a notice: one model (``UpdateCard``), its icon,
-    /// title, detail and actions.
-    static func notice(_ shown: UpdateCardPresentation) -> SidebarNoticeCard {
+    /// title, detail and actions. `asked`: the person asked to check, so the
+    /// notice takes the slot from Now Playing.
+    static func notice(_ shown: UpdateCardPresentation, asked: Bool = false) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
         // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
         let closes = shown.actions.contains(.update)
         return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
                                  dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
-                                 dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [])
+                                 dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
+                                 userAsked: asked)
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).
