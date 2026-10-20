@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import { VmCreateCreditsInsufficientError } from "../services/vms/errors";
-import { VM_CREATE_CREDITS_CHECKOUT_URL, vmCreateLikeErrorResponse } from "../services/vms/routeHelpers";
+import {
+  VM_CREATE_CREDITS_CHECKOUT_URL,
+  vmCreateCreditsCheckoutExtra,
+  vmCreateLikeErrorResponse,
+} from "../services/vms/routeHelpers";
 
 // A tenant with no Cloud VM create credits must get a checkout link it can open,
 // not a dead "ask an admin" error (plans/freestyle-tenant-DESIGN.md in cmuxterm-hq).
@@ -32,4 +36,26 @@ describe("Cloud VM create credits exhausted", () => {
       expect(payload.action).toContain(VM_CREATE_CREDITS_CHECKOUT_URL);
     });
   }
+
+  test("a paid tenant is sent to the next plan up, never to the plan it has", () => {
+    for (const planId of ["pro", "team", "founders"]) {
+      const extra = vmCreateCreditsCheckoutExtra(1, planId);
+      expect(extra.upgradePlanId).toBe("max");
+      expect(new URL(extra.upgradeUrl).searchParams.get("plan")).toBe("max");
+      expect(new URL(extra.upgradeUrl).searchParams.get("cmux_source")).toBe("vm_create_credits");
+    }
+  });
+
+  test("a Max tenant has no plan to buy, so it gets the pricing page", () => {
+    const extra = vmCreateCreditsCheckoutExtra(1, "max");
+    expect(extra.upgradeRequired).toBe(true);
+    expect(extra.upgradePlanId).toBeNull();
+    expect(extra.upgradeUrl).toBe("https://cmux.com/pricing");
+  });
+
+  test("an unpaid tenant goes to the Pro checkout", () => {
+    for (const planId of ["free", "go", ""]) {
+      expect(vmCreateCreditsCheckoutExtra(1, planId).upgradeUrl).toBe(VM_CREATE_CREDITS_CHECKOUT_URL);
+    }
+  });
 });
