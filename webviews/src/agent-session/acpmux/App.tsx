@@ -3844,7 +3844,7 @@ function AcpmuxPane() {
     if (!prompt.current) return false;
     prompt.current.focus();
     return true;
-  });
+  }, pageHostClient());
   /// The New Tab page's field, while it shows: dictation writes there then (it has no composer).
   const newTabDictationField = useRef<DictationField | null>(null);
   const dictationTarget = useRef<{ readonly current: DictationField | null }>({
