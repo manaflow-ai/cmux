@@ -54,13 +54,30 @@ impl Translator {
     /// their input streamed): each ends failed, so none runs on in the chat. A
     /// background subagent runs on past the turn, and so do its calls.
     pub(super) async fn end_announced(&self) -> Vec<Message> {
-        let background = self.background_subagents.lock().await;
+        let background = self.background_subagents.lock().await.clone();
+        self.fail_announced(|parent| !parent.is_some_and(|p| background.contains(p))).await
+    }
+
+    /// The calls named early by background subagent `tool`, which just ended:
+    /// their whole calls will not come either.
+    pub(super) async fn end_announced_of(&self, tool: &str) -> Vec<Message> {
+        self.fail_announced(|parent| parent == Some(tool)).await
+    }
+
+    /// Every call named early, when Claude's stdout closed: whatever input was
+    /// still streaming, a background subagent's too, ended with it.
+    pub(super) async fn end_all_announced(&self) -> Vec<Message> {
+        self.fail_announced(|_| true).await
+    }
+
+    async fn fail_announced(&self, ends: impl Fn(Option<&str>) -> bool) -> Vec<Message> {
         let mut announced = self.announced.lock().await;
-        let ended: Vec<(String, String)> = announced
+        let mut ended: Vec<(String, String)> = announced
             .iter()
-            .filter(|(_, (_, parent))| !parent.as_ref().is_some_and(|p| background.contains(p)))
+            .filter(|(_, (_, parent))| ends(parent.as_deref()))
             .map(|(id, (sid, _))| (id.clone(), sid.clone()))
             .collect();
+        ended.sort();
         for (id, _) in &ended {
             announced.remove(id);
         }

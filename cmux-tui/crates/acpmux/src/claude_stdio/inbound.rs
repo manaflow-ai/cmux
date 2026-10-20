@@ -625,7 +625,8 @@ impl Translator {
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
                 }
-                if let Some(ended) = self.subagent_task(sub, line).await {
+                if let Some((ended, tool)) = self.subagent_task(sub, line).await {
+                    out.extend(self.end_announced_of(&tool).await);
                     out.push(upd(ended));
                 }
             }
@@ -727,29 +728,29 @@ impl Translator {
     /// The background shells still running when Claude's stdout closed: they
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
-    /// lists it `lost`); the update itself is what clients show.
+    /// lists it `lost`); the update itself is what clients show. A call named
+    /// early whose input was still streaming ends `failed` with them.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
         shells.sort_by(|a, b| a.0.cmp(&b.0));
-        shells
-            .into_iter()
-            .map(|(tool, shell)| {
-                let update = background_task_update(&tool, &shell, "stopped");
-                Message::notification(
-                    method::SESSION_UPDATE,
-                    json!({"sessionId": shell.sid, "update": update,
+        let mut out = self.end_all_announced().await;
+        out.extend(shells.into_iter().map(|(tool, shell)| {
+            let update = background_task_update(&tool, &shell, "stopped");
+            Message::notification(
+                method::SESSION_UPDATE,
+                json!({"sessionId": shell.sid, "update": update,
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
-                )
-            })
-            .collect()
+            )
+        }));
+        out
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
-    /// `subagent_state_update` when it ended.
-    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+    /// `subagent_state_update` and its tool id when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, String)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
             Some(tool) => tool.to_owned(),
@@ -781,11 +782,14 @@ impl Translator {
             Some("stopped") => "cancelled",
             _ => "completed",
         };
-        Some(json!({
-            "sessionUpdate": "subagent_state_update",
-            "subagentSessionId": child,
-            "state": state,
-        }))
+        Some((
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child,
+                "state": state,
+            }),
+            tool,
+        ))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
