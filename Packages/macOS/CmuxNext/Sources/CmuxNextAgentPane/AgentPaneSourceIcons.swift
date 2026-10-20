@@ -9,34 +9,42 @@ public actor AgentPaneSourceIcons {
 
     private struct Entry {
         let id = UUID()
-        var readers: [UUID: AsyncStream<Data?>.Continuation] = [:]
+        var readers: [UUID: AsyncStream<AgentPaneSourceIconResult>.Continuation] = [:]
     }
 
     private let maximumConcurrent: Int
     private let maximumQueued: Int
     private let fetch: GuardedRemoteFetch
     private let decode: @Sendable (Data) -> Data?
+    private let elapsed: @Sendable () -> Duration
+    private var cache: AgentPaneSourceIconCache
     private var entries: [URL: Entry] = [:]
     private var queue: [URL] = []
     private var running: [UUID: Task<Void, Never>] = [:]
 
-    public init(maximumConcurrent: Int = 4, maximumQueued: Int = 128,
+    public init(maximumConcurrent: Int = 4, maximumQueued: Int = 128, maximumCached: Int = 256,
                 fetch: GuardedRemoteFetch = GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
                                                               accept: GuardedRemoteFetch.imageAccept),
                 decode: (@Sendable (Data) -> Data?)? = nil) {
         self.maximumConcurrent = max(1, maximumConcurrent)
         self.maximumQueued = max(0, maximumQueued)
         self.fetch = fetch
+        self.elapsed = Self.timeSource(fetch.clock)
+        self.cache = AgentPaneSourceIconCache(capacity: maximumCached)
         self.decode = decode ?? { AgentPaneSourceIconPNG().decode($0) }
     }
 
-    /// The bounded, decoded data at a public HTTPS origin, or nil on refusal, overload or cancellation.
-    public func data(at url: URL) async -> Data? {
-        guard !Task.isCancelled else { return nil }
+    /// The bounded, decoded data, preserving the original optional-data interface.
+    public func data(at url: URL) async -> Data? { await result(at: url).png }
+
+    /// A completed icon or genuine miss, distinguished from overload and cancellation.
+    public func result(at url: URL) async -> AgentPaneSourceIconResult {
+        guard !Task.isCancelled else { return .temporary }
         let id = UUID()
-        let reader = request(at: url, id: id)
+        let reader = requestResult(at: url, id: id)
         return await withTaskCancellationHandler {
-            await reader.value
+            let result = await reader.value
+            return Task.isCancelled ? .temporary : result
         } onCancel: {
             // task-owner: one cancellation transition at the queue's owning actor.
             Task { await self.cancel(at: url, id: id) }
@@ -44,9 +52,15 @@ public actor AgentPaneSourceIcons {
     }
 
     func request(at url: URL, id: UUID) -> Task<Data?, Never> {
-        guard GuardedRemoteFetch.allows(url) else { return Task { nil } }
-        if entries[url] == nil, running.count >= maximumConcurrent, queue.count >= maximumQueued { return Task { nil } }
-        let (stream, continuation) = AsyncStream<Data?>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let reader = requestResult(at: url, id: id)
+        return Task { await reader.value.png }
+    }
+
+    func requestResult(at url: URL, id: UUID) -> Task<AgentPaneSourceIconResult, Never> {
+        guard let url = Self.origin(url) else { return Task { .unavailable } }
+        if let result = cache.result(at: url, now: elapsed()) { return Task { result } }
+        if entries[url] == nil, running.count >= maximumConcurrent, queue.count >= maximumQueued { return Task { .temporary } }
+        let (stream, continuation) = AsyncStream<AgentPaneSourceIconResult>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let isNew = entries[url] == nil
         var entry = entries[url] ?? Entry()
         entry.readers[id] = continuation
@@ -56,13 +70,29 @@ public actor AgentPaneSourceIcons {
         // task-owner: the reader; completion or cancellation finishes its stream.
         return Task {
             var iterator = stream.makeAsyncIterator()
-            return await iterator.next() ?? nil
+            return await iterator.next() ?? .temporary
         }
     }
 
+    private static func origin(_ url: URL) -> URL? {
+        guard GuardedRemoteFetch.allows(url), var origin = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        origin.scheme = "https"
+        origin.host = origin.host?.lowercased()
+        if origin.port == 443 { origin.port = nil }
+        origin.path = "/favicon.ico"
+        origin.query = nil
+        origin.fragment = nil
+        return origin.url
+    }
+
+    private static func timeSource<C: Clock>(_ clock: C) -> @Sendable () -> Duration where C.Duration == Duration {
+        let start = clock.now
+        return { start.duration(to: clock.now) }
+    }
+
     func cancel(at url: URL, id: UUID) {
-        guard var entry = entries[url], let reader = entry.readers.removeValue(forKey: id) else { return }
-        reader.yield(nil)
+        guard let url = Self.origin(url), var entry = entries[url], let reader = entry.readers.removeValue(forKey: id) else { return }
+        reader.yield(.temporary)
         reader.finish()
         if entry.readers.isEmpty {
             entries[url] = nil
@@ -83,39 +113,17 @@ public actor AgentPaneSourceIcons {
             let id = entry.id
             // task-owner: this queue; one slot covers the entire fallback chain and off-main decoding.
             running[id] = Task.detached(priority: .utility) {
-                let body = await Self.load(url, fetch: fetch, decode: decode)
+                let body = await AgentPaneSourceIconChain(fetch: fetch, decode: decode).load(url)
                 await self.finish(url, id: id, body: body)
             }
         }
     }
 
-    /// Runs under the queue's one transport owner, so each hop inherits its cancellation.
-    private static func load(_ url: URL, fetch: GuardedRemoteFetch, decode: @Sendable (Data) -> Data?) async -> Data? {
-        if case .success(let response) = await fetch.fetch(url), !Task.isCancelled,
-           let png = decode(response.body) { return Task.isCancelled ? nil : png }
-        guard !Task.isCancelled, var home = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        home.path = "/"
-        home.query = nil
-        home.fragment = nil
-        guard let pageURL = home.url else { return nil }
-        var htmlFetch = fetch
-        htmlFetch.maximumBytes = 256 * 1024
-        htmlFetch.accept = GuardedRemoteFetch.htmlAccept
-        htmlFetch.allowsTruncation = true
-        guard case .success(let page) = await htmlFetch.fetch(pageURL), !Task.isCancelled else { return nil }
-        let candidates = AgentPaneSourceIconHTML().candidates(in: page.body, pageURL: page.finalURL ?? pageURL)
-        for candidate in candidates.prefix(2) {
-            guard !Task.isCancelled else { return nil }
-            if case .success(let response) = await fetch.fetch(candidate), !Task.isCancelled,
-               let png = decode(response.body) { return Task.isCancelled ? nil : png }
-        }
-        return nil
-    }
-
-    private func finish(_ url: URL, id: UUID, body: Data?) {
+    private func finish(_ url: URL, id: UUID, body: AgentPaneSourceIconResult) {
         running[id] = nil
         if let entry = entries[url], entry.id == id {
             entries[url] = nil
+            cache.insert(body, at: url, now: elapsed())
             for reader in entry.readers.values {
                 reader.yield(body)
                 reader.finish()

@@ -8,11 +8,13 @@ import Foundation
 /// (``RemoteFetchContentDecoding``). Refused: a header block over ``maximumHeaderBytes``, a
 /// Transfer-Encoding other than `chunked` or chunked together with Content-Length, a
 /// Content-Encoding the request did not offer, a repeated, conflicting or malformed
-/// Content-Length, a status other than 2xx or a redirect, a wire or decoded body over the cap
+/// Content-Length, a wire or decoded body over the cap
 /// (checked while reading and while decoding), a body shorter than its Content-Length or a chunked
 /// body without its last chunk at the close. HTML discovery can explicitly allow a prefix:
 /// identity encoding only, at most ``maximumBody`` bytes, stopping at the cap even if the
 /// Content-Length or chunked framing declares more. Shorter replies still need valid framing.
+/// Other final statuses return at the headers with an empty body: the guard rejects them, while
+/// callers can observe the HTTP status without downloading or decoding an unused error page.
 nonisolated struct RemoteFetchReplyReader {
     nonisolated struct Refusal: Error, Equatable, CustomStringConvertible {
         let reason: String
@@ -77,6 +79,11 @@ nonisolated struct RemoteFetchReplyReader {
             return received.isEmpty ? false : try append(received)
         }
         let checked = try Self.checkHead(message, headerBlock: raw.prefix(headerBytes))
+        if !(200..<300).contains(checked.status), !Self.redirects.contains(checked.status) {
+            head = checked
+            raw = Data()
+            return true
+        }
         if allowsTruncation {
             let coding = checked.headers["content-encoding"]?.trimmingCharacters(in: .whitespaces).lowercased() ?? "identity"
             guard coding == "identity" else { throw Refusal(reason: "encoded HTML prefix") }
@@ -110,8 +117,8 @@ nonisolated struct RemoteFetchReplyReader {
         } else {
             wire = body
         }
-        // A redirect's body is never used; decoding it could only fail the hop.
-        let decoded = Self.redirects.contains(head.status)
+        // Only a successful response's body is used.
+        let decoded = !(200..<300).contains(head.status)
             ? Data()
             : try RemoteFetchContentDecoding.decode(wire, encoding: head.headers["content-encoding"], maximumBody: maximumBody)
         return RemoteFetchResponse(status: head.status, headers: head.headers, body: decoded)
@@ -126,10 +133,11 @@ nonisolated struct RemoteFetchReplyReader {
 
     private static func checkHead(_ message: CFHTTPMessage, headerBlock: Data) throws(Refusal) -> (status: Int, headers: [String: String], length: Int?) {
         let status = CFHTTPMessageGetResponseStatusCode(message)
-        guard (200..<300).contains(status) || redirects.contains(status) else { throw Refusal(reason: "status \(status)") }
+        guard (200..<600).contains(status) else { throw Refusal(reason: "status \(status)") }
         let fields = CFHTTPMessageCopyAllHeaderFields(message)?.takeRetainedValue() as? [String: String] ?? [:]
         var headers: [String: String] = [:]
         for (name, value) in fields { headers[name.lowercased()] = value }
+        if !(200..<300).contains(status), !redirects.contains(status) { return (status, headers, 0) }
         if let coding = headers["transfer-encoding"] {
             guard coding.trimmingCharacters(in: .whitespaces).lowercased() == "chunked" else { throw Refusal(reason: "Transfer-Encoding \(coding)") }
             // Both framings at once is the request-smuggling shape; refuse rather than pick one.

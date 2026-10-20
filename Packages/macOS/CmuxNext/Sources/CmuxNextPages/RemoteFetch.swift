@@ -131,9 +131,12 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
 
     /// The body of a 2xx answer for `url`, following checked redirects.
     public func fetch(_ url: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
+        await fetch(url, clock: clock)
+    }
+
+    private func fetch<C: Clock>(_ url: URL, clock: C) async -> Result<RemoteFetchResponse, RemoteFetchFailure> where C.Duration == Duration {
         let race = DeadlineRace()
-        let clock = clock
-        let timeout = timeout
+        let expires = clock.now.advanced(by: timeout)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 race.arm(continuation)
@@ -141,7 +144,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 let work = Task { race.finish(await follow(url)) }
                 // task-owner: the deadline; it cancels the fetch when it fires first
                 let deadline = Task {
-                    do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded remote fetch deadline
+                    do { try await clock.sleep(until: expires, tolerance: nil) } catch { return } // wakeup-allow: bounded remote fetch deadline
                     race.finish(.failure(.failed))
                 }
                 race.own(work, deadline)

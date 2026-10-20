@@ -33,8 +33,8 @@ export function searchSite(label: string): string | undefined {
 }
 
 /// A source's site icon (labs `sourceIcons`, Lucas 2026-10-19), else the generic one.
-function SourceIcon({ url, fallback }: { url?: string; fallback: string }) {
-  const icon = useSourceIcon(url, useLab("sourceIcons"));
+function SourceIcon({ url, fallback, settled = true }: { url?: string; fallback: string; settled?: boolean }) {
+  const icon = useSourceIcon(url, useLab("sourceIcons") && settled);
   return icon ? (
     <img className="acpmux-summary-favicon" src={icon} alt="" width={ROW_ICON} height={ROW_ICON} />
   ) : (
@@ -150,12 +150,12 @@ export function SummaryBody({
           <li key={source.url ?? source.label}>
             {source.url ? (
               <a className="acpmux-summary-row acpmux-summary-link" href={source.url} onClick={onFollow}>
-                <SourceIcon url={source.url} fallback="link.web" />
+                <SourceIcon url={source.url} fallback="link.web" settled={source.settled} />
                 <span className="acpmux-summary-text">{source.label}</span>
               </a>
             ) : (
               <span className="acpmux-summary-row">
-                <SourceIcon url={searchSite(source.label)} fallback="search.files" />
+                <SourceIcon url={searchSite(source.label)} fallback="search.files" settled={source.settled} />
                 <span className="acpmux-summary-text">{source.label}</span>
               </span>
             )}

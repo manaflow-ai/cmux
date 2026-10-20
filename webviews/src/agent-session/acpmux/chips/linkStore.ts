@@ -10,7 +10,10 @@ import { callChipHost } from "./host";
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
 export type SiteInfo = { icon?: string; title?: string };
-export type ReplyPolicy = { outsideRoots: "confirm" | "text" | "open"; remoteImages: "click" | "never" | "always" };
+export type ReplyPolicy = {
+  outsideRoots: "confirm" | "text" | "open";
+  remoteImages: "click" | "never" | "always";
+};
 
 type Inspect = {
   paths?: Record<string, PathInfo>;
@@ -27,13 +30,23 @@ type IconScope = "source" | "chat";
 // and chat share 64 distinct origins per pane lifetime; chat can use at most 32 of them.
 const requestedIconOrigins = new Set<string>();
 const chatIconOrigins = new Set<string>();
-const NEGATIVE_ICON_MS = 30_000;
+const NEGATIVE_ICON_MS = 10 * 60_000;
 
 const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
-/// Completed icons by origin, including short-lived misses, in least recently used order.
+/// Completed icons by origin, including ten-minute misses, in least recently used order.
 const favicons = new Map<string, { icon?: string; expires: number }>();
-const fetchingIcons = new Map<string, { url: string; readers: number }>();
+type IconReaders = {
+  url: string;
+  readers: number;
+  pending?: object;
+  retry?: ReturnType<typeof setTimeout>;
+  retried: boolean;
+};
+// Reader ownership includes completed misses and their one-shot retry, not just in-flight calls.
+const fetchingIcons = new Map<string, IconReaders>();
+// The first completed held-icon inspection makes an origin ready. Path changes cannot revoke it.
+const inspectedIconOrigins = new Map<string, string>();
 const askingUrls = new Set<string>();
 let generation = 0;
 /// Paths sent to the host and not answered yet.
@@ -86,6 +99,7 @@ function flush() {
       for (const url of batchUrls) {
         sites.set(url, value.sites?.[url] ?? null);
         askingUrls.delete(url);
+        rememberInspectedOrigin(url);
       }
       if (value.policy) policy = { ...policy, ...value.policy };
     })
@@ -105,6 +119,9 @@ function ask(path?: string, url?: string) {
     asking.clear();
     sites.clear();
     askingUrls.clear();
+    // Keep active origins ready across cache compaction, including during path changes.
+    for (const origin of inspectedIconOrigins.keys())
+      if (!fetchingIcons.has(origin)) inspectedIconOrigins.delete(origin);
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
@@ -130,7 +147,11 @@ function subscribe(listener: () => void) {
 
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
-export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
+export function usePathInfo(path: string): {
+  info: PathInfo | undefined;
+  answered: boolean;
+  policy: ReplyPolicy;
+} {
   useSyncExternalStore(subscribe, snapshot, snapshot);
   ask(path);
   return { info: paths.get(path) ?? undefined, answered: !asking.has(path), policy };
@@ -173,6 +194,12 @@ function cachedIcon(origin: string) {
   return entry;
 }
 
+function rememberInspectedOrigin(url: string) {
+  const parsed = sourceURL(url);
+  if (parsed?.protocol === "https:" && !inspectedIconOrigins.has(parsed.origin))
+    inspectedIconOrigins.set(parsed.origin, url);
+}
+
 function fetchIcon(url: string, origin: string, scope: IconScope) {
   if (!requestedIconOrigins.has(origin) && requestedIconOrigins.size >= MAX_FAVICONS) return;
   if (scope === "chat" && !chatIconOrigins.has(origin)) {
@@ -181,47 +208,70 @@ function fetchIcon(url: string, origin: string, scope: IconScope) {
     // A source may already hold this icon. Notify snapshot readers when chat admits it too.
     changed();
   }
-  const entry = cachedIcon(origin);
-  if (entry) {
-    favicons.delete(origin);
-    favicons.set(origin, entry);
-    return;
-  }
   const existing = fetchingIcons.get(origin);
   if (existing) {
     existing.readers += 1;
     return () => releaseIcon(origin, existing);
   }
   requestedIconOrigins.add(origin);
-  const pending = { url, readers: 1 };
-  fetchingIcons.set(origin, pending);
-  const current = generation;
-  void callChipHost("link.favicon", { url })
-    .then((reply) => {
-      if (current !== generation || fetchingIcons.get(origin) !== pending) return;
-      const value = reply as { icon?: unknown; disabled?: boolean } | undefined;
-      // A lab refusal is not evidence that the site has no icon. Try again on the next activation.
-      if (value?.disabled) return;
-      const icon = typeof value?.icon === "string" && value.icon.startsWith("data:image/") ? value.icon : undefined;
-      favicons.set(origin, { icon, expires: icon ? Infinity : Date.now() + NEGATIVE_ICON_MS });
-      while (favicons.size > MAX_FAVICONS) {
-        const oldest = favicons.keys().next().value;
-        if (oldest === undefined) break;
-        favicons.delete(oldest);
-      }
-      changed();
-    })
-    .finally(() => {
-      if (fetchingIcons.get(origin) === pending) fetchingIcons.delete(origin);
-    });
-  return () => releaseIcon(origin, pending);
+  const readers: IconReaders = { url, readers: 1, retried: false };
+  fetchingIcons.set(origin, readers);
+  startIcon(origin, readers);
+  return () => releaseIcon(origin, readers);
 }
 
-function releaseIcon(origin: string, pending: { url: string; readers: number }) {
-  pending.readers -= 1;
-  if (pending.readers > 0 || fetchingIcons.get(origin) !== pending) return;
+function retryIcon(origin: string, readers: IconReaders, at: number) {
+  if (readers.retried || readers.retry !== undefined) return;
+  readers.retry = setTimeout(
+    () => {
+      if (fetchingIcons.get(origin) !== readers || readers.readers === 0) return;
+      readers.retry = undefined;
+      readers.retried = true;
+      startIcon(origin, readers);
+    },
+    Math.max(0, at - Date.now()),
+  );
+}
+
+function startIcon(origin: string, readers: IconReaders) {
+  const entry = cachedIcon(origin);
+  if (entry) {
+    favicons.delete(origin);
+    favicons.set(origin, entry);
+    return;
+  }
+  const pending = {};
+  readers.pending = pending;
+  const current = generation;
+  void callChipHost("link.favicon", { url: readers.url }).then((reply) => {
+    if (current !== generation || fetchingIcons.get(origin) !== readers || readers.pending !== pending) return;
+    readers.pending = undefined;
+    const value = reply as { icon?: unknown; disabled?: boolean; temporary?: boolean } | undefined;
+    // A lab refusal is retried only on activation. Overload/cancellation get one short backoff.
+    if (!value || value.disabled) return;
+    const icon = typeof value?.icon === "string" && value.icon.startsWith("data:image/") ? value.icon : undefined;
+    if (!icon && value.temporary) {
+      retryIcon(origin, readers, Date.now() + 1000);
+      return;
+    }
+    // Legacy hosts return {} for a miss. Match the app's ten-minute negative cache on remount.
+    const expires = icon ? Infinity : Date.now() + NEGATIVE_ICON_MS;
+    favicons.set(origin, { icon, expires });
+    while (favicons.size > MAX_FAVICONS) {
+      const oldest = favicons.keys().next().value;
+      if (oldest === undefined) break;
+      favicons.delete(oldest);
+    }
+    changed();
+  });
+}
+
+function releaseIcon(origin: string, readers: IconReaders) {
+  readers.readers -= 1;
+  if (readers.readers > 0 || fetchingIcons.get(origin) !== readers) return;
   fetchingIcons.delete(origin);
-  void callChipHost("link.cancelFavicon", { url: pending.url });
+  if (readers.retry !== undefined) clearTimeout(readers.retry);
+  if (readers.pending) void callChipHost("link.cancelFavicon", { url: readers.url });
 }
 
 /// A held icon wins before the site's own icon is fetched, with labs `sourceIcons` on.
@@ -239,21 +289,22 @@ export function useSourceIcon(
     () => (valid ? sites.get(valid)?.icon : undefined),
     () => undefined,
   );
-  const answered = useSyncExternalStore(
-    subscribe,
-    () => !!valid && !askingUrls.has(valid),
-    () => false,
-  );
   // Passive fetches use TLS only. An HTTP source can still use an icon held by an open tab.
   const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
+  const answered = useSyncExternalStore(
+    subscribe,
+    () => !!origin && inspectedIconOrigins.has(origin),
+    () => false,
+  );
   const icon = useSyncExternalStore(
     subscribe,
     () => (fetch && origin && (scope !== "chat" || chatIconOrigins.has(origin)) ? cachedIcon(origin)?.icon : undefined),
     () => undefined,
   );
   useEffect(() => {
-    if (valid && origin && fetch && answered && !held) return fetchIcon(valid, origin, scope);
-  }, [valid, origin, fetch, answered, held, scope]);
+    const inspectedURL = origin ? inspectedIconOrigins.get(origin) : undefined;
+    if (inspectedURL && origin && fetch && answered && !held) return fetchIcon(inspectedURL, origin, scope);
+  }, [origin, fetch, answered, held, scope]);
   return held ?? icon;
 }
 
@@ -272,7 +323,9 @@ export function resetLinkStore(): void {
   favicons.clear();
   requestedIconOrigins.clear();
   chatIconOrigins.clear();
+  for (const readers of fetchingIcons.values()) if (readers.retry !== undefined) clearTimeout(readers.retry);
   fetchingIcons.clear();
+  inspectedIconOrigins.clear();
   askingUrls.clear();
   generation += 1;
   inFlight = false;
@@ -291,7 +344,10 @@ export function seedLinkStore(seed: {
   policy?: Partial<ReplyPolicy>;
 }): void {
   for (const [path, info] of Object.entries(seed.paths ?? {})) paths.set(path, info);
-  for (const [url, info] of Object.entries(seed.sites ?? {})) sites.set(url, info);
+  for (const [url, info] of Object.entries(seed.sites ?? {})) {
+    sites.set(url, info);
+    rememberInspectedOrigin(url);
+  }
   if (seed.policy) policy = { ...policy, ...seed.policy };
   policyAsked = true;
   changed();

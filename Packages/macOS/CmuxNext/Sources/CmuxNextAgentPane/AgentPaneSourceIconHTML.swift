@@ -17,7 +17,11 @@ struct AgentPaneSourceIconHTML: Sendable {
             let tokens = Set(rel.split(whereSeparator: \.isWhitespace).map(String.init))
             let touch = tokens.contains("apple-touch-icon") || tokens.contains("apple-touch-icon-precomposed")
             guard !tokens.contains("mask-icon"), tokens.contains("icon") || touch,
-                  let url = URL(string: href, relativeTo: base)?.absoluteURL, GuardedRemoteFetch.allows(url) else { continue }
+                  let resolved = URL(string: href, relativeTo: base)?.absoluteURL,
+                  var components = URLComponents(url: resolved, resolvingAgainstBaseURL: false) else { continue }
+            // Fragments are never sent in a GET and cannot make an already-tried icon new.
+            components.fragment = nil
+            guard let url = components.url, GuardedRemoteFetch.allows(url) else { continue }
             let sizes = link["sizes"] ?? ""
             let distances = sizes.lowercased().split(whereSeparator: \.isWhitespace).compactMap { size -> Int? in
                 let dimensions = size.split(separator: "x")
@@ -25,14 +29,13 @@ struct AgentPaneSourceIconHTML: Sendable {
                       (1...4096).contains(width), (1...4096).contains(height) else { return nil }
                 return max(0, 32 - min(width, height)) + max(0, max(width, height) - 64)
             }
-            let type = link["type"]?.lowercased() ?? ""
-            // Prefer raster when otherwise tied: SVG support varies with AppKit's decoder.
+            let type = link["type"]?.lowercased().split(separator: ";", maxSplits: 1).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Refuse advertised SVG before it can consume a fallback request.
             let suffix = url.pathExtension.lowercased()
+            guard type != "image/svg+xml", !["svg", "svgz"].contains(suffix) else { continue }
             let format: Int
             if ["image/png", "image/x-icon", "image/vnd.microsoft.icon"].contains(type) || ["png", "ico"].contains(suffix) {
                 format = 0
-            } else if type == "image/svg+xml" || suffix == "svg" {
-                format = 1
             } else {
                 format = 2
             }

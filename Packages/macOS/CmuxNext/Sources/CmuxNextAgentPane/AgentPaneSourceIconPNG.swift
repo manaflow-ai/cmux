@@ -6,7 +6,26 @@ import ImageIO
 struct AgentPaneSourceIconPNG {
     nonisolated init() {}
 
+    private nonisolated func isRaster(_ data: Data) -> Bool {
+        let bytes = [UInt8](data.prefix(16))
+        if bytes.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]) || // PNG
+            bytes.starts(with: [0, 0, 1, 0]) || bytes.starts(with: [0, 0, 2, 0]) || // ICO, CUR
+            bytes.starts(with: [255, 216, 255]) || bytes.starts(with: Array("GIF8".utf8)) ||
+            bytes.starts(with: [73, 73, 42, 0]) || bytes.starts(with: [77, 77, 0, 42]) || // TIFF
+            bytes.starts(with: Array("BM".utf8)) { return true }
+        if bytes.starts(with: Array("RIFF".utf8)), bytes.count >= 12,
+           Array(bytes[8..<12]) == Array("WEBP".utf8) { return true }
+        // ISO base media raster images (AVIF/HEIF); other brands, including vector, stay out.
+        if bytes.count >= 12, Array(bytes[4..<8]) == Array("ftyp".utf8) {
+            return ["avif", "avis", "heic", "heix", "mif1", "msf1"].contains(String(decoding: bytes[8..<12], as: UTF8.self))
+        }
+        return false
+    }
+
     nonisolated func decode(_ data: Data) -> Data? {
+        // Only recognized raster containers reach a native decoder. This body allowlist also
+        // refuses SVG disguised by its URL, MIME type, XML prolog, BOM or text encoding.
+        guard isRaster(data) else { return nil }
         let maximumPixels = 64
         let side = CGFloat(maximumPixels)
         let best: CGImage
@@ -23,15 +42,7 @@ struct AgentPaneSourceIconPNG {
                 kCGImageSourceShouldCacheImmediately: true,
             ] as CFDictionary) else { return nil }
             best = thumbnail
-        } else {
-            // AppKit handles vector formats ImageIO cannot read. Bound their canvas before rasterizing.
-            guard let source = NSImage(data: data), source.size.width > 0, source.size.height > 0,
-                  source.size.width <= 4096, source.size.height <= 4096 else { return nil }
-            var proposed = CGRect(x: 0, y: 0, width: side, height: side)
-            guard let image = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil),
-                  image.width <= 4096, image.height <= 4096 else { return nil }
-            best = image
-        }
+        } else { return nil }
         let scale = min(1, side / CGFloat(max(best.width, best.height)))
         let width = max(1, Int((CGFloat(best.width) * scale).rounded()))
         let height = max(1, Int((CGFloat(best.height) * scale).rounded()))

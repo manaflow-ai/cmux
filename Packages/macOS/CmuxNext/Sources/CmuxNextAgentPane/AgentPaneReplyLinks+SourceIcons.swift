@@ -5,6 +5,15 @@ import Foundation
 extension AgentPaneReplyLinks {
     var sourceIconsEnabled: Bool { sourceIconsLayout ?? sourceIconsBaseline }
 
+    func sourceIconReply(_ url: URL) async -> [String: Any] {
+        guard sourceIconsEnabled else { return AgentPaneReply.success(["disabled": true]) }
+        guard let icon = faviconOrigin(url) else { return AgentPaneReply.success() }
+        let result = await loadSourceIcon(icon)
+        if result == .temporary { return AgentPaneReply.success(["temporary": true]) }
+        guard let png = result.png, png.count <= 64 << 10 else { return AgentPaneReply.success() }
+        return AgentPaneReply.success(["icon": "data:image/png;base64," + png.base64EncodedString()])
+    }
+
     func applySourceIconLayout(_ customization: AgentPaneCustomization) {
         sourceIconsLayout = nil
         if let text = customization.layoutJSON, let layout = try? JSONValue.parse(Data(text.utf8)),
@@ -24,8 +33,8 @@ extension AgentPaneReplyLinks {
         return origin.url
     }
 
-    func loadSourceIcon(_ url: URL) async -> Data? {
-        guard !Task.isCancelled else { return nil }
+    func loadSourceIcon(_ url: URL) async -> AgentPaneSourceIconResult {
+        guard !Task.isCancelled else { return .temporary }
         let id = UUID()
         // task-owner: this pane, until the source disappears, the lab turns off or the pane closes.
         let task = Task { await favicon(url) }
@@ -33,7 +42,7 @@ extension AgentPaneReplyLinks {
         defer { sourceIconRequests[id] = nil }
         return await withTaskCancellationHandler {
             let data = await task.value
-            return task.isCancelled || Task.isCancelled ? nil : data
+            return task.isCancelled || Task.isCancelled ? .temporary : data
         } onCancel: {
             task.cancel()
         }

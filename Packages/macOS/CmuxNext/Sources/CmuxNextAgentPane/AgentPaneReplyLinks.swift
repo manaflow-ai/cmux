@@ -26,10 +26,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
     /// A site's icon fetched from `url` (the pane module's guarded queue: no cookies, size capped),
     /// for Thread details sources with labs `sourceIcons` on.
-    public var favicon: @MainActor (URL) async -> Data? = { await AgentPaneSourceIcons.shared.data(at: $0) }
+    public var favicon: @MainActor (URL) async -> AgentPaneSourceIconResult = { await AgentPaneSourceIcons.shared.result(at: $0) }
     var sourceIconsBaseline = AgentPaneTunables.sourceIcons.value
     var sourceIconsLayout: Bool?
-    var sourceIconRequests: [UUID: (url: URL, task: Task<Data?, Never>)] = [:]
+    var sourceIconRequests: [UUID: (url: URL, task: Task<AgentPaneSourceIconResult, Never>)] = [:]
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
@@ -84,10 +84,7 @@ extension AgentPaneModel {
         case .loadMedia(let src):
             return await loadReplyMedia(src)
         case .favicon(let url):
-            guard replyLinks.sourceIconsEnabled else { return AgentPaneReply.success(["disabled": true]) }
-            guard let icon = replyLinks.faviconOrigin(url),
-                  let png = await replyLinks.loadSourceIcon(icon), png.count <= 64 << 10 else { return AgentPaneReply.success() }
-            return AgentPaneReply.success(["icon": "data:image/png;base64," + png.base64EncodedString()])
+            return await replyLinks.sourceIconReply(url)
         case .cancelFavicon(let url):
             if let icon = replyLinks.faviconOrigin(url) { replyLinks.cancelSourceIcons(at: icon) }
             return AgentPaneReply.success()
