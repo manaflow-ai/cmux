@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fca6c1a88152ede8f614f8e248ca446ecbcfaa1b5075250e7430d44a67371913. */
+/* cmux-tui mux protocol 12, IR 6752aeda6c86bb4bdbf059f44840f8c3d4330aea54b4be3689bdc95a8e85bdd2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -22,7 +22,7 @@ export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "runnin
 export type AgentRecord = {
   /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
   "agent"?: (string) | null;
-  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one. Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+  /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
   "agent_session_id"?: (string) | null;
   /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
   "last_prompt"?: (string) | null;

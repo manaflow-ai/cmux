@@ -57,6 +57,16 @@ public struct AgentStatus: Sendable, Hashable, Decodable {
     }
 }
 
+extension AgentStatus {
+    /// The harness session this agent runs (`claude`, `codex` session id): a hook report's
+    /// `agentSessionID`, else a direct report's `session`. Hook bookkeeping markers
+    /// (`cmux-hook-…`) are none. Copy Session ID and `cmux://agent` links read it.
+    public var harnessSessionID: String? {
+        guard let id = agentSessionID ?? session, !id.isEmpty, !id.hasPrefix("cmux-hook-") else { return nil }
+        return id
+    }
+}
+
 public struct ListAgentsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var agents: [AgentStatus]

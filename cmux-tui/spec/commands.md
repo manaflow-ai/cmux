@@ -8586,6 +8586,7 @@ object{
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
+    agent?: string|null,
     agent_session_id?: string|null,
     updated_at_ms: uint64,
     since_ms?: uint64,

@@ -13,7 +13,7 @@ import java.util.Objects;
 public final class AgentRecord implements WireValue {
     /** Adapter identity (`claude`, `codex`, ...) when a hook claimed the terminal; null for socket-only reports. */
     private final Field<String> agent;
-    /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one. Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
+    /** The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this. */
     private final Field<String> agentSessionId;
     /** The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted. */
     private final Field<String> lastPrompt;

@@ -32,8 +32,8 @@
     },
     {
       "path": "AgentChangedEvent.java",
-      "sha256": "f888d29885802caa94207e7df38892dd7dcfc17a7d5569a61d66fbf440962ee2",
-      "size": 8654
+      "sha256": "3a63deb5c81601441ad2516bae6388d4d8e4e48bd3636795c9bec6e67242e264",
+      "size": 8714
     },
     {
       "path": "AgentInventoryChangedEvent.java",
@@ -57,8 +57,8 @@
     },
     {
       "path": "AgentRecord.java",
-      "sha256": "73988dde3064cc429dc46b6c1c4c9683c180288dbadd84387150bff3d5238e1b",
-      "size": 8206
+      "sha256": "6b92f6f86a3e23879109db7f03ba27df6dd5ddda1312fc0afb97547c901b143d",
+      "size": 8266
     },
     {
       "path": "AgentReportSource.java",
@@ -2067,7 +2067,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "424a0d0479ece9299633bd668d44f1eace5c1959809261fb023d2d168a0ea138",
+      "sha256": "34138bd7d54dac3bb052df728502813f99438b745cb5534a1a9f58e7dcc195a5",
       "size": 7486
     },
     {
@@ -3327,7 +3327,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "fca6c1a88152ede8f614f8e248ca446ecbcfaa1b5075250e7430d44a67371913",
+  "ir_sha256": "6752aeda6c86bb4bdbf059f44840f8c3d4330aea54b4be3689bdc95a8e85bdd2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

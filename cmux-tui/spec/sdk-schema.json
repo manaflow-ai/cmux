@@ -5019,7 +5019,7 @@
      "presence": "optional",
      "nullable": true,
      "since": 12,
-     "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one. Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
+     "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
     },
     "last_prompt": {
      "type": {
@@ -24970,7 +24970,7 @@
       "presence": "optional",
       "nullable": true,
       "since": 12,
-      "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one. Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
+      "description": "The harness's own session id that the agent's hooks reported (`claude`, `codex` session ids), checked to `[A-Za-z0-9._:-]` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep `session` for a human label, so clients find a terminal's agent session by this."
      },
      "event": {
       "type": {
