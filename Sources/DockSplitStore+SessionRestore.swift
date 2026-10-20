@@ -709,7 +709,12 @@ extension DockSplitStore {
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
-            if let restorableAgent, ownsRestorePassCheckpoint {
+            if shouldAutoResumeAgent,
+               restorableAgentCanAutoResume,
+               hibernation == nil,
+               !suppressesResumeForBackgroundSession,
+               ownsRestorePassCheckpoint,
+               let restorableAgent {
                 SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
                     kind: restorableAgent.kind.rawValue,
                     sessionID: restorableAgent.sessionId
