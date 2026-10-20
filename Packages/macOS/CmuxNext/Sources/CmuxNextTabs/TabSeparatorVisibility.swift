@@ -23,6 +23,7 @@ struct TabSeparatorVisibility {
     /// tab. Members collapsed into a group chip are out of the row and draw none; a chip is a
     /// neutral neighbor. None while `tabs.separators` is off.
     @MainActor static func apply(to strip: TabStripView) {
+        strip.rowPasses.separators &+= 1
         let row = strip.result.slots.filter { !$0.isCollapsed }
         func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
         let visible = visibleSeparators(

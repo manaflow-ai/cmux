@@ -143,6 +143,7 @@ extension TabStripView {
     /// Masks the tabs the selected pill covers now and along every move in flight (`TabOcclusion`).
     /// `settle`: a path that ends within it counts as ended.
     func updateOcclusion(settle: CFTimeInterval = 0.001) {
+        rowPasses.occlusion &+= 1
         let selected = model.selectedID.flatMap { dying.contains($0) ? nil : $0 }
         occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, settle: settle)
     }
@@ -259,6 +260,7 @@ extension TabStripView {
     /// `scrollFrom`: the mapping the layers showed before (its offset); with `move`, the scroll's share
     /// of each move runs under its own key (`TabStripMove.addScroll`), so a wheel ends it alone.
     func applyFrames(move: TabStripMove? = nil, scrollFrom: TabScrollMapping? = nil) {
+        rowPasses.frames &+= 1
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let move {

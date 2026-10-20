@@ -84,6 +84,9 @@ public final class TabStripView: NSView {
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
+    /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
+    /// the switch work budget (a tab switch at rest runs none, at any tab count).
+    var rowPasses = TabStripRowPasses()
     /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).
