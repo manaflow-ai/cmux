@@ -25,15 +25,133 @@ import {
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
 
-/** Column widths, in CSS pixels, for each table of the open file (by its index in the file). */
+/**
+ * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
+ * the file and the key of its header row (`headerKey`): an edit elsewhere keeps its widths, a table
+ * added above it moves its widths with it, and a changed header drops them
+ * (plans/cmux-next/MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+ */
 export interface TableWidths {
-  /** The saved widths of table `index`, one per column, or null for the natural widths. */
-  get(index: number): number[] | null;
-  /** Saves (or with null forgets) the widths of table `index`. */
-  set(index: number, widths: number[] | null): void;
+  /** The saved widths of table `index` with header `header`, one per column, or null. */
+  get(index: number, header: string): number[] | null;
+  /**
+   * Saves (or with null forgets) the widths of table `index`. `live` is every table's header key
+   * in the file now, in order: a saved table no longer among them is dropped in the same write.
+   */
+  set(index: number, header: string, widths: number[] | null, live: readonly string[]): void;
+  /** Forgets the widths of every table of the open file. */
+  clear(): void;
+  /** Calls `listener` after `clear` (each table view lays itself out again); returns the unsubscribe. */
+  subscribe(listener: () => void): () => void;
 }
 
-/** The storage widths survive a reload and a reopen in (localStorage; a stand-in in tests). */
+/** One saved table: index `i`, header key `h`, widths `w`. */
+export interface SavedTable {
+  i: number;
+  h: string;
+  w: number[];
+}
+
+/** The value a file's widths are kept as (the host stores it as is: `cmux.markdown.setTableWidths`). */
+export interface SavedTableWidths {
+  v: 1;
+  tables: SavedTable[];
+}
+
+/** The most tables and columns one file keeps (the host refuses more than 256 of either). */
+const MAX_TABLES = 128;
+const MAX_COLUMNS = 128;
+
+/** A short key of a table's header row: its cell texts (FNV-1a, 32 bits, hex) and column count. */
+export function headerKey(cells: readonly string[]): string {
+  let hash = 0x811c9dc5;
+  for (const char of cells.join("\u001f")) {
+    hash ^= char.codePointAt(0)!;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${cells.length}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+/** The saved tables in `value`, or [] when it is not a `SavedTableWidths`. */
+export function parseSavedTableWidths(value: unknown): SavedTable[] {
+  const tables = (value as Partial<SavedTableWidths> | null)?.tables;
+  if ((value as Partial<SavedTableWidths> | null)?.v !== 1 || !Array.isArray(tables)) return [];
+  return tables.filter(
+    (table): table is SavedTable =>
+      Number.isInteger(table?.i) &&
+      table.i >= 0 &&
+      typeof table.h === "string" &&
+      Array.isArray(table.w) &&
+      table.w.length > 0 &&
+      table.w.every((width: unknown) => typeof width === "number" && width > 0),
+  );
+}
+
+/** Where a file's tables are loaded from and saved to. `save(path, null)` forgets the file. */
+export interface TableWidthBackend {
+  load(path: string): SavedTable[];
+  save(path: string, value: SavedTableWidths | null): void;
+}
+
+/**
+ * `TableWidths` over a backend, for the file `path()` names (read on each call: link navigation
+ * changes the file). Each file's tables are loaded once and kept; each `set` or `clear` is one
+ * backend save, so a column drag (one `set` when it ends) is one write.
+ */
+export function tableWidthsOver(path: () => string | undefined, backend: TableWidthBackend): TableWidths {
+  const files = new Map<string, SavedTable[]>();
+  const listeners = new Set<() => void>();
+  const tables = (file: string) => {
+    let saved = files.get(file);
+    if (!saved) files.set(file, (saved = backend.load(file)));
+    return saved;
+  };
+  const save = (file: string, saved: SavedTable[]) => {
+    files.set(file, saved);
+    backend.save(file, saved.length ? { v: 1, tables: saved } : null);
+  };
+  return {
+    get(index, header) {
+      const file = path();
+      if (!file) return null;
+      const saved = tables(file);
+      const exact = saved.find((table) => table.i === index && table.h === header);
+      if (exact) return exact.w;
+      // A table added or removed above moves the others: the one saved table with this header.
+      const moved = saved.filter((table) => table.h === header);
+      return moved.length === 1 ? moved[0]!.w : null;
+    },
+    set(index, header, widths, live) {
+      const file = path();
+      if (!file) return;
+      // Each saved table stays where its header is now (moved when it is the one table with that
+      // header), and a header no table has any more is dropped.
+      const kept: SavedTable[] = [];
+      for (const table of tables(file)) {
+        let at = table.i;
+        if (live[at] !== table.h) {
+          const first = live.indexOf(table.h);
+          at = first >= 0 && live.lastIndexOf(table.h) === first ? first : -1;
+        }
+        if (at >= 0 && at !== index && !kept.some((other) => other.i === at)) kept.push({ ...table, i: at });
+      }
+      if (widths) kept.push({ i: index, h: header, w: widths.slice(0, MAX_COLUMNS).map((width) => Math.round(width)) });
+      save(file, kept.sort((a, b) => a.i - b.i).slice(0, MAX_TABLES));
+    },
+    clear() {
+      const file = path();
+      if (!file) return;
+      save(file, []);
+      for (const listener of listeners) listener();
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+/** The storage the page-only fallback keeps widths in (localStorage; a stand-in in tests). */
 export interface WidthStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -48,44 +166,55 @@ function localStore(): WidthStorage | null {
   }
 }
 
-/** Widths kept per file path (`path` is read on each call: link navigation changes the file). */
+/**
+ * Widths kept in the page's own storage, per file path: the dev page and an older host with no
+ * `setTableWidths`. In the app the page's storage does not outlive the tab (its WebKit data store
+ * is not persistent), so the app keeps them with the file (`hostTableWidths`).
+ */
 export function storedTableWidths(
   path: () => string | undefined,
   storage: WidthStorage | null = localStore(),
 ): TableWidths {
-  const key = () => {
-    const file = path();
-    return file ? `cmux.markdown.columnWidths:${file}` : null;
-  };
-  const read = (): Record<string, number[]> => {
-    const name = key();
-    if (!name || !storage) return {};
-    try {
-      const value = JSON.parse(storage.getItem(name) ?? "{}");
-      return value && typeof value === "object" ? value : {};
-    } catch {
-      return {};
-    }
-  };
-  return {
-    get(index) {
-      const widths = read()[index];
-      return Array.isArray(widths) && widths.every((width) => typeof width === "number" && width > 0) ? widths : null;
-    },
-    set(index, widths) {
-      const name = key();
-      if (!name || !storage) return;
-      const all = read();
-      if (widths) all[index] = widths.map((width) => Math.round(width));
-      else delete all[index];
+  const key = (file: string) => `cmux.markdown.columnWidths:${file}`;
+  return tableWidthsOver(path, {
+    load(file) {
       try {
-        if (Object.keys(all).length === 0) storage.removeItem(name);
-        else storage.setItem(name, JSON.stringify(all));
+        return parseSavedTableWidths(JSON.parse(storage?.getItem(key(file)) ?? "null"));
       } catch {
-        // A full or refused storage only loses the widths on the next reload.
+        return [];
       }
     },
-  };
+    save(file, value) {
+      try {
+        if (value) storage?.setItem(key(file), JSON.stringify(value));
+        else storage?.removeItem(key(file));
+      } catch {
+        // A full or refused storage only loses the widths on the next reopen.
+      }
+    },
+  });
+}
+
+/**
+ * Widths the host keeps with the file (its extended attribute, then an app-side copy): `initial`
+ * answers what the host sent for a file in its config (`tableWidths`), `write` sends one
+ * `cmux.markdown.setTableWidths` per change.
+ */
+export function hostTableWidths(
+  path: () => string | undefined,
+  initial: (path: string) => unknown,
+  write: (path: string, value: SavedTableWidths | null) => void,
+): TableWidths {
+  return tableWidthsOver(path, { load: (file) => parseSavedTableWidths(initial(file)), save: write });
+}
+
+/** Each table view by its `.tableWrapper` (the right-click's Reset Column Widths finds its table). */
+const viewsByWrapper = new WeakMap<Element, ResizableTableView>();
+
+/** The table view around `target`, or null. */
+export function tableViewAt(target: Element | null): ResizableTableView | null {
+  const wrapper = target?.closest?.(".tableWrapper");
+  return wrapper ? (viewsByWrapper.get(wrapper) ?? null) : null;
 }
 
 /** The narrowest a column can be dragged to, in CSS pixels. */
@@ -130,8 +259,12 @@ export class ResizableTableView extends TableView {
     this.resize = new ResizeObserver(this.markOverflow);
     this.resize.observe(this.dom);
     this.resize.observe(this.table);
+    this.unsubscribe = widths?.subscribe(() => this.applySaved()) ?? (() => {});
+    viewsByWrapper.set(this.dom, this);
     this.applySaved();
   }
+
+  private readonly unsubscribe: () => void;
 
   private readonly resize: ResizeObserver;
 
@@ -177,6 +310,28 @@ export class ResizableTableView extends TableView {
     return true;
   }
 
+  /** The header key (`headerKey`) of every table of the document, in order. */
+  private liveHeaders(): string[] {
+    const headers: string[] = [];
+    this.view.state.doc.descendants((node) => {
+      if (node.type.name !== "table") return true;
+      headers.push(tableHeaderKey(node));
+      return false;
+    });
+    return headers;
+  }
+
+  /** Saves (null: forgets) this table's widths: one write, at the end of a drag or a fit. */
+  private save(widths: number[] | null): void {
+    this.widths?.set(this.index(), tableHeaderKey(this.node), widths, this.liveHeaders());
+  }
+
+  /** Forgets this table's widths and lays it out at its natural widths (Reset Column Widths). */
+  resetWidths(): void {
+    this.layout(null);
+    this.save(null);
+  }
+
   /** The table's index among the document's tables (its key in `TableWidths`). */
   private index(): number {
     const pos = this.getPos();
@@ -196,7 +351,7 @@ export class ResizableTableView extends TableView {
 
   private applySaved(): void {
     if (!this.widths || this.view.isDestroyed) return;
-    const saved = this.widths.get(this.index());
+    const saved = this.widths.get(this.index(), tableHeaderKey(this.node));
     this.layout(saved && saved.length === this.columns().length ? saved : null);
   }
 
@@ -276,7 +431,7 @@ export class ResizableTableView extends TableView {
       this.dom.classList.remove("md-col-resizing");
       removeEventListener("mousemove", move, true);
       removeEventListener("mouseup", up, true);
-      this.widths?.set(this.index(), widths);
+      this.save(widths);
     };
     addEventListener("mousemove", move, true);
     addEventListener("mouseup", up, true);
@@ -288,15 +443,14 @@ export class ResizableTableView extends TableView {
     event.stopPropagation();
     const column = this.column;
     if (column < 0) return;
-    const index = this.index();
-    const saved = this.widths?.get(index);
+    const saved = this.widths?.get(this.index(), tableHeaderKey(this.node));
     // The natural width: the auto layout's width for this column.
     this.layout(null);
     const natural = this.measured()[column];
     if (saved && natural !== undefined) {
       const widths = saved.map((width, at) => (at === column ? natural : width));
       this.layout(widths);
-      this.widths?.set(index, widths);
+      this.save(widths);
     }
     this.show(column);
   };
@@ -318,7 +472,15 @@ export class ResizableTableView extends TableView {
     this.dom.removeEventListener("scroll", this.markOverflow);
     this.dom.removeEventListener("wheel", this.shiftWheel);
     this.resize.disconnect();
+    this.unsubscribe();
   }
+}
+
+/** `headerKey` of a table node's first row. */
+export function tableHeaderKey(table: ProseNode): string {
+  const cells: string[] = [];
+  table.firstChild?.forEach((cell) => cells.push(cell.textContent.trim()));
+  return headerKey(cells);
 }
 
 /** The cell (table_cell or table_header) around the selection's head, with its position. */
