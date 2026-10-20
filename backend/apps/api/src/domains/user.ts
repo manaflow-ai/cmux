@@ -142,6 +142,13 @@ export const installActive = (state: UserState, p: Principal) => {
   return p.agent === undefined || chiefActive(state, p.agent)
 }
 
+/** Current grant admission for an install; callers supply their authoritative clock. */
+export const liveInstallGrant = (state: UserState, p: Principal, now: number) => {
+  const grant = grantFor(state, p)
+  return p.kind === "install" && installActive(state, p) && grant !== undefined && grant.grantee === p.install && grant.revoked_at === null
+    && (grant.expires_at === null || (Number.isFinite(grant.expires_at) && grant.expires_at > now)) ? grant : undefined
+}
+
 /** installActive, and not a VM install: a VM install (kind vm) never reads or changes its creator's account (review P1). */
 export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || !isMachineInstallKind(state.installs[p.install]?.kind))
 

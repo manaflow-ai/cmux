@@ -7,7 +7,7 @@ import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
 import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { chiefActive, grantFor, inboxRefusalFor, installActive, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { chiefActive, grantFor, inboxRefusalFor, liveInstallGrant, grantMigrationsDue, userPathAllowed, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
 import { appIdHashFor, confirmRead } from "./domains/user-confirm.ts"
 import { CHIEF_AGENT_CLASS, chiefList, placedChiefClasses } from "./domains/user-chief.ts"
 import { avatarRpc, type AvatarCall } from "./user-avatars.ts"
@@ -152,7 +152,7 @@ export class UserDO extends OwnerDO<UserState> {
   async registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean> {
     if (!this.isBound(entity)) return false
     const state = this.bind(entity).currentState
-    if (!installActive(state, { identity: install, kind: "install", user: entity, install, ...(grant ? { grant } : {}), ...(agent ? { agent } : {}) })) return false
+    if (!liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, ...(grant ? { grant } : {}), ...(agent ? { agent } : {}) }, Date.now())) return false
     registerSocketOwner(this.ctx.storage.sql, install, agent, cls, name, expiresAt, Date.now())
     return true
   }
@@ -363,12 +363,25 @@ export class UserDO extends OwnerDO<UserState> {
     return (!state.user || state.user.id === principal.user) && userPathAllowed(state, principal)
   }
 
+  /** User wires bypass the Worker's cross-owner grant RPC, so cap them from this owner's current grant. */
+  protected override acceptOwnerSocket(entity: string, attachment: Attachment): Response {
+    const principal = attachment.principal
+    if (principal.kind !== "install") return super.acceptOwnerSocket(entity, attachment)
+    const state = this.isBound(entity) ? this.bind(entity).currentState : undefined
+    const grant = state ? liveInstallGrant(state, principal, Date.now()) : undefined
+    if (!grant) return new Response("forbidden", { status: 403 })
+    const expires_at = Math.min(principal.expires_at ?? Infinity, grant.expires_at ?? Infinity)
+    return super.acceptOwnerSocket(entity, { ...attachment, principal: { ...principal,
+      ...(Number.isFinite(expires_at) ? { expires_at } : {}) } })
+  }
+
   /** RPC from other owners (OwnerDO.runInstallChecks): which of these installs (with the token's grant) are active. Never creates an object. */
   async installsActive(entity: string, list: ReadonlyArray<{ install: string; grant: string | undefined; agent?: string }>): Promise<ReadonlyArray<boolean>> {
     // One answer per entry, in order (two sockets of one install may hold different grants).
     if (!this.isBound(entity)) return list.map(() => false)
     const state = this.bind(entity).currentState
-    return list.map((x) => installActive(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}), ...(x.agent ? { agent: x.agent } : {}) }))
+    const now = Date.now()
+    return list.map((x) => !!liveInstallGrant(state, { identity: x.install, kind: "install", user: entity, install: x.install, ...(x.grant ? { grant: x.grant } : {}), ...(x.agent ? { agent: x.agent } : {}) }, now))
   }
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
@@ -470,16 +483,16 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
     const inst = state.installs[install]
-    const g = state.grants[grant]
-    if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
+    const g = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, ...(agent ? { agent } : {}) }, Date.now())
+    if (!inst || !g) return { ok: false }
     const op_classes = agent === undefined ? g.op_classes : await placedChiefClasses(state, inst, install, agent, g.op_classes, (team, host) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).serverPlacementActive(team, host, install), () => engine.currentState)
     if (!op_classes) return { ok: false } // unknown or archived chief, or a placed server TeamDO no longer confirms (G8, revoke race)
-    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
+    return { ok: true, op_classes, kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, expires_at: g.expires_at, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}), ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 
   async challenge(entity: string, install: string, team?: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
