@@ -374,8 +374,7 @@ impl HostShared {
         let delivered = {
             let mut writer = self.writer.lock().unwrap();
             let master = self.master.lock().unwrap();
-            crate::pty_input_room::write_input(Some(&**master), writer.as_mut(), payload)
-                .is_ok()
+            crate::pty_input_room::write_input(Some(&**master), writer.as_mut(), payload).is_ok()
         };
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.
