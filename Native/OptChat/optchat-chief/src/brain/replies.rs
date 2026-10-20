@@ -142,7 +142,7 @@ impl Brain {
     }
 
     /// The conversation message the Chief's view line `view_id` logged.
-    fn message_of_line(&mut self, tool: &str, view_id: u64) -> Result<Message, String> {
+    pub(super) fn message_of_line(&mut self, tool: &str, view_id: u64) -> Result<Message, String> {
         let key = self.chat.logged_key(view_id).ok_or_else(|| {
             format!(
                 "{tool}: line {view_id} is not a message in the conversation (a note, a report or a tool line); name a user message"
@@ -311,7 +311,7 @@ pub(super) fn unthreaded(op: &Op, reason: &str) -> Option<Op> {
 }
 
 /// FNV-1a, for a stable idempotency key of a reply's text.
-fn fnv(bytes: &[u8]) -> u64 {
+pub(super) fn fnv(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
     for b in bytes {
         hash ^= u64::from(*b);

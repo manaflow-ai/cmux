@@ -410,6 +410,13 @@ impl Brain {
         }
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        self.tool_stopped = false;
+        // A user message or a report replaces the `until: event` wakes.
+        self.drop_event_wakes(
+            items
+                .iter()
+                .any(|i| matches!(i.source, Source::Message { .. } | Source::Spawn(_))),
+        );
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
         // Per-turn ambient state is read before choosing the policy. The whole
@@ -797,7 +804,7 @@ impl Brain {
         // its turn is never passed by later ones).
         // Messages never set the interrupt now; only chief.stop does, and a
         // boundary must not clear it.
-        if !self.owner_stopped {
+        if !self.owner_stopped && !self.tool_stopped {
             self.interrupt.clear();
         }
         let side = self.turn_side();
@@ -1166,6 +1173,11 @@ impl Brain {
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let owner_stopped = std::mem::take(&mut self.owner_stopped);
+        // The Chief ended the turn itself (`stop`, `sleep`): everything it
+        // meant to say went by send, reply or react, so its last text is not
+        // posted and the cancel is no failure; unlike an owner stop, the
+        // turn still closes its messages.
+        let tool_stopped = std::mem::take(&mut self.tool_stopped);
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
@@ -1179,7 +1191,9 @@ impl Brain {
         // before the note but still open).
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
-            Some(error) if !(quiet || outcome.orphan.is_some() || steered_waits) => {
+            Some(error)
+                if !(quiet || tool_stopped || outcome.orphan.is_some() || steered_waits) =>
+            {
                 Some(failure_note(error))
             }
             _ => None,
@@ -1187,10 +1201,15 @@ impl Brain {
         if owner_stopped {
             (self.log)(&format!("turn {key} stopped by the owner: nothing posted"));
         }
+        if tool_stopped {
+            (self.log)(&format!(
+                "turn {key} ended by the Chief's stop: nothing more posted"
+            ));
+        }
         let text = ended_turn_text(
             outcome.reply,
             outcome.error,
-            quiet,
+            quiet || tool_stopped,
             outcome.refused,
             &failed,
         );
@@ -1416,6 +1435,7 @@ impl Brain {
     fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
         if self.stop_wanted
             || self.owner_stopped
+            || self.tool_stopped
             || self.cuts >= MAX_CUTS
             || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {

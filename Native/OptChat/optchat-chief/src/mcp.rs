@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, VERSION_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION,
+    SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION,
+    TELL_DESCRIPTION, VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -79,6 +79,20 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
          "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
+        list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The message, in Markdown."},
+            "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
+        list.push(json!({"name": "sleep", "description": SLEEP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "seconds": {"type": "integer", "minimum": 0, "maximum": crate::tools::SLEEP_MAX_SECONDS, "description": "30 to 86400 seconds until the wake; 0 clears every pending wake."},
+            "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
+            "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
+          "required": ["seconds"], "additionalProperties": false}}));
     }
     Value::Array(list)
 }
@@ -179,6 +193,9 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::Tell { .. }
                     | Call::React { .. }
                     | Call::Reply { .. }
+                    | Call::Send(_)
+                    | Call::Stop
+                    | Call::Sleep(_)
                     | Call::Control(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }
