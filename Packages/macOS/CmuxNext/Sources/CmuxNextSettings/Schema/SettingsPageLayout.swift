@@ -140,6 +140,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
                 // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
                 group("settings.group.chiefChat"),
+                // Whether a Chief's GIF or animated picture moves on Home pages.
+                group("settings.group.chiefPictures"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
