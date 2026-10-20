@@ -1,11 +1,15 @@
-import CmuxHomeCore
+@testable import CmuxHomeCore
 import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// A message I send while the Chief's reply streams goes below the reply text
-/// already on screen, in send order, and nothing moves when the reply posts
-/// (ProjectionCore+Freeze).
+/// A message I send while the Chief's reply streams never splits that reply
+/// (Lawrence 2026-10-19: one reply showed as "I restarted everything th" above
+/// his message and "e failed turns dropped…" below it). The rule is the owner's
+/// order: the reply posts after my send, so its one streaming bubble stays the
+/// newest row, below my send, and the posted reply takes that bubble's place.
+/// Each step drives the same `ProjectionCore` calls `HomeProjection` makes
+/// (`stream`, `step`, the send) against a real MessagesLab store.
 @MainActor @Suite(.serialized) struct HomeSendOrderTests {
     static let me = ParticipantID("user_me")
     static let chief = ParticipantID("agent_chief")
@@ -26,6 +30,13 @@ import Testing
                        delivery: delivery, messageID: seq.map { MessageID("msg_\($0)") })
     }
 
+    /// The running reply as HomeStore holds it: its whole text so far.
+    static func draft(_ text: String) -> HomeTurnDraft {
+        var d = HomeTurnDraft(participant: chief, turn: turn)
+        d.segments[0] = text
+        return d
+    }
+
     /// The texts the projection shows, oldest first (streams last, as RowBuilder draws them).
     static func shown(_ store: Store) -> [String] {
         (store.state.conversation.messages + store.state.ui.streams.filter { !$0.parts.isEmpty }.map(\.message)).map { m in
@@ -33,91 +44,85 @@ import Testing
         }
     }
 
-    /// The Chief streams "Started the agent.", I send twice, it streams on and posts its reply.
-    @Test func mySendsStayBelowTheReplyTextAlreadyShown() throws {
+    /// The bubbles that show text by the Chief: one per reply, never a piece of one.
+    static func chiefBubbles(_ store: Store) -> Int {
+        store.state.conversation.messages.filter { $0.senderId == chief.rawValue }.count
+            + store.state.ui.streams.filter { !$0.parts.isEmpty }.count
+    }
+
+    /// The Chief streams, I send twice mid-word, it streams on and posts its reply.
+    @Test func aSendMidStreamNeverSplitsTheReply() throws {
         var core = ProjectionCore(me: Self.me)
         let base = [Self.item("h1", 1, Self.me, "Find Cmd+P")]
-        let (conv, w) = core.install(Self.id, items: core.arrange(base), summary: Self.summary)
+        let (conv, w) = core.install(Self.id, items: base, summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
         store.responder = nil
-        let sid = ProjectionCore.streamID(Self.turn)
-        // The reply's stream, as `stream(_:state:)` begins it.
-        store.dispatch(.streamBegin(sid, sender: Self.chief.rawValue, format: nil))
-        store.dispatch(.streamSet(sid, text: "Started the agent.", parts: nil, seq: 1))
-        core.shownStream = ShownStream(turn: Self.turn, author: Self.chief, text: "Started the agent.", seq: 1, full: "Started the agent.")
-        #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent."])
+        func stream(_ text: String) { for a in core.stream(Self.draft(text), state: store.state) { store.dispatch(a) } }
+        func send(_ key: IdempotencyKey, _ text: String) -> Bool {
+            store.dispatch(.setDraft(text))
+            store.dispatch(.send)
+            return core.recordSend(key, in: store.state)
+        }
 
-        // My send: the shown text freezes in place, my bubble goes below it.
+        stream("I restarted everything th")
+        #expect(Self.shown(store) == ["Find Cmd+P", "I restarted everything th"])
+
+        // My send mid-word: it goes above the running reply, which stays one bubble.
         let k1 = IdempotencyKey("send_1")
-        for a in core.freezeStream(before: k1, in: store.state) { store.dispatch(a) }
-        store.dispatch(.setDraft("There's a bug here"))
-        store.dispatch(.send)
-        let recordedk1 = core.recordSend(k1, in: store.state)
-        #expect(recordedk1)
-        #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here"])
+        let sent1 = send(k1, "Sentry crashes")
+        #expect(sent1)
+        #expect(Self.shown(store) == ["Find Cmd+P", "Sentry crashes", "I restarted everything th"])
 
-        // HomeStore lists my send; nothing moves, nothing rebuilds.
-        var items = base + [Self.item(k1.rawValue, nil, Self.me, "There's a bug here", .sending)]
-        var d = core.step(items: core.arrange(items), summary: Self.summary)
+        // HomeStore lists my send; nothing rebuilds.
+        var items = base + [Self.item(k1.rawValue, nil, Self.me, "Sentry crashes", .sending)]
+        var d = core.step(items: items, summary: Self.summary)
         #expect(!d.rebuild)
         d.actions.forEach(store.dispatch)
-        #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here"])
 
-        // The reply goes on: only what comes after the frozen text streams, below my send.
-        #expect(core.streamText(turn: Self.turn, full: "Started the agent.\n\nIt runs on the builder.") == "\n\nIt runs on the builder.")
-        store.dispatch(.streamBegin(sid, sender: Self.chief.rawValue, format: nil))
-        store.dispatch(.streamSet(sid, text: "It runs on the builder.", parts: nil, seq: 1))
-        core.shownStream = ShownStream(turn: Self.turn, author: Self.chief, text: "It runs on the builder.", seq: 1,
-                                       full: "Started the agent.\n\nIt runs on the builder.")
+        // The reply goes on in the same bubble, whole: no word is cut.
+        stream("I restarted everything the failed turns dropped.")
+        #expect(Self.shown(store) == ["Find Cmd+P", "Sentry crashes", "I restarted everything the failed turns dropped."])
+        #expect(Self.chiefBubbles(store) == 1)
 
-        // A second send while that streams: its text freezes too, my bubble is the newest again.
+        // A second send while that streams: still one reply bubble, the newest row.
         let k2 = IdempotencyKey("send_2")
-        for a in core.freezeStream(before: k2, in: store.state) { store.dispatch(a) }
-        store.dispatch(.setDraft("Also check Enter"))
-        store.dispatch(.send)
-        let recordedk2 = core.recordSend(k2, in: store.state)
-        #expect(recordedk2)
-        #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here", "It runs on the builder.", "Also check Enter"])
+        let sent2 = send(k2, "Up arrow")
+        #expect(sent2)
+        stream("I restarted everything the failed turns dropped.\n\nNothing is fixed yet.")
+        #expect(Self.shown(store) == ["Find Cmd+P", "Sentry crashes", "Up arrow",
+                                      "I restarted everything the failed turns dropped.\n\nNothing is fixed yet."])
+        #expect(Self.chiefBubbles(store) == 1)
 
-        // The owner posts the whole reply after both sends (its seq is newer): only the rest shows, at the bottom.
-        items = base + [Self.item(k1.rawValue, 2, Self.me, "There's a bug here"), Self.item(k2.rawValue, 3, Self.me, "Also check Enter"),
-                        Self.item(Self.turn.rawValue, 4, Self.chief, "Started the agent.\n\nIt runs on the builder.\n\nDone.")]
-        d = core.step(items: core.arrange(items), summary: Self.summary)
+        // The owner posts the whole reply after both sends (its seq is newer): it takes the bubble's place.
+        let final = "I restarted everything the failed turns dropped.\n\nNothing is fixed yet.\n\nDone."
+        items = base + [Self.item(k1.rawValue, 2, Self.me, "Sentry crashes"), Self.item(k2.rawValue, 3, Self.me, "Up arrow"),
+                        Self.item(Self.turn.rawValue, 4, Self.chief, final)]
+        d = core.step(items: items, summary: Self.summary)
         #expect(!d.rebuild)
-        d.actions.forEach(store.dispatch)
-        #expect(Self.shown(store) == ["Find Cmd+P", "Started the agent.", "There's a bug here", "It runs on the builder.",
-                                      "Also check Enter", "Done."])
+        #expect(d.handOffAt != nil, "the posted reply ends the stream in place, no second receive")
+        let cut = d.handOffAt ?? d.actions.count
+        let streamed = core.stream(nil, state: store.state)
+        for (i, a) in d.actions.enumerated() {
+            if i == cut { streamed.forEach(store.dispatch) }
+            store.dispatch(a)
+        }
+        if cut >= d.actions.count { streamed.forEach(store.dispatch) }
+        #expect(Self.shown(store) == ["Find Cmd+P", "Sentry crashes", "Up arrow", final])
+        #expect(Self.chiefBubbles(store) == 1)
+        #expect(store.state.ui.streams.isEmpty)
     }
 
-    @Test func aReplyThatSaysNothingMoreLeavesOnlyItsPieces() {
-        var core = ProjectionCore(me: Self.me)
-        let base = [Self.item("h1", 1, Self.me, "Hi")]
-        let (conv, w) = core.install(Self.id, items: base, summary: Self.summary)
-        let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
-        core.shownStream = ShownStream(turn: Self.turn, author: Self.chief, text: "Hello.", seq: 1, full: "Hello.")
-        _ = core.freezeStream(before: IdempotencyKey("s"), in: store.state)
-        let arranged = core.arrange(base + [Self.item("s", 2, Self.me, "Next"), Self.item(Self.turn.rawValue, 3, Self.chief, "Hello.")])
-        #expect(arranged.map(\.key.rawValue) == ["h1", "turn_1#1", "s"])
-    }
-
-    @Test func aReplyThatChangedItsTextDropsThePieces() {
-        var core = ProjectionCore(me: Self.me)
-        let base = [Self.item("h1", 1, Self.me, "Hi")]
-        let (conv, w) = core.install(Self.id, items: base, summary: Self.summary)
-        let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
-        core.shownStream = ShownStream(turn: Self.turn, author: Self.chief, text: "Draft one", seq: 1, full: "Draft one")
-        _ = core.freezeStream(before: IdempotencyKey("s"), in: store.state)
-        let arranged = core.arrange(base + [Self.item("s", 2, Self.me, "Next"), Self.item(Self.turn.rawValue, 3, Self.chief, "Another text")])
-        #expect(arranged.map(\.key.rawValue) == ["h1", "s", "turn_1"])
-        #expect(core.frozen.isEmpty)
-    }
-
-    @Test func noStreamNoFreeze() {
+    /// Chunks only grow the bubble in order: a late, older `.streamSet` never takes text back.
+    @Test func streamChunksApplyInOrder() {
         var core = ProjectionCore(me: Self.me)
         let (conv, w) = core.install(Self.id, items: [], summary: Self.summary)
         let store = Store(conversation: conv, baseDate: Replay.base, windowStart: w.start, total: w.total)
-        let actions = core.freezeStream(before: IdempotencyKey("s"), in: store.state)
-        #expect(actions.isEmpty)
-        #expect(core.frozen.isEmpty)
+        store.responder = nil
+        for text in ["One", "One two", "One two three"] {
+            for a in core.stream(Self.draft(text), state: store.state) { store.dispatch(a) }
+        }
+        let sid = ProjectionCore.streamID(Self.turn)
+        store.dispatch(.streamSet(sid, text: "One", parts: nil, seq: 1)) // a stale chunk delivered late
+        #expect(store.state.ui.streams.map(\.text) == ["One two three"])
     }
 }

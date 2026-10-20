@@ -24,6 +24,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
@@ -41,6 +42,7 @@ on:
       - libs/integrations-core/**
       # The Stack webhook signature check (stack-webhook.ts) shared with the cmux VM Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       # The web copy of the keyed acpmux start's guest commands (check-acpmux-guest-commands.ts).
       - web/services/vms/drivers/acpmuxPersonKey.ts
       - web/services/vms/drivers/cmuxTuiDaemon.ts
@@ -171,6 +173,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-vitess-ci
+    # A stuck connection to the shared branch must not hold a runner for the 6 h default.
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend/db
@@ -188,7 +192,7 @@ jobs:
 
   migrations-development:
     needs: test
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-development
     defaults:
@@ -208,7 +212,7 @@ jobs:
 
   preview:
     needs: migrations-development
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     concurrency:
       group: backend-preview-${{ github.event.pull_request.number }}
@@ -724,7 +728,7 @@ jobs:
         run: curl -fsS https://cloud-api.cmux.dev/v1/health && curl -fsS -o /dev/null https://console.cmux.dev/
 
   preview-cleanup:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'codex/vm-api-cloud-')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Delete preview Worker

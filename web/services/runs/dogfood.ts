@@ -174,7 +174,13 @@ export async function launchCloudVmAttempt(input: {
         // Keep the VM and terminal attachable for a short, durable window.
         // A cron reaper claims the row after terminalRetainUntil and performs
         // provider teardown. This survives process restarts and deploys.
-        await scheduleAttemptRetention({ runId: input.runId, attemptId: input.attemptId, providerVmId: vmId });
+        await scheduleAttemptRetention({
+          runId: input.runId,
+          attemptId: input.attemptId,
+          leaseToken: lease.leaseToken,
+          leaseGeneration: lease.leaseGeneration,
+          providerVmId: vmId,
+        });
       } catch (retentionError) {
         console.error("[runs] cloud VM attempt retention scheduling failed", retentionError);
       }

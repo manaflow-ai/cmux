@@ -2,7 +2,7 @@
 """Bound the cmux-next tour's DerivedData on an owned Mac.
 
     prune_media_derived_data.py --keep-tag TAG [--keep-tag TAG ...]
-        [--root DIR] [--keep-others N] [--min-idle-minutes M]
+        [--root DIR] [--slots K] [--keep-others N] [--min-idle-minutes M]
 
 Every tour (.github/workflows/cmux-next-media.yml) builds a base and a head app
 with reload.sh --tag, into DerivedData/cmux-ci-media-pr-<N>-{base,head} for a
@@ -10,15 +10,22 @@ pull request and cmux-ci-media-feat-cmux-next-{base,head} for merges. Each is
 about 9 GiB and nothing removed them: on 2026-10-14 one mini held 8 and a merge
 tour failed reload.sh's 40 GiB free-space floor (run 38614931315).
 
+A tour now builds in the slot it claims on the Mac (media_tag_lock.py claim,
+DerivedData/cmux-ci-media-slot<N>-{base,head}). Slots below --slots are the
+warm pairs the next tours reuse, so they are always kept.
+
 Before building, the tour runs this with its own two tags. It removes the
-least recently used cmux-ci-media-* dirs other than those, oldest first, until
-at most --keep-others remain. A later tour of a pruned pull request only pays
-a cold build. A dir is never removed when:
+least recently used other cmux-ci-media-* dirs (the old per-pull-request
+dirs, and overflow slots at or above K), oldest first, until at most
+--keep-others remain. A dir is never removed when:
 
   - a process has a file in it open (lsof); if lsof cannot list open files,
     nothing is removed,
   - a build touched it within --min-idle-minutes (longer than the tour's
     timeout, so a tour still building elsewhere on this Mac is safe),
+  - a tour holds its tag (media_tag_lock.py in --lock-dir): it may be about
+    to build into the dir it left idle. The prune takes the tag's lock itself
+    while it deletes, so a tour that asks for the tag meanwhile waits,
   - it is a symlink or not a directory, or its name is not cmux-ci-media-<tag>.
 
 Nothing outside cmux-ci-media-* is listed, so other tags' DerivedData is never
@@ -28,6 +35,7 @@ touched. Removal is best effort and always exits 0 unless the arguments are bad.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import os
 import re
 import shutil
@@ -38,6 +46,7 @@ from pathlib import Path
 
 PREFIX = "cmux-"
 MEDIA_NAME = re.compile(r"^cmux-ci-media-[A-Za-z0-9._-]+$")
+WARM_SLOT = re.compile(r"^cmux-ci-media-slot(0|[1-9][0-9]*)-(?:base|head)$")
 TAG = re.compile(r"^ci-media-[A-Za-z0-9._-]+$")
 
 # Paths a build writes every time (a new log in Logs/Build, products and
@@ -96,6 +105,27 @@ def is_open(path: Path, opened: list[str]) -> bool:
     return any(entry in exact or entry.startswith(tuple(prefixes)) for entry in opened)
 
 
+def claim_tag(path: Path, lock_dir: Path) -> int | None:
+    """Take this dir's tag lock (media_tag_lock.py) without waiting, or None when a tour holds it or the lock
+    cannot be opened. The caller keeps the returned fd until the dir is gone: a tour that asks for the tag in
+    the meantime waits, so it never builds into a dir that is being removed."""
+    tag = path.name[len(PREFIX):]
+    for side in ("-base", "-head"):
+        if tag.endswith(side):
+            tag = tag[: -len(side)]
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lock_dir / f"{tag}.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return None
+    return fd
+
+
 def allocated_gib(path: Path) -> float:
     total = 0
     for current, dirs, files in os.walk(path):
@@ -107,7 +137,7 @@ def allocated_gib(path: Path) -> float:
     return total / 2**30
 
 
-def media_dirs(root: Path, keep: set[str]) -> list[Path]:
+def media_dirs(root: Path, keep: set[str], slots: int) -> list[Path]:
     found = []
     try:
         entries = sorted(root.iterdir())
@@ -116,6 +146,9 @@ def media_dirs(root: Path, keep: set[str]) -> list[Path]:
         return []
     for entry in entries:
         if entry.name in keep or not MEDIA_NAME.match(entry.name):
+            continue
+        slot = WARM_SLOT.match(entry.name)
+        if slot and int(slot.group(1)) < slots:
             continue
         if entry.is_symlink() or not entry.is_dir():
             print(f"{entry.name}: not a plain directory; leaving it")
@@ -132,18 +165,23 @@ def main() -> int:
                         help="a reload.sh tag this run builds; its DerivedData is kept")
     parser.add_argument("--keep-others", type=int, default=2,
                         help="media dirs to keep besides this run's own (default 2, one pair)")
+    parser.add_argument("--slots", type=int, default=0,
+                        help="warm tour slots on this Mac; their dirs are always kept (default 0)")
+    parser.add_argument("--lock-dir", type=Path, default=Path.home() / "Library/Caches/cmux-ci-media/locks",
+                        help="media_tag_lock.py's lock dir: a dir whose tag a tour holds is kept")
     parser.add_argument("--min-idle-minutes", type=int, default=150,
                         help="never remove a dir a build touched more recently (default 150)")
     args = parser.parse_args()
     for tag in args.keep_tag:
         if not TAG.match(tag):
             parser.error(f"--keep-tag {tag!r} is not a ci-media-* tag")
-    if args.keep_others < 0 or args.min_idle_minutes < 0:
-        parser.error("--keep-others and --min-idle-minutes must not be negative")
+    if args.keep_others < 0 or args.min_idle_minutes < 0 or args.slots < 0:
+        parser.error("--slots, --keep-others and --min-idle-minutes must not be negative")
 
     keep = {PREFIX + tag for tag in args.keep_tag}
-    candidates = media_dirs(args.root, keep)
-    print(f"{len(candidates)} other media DerivedData dir(s) in {args.root}; keeping at most {args.keep_others}")
+    candidates = media_dirs(args.root, keep, args.slots)
+    print(f"{len(candidates)} media DerivedData dir(s) in {args.root} outside this tour's and the "
+          f"{args.slots} warm slots'; keeping at most {args.keep_others}")
     if len(candidates) <= args.keep_others:
         return 0
     opened = open_paths()
@@ -162,12 +200,19 @@ def main() -> int:
         if is_open(path, opened):
             print(f"{path.name}: open in a process; keeping it")
             continue
-        size = allocated_gib(path)
+        claim = claim_tag(path, args.lock_dir)
+        if claim is None:
+            # Tours of other tags run beside this one; that tour holds its tag before it builds into it.
+            print(f"{path.name}: a tour holds its tag (or its lock cannot be opened); keeping it")
+            continue
         try:
+            size = allocated_gib(path)
             shutil.rmtree(path)
         except OSError as error:
             print(f"{path.name}: could not remove ({error}); keeping it")
             continue
+        finally:
+            os.close(claim)
         remaining -= 1
         freed += size
         print(f"{path.name}: removed ({size:.1f} GiB)")

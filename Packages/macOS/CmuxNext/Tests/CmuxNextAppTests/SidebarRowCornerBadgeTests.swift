@@ -5,10 +5,10 @@ import Foundation
 import Testing
 
 /// Leo and Lawrence 2026-10-14: no count numbers on NEXT sidebar rows ("maybe we can do unreads
-/// like this", T3 Code's thread list). A row's state is one small badge, avatar-presence style, on
-/// its icon's bottom-right corner when the row has the user's icon or a favicon; a row without one
-/// is text only (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence: no kind icon or agent logo) and draws
-/// that one glyph in the trailing slot: a blue dot when unread, a grey ring while working, the waiting
+/// like this", T3 Code's thread list). A row's state is one small glyph in the trailing slot, also
+/// when the row has the user's icon or a favicon (Lawrence 2026-10-19: nothing but the icon on the
+/// left); a row without one is text only (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence: no kind icon or
+/// agent logo): a blue dot when unread, a grey ring while working, the waiting
 /// and error glyphs when it needs the user, the most urgent first. The right side shows the dim
 /// time since the last change. The count reads in the row's hover card and its accessibility label.
 @MainActor @Suite(.serialized) struct SidebarRowCornerBadgeTests {
@@ -61,15 +61,14 @@ import Testing
         return found
     }
 
-    /// The corner badge: on a row with an icon, a status glyph whose center sits right of and below
-    /// the icon's center, overlapping the icon; on a text-only row, one glyph right of the title.
+    /// The one badge glyph: right of the title, never on the icon (Lawrence 2026-10-19: nothing but
+    /// the favicon or the user's icon in the leading slot), with or without an icon.
     private static func cornerBadge(_ row: WorkspaceRowView) throws -> StatusIndicatorView {
         let icon = row.icon.frame
         let badge = visible(StatusIndicatorView.self, in: row).first { _, frame in
-            if row.icon.isHidden { return frame.minX > row.title.frame.minX }
-            return frame.intersects(icon) && frame.midX > icon.midX && (row.isFlipped ? frame.midY > icon.midY : frame.midY < icon.midY)
+            frame.minX > row.title.frame.minX && (row.icon.isHidden || !frame.intersects(icon))
         }
-        return try #require(badge?.view, "no corner badge: icon \(icon) hidden \(row.icon.isHidden)")
+        return try #require(badge?.view, "no trailing badge: icon \(icon) hidden \(row.icon.isHidden)")
     }
 
     @Test func rowsAreTextOnlyUnlessTheUserSetAnIconAndDrawNoCountNumber() throws {
@@ -114,8 +113,8 @@ import Testing
 
     /// Lawrence 2026-10-18 (screen recording): the spinner and the blue dot at a text-only row's end
     /// had "a weird background circle thing". A lone glyph in the trailing slot draws bare: no
-    /// tonal chip and no cutout ring behind it, in either badge style; the badge on the user's icon
-    /// keeps its ring, which cuts it out of the icon.
+    /// tonal chip and no cutout ring behind it, in either badge style, also on a row with the
+    /// user's icon (its badge is in the trailing slot too, Lawrence 2026-10-19).
     @Test func aLoneTrailingGlyphHasNoDiscBehindIt() throws {
         var working = SidebarWorkspace(id: Self.terminal, title: "build", kind: .terminal, activity: .working)
         working.agentWorking = true // agent work shows only on a row whose agent is working
@@ -130,15 +129,11 @@ import Testing
             sidebar.layoutSubtreeIfNeeded()
             sidebar.list.reload(animated: false)
             sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
-            for id in [Self.terminal, Self.agent] {
+            for id in [Self.terminal, Self.agent, Self.custom] {
                 let badge = try Self.row(sidebar, id).rowBadge
                 #expect(badge.states.count == 1, "\(style) \(id): \(badge.states)")
                 #expect(badge.look == .plain, "\(style) \(id): \(badge.look)")
                 #expect(!badge.drawsBackdrop, "\(style) \(id): a disc draws behind the glyph")
-            }
-            if style == .corner {
-                let badge = try Self.row(sidebar, Self.custom).rowBadge
-                #expect(badge.look == .corner && badge.drawsBackdrop, "the icon badge lost its cutout ring")
             }
         }
     }

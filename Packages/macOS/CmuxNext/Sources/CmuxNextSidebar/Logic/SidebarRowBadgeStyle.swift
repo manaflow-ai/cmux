@@ -2,14 +2,15 @@ public import CmuxNextDesign
 
 /// How a workspace row shows what waits in it (Debug Settings `sidebar.rowBadge`). Leo and
 /// Lawrence 2026-10-14: no count numbers on NEXT rows. The default follows T3 Code's thread list:
-/// the row leads with its harness logo or kind icon, and one small badge on that icon's corner says
-/// the most urgent state; the count reads in the hover card. `stack` is Leo's alternative, one
+/// one small glyph says the most urgent state; the count reads in the hover card. Every style draws
+/// in the trailing slot: nothing but the favicon or the user's icon draws in the leading slot
+/// (Lawrence 2026-10-19). `stack` is Leo's alternative, one
 /// glyph per pending item overlapping in the trailing slot; `trailing` keeps the count badge and
 /// the trailing status glyph (the look before); `status` is one status icon on the side
 /// `SidebarStatusIconSide` names, the default (Leo 2026-10-15 in #20900; Leo 2026-10-18: a running
 /// row's mark on the left).
 public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// One badge on the leading icon's bottom-right corner.
+    /// One glyph, the most urgent state, in the trailing slot (the case keeps its stored name).
     case corner
     /// Overlapping glyphs in the trailing slot, one per pending item, up to `SidebarRowBadgeStackCap`.
     case stack
@@ -21,7 +22,7 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 
     public var tunableTitle: String {
         switch self {
-        case .corner: "Corner badge on the icon"
+        case .corner: "One glyph (most urgent)"
         case .stack: "Glyph stack (one per item)"
         case .trailing: "Count and trailing glyph (before)"
         case .status: "Status icon on the left or right"
@@ -30,12 +31,12 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 
     public static let tunable = Tunable<SidebarRowBadgeStyle>.choice(
         "sidebar.rowBadge", .sidebar, "Row badge",
-        help: "How a workspace row shows unread items and agent states: a badge on the leading icon's corner, a stack of glyphs, the count with a trailing glyph, or one status icon on the side Status Icon Side names.",
+        help: "How a workspace row shows unread items and agent states, at its end: one glyph for the most urgent state, a stack of glyphs, the count with a trailing glyph, or one status icon (on the side Status Icon Side names).",
         default: .status, code: "SidebarRowBadgeStyle.tunable")
 }
 
 /// A row's pending items, most urgent first: a failure, then a permission (or sign-in) request,
-/// then a question, then work in progress, then each unread item (done). The corner badge draws
+/// then a question, then work in progress, then each unread item (done). The one-glyph badge draws
 /// the first; the stack draws up to `stackLimit` (`SidebarRowBadgeStackCap`) and leaves the rest to
 /// the tooltip and hover card.
 ///

@@ -87,6 +87,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
+    "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
+    "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentIcon",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
@@ -147,6 +149,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,
       play: openComputer,
+    },
+    "environment-picker": {
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9 and New environment last.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
     },
     "ssh-chat": {
       note: "A chat on an SSH machine names that machine as its Computer, not this Mac (cx-7ooz).",
