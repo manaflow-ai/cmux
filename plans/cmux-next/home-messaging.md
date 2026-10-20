@@ -374,8 +374,12 @@ sends an upsert with the new body. No raw address, token or token hash is ever p
 ### 10.1 Attachments (feat-cmux-next-home-attachments, revised after the backend lead's review, 2026-10-03)
 
 - Intent: `POST /v1/home/attachments/intent` (current participant; allow list jpeg, png, gif,
-  webp, heic, pdf, text/plain, markdown, csv, json, zip, mp4, mov, m4a, mp3, aac, wav; never svg,
-  html or xml; 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
+  webp, heic, pdf, text/plain, markdown, csv, json, zip, mp4, mov, m4a, mp3, aac, wav and
+  application/octet-stream; never svg, html or xml as their own type; any file name (2026-10-20,
+  "any file attaches": clients send bytes that read as UTF-8 as text/plain whatever the name, such
+  as index.html, and every other file as application/octet-stream; downloads stay attachment +
+  nosniff + sandbox CSP, and a client shows a received script or HTML file in Finder instead of
+  opening it); 100 MB per file; per user 300 intents and 2 GB declared per rolling day, 10 GB
   stored; 60 intents per minute). It answers `exists` only for a hash the caller can already use
   here, otherwise a single-use slot recorded in the ConversationDO.
 - Up to 32 MB the bytes stream through the Worker (`PUT /v1/home/attachments/upload/<conv>/<slot>.<kid>.<mac>`),

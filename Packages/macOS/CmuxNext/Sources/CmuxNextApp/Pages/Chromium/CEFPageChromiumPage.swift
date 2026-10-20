@@ -1,0 +1,94 @@
+import AppKit
+import CmuxNextBrowser
+import CmuxNextCompat
+import CmuxNextPages
+import Foundation
+import os
+
+/// One cmux page in a CEF tab (``PageChromiumPage``). The page host drives it through the DevTools
+/// protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
+/// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
+/// so nothing else listens on its relay. The tab's own state reports a crash.
+@MainActor
+final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
+    private let tab: CEFTab
+    private let pageID: String
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
+    private var crashWatch: Task<Void, Never>?
+    private var closed = false
+
+    init(tab: CEFTab, pageID: String) {
+        self.tab = tab
+        self.pageID = pageID
+    }
+
+    var contentView: NSView { tab.contentView }
+
+    var onEvent: ((PageChromiumEvent) -> Void)? {
+        didSet { listen() }
+    }
+
+    private func listen() {
+        guard onEvent != nil, !closed else {
+            tab.agentRelay.set(onMessage: nil, onEnd: nil)
+            crashWatch?.cancel()
+            crashWatch = nil
+            return
+        }
+        tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
+                           onEnd: { [weak self] in self?.renderEnded() })
+        guard crashWatch == nil else { return }
+        let tab = tab
+        crashWatch = Task { [weak self] in
+            for await exit in ObservationStream({ tab.state.processExit }) where exit != nil {
+                self?.onEvent?(.crashed)
+            }
+        }
+    }
+
+    private func renderEnded() {
+        guard !closed else { return }
+        onEvent?(.ended)
+    }
+
+    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
+        try await tab.devTools(method: method, params: params)
+    }
+
+    func load(_ url: URL) { tab.load(url) }
+
+    func reload() { tab.reload() }
+
+    func setZoom(_ zoom: Double) { tab.setZoom(zoom) }
+
+    func setFocused(_ focused: Bool) { tab.setFocused(focused) }
+
+    func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
+
+    func close() {
+        guard !closed else { return }
+        closed = true
+        crashWatch?.cancel()
+        crashWatch = nil
+        tab.agentRelay.set(onMessage: nil, onEnd: nil)
+        tab.delegate = nil
+        tab.close()
+    }
+
+    // MARK: BrowserTabDelegate
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        switch intent {
+        case .openURL(let url, _):
+            onEvent?(.openRequested(url))
+        case .adoptTab(let opened, _), .openPopup(let opened, _):
+            // `window.open` from a cmux page: no page may make windows; its URL opens like a link.
+            if let url = opened.state.url { onEvent?(.openRequested(url)) }
+            opened.close()
+        case .notice(let text):
+            logger.info("page \(self.pageID, privacy: .public) notice: \(text, privacy: .public)")
+        default:
+            break
+        }
+    }
+}

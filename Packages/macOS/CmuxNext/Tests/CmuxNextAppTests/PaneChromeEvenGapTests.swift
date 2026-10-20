@@ -104,12 +104,12 @@ import Testing
         #expect(abs(above - below) <= 0.5, "\(style): \(above) pt above the omnibar, \(below) pt below")
     }
 
-    /// The toolbar buttons are Chrome's size (`kToolbarButtonSize`-like 34 pt square, a 20 pt
-    /// icon in a circle highlight; a128 2026-10-19), taller than the 28 pt omnibar. The row's one
-    /// gap then runs from the tallest thing in it, the buttons: the same above them as below
-    /// them, and the omnibar sits on their center line.
+    /// The toolbar buttons are Helium's size (`kToolbarButtonHeight` 28, a 20 pt icon in an 8 pt
+    /// rounded-square highlight; Lawrence 2026-10-20 "match Helium not Chrome"), the omnibar's own
+    /// height. The row's one gap runs from the tallest thing in it: the same above the buttons as
+    /// below them, and the omnibar sits on their center line.
     @Test(arguments: ChromeStyle.allCases)
-    func theToolbarButtonsAreChromesSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
+    func theToolbarButtonsAreHeliumsSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
         defer { load(nil) }
         load(style)
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
@@ -124,7 +124,7 @@ import Testing
         let reload = topLeft(chrome.reloadButton.bounds, in: chrome.reloadButton, window: window)
         let bar = topLeft(chrome.addressBar.bounds, in: chrome.addressBar, window: window)
         let page = topLeft(chrome.contentContainer.bounds, in: chrome.contentContainer, window: window)
-        #expect(reload.width == 34 && reload.height == 34, "\(style): the reload button is \(reload.size)")
+        #expect(reload.width == 28 && reload.height == 28, "\(style): the reload button is \(reload.size)")
         #expect(abs(reload.midY - bar.midY) <= 0.5, "\(style): the omnibar's center is \(bar.midY), the buttons' \(reload.midY)")
         let above = Metrics.paneBorder == .subtle ? reload.minY - top - (Metrics.paneBorderWidth ?? 1 / window.backingScaleFactor) : reload.minY - top + gap
         let below = page.minY - reload.maxY

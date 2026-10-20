@@ -200,7 +200,7 @@ windows (Chromium page windows, panels) are not included. Use
 | onboarding (Import from Browser, Computer Use setup) | `OnboardingWindowController` | hand-built | install(.onboarding) |
 | browser popup | `BrowserPopupWindow` (a top-level window like Chrome's popup, all three traffic lights) | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
-| page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |
+| page info, browser debug | `PageInfoWindows`, `BrowserDebugWindow` | hand-built | install(kind) |
 
 Deleted: `StandaloneWindowRule` (its tests move to the table test), the
 per-window background ordering in Settings/Debug Settings controllers,

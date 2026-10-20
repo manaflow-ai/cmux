@@ -2,11 +2,15 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row being dragged: a live row view on a flat themed card with a
-/// shadow (the sidebar has no glass).
+/// The row or group being dragged: a live row view on the one overlay glass
+/// (`OverlaySurfaceView`: Liquid Glass on macOS 26+, the frosted material
+/// before, opaque under Reduce Transparency) with a shadow. It keeps its
+/// size and place: no lift scale (Lawrence 2026-10-20, u5506).
 /// Multi-item drags show stacked cards behind it and a count badge.
 final class DragLiftView: NSView {
     private let card = NSView()
+    /// The card's background: the shared overlay material, never taking the pointer.
+    let background: OverlaySurfaceView
     private let content: NSView
     private var stack: [NSView] = []
     private let countBadge = ChromeLabel(labelWithString: "")
@@ -15,8 +19,10 @@ final class DragLiftView: NSView {
     /// Landings started (`SidebarReorderLift.land`): only the last one's completion runs.
     var landings = 0
 
-    init(content: NSView, count: Int) {
+    /// `material` pins one overlay material (tests, galleries); nil follows this Mac.
+    init(content: NSView, count: Int, material: OverlayMaterial? = nil) {
         self.content = content
+        background = OverlaySurfaceView(material: material, interactive: false, cornerRadius: SidebarStyle.rowCornerRadius)
         super.init(frame: .zero)
         card.wantsLayer = true
         card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -36,7 +42,8 @@ final class DragLiftView: NSView {
             stack.append(back)
         }
         addSubview(card)
-        card.addSubview(content)
+        card.addSubview(background)
+        background.contentView.addSubview(content)
         content.autoresizingMask = [.width, .height]
 
         if count > 1 {
@@ -66,7 +73,8 @@ final class DragLiftView: NSView {
     override func layout() {
         super.layout()
         card.frame = bounds
-        content.frame = card.bounds
+        background.frame = card.bounds
+        content.frame = background.contentView.bounds
         for back in stack {
             let depth = CGFloat(Int(back.identifier?.rawValue ?? "1") ?? 1)
             back.frame = bounds.insetBy(dx: Metrics.space2 * depth, dy: 0).offsetBy(dx: 0, dy: Metrics.space2 * depth)
@@ -78,19 +86,9 @@ final class DragLiftView: NSView {
         badgeBackground.layer?.cornerRadius = Metrics.chipCornerRadius(height: h)
         countBadge.frame = NSRect(x: badgeBackground.frame.minX, y: badgeBackground.frame.midY - size.height / 2, width: w, height: size.height)
         guard let layer else { return }
-        // The scale's centre follows a new size on the same spring, from what is on screen: a morph
-        // inside the lift spring neither snaps at the lift's end nor jumps now.
-        let transform = liftTransform(lifted)
-        if !CATransform3DEqualToTransform(layer.sublayerTransform, transform) {
-            if lifted, layer.animation(forKey: "sublayerTransform") != nil {
-                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: transform), spring: .move)
-            } else {
-                Motion.transaction(nil) { layer.sublayerTransform = transform }
-            }
-        }
         // The shadow keeps the card's shape: `morph` springs it with the size.
         // The model always holds the current shape; a running spring (morph) keeps showing its own path until it ends there.
-        Motion.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
+        Motion.sidebar.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {
@@ -109,7 +107,6 @@ final class DragLiftView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            card.layer?.backgroundColor = Palette.elevatedBackground.cgColor
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {
                 back.layer?.backgroundColor = Palette.elevatedBackground.withAlphaComponent(0.85).cgColor
@@ -129,8 +126,7 @@ final class DragLiftView: NSView {
         let radius = elevation.layerRadius
         let offset = elevation.layerOffset(flipped: true)
         guard animated else {
-            Motion.transaction(nil) {
-                layer.sublayerTransform = liftTransform(lifted)
+            Motion.sidebar.transaction(nil) {
                 layer.shadowOpacity = opacity
                 layer.shadowRadius = radius
                 layer.shadowOffset = offset
@@ -139,11 +135,10 @@ final class DragLiftView: NSView {
         }
         // Each property fades from what is on screen, so a quick drop during
         // the lift continues from the current shadow.
-        // The card rises in place (DESIGN "Drag feel" 1): a 1.03 scale about its centre, back to 1 as it settles.
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: liftTransform(lifted)), spring: .move)
-        Motion.set(layer, "shadowOpacity", to: opacity, fade: .lift)
-        Motion.set(layer, "shadowRadius", to: radius, fade: .lift)
-        Motion.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
+        // The card stays its size and in place: only the shadow lifts (u5506 dropped the 1.03 scale).
+        Motion.sidebar.set(layer, "shadowOpacity", to: opacity, fade: .lift)
+        Motion.sidebar.set(layer, "shadowRadius", to: radius, fade: .lift)
+        Motion.sidebar.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
     }
 
     /// Springs the card to `frame` (the shape the drop will take: a list row,
@@ -154,7 +149,8 @@ final class DragLiftView: NSView {
     /// crossfade instead of the shape spring.
     func morph(to frame: NSRect) {
         guard frame != self.frame else { return }
-        let layers = [layer, card.layer, content.layer].compactMap { $0 }
+        let layers = ([layer, card.layer, background.layer, content.layer]
+            + background.subviews.map(\.layer)).compactMap { $0 }
         let before = layers.map { ($0, $0.position, $0.bounds.size) }
         let oldBounds = bounds
         let startPath = layer?.presentation()?.shadowPath ?? layer?.shadowPath
@@ -162,21 +158,21 @@ final class DragLiftView: NSView {
             self.frame = frame
             layoutSubtreeIfNeeded()
         }
-        guard Motion.policy.animatesMovement else {
-            if let layer { Motion.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
+        guard Motion.sidebar.policy.animatesMovement else {
+            if let layer { Motion.sidebar.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
             return
         }
         morphs += 1
         // The shadow's shape springs with the card's size (one spring, from the shape on screen).
         if let layer, frame.size != oldBounds.size {
-            Motion.set(layer, "shadowPath", to: shadowPath(CGRect(origin: .zero, size: frame.size)), spring: .move,
+            Motion.sidebar.set(layer, "shadowPath", to: shadowPath(CGRect(origin: .zero, size: frame.size)), spring: .move,
                        from: startPath ?? shadowPath(oldBounds))
         }
         for (layer, position, size) in before {
             let dp = NSValue(point: NSPoint(x: position.x - layer.position.x, y: position.y - layer.position.y))
             let ds = NSValue(size: NSSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height))
             for (path, delta, zero) in [("position", dp, NSValue(point: .zero)), ("bounds.size", ds, NSValue(size: .zero))] {
-                let animation = Motion.springAnimation(.move, path, from: delta, to: zero)
+                let animation = Motion.sidebar.springAnimation(.move, path, from: delta, to: zero)
                 animation.isAdditive = true
                 layer.add(animation, forKey: "morph.\(path).\(morphs)")
             }
@@ -185,19 +181,10 @@ final class DragLiftView: NSView {
 
     private var morphs = 0
 
-    /// The lifted scale about the card's centre (identity at rest).
-    private func liftTransform(_ lifted: Bool) -> CATransform3D {
-        guard lifted else { return CATransform3DIdentity }
-        let (cx, cy) = (bounds.midX, bounds.midY)
-        return CATransform3DTranslate(CATransform3DScale(CATransform3DMakeTranslation(cx, cy, 0), Self.liftScale, Self.liftScale, 1), -cx, -cy, 0)
-    }
-
-    static let liftScale: CGFloat = 1.03
-
     /// Dims the card when the current hover position cannot accept the drop.
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(.hover, in: self) { animator().alphaValue = target }
+        Motion.feedback.animate(.hover, in: self) { animator().alphaValue = target }
     }
 }
