@@ -89,6 +89,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): the text selected in one
+            // message of the shown Home conversation is the reply's quote. Cmd-Shift-R on Home (KeyBindingDefaults).
+            ActionDescriptor(
+                id: "home.replyToSelection", title: t("action.home.replyToSelection", "Reply to Selection"),
+                keywords: ["home", "reply", "quote", "selection", "selected", "highlight", "message", "thread"],
+                category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;

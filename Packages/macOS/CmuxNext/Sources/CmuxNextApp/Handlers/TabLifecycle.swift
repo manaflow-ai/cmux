@@ -242,7 +242,11 @@ enum TabLifecycle {
         if invocation.besideCaller {
             agentTab = AgentBesidePlacement.placed(invocation, pane: pane, controller: beside, services: ctx.services, then: agentTab)
         }
-        let background = invocation.besideCaller && invocation.newColumnBeside
+        // An agent never swaps out the page the person is working in: its tab opens unselected in the
+        // pane that has their focus, or wherever the run asks (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+        let personIsHere = [.cli, .mcp, .script].contains(invocation.origin) && !invocation.allowsViewChange
+            && ctx.services.windows.active?.focusedPane?.pane.id == pane.id
+        let background = (invocation.besideCaller && invocation.newColumnBeside) || invocation.opensInBackground || personIsHere
         switch profileRequest {
         case .cascade: break
         case .explicit(let id):
@@ -280,7 +284,7 @@ enum TabLifecycle {
         if let controller = ctx.services.paneController(for: opener) {
             // No URL given: what the selected tab works on (#16620), the chat's from the chat dock.
             if url == nil { (context ?? controller).newBrowserTabFromSelectedTab(engine: engine, in: controller, then: then) }
-            else { controller.newBrowserTab(url: url, engine: engine, then: then) }
+            else { controller.newBrowserTab(url: url, engine: engine, background: background, then: then) }
             return
         }
         openOffscreen(ctx, pane: pane, url: url, engine: engine, profile: nil, then: agentTab)

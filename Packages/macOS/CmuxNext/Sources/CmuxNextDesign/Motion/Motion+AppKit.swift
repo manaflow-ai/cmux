@@ -356,6 +356,23 @@ extension Motion {
         return step
     }
 
+    /// Unmeasured progress: a segment (anchored at its left edge) crosses a
+    /// track `travel` points wide, entering from its own width left of the
+    /// track, once per `sweep` period, or nil when loops are off. The track
+    /// clips it.
+    /// - Parameter policy: The motion settings to follow (the host's injected policy, default ``Motion/policy``).
+    public static func sweepAnimation(segment: CGFloat, travel: CGFloat, policy: MotionPolicy = Motion.policy) -> CAAnimation? {
+        guard let period = policy.period(.sweep), travel > 0 else { return nil }
+        let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.fromValue = -segment
+        sweep.toValue = travel
+        sweep.duration = period
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
+        sweep.isRemovedOnCompletion = false
+        return sweep
+    }
+
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
     public static func pulseAnimation(low: Float) -> CAAnimation? {
         guard let period = period(.pulse) else { return nil }

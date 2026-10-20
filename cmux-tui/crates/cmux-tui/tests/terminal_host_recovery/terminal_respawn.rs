@@ -314,9 +314,7 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
 
     // The host and its shell die with no exit record.
     let host_pid = record.host_pid as libc::pid_t;
-    let _ = std::process::Command::new("/usr/bin/pkill")
-        .args(["-KILL", "-P", &host_pid.to_string()])
-        .status();
+    let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
     // SAFETY: the record PID is the harness-owned terminal host.
     unsafe { libc::kill(host_pid, libc::SIGKILL) };
     wait_for_process_and_group_absent(host_pid);

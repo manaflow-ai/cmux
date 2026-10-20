@@ -74,6 +74,16 @@ impl TurnBinding {
 }
 
 impl TurnBinding {
+    /// The subagent id (`a<N>`) of the process `pid` when it runs under one
+    /// of this Chief's subagent sessions; None for any other caller.
+    pub fn subagent_of(&self, pid: i32) -> Option<String> {
+        let parent_exe = self.agent_parent.as_deref()?;
+        let name = agent_session_name(pid, parent_exe)?;
+        name.starts_with(&self.subagent_prefix)
+            .then(|| crate::tools::subagent_of_session(&name))
+            .flatten()
+    }
+
     /// `<turn prefix><digits>`, then any `-<digits>` acpmux adds to a taken
     /// name (`hub/new_request.rs` `unique_name_among`); nothing else.
     fn is_turn_name(&self, name: &str) -> bool {
