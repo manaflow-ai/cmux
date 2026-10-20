@@ -143,12 +143,17 @@ impl Hub {
             // Validate every executable after expansion and launcher
             // substitution. The Codex bridge replaces argv0 with CODEX_PATH
             // inside `harness_command`, so freeze that final program too.
-            super::resolve::fix_remote_executable(&mut p)?;
-            if crate::codex_app_server::is_profile_launch(&p.argv)
-                && let Some(program) = p.env.get_mut("CODEX_PATH")
-                && !program.is_empty()
-            {
-                *program = super::resolve::remote_executable(program)?;
+            if crate::codex_app_server::is_profile_launch(&p.argv) {
+                if let Some(program) = p.env.get_mut("CODEX_PATH").filter(|p| !p.is_empty()) {
+                    *program = super::resolve::remote_executable(program)?;
+                    refuse_remote_cwd_executable(program, &meta.cwd)?;
+                } else {
+                    super::resolve::fix_remote_executable(&mut p)?;
+                    refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+                }
+            } else {
+                super::resolve::fix_remote_executable(&mut p)?;
+                refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
             }
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }
@@ -173,6 +178,18 @@ impl Hub {
         }
         Ok((p, digest, account_home))
     }
+}
+
+fn refuse_remote_cwd_executable(program: &str, cwd: &std::path::Path) -> Result<(), RpcError> {
+    let program = std::path::Path::new(program);
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    if program.starts_with(cwd) {
+        return Err(RpcError::invalid_params(
+            "this harness has no reviewed asking mode for a remote WebSocket connection",
+        )
+        .with_data(json!({"reason": "remote.executable_refused"})));
+    }
+    Ok(())
 }
 
 /// A session's spawn: the profile as it is spawned, and the approval digest

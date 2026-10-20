@@ -156,10 +156,7 @@ fn remote_executable_refused() -> RpcError {
 }
 
 fn remote_launch_shape_refused() -> RpcError {
-    RpcError::invalid_params(
-        "a remote WebSocket connection cannot select cwd or model text inside a harness launch",
-    )
-    .with_data(json!({"reason": "remote.launch_shape_refused"}))
+    remote_executable_refused()
 }
 
 /// The request's cwd and model are data passed to a reviewed agent, never
@@ -183,7 +180,15 @@ pub(super) fn admit_remote_profile(
     refuse_remote_launch_shape(
         profile.argv.iter().chain(profile.env.values()).chain(defaults_env.values()),
     )?;
-    fix_remote_executable(profile)?;
+    let effective_codex = crate::codex_app_server::is_profile_launch(&profile.argv)
+        .then(|| profile.env.get("CODEX_PATH").or_else(|| defaults_env.get("CODEX_PATH")))
+        .flatten()
+        .filter(|program| !program.is_empty());
+    if let Some(program) = effective_codex {
+        remote_executable(program)?;
+    } else {
+        fix_remote_executable(profile)?;
+    }
     crate::web_modes::remote_start_for_config(cfg, name, profile).map(|_| ()).map_err(|_| {
         RpcError::invalid_params(
             "this harness has no reviewed asking mode for a remote WebSocket connection",

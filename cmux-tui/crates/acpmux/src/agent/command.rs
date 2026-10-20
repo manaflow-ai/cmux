@@ -10,6 +10,9 @@ use tokio::process::Command;
 /// explicit base below, never the daemon's ambient environment. Removed
 /// before the profile env is applied.
 pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
+/// Recorded with every remote durable host. A changed or missing id means
+/// that host predates this process-authority boundary and is not adopted.
+pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v1";
 /// `Command` exposes its env edits but not `env_clear`; this removal records
 /// that clear for the agent-host environment projection (`command_env`).
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";
@@ -80,7 +83,8 @@ pub(crate) fn harness_command(
         env.remove(key);
     }
     let (program, args) = (&owned.0, &owned.1);
-    let mut cmd = crate::session_scope::command(program, session.map(|(id, _)| id), &env);
+    let mut cmd =
+        crate::session_scope::command(program, session.map(|(id, _)| id), &env, remote_environment);
     if remote_environment {
         apply_remote_base(&mut cmd);
     }
@@ -146,10 +150,13 @@ pub(crate) fn harness_command(
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
     }
     cmd.args(crate::harness_limits::launch_args(program, args, session.map(|_| (cwd, &env))))
-        .envs(env.iter())
+        .envs(env.iter());
+    if remote_environment {
         // Keep the hosted projection's env-clear proof after every profile
         // entry, even if an old config used the internal marker's name.
-        .env_remove(REMOTE_ENV_CLEARED_KEY)
+        cmd.env_remove(REMOTE_ENV_CLEARED_KEY);
+    }
+    cmd
         // Claude refuses to nest inside another Claude session.
         .env_remove("CLAUDECODE")
         .env_remove("CLAUDE_CODE_ENTRYPOINT")
@@ -251,6 +258,13 @@ pub(crate) fn command_env(cmd: &Command) -> Vec<(String, String)> {
 /// then layer the common login allowlist and its explicit profile/session
 /// values. Unrelated tokens, SSH_AUTH_SOCK, and ambient CMUX_* never enter.
 fn apply_remote_base(cmd: &mut Command) {
+    cmd.env_clear().envs(host_environment()).env_remove(REMOTE_ENV_CLEARED_KEY);
+}
+
+/// Fixed non-secret process base for a remote harness and for the durable
+/// host that contains it. The host receives no profile/session authority;
+/// the harness gets those values separately through `SpawnSpec`.
+pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     let allowed = |key: &std::ffi::OsStr| {
         let key = key.to_string_lossy();
         key.starts_with("LC_")
@@ -277,8 +291,7 @@ fn apply_remote_base(cmd: &mut Command) {
             .iter()
             .any(|allowed| key.eq_ignore_ascii_case(allowed))
     };
-    let base: Vec<_> = std::env::vars_os().filter(|(key, _)| allowed(key)).collect();
-    cmd.env_clear().envs(base).env_remove(REMOTE_ENV_CLEARED_KEY);
+    std::env::vars_os().filter(|(key, _)| allowed(key)).collect()
 }
 
 #[cfg(test)]

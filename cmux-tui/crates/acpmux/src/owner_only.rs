@@ -39,7 +39,14 @@ use windows_sys::Win32::Storage::FileSystem::{
 
 /// SIDs whose rights do not make a file shared: SYSTEM, Administrators and
 /// OWNER RIGHTS (it names the owner, checked on its own).
-const ALWAYS_ALLOWED: [&str; 3] = ["S-1-5-18", "S-1-5-32-544", "S-1-3-4"];
+const ALWAYS_ALLOWED: [&str; 4] = [
+    "S-1-5-18",
+    "S-1-5-32-544",
+    "S-1-3-4",
+    // Windows Modules Installer (TrustedInstaller), the owner of protected
+    // filesystem roots on standard Windows installations.
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+];
 /// ACE types that grant (allowed, allowed-object, allowed-callback and
 /// allowed-callback-object); deny, audit and label entries grant nothing.
 const ALLOW_TYPES: [u8; 4] = [0x0, 0x5, 0x9, 0xB];
@@ -261,7 +268,7 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
         return Ok(());
     }
     if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent)?;
+        create_dir_all(parent)?;
     }
     let sd = descriptor(&user_sid()?, true)?;
     let attrs = attributes(&sd);
@@ -279,17 +286,14 @@ pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
 /// Makes `dir` owner-only, or checks an existing one: a wider folder is
 /// refused (mode 0700 and the uid check on Unix).
 pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
-    private_dir_after_open(dir, || Ok(()))
-}
-
-fn private_dir_after_open(
-    dir: &Path,
-    after_open: impl FnOnce() -> io::Result<()>,
-) -> io::Result<()> {
     ensure_safe_parent(dir)?;
     create_dir_all(dir)?;
-    use std::os::windows::fs::MetadataExt;
     let opened = open_directory(dir)?;
+    finish_private_dir(dir, &opened)
+}
+
+fn finish_private_dir(dir: &Path, opened: &File) -> io::Result<()> {
+    use std::os::windows::fs::MetadataExt;
     let attributes = opened.metadata()?.file_attributes();
     if attributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes & FILE_ATTRIBUTE_DIRECTORY == 0
     {
@@ -298,17 +302,16 @@ fn private_dir_after_open(
             format!("{} is not a private directory", dir.display()),
         ));
     }
-    ensure_opened_owner(&opened)?;
-    ensure_no_other_changer(&opened, true)?;
-    after_open()?;
+    ensure_opened_owner(opened)?;
+    ensure_no_other_changer(opened, true)?;
     // Normalize even an owner-only but read-only legacy DACL: state
     // directories must let this user create, replace and delete children.
-    restrict_opened(&opened, true)?;
-    if !only_owner_reads_opened(&opened)? {
+    restrict_opened(opened, true)?;
+    if !only_owner_reads_opened(opened)? {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }
     let reopened = open_directory(dir)?;
-    if !same_opened_object(&opened, &reopened)? {
+    if !same_opened_object(opened, &reopened)? {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "state directory path changed while its permissions were checked",
@@ -318,16 +321,15 @@ fn private_dir_after_open(
 }
 
 fn ensure_safe_parent(path: &Path) -> io::Result<()> {
-    let mut parent = path.parent();
-    while let Some(candidate) = parent {
+    let mut saw_existing = false;
+    for candidate in path.ancestors().skip(1) {
         match open_for_security(candidate, false) {
             Ok(opened) => {
+                saw_existing = true;
                 ensure_opened_owner(&opened)?;
-                return ensure_no_other_changer(&opened, true);
+                ensure_no_other_changer(&opened, true)?;
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                parent = candidate.parent();
-            }
+            Err(error) if !saw_existing && error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
     }
@@ -611,13 +613,12 @@ mod tests {
         std::fs::create_dir_all(&checked).unwrap();
         grant_everyone_read(&checked);
 
-        private_dir_after_open(&checked, || {
-            std::fs::rename(&checked, &moved)?;
-            std::fs::create_dir(&checked)?;
-            grant_everyone(&checked);
-            Ok(())
-        })
-        .expect_err("a replacement pathname was accepted");
+        ensure_safe_parent(&checked).unwrap();
+        let opened = open_directory(&checked).unwrap();
+        std::fs::rename(&checked, &moved).unwrap();
+        std::fs::create_dir(&checked).unwrap();
+        grant_everyone(&checked);
+        finish_private_dir(&checked, &opened).expect_err("a replacement pathname was accepted");
 
         assert!(only_owner_reads(&moved).unwrap(), "the checked object stayed wide");
         assert!(!only_owner_reads(&checked).unwrap(), "the replacement path was changed");

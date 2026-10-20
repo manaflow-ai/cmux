@@ -15,7 +15,9 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
-pub(crate) use command::{REMOTE_ENV_POLICY_KEY, command_env, harness_command};
+pub(crate) use command::{
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, harness_command, host_environment,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {

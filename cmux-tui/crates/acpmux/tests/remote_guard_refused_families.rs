@@ -292,7 +292,7 @@ async fn the_session_owner_refuses_remote_family_and_launch_shape_before_spawn()
             .expect_err("the owner admitted a remote-controlled launch shape");
         assert_eq!(
             refused.data.as_ref().and_then(|v| v.get("reason")).and_then(Value::as_str),
-            Some("remote.launch_shape_refused"),
+            Some("remote.executable_refused"),
             "{harness}: {refused:?}"
         );
         assert!(!marker.exists(), "{harness} ran before its launch shape was refused");
