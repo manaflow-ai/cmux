@@ -8,7 +8,7 @@
 // rows below. When the turn ends, the "Worked for" disclosure takes its place.
 //
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
-// has no rule under it and its clock never stops while the turn runs, and while the agent thinks
+// has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type Translate, useT } from "../i18n";

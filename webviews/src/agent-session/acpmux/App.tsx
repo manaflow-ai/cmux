@@ -1500,13 +1500,17 @@ export function VirtualTranscript({
   useEffect(() => {
     const previous = previousRowList.current;
     previousRowList.current = rows;
-    // Rows that only grew below the ones there (a streaming turn) left none behind.
-    if (
-      previous &&
-      previous.length <= rows.length &&
-      previous.every((row, index) => row === rows[index] || row.id === rows[index]!.id)
-    )
-      return;
+    // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
+    // running turn's line stays last under them (`below`, conversation/turns.ts).
+    if (previous && previous.length <= rows.length) {
+      const line = previous.at(-1)?.below === true && rows.at(-1)?.id === previous.at(-1)!.id ? 1 : 0;
+      if (
+        previous
+          .slice(0, previous.length - line)
+          .every((row, index) => row === rows[index] || row.id === rows[index]!.id)
+      )
+        return;
+    }
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);

@@ -253,13 +253,23 @@ function shapedTurn(
     const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
     if (status) Object.assign(line, { status, queued });
     shaped = [...date, status ? { ...user, status: undefined } : user, line];
-  } else
-    shaped = [
-      ...date,
+  } else {
+    const body = shapeTurn(
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, lineBelow),
-      ...held,
-    ];
+      turn,
+      expanded,
+      live,
+      last,
+      last && held.length === 0,
+      clockOffset,
+      liveRuns,
+      lineBelow,
+    );
+    // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
+    // waiting for the agent, a prompt that failed to send).
+    const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    shaped = [...date, user, ...body, ...held, ...line];
+  }
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
   return shaped;
 }
@@ -442,7 +452,8 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 
 /// The live status. With `lineBelow` (the default in the app, Debug Settings
 /// `agentPane.debug.liveLineBelow`) it is the turn's last row from send to end, as Claude desktop
-/// draws it: what the agent is doing now ("Thinking", the call in flight, else "Working for") and
+/// draws it: what the agent is doing now ("Thinking" before any output, the call in flight, else
+/// "Working for") and
 /// the turn's time, which ticks until the turn ends, so the bottom of a running chat always moves.
 /// It keeps one id from the Thinking line the prompt opened (LIVE_THINKING), so its row never
 /// leaves and comes back.
@@ -468,7 +479,8 @@ function liveTurn(
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
     const doing = last && inFlightTitle(last);
     if (doing) status.doing = doing;
-    else if (!last || thinkingNow(last)) status.thinkingNow = true;
+    // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
+    else if (!last) status.thinkingNow = true;
     return [...withLiveStep(rows), status];
   }
   if (!last) return [{ id: LIVE_THINKING, version: 1, at, kind: THINKING }];
@@ -491,9 +503,6 @@ function withLiveStep(rows: AcpmuxRow[]): AcpmuxRow[] {
   if (last?.kind !== "activity") return rows;
   return [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
 }
-
-/// The live turn's latest row is a thought still coming in: its last item is a thought.
-const thinkingNow = (row: AcpmuxRow) => row.kind === "activity" && row.items?.at(-1)?.kind === "thought";
 
 /// The newest call still running in a live turn's latest row, by its title.
 function inFlightTitle(row: AcpmuxRow): string | undefined {

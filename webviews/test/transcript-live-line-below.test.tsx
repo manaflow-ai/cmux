@@ -13,6 +13,7 @@ import { configureLiveLineBelow, useLiveLineBelow } from "../src/agent-session/a
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { insertByTime } from "../src/agent-session/acpmux/shell/shellRuns";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -28,7 +29,6 @@ const call = (id: string, status: string) => ({
   tool: { id, title: id, kind: "execute", status },
 });
 const thought = { kind: "thought", text: "Weighing the two parsers" };
-
 const shaped = (rows: AcpmuxRow[], lineBelow = true) => turnView(rows, new Set(), { working: true, lineBelow });
 /// The kinds drawn, without the date line an old fixture time puts over the prompt.
 const kinds = (rows: AcpmuxRow[]) => rows.map((entry) => entry.kind).filter((kind) => kind !== "date");
@@ -78,10 +78,25 @@ test("a call in flight is named on the last row, beside the time", () => {
   expect(text(drawn(rows.at(-1)!, prompt))).toBe("bun test 26s");
 });
 
-test("a thought coming in reads Thinking", () => {
+test("a thought coming in labels itself, so the line does not say Thinking twice", () => {
   const prompt = row("u", "user");
   const rows = shaped([prompt, row("run", "activity", { items: [call("git log", "completed"), thought] })]);
-  expect(text(drawn(rows.at(-1)!, prompt))).toBe("Thinking 26s");
+  expect(text(drawn(rows.at(-1)!, prompt))).toBe("Working for 26s");
+});
+
+test("a prompt the turn holds (a steer not yet read) draws above the line, which stays last", () => {
+  const prompt = row("u", "user");
+  const work = row("run", "activity", { items: [call("bun test", "in_progress")] });
+  const steer = row("s", "user", { text: "also check the docs", pending: true });
+  const rows = shaped([prompt, work, steer]);
+  expect(kinds(rows)).toEqual(["user", "activity", "user", WORKING]);
+});
+
+test("a shell command run during the turn goes above the line", () => {
+  const prompt = row("u", "user");
+  const rows = shaped([prompt, row("run", "activity", { items: [call("bun test", "in_progress")] })]);
+  const shell = { id: "shell-1", kind: "shell", version: 1, at: (at += 1_000) };
+  expect(kinds(insertByTime(rows, [shell]))).toEqual(["user", "activity", "shell", WORKING]);
 });
 
 test("the line keeps one row from send to the first output, and draws no rule under it", () => {

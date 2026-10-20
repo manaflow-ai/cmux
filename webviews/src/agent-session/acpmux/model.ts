@@ -106,8 +106,8 @@ export type AcpmuxRow = {
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
   doing?: string;
-  /// A running turn's status line while the agent thinks: before any output, or while a thought
-  /// streams in. It reads "Thinking" beside the turn's time (WorkingFor.tsx).
+  /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
+  /// turn's time (WorkingFor.tsx).
   thinkingNow?: boolean;
   /// A running turn's status line drawn as the turn's last row (Debug Settings
   /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
