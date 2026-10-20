@@ -94,10 +94,12 @@
    hover's pill, with no brighter or tinted tone (Leo 2026-10-19): its feedback is the Claude app's,
    a shrink of a hair with an almost invisible dip that springs back on release (below). The press
    shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never delays
-   the button going down; the release eases back. */
+   the button going down; the release eases back. The Plan toggle's rules name the button (`:where`,
+   so their specificity stays a class's): the transcript's todo list row is `.acpmux-plan` too
+   (App.tsx's `acpmux-row acpmux-${kind}`), and the toggle's 28px height clipped the list. */
 .acpmux-picker-button:active,
 .acpmux-picker-button[data-press-active],
-.acpmux-plan:active,
+:where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
 .acpmux-fast:active,
@@ -198,7 +200,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan,
+  :where(button).acpmux-plan,
   .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
@@ -210,7 +212,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
      the release with a slight overshoot. Nothing lingers once the button is up. A chip that opens
      its menu on pointerdown moves focus into the menu, and Chromium drops :active before the press
      frame paints; popoverTrigger.ts's data-press-active holds the press until release. */
-  :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):is(:active, [data-press-active]) {
+  :is(.acpmux-picker-button, :where(button).acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):is(:active, [data-press-active]) {
     transform: scale(0.975);
     opacity: 0.96;
   }

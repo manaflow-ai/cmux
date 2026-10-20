@@ -10,6 +10,7 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
@@ -140,7 +141,8 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
-import { PlanList } from "./conversation/PlanList";
+import { ActivityLine } from "./conversation/ActivityLine";
+import { PlanCardStyle, PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -166,7 +168,17 @@ import {
 } from "./conversation/chatFind";
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
-import { DATE, PREVIEW, RENDER, THINKING, WORKED, WORKING, type TurnView, turnViewFrom } from "./conversation/turns";
+import {
+  ACTIVITY_LINE,
+  DATE,
+  PREVIEW,
+  RENDER,
+  THINKING,
+  WORKED,
+  WORKING,
+  type TurnView,
+  turnViewFrom,
+} from "./conversation/turns";
 import { ArrowDown, Copy } from "./conversation/icons";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -662,6 +674,30 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs,
 );
+/// The live turn's activity line under its todo card (the agent.sessionStatus Debug toggle, cx-ncc.102).
+const ActivityLineRow = memo(
+  function ActivityLineRow({ row }: RowProps) {
+    return <ActivityLine row={row} />;
+  },
+  (a, b) =>
+    a.row.id === b.row.id && a.row.version === b.row.version && a.row.text === b.row.text && a.row.at === b.row.at,
+);
+/// The pane's shortcut labels, and the todo list's status card style (agent.sessionStatus, cx-ncc.102).
+function PaneContexts({
+  shortcuts,
+  planCard,
+  children,
+}: {
+  shortcuts: ShortcutLabels;
+  planCard: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <ShortcutsContext.Provider value={shortcuts}>
+      <PlanCardStyle.Provider value={planCard}>{children}</PlanCardStyle.Provider>
+    </ShortcutsContext.Provider>
+  );
+}
 
 /// How many turns back the header's Preview looks for a page.
 const PREVIEW_TURNS = 8;
@@ -809,6 +845,7 @@ const defaultRegistry: NativeRegistry = {
   [DATE]: DateRow,
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
+  [ACTIVITY_LINE]: ActivityLineRow,
   [PREVIEW]: PreviewRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
@@ -2996,6 +3033,8 @@ function AcpmuxPane() {
         : snapshot.rows;
     return rows;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission]);
+  /// The in-session status toggle (Debug Settings `agent.sessionStatus`): the todo card and activity line.
+  const sessionStatus = useSessionStatus();
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls); with the panel hidden behind folder trust, it stays in the transcript.
   const trustBlocked = trustAsk.holdsAsks;
@@ -3015,7 +3054,12 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
+        {
+          working: snapshot.isWorking,
+          clockOffset: snapshot.clockOffsetMs,
+          liveRuns: codexRuns,
+          statusCards: sessionStatus,
+        },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -3032,6 +3076,7 @@ function AcpmuxPane() {
     codexRuns,
     chatShellRuns,
     panelAsks,
+    sessionStatus,
   ]);
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
@@ -5335,9 +5380,8 @@ function AcpmuxPane() {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
   );
-  // Behind the agent.sessionStatus Debug toggle: a turn that ended on a question offers its yes
-  // above the composer (RecapCard.tsx).
-  const sessionStatus = useSessionStatus();
+  // Behind the agent.sessionStatus Debug toggle (`sessionStatus` above): a turn that ended on a
+  // question offers its yes above the composer (RecapCard.tsx).
   const recapCard = useRecapCard({
     rows: snapshot.rows,
     sessionId: snapshot.sessionId,
@@ -5851,7 +5895,7 @@ function AcpmuxPane() {
     </SubagentStopContext.Provider>
   );
   const pane = (
-    <ShortcutsContext.Provider value={shortcuts}>
+    <PaneContexts shortcuts={shortcuts} planCard={sessionStatus}>
       <section
         ref={setShell}
         className="acpmux-shell"
@@ -6210,7 +6254,7 @@ function AcpmuxPane() {
           />
         )}
       </section>
-    </ShortcutsContext.Provider>
+    </PaneContexts>
   );
   return (
     <SignInContext.Provider value={signIn}>
