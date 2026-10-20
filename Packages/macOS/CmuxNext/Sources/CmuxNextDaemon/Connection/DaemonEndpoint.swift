@@ -217,6 +217,9 @@ public struct DaemonCapabilities: Sendable {
     /// directory and ends the keep (an exit closes the tab again, no relaunch
     /// on the next connect): the only way kept tabs restart (Unix daemons).
     public let tabRestartKeptLayout = "tab-restart-kept-layout-v1"
+    /// `park-tabs`: terminal tabs keep their place while their shells end,
+    /// as keep-layout tabs; `restart-tab` starts each again (Unix daemons).
+    public let tabPark = "tab-park-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
