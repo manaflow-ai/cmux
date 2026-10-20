@@ -67,8 +67,10 @@ public nonisolated enum DropZoneGeometry {
     /// bonsplit's shared edge (#22287): a terminal tab dragged out of
     /// `source` onto the band of the pane beside it that faces `source`
     /// joins that pane instead of splitting it; the pane's outer edge still
-    /// splits. Only left and right, as in bonsplit. `frames` are the panes'
-    /// cells; the neighbor is `FocusNavigation`'s.
+    /// splits. Only left and right, as in bonsplit. `frames` are the panes
+    /// in one logical line (`ScreenContentView.navigationFrames`); the
+    /// neighbor is `FocusNavigation`'s, and must overlap `source` vertically
+    /// (its fallback to the nearest pane shares no edge).
     public static func joiningSharedEdge(_ target: DropTarget, from source: PaneID?, frames: [PaneID: CGRect]) -> DropTarget {
         guard let source, case let .pane(pane, zone) = target, pane != source else { return target }
         let toward: LayoutDirection
@@ -77,7 +79,9 @@ public nonisolated enum DropZoneGeometry {
         case .right: toward = .left
         case .top, .bottom, .center: return target
         }
-        return FocusNavigation.neighbor(of: source, direction: toward, frames: frames) == pane ? .pane(pane, .center) : target
+        guard let from = frames[source], let to = frames[pane], min(from.maxY, to.maxY) > max(from.minY, to.minY),
+              FocusNavigation.neighbor(of: source, direction: toward, frames: frames) == pane else { return target }
+        return .pane(pane, .center)
     }
 
     /// The tab bar height of `pane` measured from its cell top: the cell's

@@ -50,36 +50,14 @@ enum TabMoves {
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
         // Only a terminal's own directory is a path on this machine.
         let terminal = SplitRespawn.terminal(SpawnOptions(cwd: tab.kind == .pty ? tab.cwd : nil, workspace: services.workspaceKey(of: pane)))
-        switch splitLeftover(for: tab.kind) {
-        case .nothing:
-            return nil
-        case .terminal:
-            return terminal
+        switch SplitLeftover(kind: tab.kind) {
         case .sameKind where tab.kind == .browser:
             guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
             else { return terminal }
             return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.browserProfileID)
-        case .sameKind:
-            return terminal
-        }
-    }
-
-    /// What a split of a pane with its only tab, of `kind`, leaves in that pane (`respawn`).
-    enum SplitLeftover: Equatable {
-        /// A fresh tab of the same kind (a browser falls back to a terminal).
-        case sameKind
-        /// A fresh terminal.
-        case terminal
-        /// Nothing: the split is refused.
-        case nothing
-    }
-
-    static func splitLeftover(for kind: TabKind) -> SplitLeftover {
-        switch kind {
-        case .pty, .browser: .sameKind
-        case .conversation: .nothing
-        case .remoteTerminal, .other: .terminal
+        case .sameKind, .terminal: return terminal
+        case .nothing: return nil
         }
     }
 

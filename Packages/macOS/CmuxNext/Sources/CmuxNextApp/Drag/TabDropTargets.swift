@@ -128,29 +128,12 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     var dwellDeadline: CFTimeInterval? { touched?.tabDragDwellDeadline }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        let moving = payload.movingIDs.map(StripTabID.init(rawValue:))
-        let isTab = if case .tab = payload { true } else { false }
-        return proposal(screenPoint: screenPoint, dragKey: payload.dragID, joinsFrom: joinsFrom(payload)) { controller in
-            Self.ownPlace(of: moving, keepsGroup: isTab, in: controller.stripModel.orderedTabs)
+        // A terminal tab's own pane: the facing edge of the pane beside it joins that pane (bonsplit, #22287).
+        let source = window?.content?.panes.values.first { $0.pane.tabs.contains { $0.id == payload.dragID && $0.kind == .pty } }
+        return proposal(screenPoint: screenPoint, dragKey: payload.dragID, joinsFrom: source?.layoutPaneID) {
+            // A drop on the tabs' own pane body leaves them where they are (bonsplit, #22287).
+            payload.ownPlace(in: $0.stripModel.orderedTabs)
         }
-    }
-
-    /// Where a drop on the body of a pane showing `tabs` (display order)
-    /// leaves the dragged tabs when they are in it: their own slot and tab
-    /// group, so the drop changes nothing, as in bonsplit (#22287). A
-    /// group drag keeps no group. Nil when the tabs are not there.
-    static func ownPlace(of moving: [StripTabID], keepsGroup: Bool, in tabs: [CmuxNextTabs.TabItem]) -> (index: Int, group: String?)? {
-        guard let first = moving.first, let index = tabs.firstIndex(where: { $0.id == first }) else { return nil }
-        return (index, keepsGroup ? tabs[index].groupID?.rawValue : nil)
-    }
-
-    /// The pane a dragged terminal tab comes from, whose neighbor's facing
-    /// edge joins that neighbor (bonsplit's shared edge, #22287).
-    private func joinsFrom(_ payload: TabDragPayload) -> LayoutPaneID? {
-        guard case .tab(let id, _) = payload,
-              let pane = window?.content?.panes.values.first(where: { $0.pane.tabs.contains { $0.id == id } }),
-              pane.pane.tabs.first(where: { $0.id == id })?.kind == .pty else { return nil }
-        return pane.layoutPaneID
     }
 
     /// A sidebar workspace over this layout (`TabDragSession+Workspaces`):
@@ -185,9 +168,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            let own = ownPlace(controller)
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: own?.index ?? controller.pane.tabs.count,
-                                                groupID: own?.group),
+            let own = ownPlace(controller) ?? (controller.pane.tabs.count, nil)
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: own.index, groupID: own.group),
                                    highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
@@ -246,14 +228,6 @@ extension TabDragPayload {
         switch self {
         case .tab(let id, _): id
         case .tabGroup(let id, _, _, _): id
-        }
-    }
-
-    /// The dragged tab ids, in strip order.
-    var movingIDs: [String] {
-        switch self {
-        case .tab(let id, _): [id]
-        case .tabGroup(_, let ids, _, _): ids
         }
     }
 }

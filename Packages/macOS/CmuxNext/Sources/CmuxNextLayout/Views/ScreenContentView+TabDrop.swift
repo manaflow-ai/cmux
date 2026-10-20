@@ -25,7 +25,7 @@ extension ScreenContentView {
         guard let zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                     headers: headers, footers: footers, style: context.style,
                                                     previous: previous) else { return nil }
-        let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: geometry.panes)
+        let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: navigationFrames)
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)

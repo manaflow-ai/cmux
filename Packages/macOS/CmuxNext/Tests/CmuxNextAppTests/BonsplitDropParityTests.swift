@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextDesign
 import enum CmuxNextDaemon.TabKind
 @testable import CmuxNextLayout
 import CmuxNextTabs
@@ -70,6 +71,9 @@ struct BonsplitDropParityTests {
         let row: [PaneID: CGRect] = ["a": CGRect(x: 0, y: 0, width: 300, height: 600), "b": CGRect(x: 300, y: 0, width: 300, height: 600),
                                      "c": CGRect(x: 600, y: 0, width: 300, height: 600)]
         #expect(DropZoneGeometry.joiningSharedEdge(.pane("c", .left), from: "a", frames: row) == .pane("c", .left))
+        // A pane right of the source but beside none of it shares no edge: it splits.
+        let offset: [PaneID: CGRect] = ["a": CGRect(x: 0, y: 0, width: 300, height: 300), "b": CGRect(x: 300, y: 300, width: 300, height: 300)]
+        #expect(DropZoneGeometry.joiningSharedEdge(.pane("b", .left), from: "a", frames: offset) == .pane("b", .left))
     }
 
     /// End to end through the layout's drag API, which the App's drop target drives.
@@ -92,7 +96,7 @@ struct BonsplitDropParityTests {
     /// the drop changes nothing (it used to move the tab to the end of its strip).
     @Test func aDropOnItsOwnPaneBodyStays() throws {
         let tabs = ["a", "b", "c"].map { CmuxNextTabs.TabItem(id: StripTabID($0), title: $0) }
-        let place = try #require(LayoutTabDropTarget.ownPlace(of: [StripTabID("a")], keepsGroup: true, in: tabs))
+        let place = try #require(TabDragPayload.tab(id: "a", sourceStripID: UUID()).ownPlace(in: tabs))
         #expect(place.index == 0)
         let strip = UUID()
         let context = TabDragContext(sourcePaneID: "p1", sourcePaneTabCount: 3, sourceWorkspaceID: "w", sourceWorkspaceTabCount: 3,
@@ -102,14 +106,14 @@ struct BonsplitDropParityTests {
         #expect(resolution.outcome == .cancel)
         #expect(resolution.preview == .stay(proposal))
         // Another pane's body still takes the tab at its end.
-        #expect(LayoutTabDropTarget.ownPlace(of: [StripTabID("z")], keepsGroup: true, in: tabs) == nil)
+        #expect(TabDragPayload.tab(id: "z", sourceStripID: UUID()).ownPlace(in: tabs) == nil)
     }
 
     @Test func aTabKeepsItsGroupAndAGroupDragKeepsNone() throws {
         let group = CmuxNextTabs.TabGroupID("g")
         let tabs = [CmuxNextTabs.TabItem(id: StripTabID("a"), title: "a"), CmuxNextTabs.TabItem(id: StripTabID("b"), title: "b", groupID: group)]
-        #expect(try #require(LayoutTabDropTarget.ownPlace(of: [StripTabID("b")], keepsGroup: true, in: tabs)).group == group.rawValue)
-        let groupPlace = try #require(LayoutTabDropTarget.ownPlace(of: [StripTabID("b")], keepsGroup: false, in: tabs))
+        #expect(try #require(TabDragPayload.tab(id: "b", sourceStripID: UUID()).ownPlace(in: tabs)).group == group.rawValue)
+        let groupPlace = try #require(TabDragPayload.tabGroup(id: "g", tabIDs: ["b"], sourceStripID: UUID(), width: 80).ownPlace(in: tabs))
         #expect(groupPlace.index == 1 && groupPlace.group == nil)
     }
 
@@ -118,11 +122,11 @@ struct BonsplitDropParityTests {
     /// Splitting a pane with its only tab leaves a fresh tab there, as classic cmux replaces
     /// bonsplit's placeholder with a terminal; only conversation tabs refuse.
     @Test func everyKindButAConversationSplitsItsOnlyPane() {
-        #expect(TabMoves.splitLeftover(for: .pty) == .sameKind)
-        #expect(TabMoves.splitLeftover(for: .browser) == .sameKind)
-        #expect(TabMoves.splitLeftover(for: .remoteTerminal) == .terminal)
-        #expect(TabMoves.splitLeftover(for: .other("diff")) == .terminal)
-        #expect(TabMoves.splitLeftover(for: .conversation) == .nothing)
+        #expect(SplitLeftover(kind: .pty) == .sameKind)
+        #expect(SplitLeftover(kind: .browser) == .sameKind)
+        #expect(SplitLeftover(kind: .remoteTerminal) == .terminal)
+        #expect(SplitLeftover(kind: .other("diff")) == .terminal)
+        #expect(SplitLeftover(kind: .conversation) == .nothing)
     }
 
     // MARK: Harness
