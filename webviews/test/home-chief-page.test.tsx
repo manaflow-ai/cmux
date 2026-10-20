@@ -95,7 +95,11 @@ const CHIEF: HomeChief = {
 };
 
 const BACKENDS: HomeChiefBackend[] = [
-  { id: "claude", name: "Claude Code", models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "high"] }] },
+  {
+    id: "claude",
+    name: "Claude Code",
+    models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "high"] }],
+  },
   {
     id: "codex",
     name: "Codex",
@@ -216,7 +220,11 @@ async function save(container: HTMLElement) {
   await flush();
 }
 
-const lastSave = (calls: Call[]) => calls.filter((call) => call.op === "update" || call.op === "create").at(-1)?.args.at(-1) as ChiefSave | undefined;
+const lastSave = (calls: Call[]) =>
+  calls
+    .filter((call) => call.op === "update" || call.op === "create")
+    .at(-1)
+    ?.args.at(-1) as ChiefSave | undefined;
 
 test("New Chief draws as a page on Home's right side, never a dialog", async () => {
   const container = installDom();
@@ -293,7 +301,10 @@ test("the Backend picker sends harness, model and effort, after the harness's ch
 test("Default (Chief's usual) clears the backend without a check", async () => {
   const container = installDom();
   const { service, calls } = fakeService();
-  await mount(container, service, { ...CHIEF, harness: "claude", model: "claude-opus-5-5", effort: "high" });
+  await mount(container, service, {
+    ...CHIEF,
+    engine: { harness: "claude", model: "claude-opus-5-5", effort: "high" },
+  });
   const picker = byLabel<HTMLSelectElement>(container, t("chief.backend.title"));
   expect(picker.value).toBe("claude");
   await choose(picker, "");
@@ -380,7 +391,7 @@ test("the lock switch sends locked, and only when it changed", async () => {
   const container = installDom();
   const { service, calls } = fakeService();
   await mount(container, service, CHIEF);
-  const lock = container.querySelector<HTMLInputElement>('input[data-chief-lock]')!;
+  const lock = container.querySelector<HTMLInputElement>("input[data-chief-lock]")!;
   expect(lock.getAttribute("aria-label")).toBe(t("chief.lock.title"));
   expect(lock.checked).toBe(false);
   await save(container);
@@ -430,7 +441,7 @@ test("without the host's relay the gesture fields, the backend and the lock show
   const { service } = fakeService(false);
   await mount(container, service, CHIEF);
   expect(byLabel<HTMLSelectElement>(container, t("chief.backend.title")).disabled).toBe(true);
-  expect(container.querySelector<HTMLInputElement>('input[data-chief-lock]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLInputElement>("input[data-chief-lock]")!.disabled).toBe(true);
   expect(button(container, t("chief.history.undo")).disabled).toBe(true);
   expect(byLabel<HTMLInputElement>(container, t("chief.field.name")).disabled).toBe(false);
 });
