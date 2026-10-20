@@ -611,6 +611,41 @@ fn stats_branches_roll_up_turns_time_and_spend_in_range() {
 }
 
 #[test]
+fn stats_branches_follow_the_branch_each_turn_ended_on() {
+    let store = MemoryStore::default();
+    let updated = DAY0 + 12 * HOUR;
+    // Started on main; the agent switched to feat-y before its second turn ended.
+    let mut a = session(&store, on_branch("a", Some("main"), "/tmp/p", updated));
+    a.turn(DAY0 + HOUR, DAY0 + HOUR + 10 * MIN, json!({"gitBranch": "main", "costUsd": 0.25}));
+    a.turn(
+        DAY0 + 2 * HOUR,
+        DAY0 + 2 * HOUR + 30 * MIN,
+        json!({"gitBranch": "feat-y", "gitHead": "0123456789abcdef0123456789abcdef01234567",
+               "costUsd": 0.5}),
+    );
+    a.turn(DAY0 + 3 * HOUR, DAY0 + 3 * HOUR + 20 * MIN, json!({"gitBranch": "feat-y"}));
+    // An older log's turns carry no branch: they stay on the start branch.
+    let mut old = session(&store, on_branch("old", Some("main"), "/tmp/p", updated));
+    old.turn(DAY0 + 4 * HOUR, DAY0 + 4 * HOUR + 5 * MIN, json!({"costUsd": 1.0}));
+    // Started with no branch (a detached HEAD), its turn ended on one.
+    let mut d = session(&store, on_branch("d", None, "/tmp/p", updated));
+    d.turn(DAY0 + 5 * HOUR, DAY0 + 5 * HOUR + 15 * MIN, json!({"gitBranch": "feat-y"}));
+
+    let s = summarize(&store, &options(DAY0 + DAY, 1), &live_ids(&[])).unwrap();
+    assert_eq!((s.sessions, s.turns, s.working_ms), (3, 5, 80 * MIN));
+    let v = serde_json::to_value(&s).unwrap();
+    assert_eq!(
+        v["branches"],
+        json!([
+            {"cwd": "/tmp/p", "branch": "feat-y", "sessions": 2, "turns": 3,
+             "workingMs": 65 * MIN, "costUsd": 0.5},
+            {"cwd": "/tmp/p", "branch": "main", "sessions": 2, "turns": 2,
+             "workingMs": 15 * MIN, "costUsd": 1.25},
+        ])
+    );
+}
+
+#[test]
 fn stats_branches_count_a_forks_copied_turns_once() {
     let store = MemoryStore::default();
     let updated = DAY0 + 12 * HOUR;
