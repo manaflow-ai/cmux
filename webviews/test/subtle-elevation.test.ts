@@ -228,7 +228,6 @@ describe("one subtle elevation scale", () => {
     ["icon-picker/styles.css", ".icon-bar-pill", "--elevation-2"],
     ["viewer-empty/styles.css", ".ve-picker", "--elevation-2"],
     ["styles.css", ".toolbar-menu", "--elevation-2"],
-    ["styles.css", "#diff-find-bar", "--elevation-2"],
     ["styles.css", ".file-tree-context-menu", "--elevation-2"],
     ["styles.css", ".comment-card", "--elevation-1"],
     // The composer: --elevation-1 in a light theme, none in a dark one (newtab-quiet-focus.test.ts).
@@ -245,9 +244,10 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/styles.css", ".acpmux-menu", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-shell[data-sidebar=open] .acpmux-sidebar", "--elevation-2"],
-    ["agent-session/acpmux/conversation/conversation.css", ".acpmux-find__bar", "--elevation-2"],
+    // Every find bar (Find in Chat, Find in Diff) is the shared find pill.
+    ["ui/findPill.css", ".find-pill", "--elevation-2"],
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-jump-latest", "--elevation-2"],
-    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__popover", "--elevation-2"],
+    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__card", "--elevation-2"],
     ["agent-session/acpmux/summary/summary.css", ".acpmux-summary-card", "--elevation-2"],
     ["agent-session/acpmux/addProject.css", ".acpmux-add-project-dialog", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-viewer", "--elevation-2"],

@@ -1,6 +1,60 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
+    "agentPane.display.code.family" : {
+      "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
+      "title" : "Chat Code Font",
+      "type" : "string"
+    },
+    "agentPane.display.code.scale" : {
+      "description" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
+      "title" : "Chat Code Size",
+      "type" : "number"
+    },
+    "agentPane.display.font.lineHeight" : {
+      "default" : 1.625,
+      "description" : "agentPane.display.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1.2,
+      "title" : "Chat Line Height",
+      "type" : "number"
+    },
+    "agentPane.display.font.preset" : {
+      "default" : "markdown",
+      "description" : "agentPane.display.font.preset",
+      "enum" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.size" : {
+      "default" : 14,
+      "description" : "agentPane.display.font.size",
+      "maximum" : 28,
+      "minimum" : 10,
+      "title" : "Chat Font Size",
+      "type" : "number"
+    },
+    "agentPane.display.fullWidth" : {
+      "default" : false,
+      "description" : "The chat fills the whole pane instead of the text width.",
+      "title" : "Chat Full Width",
+      "type" : "boolean"
+    },
+    "agentPane.display.width" : {
+      "default" : 800,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
+      "maximum" : 4000,
+      "minimum" : 480,
+      "title" : "Chat Text Width",
+      "type" : "number"
+    },
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
       "description" : "agentPane.editedFiles.maxRows",
@@ -729,19 +783,35 @@
       "title" : "Spring Response",
       "type" : "number"
     },
+    "appearance.customDensities" : {
+      "default" : [
+
+      ],
+      "description" : "appearance.customDensities",
+      "title" : "Custom Densities",
+      "type" : "string"
+    },
+    "appearance.customDensity" : {
+      "description" : "appearance.customDensity",
+      "title" : "Custom Density",
+      "type" : "string"
+    },
     "appearance.density" : {
       "default" : "compact",
-      "description" : "appearance.density",
+      "description" : "Row height, padding, corners, icons and text size together. Compact is the default.",
       "enum" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "title" : "Density",
       "type" : "string"
     },
     "appearance.experimentalControls" : {
       "default" : false,
-      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
@@ -835,6 +905,16 @@
       "minimum" : 24,
       "title" : "Titlebar Height",
       "type" : "number"
+    },
+    "appearance.paneBackgrounds" : {
+      "default" : "shared",
+      "description" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.",
+      "enum" : [
+        "shared",
+        "perPane"
+      ],
+      "title" : "Pane Backgrounds",
+      "type" : "string"
     },
     "appearance.saturation" : {
       "default" : 1,
@@ -1100,6 +1180,24 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.agentMouse.maxMoveMs" : {
+      "default" : 350,
+      "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
+      "maximum" : 1000,
+      "minimum" : 60,
+      "title" : "Longest Agent Pointer Move",
+      "type" : "number"
+    },
+    "browser.agentMouse.motion" : {
+      "default" : "human",
+      "description" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.",
+      "enum" : [
+        "human",
+        "instant"
+      ],
+      "title" : "Agent Pointer Motion",
+      "type" : "string"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -1120,13 +1218,19 @@
     },
     "browser.defaultEngine" : {
       "default" : "chromium",
-      "description" : "New browser tabs open in this engine.",
+      "description" : "Browser tabs and cmux pages, such as History and Apps, open in this engine.",
       "enum" : [
         "chromium",
         "webkit"
       ],
-      "title" : "Default Engine",
+      "title" : "Browser Engine",
       "type" : "string"
+    },
+    "browser.enabled" : {
+      "default" : true,
+      "description" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+      "title" : "Enable cmux Browser",
+      "type" : "boolean"
     },
     "browser.freezeHiddenTabs" : {
       "default" : 30,
@@ -1176,10 +1280,19 @@
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
+    "browser.keepNeighborTabsAwake" : {
+      "default" : 1,
+      "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Keep Neighbor Tabs Awake",
+      "type" : "number"
+    },
     "browser.links.cmdClick" : {
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "description" : "In Chromium tabs, Download keeps Chrome's default.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1193,6 +1306,7 @@
       "default" : "foregroundTab",
       "description" : "Shift-middle-click does the same.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1206,6 +1320,7 @@
       "default" : "backgroundTab",
       "description" : "Chromium tabs use the Command-Click setting.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1219,6 +1334,7 @@
       "default" : "download",
       "description" : "Chromium tabs always download.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1232,6 +1348,7 @@
       "default" : "newWindow",
       "description" : "In Chromium tabs, Download keeps Chrome's default.",
       "enum" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -1328,6 +1445,12 @@
       "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
+    "browser.omnibar.showFullURLs" : {
+      "default" : false,
+      "description" : "Shows the whole address, with https:// and www., when you are not editing it.",
+      "title" : "Always Show Full URLs",
+      "type" : "boolean"
+    },
     "browser.openLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
@@ -1389,6 +1512,25 @@
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
+    },
+    "browser.siteEngines" : {
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "description" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium.",
+      "properties" : {
+
+      },
+      "title" : "Site Engines",
+      "type" : "object"
     },
     "browser.toolbarButtons" : {
       "default" : [
@@ -2156,10 +2298,10 @@
       "title" : "Dock Column Mode",
       "type" : "string"
     },
-    "layout.focusPaneOnScroll" : {
-      "default" : true,
-      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
-      "title" : "Focus Pane on Scroll",
+    "layout.focusFollowsMouse" : {
+      "default" : false,
+      "description" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus.",
+      "title" : "Focus Follows Mouse",
       "type" : "boolean"
     },
     "layout.frameOrientation" : {
@@ -2170,6 +2312,17 @@
         "rowMajor"
       ],
       "title" : "Dock Corners",
+      "type" : "string"
+    },
+    "layout.linkPlacement" : {
+      "default" : "split-right",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "enum" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "title" : "Open Links and Files",
       "type" : "string"
     },
     "layout.minimumPaneHeight" : {
@@ -2262,6 +2415,12 @@
       "title" : "Rows",
       "type" : "boolean"
     },
+    "layout.scrollAreas" : {
+      "default" : false,
+      "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+      "title" : "Scroll Areas",
+      "type" : "boolean"
+    },
     "layout.splitSizing" : {
       "default" : "even",
       "description" : "Even gives every pane in the column the same size after a split.",
@@ -2301,6 +2460,11 @@
       "minimum" : 8,
       "title" : "Code Block Size",
       "type" : "number"
+    },
+    "markdown.code.family" : {
+      "description" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.",
+      "title" : "Code Font",
+      "type" : "string"
     },
     "markdown.code.scale" : {
       "default" : 0.875,
@@ -2351,6 +2515,12 @@
       "title" : "Text Width",
       "type" : "number"
     },
+    "markdown.remoteImages" : {
+      "default" : false,
+      "description" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.",
+      "title" : "Load Web Images Automatically",
+      "type" : "boolean"
+    },
     "markdown.spacing.paragraph" : {
       "default" : 1,
       "description" : "The gap after each paragraph, as a share of the text size.",
@@ -2384,6 +2554,12 @@
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
       "type" : "string"
+    },
+    "mobile.allowIPhoneConnections" : {
+      "default" : false,
+      "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+      "title" : "Allow iPhone Connections",
+      "type" : "boolean"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",
@@ -2913,6 +3089,18 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.groupHeader.memberCount" : {
+      "default" : false,
+      "description" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner.",
+      "title" : "Show Group Member Count",
+      "type" : "boolean"
+    },
+    "sidebar.groupHeader.unreadCount" : {
+      "default" : false,
+      "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
+      "title" : "Show Group Unread Count",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.delay" : {
       "default" : 250,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
@@ -2925,6 +3113,75 @@
       "default" : true,
       "description" : "A card with details opens when the pointer rests on a workspace or a tab.",
       "title" : "Show Hover Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.delay" : {
+      "default" : 600,
+      "description" : "How long the pointer rests on a group before its summary card opens.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Group Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.maxMembers" : {
+      "default" : 8,
+      "description" : "The most members a group's card lists by name.",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "Group Card Members",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.order" : {
+      "default" : "status",
+      "description" : "Which part of a group's card comes first.",
+      "enum" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "title" : "Group Card Leads With",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.groups.sections.activity" : {
+      "default" : true,
+      "description" : "Show the member that changed last, and when.",
+      "title" : "Group Card: Latest Activity",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.git" : {
+      "default" : true,
+      "description" : "Show the members' git branches.",
+      "title" : "Group Card: Branches",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.members" : {
+      "default" : true,
+      "description" : "Show the member count and the members' names.",
+      "title" : "Group Card: Members",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.ports" : {
+      "default" : true,
+      "description" : "Show the members' listening ports.",
+      "title" : "Group Card: Ports",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.status" : {
+      "default" : true,
+      "description" : "Show how many members work, wait, failed or have unread items.",
+      "title" : "Group Card: Status",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.tabGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a tab group's chip.",
+      "title" : "Cards on Tab Groups",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.workspaceGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a workspace group's header.",
+      "title" : "Cards on Workspace Groups",
       "type" : "boolean"
     },
     "sidebar.hoverCards.layout" : {
@@ -2998,7 +3255,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -3049,10 +3306,22 @@
       "title" : "Show Projects",
       "type" : "boolean"
     },
+    "sidebar.showSearchButton" : {
+      "default" : true,
+      "description" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette.",
+      "title" : "Show Search Button",
+      "type" : "boolean"
+    },
     "sidebar.showSpaces" : {
       "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
+      "type" : "boolean"
+    },
+    "sidebar.showTimestamps" : {
+      "default" : false,
+      "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+      "title" : "Show Timestamps",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -3601,12 +3870,19 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabPosition" : {
-      "default" : "end",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
       "enum" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "title" : "New Tab Position",
       "type" : "string"
@@ -3704,6 +3980,42 @@
       "title" : "Animation Bounce",
       "type" : "string"
     },
+    "ui.animations.cursor" : {
+      "default" : true,
+      "description" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
+      "title" : "Animate the Agent Cursor",
+      "type" : "boolean"
+    },
+    "ui.animations.enabled" : {
+      "default" : true,
+      "description" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area.",
+      "title" : "Play Animations",
+      "type" : "boolean"
+    },
+    "ui.animations.feedback" : {
+      "default" : true,
+      "description" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once.",
+      "title" : "Animate Highlights and Colors",
+      "type" : "boolean"
+    },
+    "ui.animations.home" : {
+      "default" : true,
+      "description" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once.",
+      "title" : "Animate Home and Chats",
+      "type" : "boolean"
+    },
+    "ui.animations.hoverCards" : {
+      "default" : true,
+      "description" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once.",
+      "title" : "Animate Hover Cards",
+      "type" : "boolean"
+    },
+    "ui.animations.indicators" : {
+      "default" : true,
+      "description" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph.",
+      "title" : "Animate Spinners and Progress",
+      "type" : "boolean"
+    },
     "ui.animations.newTab" : {
       "default" : true,
       "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
@@ -3714,6 +4026,36 @@
       "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
+      "type" : "boolean"
+    },
+    "ui.animations.overlays" : {
+      "default" : true,
+      "description" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once.",
+      "title" : "Animate Menus and Cards",
+      "type" : "boolean"
+    },
+    "ui.animations.panes" : {
+      "default" : true,
+      "description" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once.",
+      "title" : "Animate Panes and Windows",
+      "type" : "boolean"
+    },
+    "ui.animations.sidebar" : {
+      "default" : true,
+      "description" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once.",
+      "title" : "Animate the Sidebar",
+      "type" : "boolean"
+    },
+    "ui.animations.tabs" : {
+      "default" : true,
+      "description" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once.",
+      "title" : "Animate Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.web" : {
+      "default" : true,
+      "description" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed.",
+      "title" : "Animate cmux Web Pages",
       "type" : "boolean"
     },
     "ui.animationSpeed" : {

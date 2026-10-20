@@ -9,7 +9,8 @@ extension ScreenContentView {
     /// room check), so the shown zone holds near its line.
     /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
-    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, previous: DropTarget? = nil,
+    /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
+    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, joinsFrom: PaneID? = nil, previous: DropTarget? = nil,
                     edgesArmed: Bool = true)
         -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect])? {
         // The top band starts below the tab bar of the pane under the pointer.
@@ -21,9 +22,13 @@ extension ScreenContentView {
             return (dock, dock, rect, rect, [])
         }
         let (headers, footers) = paneChromeBands()
-        guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                headers: headers, footers: footers, style: context.style,
-                                                previous: previous) else { return nil }
+        guard let zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
+                                                    headers: headers, footers: footers, style: context.style,
+                                                    previous: previous) else { return nil }
+        // A pinned dock that takes no other tab (the Home Chief pane) takes no drop at all: a join
+        // or a split there would only be refused (`dock-column-pinned`), so nothing promises one.
+        if case let .pane(pane, _) = zoneHit, layout.column(containing: pane)?.dock?.takesTabs == false { return nil }
+        let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: navigationFrames)
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
@@ -76,10 +81,10 @@ extension ScreenContentView {
     /// moves (view coordinates, inset 2 pt so neighbors read apart); nil when the layout cannot be
     /// predicted here, and the caller falls back to the half.
     private func finalLayoutPreview(splitting pane: PaneID, zone: PaneDropZone, removing: PaneID?) -> (newPane: CGRect, resized: [CGRect])? {
-        // A tab drop splits the target at 0.5 and sends no even-sizing ratios (TabMoves.toNewSplit; only a
-        // keyboard split applies `layout.splitSizing`), so the preview shows exactly that.
+        // A tab drop splits the target at 0.5 and then applies `layout.splitSizing`, as a keyboard split
+        // does (TabMoves.toNewSplit, #22287), so the preview shows exactly that.
         guard let predicted = DropPreviewLayout(splitting: pane, zone: zone, in: layout, removing: removing,
-                                                evenSizing: false) else { return nil }
+                                                evenSizing: context.model.splitSizing == .even) else { return nil }
         // A drop that closes a column moves the strip's camera after it; show the half rather than guess.
         if case let .columns(before) = layout, case let .columns(after) = predicted.layout, before.map(\.id) != after.map(\.id) {
             return nil
@@ -109,7 +114,9 @@ extension ScreenContentView {
 
     /// Where splitting `pane` along `axis` goes on this screen right now.
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
-        SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        // A canvas places a split's new pane beside the old one at its size: there is always room.
+        if isCanvas { return .split }
+        return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
     }
 
     /// An edge drop that cannot split for lack of room becomes a new column

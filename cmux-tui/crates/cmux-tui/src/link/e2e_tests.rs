@@ -11,6 +11,7 @@ use base64::engine::general_purpose::STANDARD;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::{PairingRecord, Pairings};
 use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
+use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UdpSocket;
 use zeroize::Zeroizing;
@@ -62,6 +63,11 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
 async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     let a = node("inst_a").await;
     let b = node("inst_b").await;
+    exchange(a, b).await;
+}
+
+async fn exchange(a: Node, b: Node) {
+    let server_install = a.install;
     let (a_udp, b_udp) = (a.socket.local_addr().unwrap(), b.socket.local_addr().unwrap());
     let directory = cmux_unix_socket::short_test_dir("linke2e");
 
@@ -88,7 +94,7 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
     let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
     caller
-        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"daemon\"}\nping\n")
+        .write_all(format!("{{\"op\":\"link.dial\",\"host\":\"{server_install}\",\"service\":\"daemon\"}}\nping\n").as_bytes())
         .await
         .unwrap();
     let mut caller = BufReader::new(caller);
@@ -117,6 +123,61 @@ async fn a_dial_crosses_two_meshes_and_reaches_the_peer_daemon_entry_stamped() {
     drop(daemon);
     within(dial).await.unwrap();
     server.abort();
+}
+
+/// A controlled, admitted entry verifies payload transport with the enrollment
+/// key. The public CLI test separately checks the real daemon's unchecked-peer
+/// refusal; this fixture does not mint a control-plane grant.
+#[tokio::test]
+async fn paired_server_link_enrolled_key_exchanges_bytes_over_two_meshes() {
+    use cmux_server::pairing::{self, Transport};
+    use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited, jwk_thumbprint};
+
+    const INSTALL: &str = "inst_00000000000000000001";
+    const NOW: u64 = 1_790_978_474_000;
+    #[derive(Default)]
+    struct Api(std::sync::Mutex<Option<String>>);
+    impl Transport for Api {
+        fn health(&self, _: &str) -> cmux_server::Result<Value> {
+            Ok(json!({"environment":"staging"}))
+        }
+        fn begin(&self, _: &str, body: &Value) -> cmux_server::Result<Value> {
+            *self.0.lock().unwrap() = Some(body["wg_public_key"].as_str().unwrap().into());
+            Ok(json!({"code":"7KQ4M2XD","expires_at":NOW+600_000,
+                "thumbprint":jwk_thumbprint(&body["public_jwk"]).unwrap(),
+                "collect_secret":"AAAAAAAAAAAAAAAAAAAAAA.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}))
+        }
+        fn wait(&self, _: &str, _: &Begun) -> cmux_server::Result<Waited> {
+            Ok(Waited::Paired(Paired {
+                host: "host_00000000000000000001".into(),
+                team: "team_00000000000000000001".into(),
+                user: "user_00000000000000000001".into(),
+                install: INSTALL.into(),
+            }))
+        }
+    }
+    let home = cmux_unix_socket::short_test_dir("pairedmesh");
+    let identity = home.path().join("pairing/identity.json");
+    let api = Api::default();
+    pairing::enroll(&identity, "https://api.example.test",
+        json!({"name":"Fixture server","platform":"linux","os_version":"test","arch":"aarch64","cmux_version":"1.0.0"}),
+        None, &api, NOW, |_| Ok(())).unwrap();
+    let saved = std::fs::read(&identity).unwrap();
+    let state = super::state::LinkState::open(Some(home.path().join("link"))).unwrap();
+    state
+        .init(&super::state::LinkConfig {
+            install: INSTALL.into(),
+            port: 0,
+            server_identity: Some(identity.clone()),
+        })
+        .unwrap();
+    let private = *state.private_key().unwrap();
+    let public = super::state::public_key(&private);
+    assert_eq!(STANDARD.encode(public), api.0.lock().unwrap().as_deref().unwrap());
+    let socket = UdpSocket::bind(SocketAddr::from((Ipv6Addr::LOCALHOST, 0))).await.unwrap();
+    exchange(Node { install: INSTALL, private, public, socket }, node("inst_b").await).await;
+    assert!(!state.dir().join("private.key").exists());
+    assert!(std::fs::read(&identity).unwrap() == saved, "enrollment record changed");
 }
 
 /// A paired install that rotates its key keeps its overlay `/128`; the sync

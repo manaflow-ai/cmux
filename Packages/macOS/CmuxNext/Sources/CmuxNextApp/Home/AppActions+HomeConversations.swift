@@ -6,8 +6,9 @@ import Foundation
 
 /// The Home page's conversation actions (HomeActionCatalog): one path for
 /// the page's "+" menu, the File menu, the palette, `cmux action run` and
-/// the CLI verbs. Without arguments New Message, Invite and New Chief open
-/// their sheet on the Home page (the docked Home: a route of its page,
+/// the CLI verbs. Without arguments New Message opens the New Message page
+/// (a draft row and a To: field, as in Messages) and Invite and New Chief
+/// open their sheet on the Home page (the docked Home: a route of its page,
 /// AppActions+HomeDockRoutes); with arguments they run headless and the
 /// caller waits for the owner's answer (`ActionRegistry.track`).
 extension AppActions {
@@ -60,7 +61,7 @@ extension AppActions {
             registry.bind(id) {
                 let step: @MainActor (TopHomePageView) -> Void = { page in
                     guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
-                    page.show(next)
+                    page.open(next)
                 }
                 // The docked Home steps its Messages list; Channels has its own keys (j/k).
                 guard services.home.dock.isClassic else {
@@ -87,7 +88,7 @@ extension AppActions {
                 }
             }
             guard let page = homePage(services) else { return }
-            page.show(ConversationID(id))
+            page.open(ConversationID(id))
         })
     }
 

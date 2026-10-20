@@ -35,7 +35,10 @@
   /* Resolved where it is used: 100% is the pane's width there. */
   --cv-inset: max(var(--cv-edge), calc((100% - var(--cv-column)) / 2));
   --cv-font: system-ui;
-  --cv-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
+     --cv-mono in front of it. */
+  --cv-mono-default: var(--cmux-diff-code-font-family, ui-monospace, "SF Mono", Menlo, monospace);
+  --cv-mono: var(--cv-mono-default);
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
@@ -131,6 +134,21 @@
       transparent 0 50%
     )
     0 0 / 12px 12px;
+}
+.cv-user__image-placeholder {
+  display: block;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+  opacity: 0.55;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
@@ -782,9 +800,11 @@ pre.cv-math-source {
 /* ---------- Column ---------- */
 
 /* The transcript column; styles.css lines the composer and the cards above it up with it. The
-   bottom stack under it (bottomStack.css) changes the scroller's size, which keeps a followed view
-   at its end before the frame paints. */
+   bottom stack lies over the scroller's foot (bottomStack.css): VirtualTranscript keeps its height
+   as room under the last row, and keeps a followed view at its end before the frame paints as it
+   changes. Focus and Find scroll a row into view above it. */
 .acpmux-scroll {
+  scroll-padding-bottom: var(--acpmux-dock-space, 0px);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
@@ -1084,36 +1104,61 @@ pre.cv-math-source {
 .cv-worked__label {
   flex: none;
 }
-/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
-@keyframes cv-thinking-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
+/* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
+.cv-worked__doing {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__time {
+  flex: none;
+  margin-inline-start: 6px;
+}
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
+   in turn on a slow 2s cycle, centred on the 20px line. */
+.cv-working-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-inline-end: 6px;
+}
+.cv-working-mark > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-thinking {
-    color: transparent;
-    background: linear-gradient(
-        90deg,
-        var(--cv-text-muted) 40%,
-        var(--cv-text) 50%,
-        var(--cv-text-muted) 60%
-      )
-      0 0 / 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: cv-thinking-sweep 2s linear infinite;
+  .cv-working-mark > span {
+    animation: cv-working-dot 2s ease-in-out infinite;
+  }
+  .cv-working-mark > span:nth-child(2) {
+    animation-delay: 0.25s;
+  }
+  .cv-working-mark > span:nth-child(3) {
+    animation-delay: 0.5s;
   }
 }
-/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
-:root[data-status-indicators="static"] .cv-thinking {
+@keyframes cv-working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+/* "Thinking" stays still in the muted color; the working dots carry the motion. */
+.cv-thinking {
   color: var(--cv-text-muted);
-  background: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
+}
+/* Static status indicators (cx-sya4n), or Reduce Motion above: the dots hold at full strength. */
+:root[data-status-indicators="static"] .cv-working-mark > span {
   animation: none;
 }
 
@@ -1460,6 +1505,34 @@ pre.cv-math-source {
 .cv-tool-output-card .cv-tool-output {
   margin: 0;
 }
+/* An opened MCP call (McpCallRows.tsx): its request and response as tight blocks under small
+   heads, no wider than the output card and with less padding. */
+.cv-mcp-call {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 8px;
+}
+.cv-mcp-call__head {
+  margin: 0 0 2px 2px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+}
+.cv-mcp-call__body {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: var(--cv-text-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 17px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .cv-tool-output__copy {
   position: absolute;
   top: 4px;
@@ -1514,6 +1587,17 @@ pre.cv-math-source {
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
+}
+/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
+   the right, while allowing a left action rail for people who scan the footer from the transcript
+   edge. The action group leads the row when left, followed by the quiet time label. */
+:root[data-turn-actions-placement="left"] .cv-turn-actions {
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 2px;
+}
+:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
+  order: -1;
 }
 .cv-turn-action-group {
   display: inline-flex;
@@ -1797,6 +1881,13 @@ pre.cv-math-source {
   object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
+}
+/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
+ * opacity so the image cannot introduce a second layout shift during decode. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-img--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
 }
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {
@@ -2196,8 +2287,9 @@ pre.cv-math-source {
   border-radius: 0;
 }
 
-/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
-   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): the shared find pill (ui/findPill.css)
+   pinned to the transcript's top right, over the rows, where every pane's find pill sits
+   (FindPillMetrics.inset); the matches are custom highlights. */
 .acpmux-find {
   position: sticky;
   top: 0;
@@ -2206,80 +2298,8 @@ pre.cv-math-source {
 }
 .acpmux-find__bar {
   position: absolute;
-  top: 8px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 3px 0 9px;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 8px;
-  background: var(--acpmux-base, var(--agent-page-bg));
-  /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, var(--elevation-2));
-  font-family: var(--cv-font);
-  font-size: var(--text-body);
-}
-.acpmux-find__bar:focus-within {
-  border-color: var(--agent-accent);
-}
-.acpmux-find__field {
-  width: min(180px, 40vw);
-  height: 100%;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__field::placeholder {
-  color: var(--agent-muted);
-}
-.acpmux-find__field::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__count {
-  min-width: 0;
-  padding-right: 4px;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.acpmux-find__step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--agent-soft, var(--agent-muted));
-  cursor: default;
-}
-.acpmux-find__step:hover:not(:disabled) {
-  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
-}
-.acpmux-find__up {
-  transform: rotate(180deg);
-}
-/* No match for the query: the count reads as an answer, not as quiet detail. */
-.acpmux-find__count[data-empty] {
-  color: var(--agent-text);
-}
-.acpmux-find__step:disabled {
-  opacity: 0.4;
-}
-.acpmux-find__step:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
@@ -2297,7 +2317,8 @@ pre.cv-math-source {
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  /* Over the bottom stack, which lies over the stage's foot (App.tsx passes its height). */
+  bottom: calc(12px + var(--acpmux-dock-space, 0px));
   z-index: var(--layer-sticky);
   display: inline-grid;
   place-items: center;
@@ -2421,7 +2442,11 @@ pre.cv-math-source {
    has left the start, and out above the composer while more lies below, instead of a hard cut. A
    mask paints nothing, so rows dissolve into whatever is behind the pane (its background or the
    wallpaper) and nothing moves; at either end the edge is plain, so the first and last rows sit in
-   full ink. Reduce Transparency keeps plain edges. */
+   full ink. Reduce Transparency keeps plain edges.
+   Under the bottom stack (data-docked, --acpmux-dock-space) rows are out of sight: they never show
+   through the composer's tinted card or the gutters around it. The scrollbar is not: a second
+   layer keeps the scroller's right edge, where rows never reach (they sit --cv-inset in), so its
+   track runs to the pane's bottom corner (Leo 2026-10-19). */
 .acpmux-scroll[data-fade-top] {
   --acpmux-fade-top: 18px;
 }
@@ -2433,33 +2458,54 @@ pre.cv-math-source {
   --acpmux-fade-top: 0px;
 }
 .acpmux-scroll[data-fade-top],
-.acpmux-scroll[data-fade-bottom] {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--acpmux-fade-top, 0px),
-    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    #000 var(--acpmux-fade-top, 0px),
-    #000 calc(100% - var(--acpmux-fade-bottom, 0px)),
-    transparent
-  );
+.acpmux-scroll[data-fade-bottom],
+.acpmux-scroll[data-docked] {
+  --acpmux-view-foot: calc(100% - var(--acpmux-dock-space, 0px));
+  -webkit-mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-fade-top, 0px),
+      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+      transparent var(--acpmux-view-foot)
+    ),
+    linear-gradient(#000, #000);
+  mask-image:
+    linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--acpmux-fade-top, 0px),
+      #000 calc(var(--acpmux-view-foot) - var(--acpmux-fade-bottom, 0px)),
+      transparent var(--acpmux-view-foot)
+    ),
+    linear-gradient(#000, #000);
+  -webkit-mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%;
+  mask-size:
+    100% 100%,
+    var(--acpmux-scrollbar-lane, 16px) 100%;
+  -webkit-mask-position:
+    0 0,
+    100% 0;
+  mask-position:
+    0 0,
+    100% 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
+/* Plain edges: the rows under the bottom stack still stay out of sight, with a hard cut. */
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-scroll[data-fade-top],
   .acpmux-scroll[data-fade-bottom] {
-    -webkit-mask-image: none;
-    mask-image: none;
+    --acpmux-fade-top: 0px;
+    --acpmux-fade-bottom: 0px;
   }
 }
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-top],
 :root[data-reduce-transparency] .acpmux-scroll[data-fade-bottom] {
-  -webkit-mask-image: none;
-  mask-image: none;
+  --acpmux-fade-top: 0px;
+  --acpmux-fade-bottom: 0px;
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-jump-latest {
@@ -2474,15 +2520,16 @@ pre.cv-math-source {
   backdrop-filter: none;
 }
 
-/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+/* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
+   check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
 .cv-plan {
+  position: relative;
   margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
-}
-.cv-plan__heading {
-  height: 20px;
-  font-size: var(--text-caption);
-  color: var(--cv-text-muted);
 }
 .cv-plan__items {
   margin: 0;
@@ -2491,9 +2538,16 @@ pre.cv-math-source {
 }
 .cv-plan__item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  min-height: 22px;
+  min-height: 24px;
+  padding-block: 4px;
+  box-sizing: border-box;
+  line-height: 16px;
+}
+.cv-plan__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .cv-plan__mark {
   flex: 0 0 auto;
@@ -2503,10 +2557,12 @@ pre.cv-math-source {
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--cv-text-muted);
+  margin-top: 2px;
   border-radius: 50%;
   box-sizing: border-box;
 }
-/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+/* The progress and each item's state for screen readers only (the pane does not load ui.css's
+   .ui-sr-only). */
 .cv-plan__state {
   position: absolute;
   width: 1px;
@@ -2517,23 +2573,52 @@ pre.cv-math-source {
 }
 .cv-plan__item[data-status="completed"] {
   color: var(--cv-text-muted);
-  text-decoration: line-through;
 }
 .cv-plan__item[data-status="completed"] .cv-plan__mark {
   border-color: transparent;
   background: var(--cv-text-muted);
   color: var(--agent-accent-text, #fff);
 }
-.cv-plan__item[data-status="in_progress"] {
-  font-weight: 600;
+.cv-plan__item[data-status="pending"] .cv-plan__mark {
+  border-style: dashed;
 }
+/* A thin arc on a faint ring; it turns while the turn runs. */
 .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--agent-text);
+  border-color: var(--cv-card-ring);
+  border-top-color: var(--agent-text);
+}
+/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--cv-text-muted);
+}
+/* Static status indicators and Reduce Motion: the arc holds still. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"])
+    .cv-plan:not([data-ended])
+    .cv-plan__item[data-status="in_progress"]
+    .cv-plan__mark {
+    animation: cv-plan-spin 0.9s linear infinite;
+  }
+}
+@keyframes cv-plan-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
+}
+/* A click opens the task's terminal (processTerminal.ts): no hover fill (Leo 2026-10-13), only the
+   pointer and the keyboard focus ring. */
+.cv-bgtask {
+  cursor: pointer;
+}
+.cv-bgtask:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
@@ -2565,6 +2650,101 @@ pre.cv-math-source {
   color: var(--agent-text);
 }
 .cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
+/* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
+/* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
+.cv-agent-pair[data-state="paused"] {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-agent-pair[data-state="paused"] .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-agent-pair__text {
+  white-space: normal;
+}
+.cv-agent-pair__detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding-left: 22.5px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle:hover {
+  color: var(--agent-text);
+}
+.cv-agent-pair__toggle:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+/* The held previews, under the detail line: plain quoted text, one per line. */
+.cv-agent-pair__held {
+  margin: 2px 0 4px;
+  padding: 0 0 0 22.5px;
+  list-style: none;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__held li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--agent-border);
+  overflow-wrap: anywhere;
+}
+.cv-agent-pair__held li.cv-agent-pair__more {
+  border-left-color: transparent;
+}
+.cv-agent-pair__held li + li {
+  margin-top: 4px;
+}
+/* The live region (<output>, role status): the held and dropped counts and a failed Resume. A box
+   of its own, not display: contents, which drops the role in WebKit. */
+.cv-agent-pair__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-agent-pair__status:empty {
+  display: none;
+}
+.cv-agent-pair[data-state="resumed"] .cv-agent-pair__dropped {
+  flex: none;
+  margin-left: 8px;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__failed {
+  color: var(--agent-danger);
+}
+.cv-agent-pair__resume {
+  all: unset;
+  padding: 1px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--agent-text);
+}
+.cv-agent-pair__resume:hover:not(:disabled) {
+  background: var(--cv-card-fill);
+}
+.cv-agent-pair__resume:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.cv-agent-pair__resume:focus-visible {
   outline: 2px solid var(--agent-accent, currentColor);
   outline-offset: 1px;
 }

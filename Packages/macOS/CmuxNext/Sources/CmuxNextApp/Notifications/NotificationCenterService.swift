@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFloating
+import CmuxNextMobileHost
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -38,6 +39,9 @@ final class NotificationCenterService {
     /// (Mark Tab Unread) clears when it comes into view, not while it stays.
     @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
+    /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
+    /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
+    @ObservationIgnored var onPasskeyBanner: ((String) -> Void)?
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
     @ObservationIgnored private var lastKeystroke: [String: ContinuousClock.Instant] = [:]
@@ -105,6 +109,8 @@ final class NotificationCenterService {
         })
         tasks.append(followPermissionBridge(services, principal: principal))
         desktop.onOpen = { [weak self] id, surface in
+            if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
+            if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
@@ -247,7 +253,9 @@ final class NotificationCenterService {
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
-        services?.daemon.send("ack-tab-notifications") { connection in
+        // Read now (dots, badges, Cmd-Opt-U); the tree's echo settles it, a failed ack rolls it back.
+        tab.expectNotificationRead()
+        services?.daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) { connection in
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }

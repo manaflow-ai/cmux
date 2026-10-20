@@ -12,7 +12,10 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
+import { toolLabel } from "../toolPaths";
+import { isRunning } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -287,7 +290,7 @@ function shapeTurn(
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns)
       : last
-        ? turn
+        ? turn.map(endedPlan)
         : settledWithoutSummary(user, turn, expanded);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
@@ -322,9 +325,9 @@ function shapeTurn(
     if (open)
       shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
-  shaped.push(...groups, ...renderRows(body, version));
+  shaped.push(...groups.map(endedPlan), ...renderRows(body, version));
   if (answer) shaped.push(answer);
-  shaped.push(...rest, ...editsCard(edits));
+  shaped.push(...rest.map(endedPlan), ...editsCard(edits));
   const preview = turnPreviewUrl(user, turn);
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
@@ -338,7 +341,8 @@ function shapeTurn(
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
-  shaped.push(...turn.slice(end + 1));
+  // A turn the agent started on its own while still working keeps its plan live.
+  shaped.push(...turn.slice(end + 1).map(live ? (row) => row : endedPlan));
   return shaped;
 }
 
@@ -394,10 +398,19 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // A paused agent pair waits for the person's Resume.
+  row.kind === "agentPair" ||
   // Where the session started: what it runs on and how it compacts.
   row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
-  row.kind === "sessionOffer";
+  row.kind === "sessionOffer" ||
+  // What the person answered an agent's question, which shaped the rest of the turn.
+  row.kind === QUESTION_RECORD;
+
+/// A finished turn's todo list: a step the agent left in progress no longer spins. The version
+/// moves off the live one (v to 2v + 1), so the memoized row draws again when the turn ends.
+const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
+  row.kind === "plan" && row.plan ? { ...row, turnEnded: true, version: row.version * 2 + 1 } : row;
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
@@ -407,7 +420,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   const final = answerAt(rows);
   const before = final >= 0 ? rows.slice(0, final) : rows;
   const work = before.filter((row) => !staysOut(row));
-  if (work.length === 0) return rows;
+  if (work.length === 0) return rows.map(endedPlan);
   const id = `${WORKED}-${user.id}`;
   const open = expanded.has(id);
   const edits = work.filter(isEdit);
@@ -416,8 +429,8 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
-    ...before.filter(staysOut),
-    ...(final >= 0 ? rows.slice(final) : []),
+    ...before.filter(staysOut).map(endedPlan),
+    ...(final >= 0 ? rows.slice(final).map(endedPlan) : []),
     ...editsCard(edits),
   ];
 }
@@ -437,11 +450,28 @@ function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveR
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
+  else {
+    const doing = inFlightTitle(last);
+    if (doing) status.doing = doing;
+  }
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it.
   if (last.kind === "activity")
     return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
   return [status, ...rows];
+}
+
+/// The newest call still running in a live turn's latest row, by its title.
+function inFlightTitle(row: AcpmuxRow): string | undefined {
+  if (row.kind !== "activity") return undefined;
+  const items = row.items ?? [];
+  for (let index = items.length - 1; index >= 0; index--) {
+    const tool = items[index]?.tool;
+    // The row's own label, never the call's raw JSON input; a command reads as itself.
+    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
+  }
+  return undefined;
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text

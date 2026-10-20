@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
+import enum CmuxNextLayout.NewChatPlacement
 
 /// The tab key a split's page got from the store, for its Open Tabs moves.
 private final class SplitPageKey {
@@ -22,7 +23,12 @@ extension NewTabPage {
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
-    static func split(_ source: PaneController, edge: PaneEdge) {
+    /// `focusesPage` false (a tab dropped on its own pane's edge, #22287): the page neither takes the
+    /// keys nor focus; the dropped tab keeps them. `swapsBack`: once the page's pane is placed on `edge`,
+    /// the two panes swap, so the page ends across from `edge` (as Split Left splits right, then swaps).
+    /// Returns whether the page was started.
+    @discardableResult
+    static func split(_ source: PaneController, edge: PaneEdge, focusesPage: Bool = true, swapsBack: Bool = false) -> Bool {
         let services = source.services
         var page = Self.page(services, selected: source.selectedTab, pane: source)
         let cwd = page.cwd
@@ -31,7 +37,7 @@ extension NewTabPage {
         // Keys typed after the split wait for the new page's field, in order (cx-kql5h): the page
         // is made, moved to the new pane and shown before it can take them.
         let input = services.keyRouter.newTabInputCoordinator
-        let keys = input.beginIncoming(in: source.view.window)
+        let keys = focusesPage ? input.beginIncoming(in: source.view.window) : nil
         page.inputToken = keys
         if let keys { input.attachIncoming(keys) }
         // The page moves to the new pane: its choices act in the pane that shows it now.
@@ -49,17 +55,28 @@ extension NewTabPage {
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
-        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split) { [weak source] key in
+        // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
+        let layoutModel = source.workspace?.layoutModel
+        let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
+        let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
+                                                 focuses: focusesPage) { [weak source] key in
             opened.value = key
             guard let source else { return }
-            guard split != nil else { return Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
-            source.workspace?.layoutModel.applySplitSizing(sizing)
+            guard let split else { return Self.moveToSplit(key, from: source, edge: swapsBack ? edge.opposite : edge, keys: keys, focuses: focusesPage) }
+            if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
+            if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
+        } failed: {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
         }
-        if !started { input.endIncoming(keys, pageMade: false) }
+        if !started {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
+            input.endIncoming(keys, pageMade: false)
+        }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
+        return started
     }
 
     /// The workspace's tabs as the Open Tabs list shows them, but New Tab pages.
@@ -82,26 +99,27 @@ extension NewTabPage {
     }
 
     /// The pane showing tab `key` now.
-    private static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
+    /// The pane that shows page `key` now (it may have moved since it opened).
+    static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
         services.locateTab(key).flatMap { services.paneController(for: $0.1) }
     }
 
     /// Moves the hidden page `key` to a new pane on `edge` of its pane once the store lists it,
     /// then shows it there and focuses it. A failed move shows it where it is.
-    private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?) {
+    private static func moveToSplit(_ key: String, from source: PaneController, edge: PaneEdge, keys: String?, focuses: Bool) {
         let services = source.services
         services.registry.track(Task { @MainActor [weak source] in
             if services.locateTab(key) == nil {
                 for await located in ObservationStream({ services.locateTab(key) != nil }) where located { break }
             }
             guard case let (tab, pane)? = services.locateTab(key) else { return nil }
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services) { moved in
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: services, keepFocus: !focuses) { moved in
                 let input = services.keyRouter.newTabInputCoordinator
                 // A failed move leaves the page unselected in its pane: the held keys go on now.
                 guard let source else { return input.endIncoming(keys, pageMade: false) }
                 source.dockFinished(key)
                 guard moved, let content = source.workspace else { return input.endIncoming(keys, pageMade: false) }
-                NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services)
+                if focuses { NewChatPlacement.focusWhenShown(key, in: content, leaving: source.layoutPaneID, services: services) }
                 // The page shows in its new pane: a field that reported ready may take the keys now.
                 input.flushAll()
             }

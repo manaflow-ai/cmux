@@ -82,7 +82,7 @@ public struct SidebarMapping {
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
-                nodes.append(.group(SidebarGroup(
+                var made = SidebarGroup(
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     color: color(group.color) ?? .grey,
@@ -92,7 +92,10 @@ public struct SidebarMapping {
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
                     workspaces: rows
-                )))
+                )
+                made.parent = group.parent.map { GroupID($0.rawValue) }
+                made.depth = group.depth
+                nodes.append(.group(made))
             } else {
                 nodes += rows.map(SidebarNode.workspace)
             }
@@ -173,9 +176,20 @@ public struct SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// A daemon checklist item as the sidebar draws it.
+    static func checklistItem(_ item: WorkspaceChecklistItem) -> SidebarChecklistItem {
+        let state: SidebarChecklistItem.State = switch item.state {
+        case .todo: .todo
+        case .inProgress: .inProgress
+        case .done: .done
+        }
+        return SidebarChecklistItem(id: item.id, text: item.text, state: state, attachmentCount: item.attachments.count)
     }
 
     /// The tab the row stands for: the selected tab of the workspace's most
@@ -340,7 +354,7 @@ public struct SidebarMapping {
     /// repeats the folder.
     func process(_ tab: TabModel?) -> String? {
         guard let tab, tab.kind == .pty, tab.agent == nil else { return nil }
-        let title = tab.title.trimmingCharacters(in: .whitespaces)
+        let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return nil }
         if let cwd = tab.cwd, title == cwd || title == abbreviate(cwd) { return nil }
         return title
