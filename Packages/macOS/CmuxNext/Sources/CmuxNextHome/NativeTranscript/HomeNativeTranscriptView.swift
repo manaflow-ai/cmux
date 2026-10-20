@@ -114,6 +114,8 @@ public final class HomeNativeTranscriptView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
+        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
+        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.

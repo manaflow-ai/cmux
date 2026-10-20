@@ -34,5 +34,16 @@ public nonisolated struct HomeTunables {
         help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
         default: true, code: "HomeTunables.firstRunHero")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor] }
+    /// An agent's pipe tables in the transcript (MessagesLabHome `HomeTableRowProvider`): a card at
+    /// the chat's full width with real column widths, and an assignment table (an owner column of
+    /// subagent ids) as the Chief's plan card. On by default (Leo 2026-10-20); off keeps the table as
+    /// Markdown text in the bubble. Conversations opened after a change follow it.
+    public static let richTables = Tunable<Bool>.toggle(
+        "home.richTables", section, "Rich tables and plan cards",
+        help: "Tables in the Chief's replies break out of the bubble as full-width cards, and assignment tables (who does what) show as a plan card with owner chips, live states and pull requests. Off keeps tables as text in the bubble.",
+        default: true, code: "HomeTunables.richTables")
+
+    public static var all: [TunableDescriptor] {
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, richTables.descriptor]
+    }
 }
