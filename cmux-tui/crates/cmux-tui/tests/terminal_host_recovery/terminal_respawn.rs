@@ -356,6 +356,73 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
 }
 
+/// c1. A non-interactive agent run (`claude -p`) that reported a session
+/// leaves nothing to resume: its respawned terminal offers no agent command.
+#[cfg(unix)]
+#[test]
+fn a_respawned_terminal_does_not_resume_a_non_interactive_agent_run() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("respawn-print");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "print");
+    let public_id = tab_named(&harness, "print")["terminal_resource_id"]
+        .as_str()
+        .expect("tab has no public terminal id")
+        .to_string();
+    // A `claude` that reports its session start and a prompt as the real
+    // hooks do, then keeps running in the foreground.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let claude = dir.path().join("claude");
+    let hook = |event: &str, payload: &str| {
+        format!(
+            "printf '%s\\n' '{payload}' | CMUX_TUI_SOCKET='{}' CMUX_TUI_TERMINAL_ID='{}' '{}' \
+             __agent-hook claude {event}\n",
+            harness.socket.display(),
+            public_id,
+            bin()
+        )
+    };
+    fs::write(
+        &claude,
+        format!(
+            "#!/bin/sh\n{}{}echo print-run-started\nsleep 600\n",
+            hook("SessionStart", r#"{"session_id":"abc-123"}"#),
+            hook("UserPromptSubmit", r#"{"session_id":"abc-123","prompt":"hi"}"#),
+        ),
+    )
+    .expect("write the claude stand-in");
+    fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).expect("chmod");
+    send_line(&harness.socket, surface, &format!("'{}' -p hi", claude.display()));
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while !screen(&harness, surface).contains("print-run-started") {
+        assert!(Instant::now() < deadline, "the run never started: {}", screen(&harness, surface));
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // Both hooks reached the terminal before its host dies.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let agents = request(&harness.socket, serde_json::json!({"cmd":"list-agents"}));
+        let claimed =
+            agents["agents"].as_array().into_iter().flatten().any(|agent| {
+                agent["surface"].as_u64() == Some(surface) && agent["agent"] == "claude"
+            });
+        if claimed {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the hooks never reached the terminal: {agents}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    kill_current_shell_and_host(&harness, &terminal_id);
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("none".into()));
+    let surface = tab_named(&harness, "print")["surface"].as_u64().expect("surface");
+    std::thread::sleep(Duration::from_secs(1));
+    let text = screen(&harness, surface);
+    assert!(!text.split_whitespace().collect::<String>().contains("--resume"), "{text}");
+}
+
 /// c2. A command tab respawned by a later daemon (the daemon was killed,
 /// then the host died) offers its command line on the new prompt, typed,
 /// never run. A command with an argument that looks like a credential is

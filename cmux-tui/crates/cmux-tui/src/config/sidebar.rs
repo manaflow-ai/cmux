@@ -38,6 +38,9 @@ pub struct Sidebar {
 #[derive(Debug, Clone, Default)]
 pub struct Agents {
     pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
+    /// `agents.resume`: a terminal respawned after its host died runs its
+    /// agent's resume (`"run"`) or only types it (false, the default).
+    pub resume_runs: bool,
 }
 
 impl Default for Sidebar {
