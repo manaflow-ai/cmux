@@ -130,3 +130,23 @@ right pane, `design/files-finder-parity/`), one row per view, before/after.
 - Gallery view, toolbar, tags, preview pane (S2-S4).
 - Content search on a269's index (waits for its daemon `search` op).
 - Visual parity is a gallery comparison, not a pixel diff.
+
+## 7. Bench results (fleet, 2026-10-20)
+
+`FolderNameIndexSpeedTests` on aws-m4pro (shard s3/6 of run ffp6-green-4a939a7143), 100 100
+items (100 folders x 1 000 files plus folders), median of 25 searches:
+
+| operation | cmux | Finder / Spotlight |
+|---|---|---|
+| index build (one walk, 100k) | 457 ms | Spotlight: background, minutes; none outside indexed volumes |
+| name search, rare (`quasar`, 11 hits) | 0.96 ms | not measured yet (see below) |
+| name search, common (`screenshot`, 200 shown) | 4.3 ms | not measured yet |
+| name search, common (`report`, 200 shown) | 4.0 ms | not measured yet |
+| folder open 10k / 100k (`DirectoryLister`, PARITY.md) | 25-44 / 324-461 ms | Finder `count items` 353-865 / 816-8 019 ms |
+
+Not measured yet: the Finder/Spotlight side of search. `scripts/measure/files-finder-bench.sh`
+(Finder Apple Events and `mdfind -onlyin -name` on the same corpus) is written, but the fleet
+controller runs only reviewed `scripts/measure` scripts (cmuxterm-hq
+build-fleet/cmd/controller/ci_step.go `measureScripts`); it must be added there after this lands.
+Folder open is ~2-18x Finder today, not 100x: the listing is already one `getattrlistbulk` pass,
+so 100x on open needs first rows painted before the full listing (streamed listing), the next slice.
