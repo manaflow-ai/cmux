@@ -38,7 +38,8 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN"
+              "tabs.swapCmdTAndCmdN",
+              "tabs.newTabNowPlaying"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -138,7 +139,7 @@
               "markdown.font.preset",
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
+              "markdown.code.scale",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -639,7 +640,7 @@
               "markdown.font.preset",
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
+              "markdown.code.scale",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -14428,9 +14429,9 @@
     },
     {
       "accepts" : [
-        40,
-        160,
-        100
+        30,
+        1000,
+        515
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -14445,7 +14446,7 @@
       },
       "help" : {
         "key" : "settings.markdown.width.help",
-        "text" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+        "text" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.layout.width",
@@ -14457,7 +14458,10 @@
         "max width",
         "column",
         "measure",
-        "line length"
+        "line length",
+        "wide",
+        "ultrawide",
+        "monitor"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -14467,15 +14471,15 @@
         "width"
       ],
       "range" : {
-        "max" : 160,
-        "min" : 40,
+        "max" : 1000,
+        "min" : 30,
         "placeholder" : 72,
-        "step" : 2,
+        "step" : 1,
         "unit" : "count"
       },
       "refuses" : [
-        -80,
-        280,
+        -940,
+        1970,
         "1"
       ],
       "section" : "appearance",
@@ -14784,6 +14788,66 @@
     },
     {
       "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.875,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeScale.help",
+        "text" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.scale",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         8,
         32,
         20
@@ -14793,7 +14857,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 14,
+      "default" : null,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.markdownViewer",
@@ -14812,7 +14876,7 @@
         "monospace"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "markdown",
         "code",
@@ -14833,8 +14897,8 @@
       "section" : "appearance",
       "summary" : null,
       "title" : {
-        "key" : "settings.markdown.codeSize",
-        "text" : "Code Font Size"
+        "key" : "settings.markdown.codeBlockSize",
+        "text" : "Code Block Size"
       },
       "validation" : "portable"
     },
@@ -19373,7 +19437,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+        "text" : "A player for what is playing, at the bottom of the sidebar."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -19403,6 +19467,57 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabNowPlaying.help",
+        "text" : "A player for what is playing, on the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabNowPlaying",
+      "keywords" : [
+        "music",
+        "now playing",
+        "player",
+        "media",
+        "spotify",
+        "song",
+        "new tab",
+        "new chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabNowPlaying"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabNowPlaying",
+        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -29318,7 +29433,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fee1aece774f1965b7810bda14e49892b4c5ef264db779369fe79bbad89fdfd8",
+  "schema_hash" : "b59619cb9fe12ed9c6c51755fae10840936a0b9f2784a55be8e57e99a01eff48",
   "sections" : [
     {
       "id" : "general",
