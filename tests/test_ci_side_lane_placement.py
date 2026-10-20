@@ -38,6 +38,9 @@ def on(name: str, label: str) -> str:
     """The label a job takes where the compile jobs take an owned side or std label."""
     return GUI if name in GUI_JOBS and label in (SIDE, STD) else label
 JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "generated-files", "swift-canary")
+# The fast tier reads the placement runner too, but runs only on feat-cmux-next PRs and pushes
+# and has its own fast-lane route, so the side-lane runs-on cases below cover JOBS only.
+PLACED_JOBS = (*JOBS, "fast-tier")
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -236,6 +239,8 @@ class CmuxNextWiring(unittest.TestCase):
                                                             "swift": "true", "swift_canary": "true", "daemon": "true", "generated": "true",
                                                             "tree_state": "ready"}},
                             "push-head-preflight": {"outputs": {"current": "true"}},
+                            # The GUI jobs wait for the shared web bundles (#21189).
+                            "web-bundles": {"result": "success"},
                             self.PLACEMENT: {"outputs": outputs}}
         return context
 
@@ -245,7 +250,7 @@ class CmuxNextWiring(unittest.TestCase):
         place = next(step for step in placement_job["steps"] if step.get("id") == "place")
         self.assertIn("python3 scripts/ci/side_lane_placement.py", place["run"])
         placed = tuple(place["env"]["JOBS"].split())
-        self.assertEqual(set(placed), set(JOBS))
+        self.assertEqual(set(placed), set(PLACED_JOBS))
         for name in placed:
             job = jobs[name]
             with self.subTest(job=name):
@@ -254,6 +259,10 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertIn("!cancelled() && ", job["if"])
                 self.assertIn("needs.macos-placement.outputs." + ("gui_runner" if name in GUI_JOBS else "runner"),
                               job["runs-on"])
+                if name not in JOBS:
+                    # The fast tier picks its mini-only steps by runner.name and keeps no label copy.
+                    self.assertNotIn("CMUX_NEXT_RUNNER", job.get("env", {}))
+                    continue
                 # The job's own copy of its label (mini-only steps) agrees with runs-on.
                 self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], job["runs-on"])
 
