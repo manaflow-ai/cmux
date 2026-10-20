@@ -4,8 +4,9 @@
 //    sidebar card (Leo 2026-10-13), a quiet eyebrow with the short version ("Updated to nightly
 //    3845050"), the update's top changes listed one line each (u2441, gallery #01 "Compact list",
 //    2026-10-19; else "What's new in this build"), the count of the changes not listed and one
-//    button on one row. The x shows only on hover or keyboard focus. Share cmux is the palette's
-//    (app.shareCmux).
+//    button on one row. The x shows only on hover or keyboard focus. A change title has no
+//    tooltip, even cut off (Leo 2026-10-19: no hover preview on change titles). Share cmux is the
+//    palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
 //    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
@@ -55,9 +56,7 @@ export function UpdatedCard({
       {data.items.length > 0 ? (
         <ul className="wn-card-changes">
           {data.items.map((item) => (
-            <li key={item.id} title={item.title}>
-              {item.title}
-            </li>
+            <li key={item.id}>{item.title}</li>
           ))}
         </ul>
       ) : (
