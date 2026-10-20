@@ -83,8 +83,9 @@ export class VmApiCloudNetwork {
       if (response.status !== 200) { await response.body?.cancel(); throw unavailable(`member HTTP ${response.status}`) }
       const body = await networkBody(response)
       if (!body || body.meshId !== target.mesh || body.vmId !== vm || (body.ipv4 !== null && !addressInMesh(body.ipv4, target.ipv4_cidr))) throw unavailable("unconfirmed member answer")
+      if (!await valid()) throw unavailable("the member owner route changed", true)
       const live = this.pin.read()
-      if (!await valid() || !live || !same(live, pinned)) throw unavailable("the member owner route changed", true)
+      if (!live || !same(live, pinned)) throw unavailable("the member owner route changed", true)
       return { tenant: target.tenant, mesh: target.mesh, ipv4_cidr: target.ipv4_cidr, ipv4: body.ipv4 as string | null }
     } catch (error) { if (error instanceof DriverError) throw error; throw unavailable("no readable member answer") }
   }

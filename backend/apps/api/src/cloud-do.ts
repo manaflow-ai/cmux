@@ -196,7 +196,7 @@ export class CloudDO extends CloudIdle {
     async (row) => {
       const driver = await this.driverFor(row)
       if (!driver || !row.network) throw new Error("network unavailable")
-      return driver.networkOf(row.provider_name, { team: this.boundEntity()!, machine: row.id }, row.network)
+      return driver.networkOf(row.provider_name, { team: row.team, machine: row.id }, row.network)
     },
     (row, binding, network) => statusApplied(this.submitSystem("cloud.machine.network_observed", { machine: row.id, binding, network }, `network:${crypto.randomUUID()}`).frames)
   )
