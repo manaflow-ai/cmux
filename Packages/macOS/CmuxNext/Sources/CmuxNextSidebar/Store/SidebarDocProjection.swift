@@ -39,9 +39,6 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         /// Group levels above it: 0 at the top level.
         public var depth = 0
 
-        /// It sits in Pinned (a pinned group).
-        public var isPinned: Bool { section == SidebarDocStore.pinnedSection }
-
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
             public var item: SidebarListItem

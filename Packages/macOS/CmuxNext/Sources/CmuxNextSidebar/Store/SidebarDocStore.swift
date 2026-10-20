@@ -191,7 +191,7 @@ public final class SidebarDocStore {
     public func showsPinned(group item: String) -> Bool? {
         guard isActive, shown != nil else { return nil }
         let projection = projection(live: projectionCache?.live ?? Array(lastLive))
-        return projection.map { $0.bandGroups.contains { $0.id == item && $0.isPinned } } ?? records.isPinned(group: item)
+        return projection.map { $0.bandGroups.contains { $0.id == item && $0.pinned } } ?? records.isPinned(group: item)
     }
 
     /// What a drop of `items` may do beside each row (one FFI call per drag).

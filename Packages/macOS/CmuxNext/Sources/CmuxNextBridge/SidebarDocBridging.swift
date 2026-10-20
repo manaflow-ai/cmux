@@ -157,7 +157,7 @@ public final class SidebarDocSections {
     private func model(_ group: SidebarDocProjection.Group) -> WorkspaceGroupModel {
         let snapshot = WorkspaceGroupSnapshot(id: WorkspaceGroupID(rawValue: group.id), name: group.name, color: group.color,
                                               collapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
-                                              icon: group.icon, pinned: group.isPinned,
+                                              icon: group.icon, pinned: group.pinned,
                                               parent: group.parent.map(WorkspaceGroupID.init(rawValue:)), depth: group.depth)
         if let model = groups[group.id] {
             model.apply(document: snapshot)

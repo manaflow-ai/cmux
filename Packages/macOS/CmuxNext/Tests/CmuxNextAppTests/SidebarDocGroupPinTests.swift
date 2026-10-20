@@ -42,11 +42,5 @@ import Testing
         #expect(records.isPinned(group: "grp_new"))
         #expect(!records.isPinned(group: "itm_g_old"))
         #expect(!records.isPinned(group: "missing"))
-        let pinned = SidebarDocProjection.Group(id: "grp_new", name: "g", color: nil, icon: nil, collapsed: false, members: [],
-                                                section: SidebarDocStore.pinnedSection)
-        #expect(pinned.isPinned, "the sidebar maps a group in Pinned as unpinned")
-        var loose = pinned
-        loose.section = Self.machineSection
-        #expect(!loose.isPinned)
     }
 }

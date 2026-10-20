@@ -38,10 +38,14 @@ extension PinCommands {
                 // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
                 return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
             }
-            // A workspace the document does not place yet (a new one) is not pinned. The sidebar adopts and
-            // pins it in one change; before its adopt ref is known (no resource id yet), the daemon's pin flag
-            // is set instead, and the daemon adopts it into Pinned (`sidebar_doc_sync`). Never a silent no-op.
-            guard pinned else { return }
+            // A workspace the document does not place yet (a new one) is not pinned in it. The sidebar adopts
+            // and pins it in one change; before its adopt ref is known (no resource id yet), the daemon's pin flag
+            // is set instead, and the daemon adopts it into Pinned (`sidebar_doc_sync`). Unpin before that clears
+            // the flag. Never a silent no-op.
+            guard pinned else {
+                guard context.services.machines.workspace(id: id)?.0.pinned == true else { return }
+                return try setLegacyPinned(id, pinned: false, throughSidebar: false)
+            }
             let drag = SidebarDocWiring.docMachines(context.services.machines).drag()
             if let sidebar = context.activeWindow?.sidebar, drag?.adoptRef(SidebarWorkspaceID(id)) != nil {
                 return sidebar.handle(.setPinned([SidebarWorkspaceID(id)], true))
