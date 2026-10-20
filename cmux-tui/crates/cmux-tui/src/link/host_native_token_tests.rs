@@ -29,6 +29,7 @@ pub(super) fn owned_receiver(lease_ms: u64) -> cmux_link::native_token::NativeTo
             host: f["claims"]["aud"].as_str().unwrap().into(),
             epoch: 4,
             team: f["claims"]["team"].as_str().unwrap().into(),
+            authority_version: "c".repeat(64),
             checked_at_ms: now.unix_ms,
             expires_at_ms: now.unix_ms + lease_ms,
             request_started: now.monotonic,

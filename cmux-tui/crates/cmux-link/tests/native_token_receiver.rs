@@ -57,6 +57,7 @@ fn policy(
         host: f["claims"]["aud"].as_str().unwrap().into(),
         epoch: 4,
         team: f["claims"]["team"].as_str().unwrap().into(),
+        authority_version: "c".repeat(64),
         checked_at_ms: time.unix_ms,
         expires_at_ms: time.unix_ms + 30_000,
         request_started: time.monotonic,

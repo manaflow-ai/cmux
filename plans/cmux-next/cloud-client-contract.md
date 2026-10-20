@@ -192,7 +192,9 @@ standard mutation and Worker gate codes.
 
 For VM API machines, the fresh `native_proof` also binds the credential to the original client grant incarnation. The signed JWT adds `network {version: 1, tenant, mesh, device, host, user, wg_public_key, authority_version, acl_version}`. `host` names the calling client; the JWT's `aud` still names the destination Cloud host. `authority_version` is the same opaque value the current receiving peer view exposes, including the host, membership, policy and install/grant incarnation. No raw grant or internal authority stamp is included. Native token expiry is capped by the original grant and install-token expiry; services and the original incarnation are checked again after signing.
 
-A Native receiver must supply its configured issuer, current host/epoch/team, requested service and authenticated WireGuard peer mapping, and match the complete versioned binding before spending the one-use token. An unbound token cannot authorize a Native receiving path. A policy or grant change must invalidate both new admission and existing streams through the receiving owner's live policy driver. That driver, the CloudDO host projection and the owned listener remain follow-ups; this token contract activates no serving role.
+A Native receiver must supply its configured issuer, current host/epoch/team, requested service and authenticated WireGuard peer mapping, and match the complete versioned binding before spending the one-use token. An unbound token cannot authorize a Native receiving path. Verified streams retain leases bound to the current receiving generation, complete peer authority, service and signing key. Policy invalidation or key removal retires both admission and existing SSH/daemon streams; expiry uses a one-shot monotonic deadline measured from the policy request start. A fresh check of unchanged authority may renew a stream before expiry; an ended lease cannot be revived. Replay history survives policy/key replacement and revocation.
+
+The CloudDO projection and original-credential VM agent read are implemented. The owned listener, protected key bootstrap and live policy-driver composition remain follow-ups; these contracts activate no serving role.
 
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
@@ -483,6 +485,7 @@ names that install), may call these; a VM install has no team read, no execute a
 cannot subscribe to the team's cloud stream. No idempotency key (fresh facts, never replayed).
 
 - `cloud.vm.self.get {machine}` (read): the machine's public view.
+- `cloud.vm.network_policy {machine}` (read): public receiving authority for the original bound VM, joined to current client identities, grants and directed SSH/daemon services. The generated Cloud operation catalog owns the response type. The lease is at most 30 seconds; consumers debit the full request time and refuse expired or changed authority. The agent uses its original protected install/WireGuard identity and returns only public policy, keys and issuer timing through its existing socket. No private keys, bearer or raw grant leaves that owner; this read adds no team-stream scope or serving grant.
 - `cloud.vm.status.report {machine, state: running|degraded|stopping, daemon {version, capabilities},
   health?, activity {last_user_input_at?, last_agent_action_at?, active_sessions}}`: answers
   `{applied}`; at most one applied per 10 s per machine, a newer report in the window replaces the

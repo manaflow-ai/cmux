@@ -21,6 +21,9 @@ impl TokenVerifier for GoodToken {
         Ok(VerifiedToken {
             peer: LinkPeer { install: "inst_mac".into(), user: "42".into(), team: "team_a".into() },
             issued_at_ms: 1_700_000_000_000,
+            lease: Some(cmux_link::stream_lease::StreamLease::fixed_until(
+                std::time::Instant::now() + std::time::Duration::from_secs(30),
+            )),
         })
     }
 }

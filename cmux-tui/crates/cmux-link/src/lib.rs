@@ -39,6 +39,7 @@ pub mod owner_session;
 pub mod pairing;
 pub mod registration;
 pub mod stamp;
+pub mod stream_lease;
 pub mod token;
 
 /// The overlay TCP port of the link service (transport.md 3.1).
