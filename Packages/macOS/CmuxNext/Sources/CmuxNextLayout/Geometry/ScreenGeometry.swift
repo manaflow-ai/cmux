@@ -85,8 +85,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
             }
             let gap = style.stripGap
             let parts = DockStripGeometry.docks(all)
-            func minimum(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).width }
-            func minimumHeight(_ column: LayoutColumn) -> CGFloat { SplitGeometry.minimumSize(of: column.root, style: style).height }
+            func minimum(_ column: LayoutColumn) -> CGFloat { column.minimumSize(style: style).width }
+            func minimumHeight(_ column: LayoutColumn) -> CGFloat { column.minimumSize(style: style).height }
             let placement = DockStripGeometry.place(
                 left: parts.left.map { ($0, minimum($0)) }, right: parts.right.map { ($0, minimum($0)) },
                 top: parts.top.map { ($0, minimumHeight($0)) }, bottom: parts.bottom.map { ($0, minimumHeight($0)) },

@@ -36,6 +36,8 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
+    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    let scrollFocusSignals: ScrollFocusSignals
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -79,9 +81,13 @@ public final class LayoutRootView: NSView {
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
+    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
-                scrollbarClock: any Clock<Duration> = ContinuousClock()) {
+                scrollbarClock: any Clock<Duration> = ContinuousClock(),
+                scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals()) {
         self.model = model
+        self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock)
         super.init(frame: .zero)
         wantsLayer = true
@@ -99,6 +105,9 @@ public final class LayoutRootView: NSView {
         registerForDraggedTypes([LayoutTabDrag.pasteboardType])
         sync(snapshot())
         observe()
+        #if DEBUG
+        ScreenContentView.registerMotionSampler()
+        #endif
     }
 
     @available(*, unavailable)
@@ -322,7 +331,6 @@ public final class LayoutRootView: NSView {
     // MARK: Frames
 
     func advanceFrame(_ dt: Double) -> Bool {
-        model.flushPendingGestureIntents()
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.policy
         var moving = false
@@ -337,9 +345,9 @@ public final class LayoutRootView: NSView {
         if highlight.step(dt) { moving = true }
         updateVisibility()
         flushOverlaySync()
-        // A gesture requests frames on each pointer change (pending intents);
-        // an active gesture with a still pointer needs none.
-        return moving || model.hasPendingGestureIntents
+        // A gesture requests frames on each pointer change; an active
+        // gesture with a still pointer needs none.
+        return moving
     }
 
     func updateVisibility() {

@@ -28,9 +28,7 @@ spawn(tasks) starts subagents that work in parallel and report back later as wor
 it needs. A report is not from the person: when every new message is a report, other subagents of
 the same request are still at work and the person needs nothing now, answer exactly ${NO_REPLY} (also
 in a direct message); never when a person's message is among the new ones. When
-the last report is in, answer the person with the combined result. Check a report before you rely on it.
-
-Summaries keep little of tool output, so say in your reply what you learned that will matter later.`
+the last report is in, answer the person with the combined result. Check a report before you rely on it.`
 
 export const VIEW_DOC = `The view: the whole chat between ${AGENT} and the user, oldest first, inside
 <chat> tags, as one-line summaries. Each line is
@@ -46,8 +44,8 @@ cover one message each; the older the messages, the more a line covers.
 A message not summarized yet shows as "(not summarized yet: zoom it)".
 Inside <chat>, no message appears in full, not even the last ones.
 
-After </chat> come the messages since the view was made, oldest first, one
-line each in the form id+1|kind: text (each in full, up to 30,000
+After </chat> come the messages the view does not show yet, oldest first,
+one line each in the form id+1|kind: text (each in full, up to 30,000
 characters). A line after </chat> that names an earlier message replaces
 what that message says. Its forms: id+1|edit of <target>: <new text>,
 id+1|retracted <target>, id+1|deleted <target>. The target is a message id:
@@ -56,10 +54,15 @@ one changed; zoom(target, 1) opens the message itself. The newest user lines
 are the messages you answer now.
 
 Navigating: zoom(id, n) opens line id+n into the two lines of n/2
-messages it was made from; zoom(id, 1) gives message id in full. Zoom
-whenever a summary only mentions something you need, such as what your
-last reply said, a decision, a past attempt or where a file is, before
-you act, guess or ask. date(id) gives the date and time of message id.`
+messages it was made from; zoom(id, 1) gives message id in full. date(id)
+gives the date and time of message id.
+
+The view is your memory, and its latest word on a thing is the truth. Whenever
+you need any information, first find its latest mention in the view and zoom
+until you have it whole, before any other source, and before you act, guess or
+ask. Never grep or search memories manually; zoom is your only
+allowed mechanism to navigate the tree. Summaries keep little of tool output, so
+say in your reply what you learned that will matter later.`
 
 export const ZOOM_DESCRIPTION = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole."
 export const DATE_DESCRIPTION = "The date and time of message id."

@@ -49,7 +49,7 @@ fn tools() -> Value {
 
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    serve(SERVER_NAME, SESSION_ENV, tools(), |daemon, session, params| async move {
+    serve(SERVER_NAME, SESSION_ENV, tools(), None, |daemon, session, params| async move {
         call(&daemon, &session, &params).await
     })
     .await
@@ -57,11 +57,13 @@ pub async fn run() -> Result<()> {
 
 /// An MCP stdio server for one agent session (the one in `session_env`):
 /// `tools/call` is `call(daemon, session, params)` on a new daemon
-/// connection. `offer_mcp.rs` serves its tool with it too.
+/// connection, and `instructions` the MCP `instructions` it gives at
+/// `initialize`. `offer_mcp.rs` and `subsession_mcp.rs` serve theirs with it too.
 pub(crate) async fn serve<F, Fut>(
     name: &'static str,
     session_env: &str,
     tools: Value,
+    instructions: Option<String>,
     call: F,
 ) -> Result<()>
 where
@@ -86,11 +88,17 @@ where
         let Some(id) = message.get("id").cloned() else { continue }; // a notification
         let verb = message["method"].as_str().unwrap_or_default().to_owned();
         let reply = match verb.as_str() {
-            "initialize" => json!({
-                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
-            }),
+            "initialize" => {
+                let mut reply = json!({
+                    "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
+                });
+                if let Some(text) = &instructions {
+                    reply["instructions"] = json!(text);
+                }
+                reply
+            }
             "ping" => json!({}),
             "tools/list" => json!({"tools": tools}),
             "tools/call" => {

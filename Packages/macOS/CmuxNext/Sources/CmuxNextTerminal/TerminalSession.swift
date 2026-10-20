@@ -42,6 +42,24 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
+    /// The grid a new terminal in this terminal's pane would fit: this view's
+    /// fitted grid while it is in a window at the configured font size. Nil
+    /// before its first layout, out of a window, or with its font zoomed (a
+    /// new terminal starts at the configured size).
+    public var gridForNewTerminal: TerminalGridSize? {
+        guard surfaceView.window != nil, TerminalFontScale(surfaceView).current == nil else { return nil }
+        return surfaceView.fittedGrid
+    }
+
+    /// Ghostty's cell size in backing pixels at the configured font size, for
+    /// working out a new terminal's grid (``TerminalGridEstimate``). Nil while
+    /// unknown or with this terminal's font zoomed.
+    public var configuredCellPixelSize: CGSize? {
+        let cell = model.cellPixelSize
+        guard cell.width > 0, cell.height > 0, TerminalFontScale(surfaceView).current == nil else { return nil }
+        return cell
+    }
+
     /// Why a dead terminal's host was lost (nil: its process ended, or it runs).
     public var hostLoss: TerminalHostLoss? {
         didSet { if hostLoss != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
@@ -145,6 +163,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .takeOverSize(let setLatest):
+                    await io.takeOverSize(setLatest: setLatest)
                 case .reconnect:
                     await io.reconnectRequested()
                 case .resync:
@@ -308,7 +328,17 @@ public final class TerminalSession {
             model.hasExited = status == .exited
             surfaceView.updateReflowPreview()
             view.showStatus(status)
+            // A disconnected or exited view no longer knows who sets the grid.
+            if status != .connected { view.showSizedFor(nil) }
+        case .sizedFor(let sizedFor):
+            view.showSizedFor(model.connection == .connected ? sizedFor : nil)
         }
+    }
+
+    /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
+    /// policy that picks by size the terminal becomes last active first.
+    func takeOverSize(setLatest: Bool) {
+        input.takeOverSize(setLatest: setLatest)
     }
 
     /// A click in the surface: a disconnected terminal re-attaches.

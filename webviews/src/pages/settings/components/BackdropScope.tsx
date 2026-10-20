@@ -1,7 +1,7 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
 import { useEffect, useRef, useState } from "react";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
@@ -180,7 +180,7 @@ const CLEAR_GLASS = "glass-clear";
  */
 export function WindowGlass() {
   const store = useStore();
-  const material = useSettingsState().rows.get(BLUR_KEY);
+  const material = useSettingsSelector((state) => state.rows.get(BLUR_KEY));
   if (!material) return null;
   const on = material.value === CLEAR_GLASS;
   return (
