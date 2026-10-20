@@ -39,8 +39,21 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
     assert_success(&typed);
     let hint = stderr(&typed);
     assert!(
-        hint.contains(&format!("cmux {socket} agent message {agent_terminal} 'it'\"'\"'s done'")),
+        hint.contains(&format!(
+            "cmux {socket} agent message {agent_terminal} -- 'it'\"'\"'s done'"
+        )),
         "typing into an agent names the agent message command: {hint}"
+    );
+
+    // Text that starts with a dash stays the message: the hint ends flags
+    // with `--`, so `agent message` reads neither `-n hello` as a flag nor
+    // `-` as "read stdin".
+    let dashed = cli(&server, &["terminal", &agent_terminal, "write", "--text", "-n hello"]);
+    assert_success(&dashed);
+    let hint = stderr(&dashed);
+    assert!(
+        hint.contains(&format!("agent message {agent_terminal} -- '-n hello'")),
+        "dash-leading text follows --: {hint}"
     );
 
     // Keys (enter, ctrl+c) submit or interrupt the agent; they are not a
@@ -54,7 +67,7 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
         cli(&server, &["terminal", &agent_terminal, "write", "--text", "go\r\u{1b}]0;x\u{7}"]);
     assert_success(&submit);
     let hint = stderr(&submit);
-    assert!(hint.contains(&format!("agent message {agent_terminal} '…'")), "{hint}");
+    assert!(hint.contains(&format!("agent message {agent_terminal} -- '…'")), "{hint}");
     assert!(!hint.contains('\u{1b}') && !hint.contains('\r'), "raw control characters: {hint:?}");
 
     // The suggested command keeps the caller's route.
@@ -65,7 +78,7 @@ fn terminal_input_into_an_agent_suggests_agent_message() {
     assert_success(&routed);
     assert!(
         stderr(&routed).contains(&format!(
-            "cmux --machine current {socket} agent message {agent_terminal} 'hi'"
+            "cmux --machine current {socket} agent message {agent_terminal} -- 'hi'"
         )),
         "{}",
         stderr(&routed)
