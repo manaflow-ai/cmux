@@ -91,9 +91,9 @@ nonisolated enum AppearanceSettingsSchema {
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
                 help: SettingsText.keyed("settings.appearance.experimentalControls.help",
-                                        "Show the wallpaper grid and live appearance tuner while they are being integrated."),
+                                        "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
