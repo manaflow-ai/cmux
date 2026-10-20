@@ -91,6 +91,8 @@ public final class AgentPaneView: NSView {
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     static let processPool = WKProcessPool()
+    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
+    static let processGroups = WebProcessGroups()
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -150,7 +152,9 @@ public final class AgentPaneView: NSView {
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
+            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
+            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).

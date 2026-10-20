@@ -81,6 +81,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -263,6 +264,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
