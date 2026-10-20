@@ -9,8 +9,7 @@ import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
-/// navigation. Features cmux-next has not built yet report a typed
-/// `ActionFailure` so the CLI and palette say so.
+/// navigation.
 enum WindowHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // Settings and Debug Settings open as internal page tabs.
@@ -57,14 +56,6 @@ enum WindowHandlers {
             registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
         }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
-
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.openTaskManager", "task-manager"),
-            ("taskManager.killProcess", "task-manager"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
     }
 
     private static func showMainWindow(_ context: AppActionContext) {

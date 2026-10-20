@@ -22,7 +22,9 @@ extension NSMenu {
         return self
     }
 
-    static func tabSelectionTitle(_ id: ActionID, pins: Bool) -> String? {
+    /// The title of `id`'s row (and palette row) while it acts on several selected tabs; nil keeps
+    /// the action's own title. `pins`: as in ``namingTabSelection(pins:)``.
+    public static func tabSelectionTitle(_ id: ActionID, pins: Bool) -> String? {
         switch id.rawValue {
         case "closeTab": String(localized: "tabSelection.close", defaultValue: "Close Tabs", bundle: .module)
         case "palette.toggleTabPin": pins ? String(localized: "tabSelection.pin", defaultValue: "Pin Tabs", bundle: .module)
@@ -31,6 +33,9 @@ extension NSMenu {
         case "palette.moveTabToNewWorkspace":
             String(localized: "tabSelection.moveToNewWorkspace", defaultValue: "Move Tabs to New Workspace", bundle: .module)
         case "tab.moveToNewWindow": String(localized: "tabSelection.moveToNewWindow", defaultValue: "Move Tabs to New Window", bundle: .module)
+        case "tabGroup.create": String(localized: "tabSelection.createGroup", defaultValue: "Add Tabs to New Group", bundle: .module)
+        case "tabGroup.addTab": String(localized: "tabSelection.addToGroup", defaultValue: "Add Tabs to Group…", bundle: .module)
+        case "tabGroup.removeTab": String(localized: "tabSelection.removeFromGroup", defaultValue: "Remove Tabs from Group", bundle: .module)
         default: nil
         }
     }
