@@ -822,7 +822,7 @@ export default agentPaneEntry({
       },
     },
     "search-files-key": {
-      note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
+      note: "Play: Search Files… (from the command palette in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
       snapshot: chat(finished),
       play: async (ctx) => {
         // The prompt has the keyboard when the key comes in, as in a chat.

@@ -7169,7 +7169,7 @@ While the app's lease exists, `cloud-*` events reach only the app's
 reach every trusted local `subscribe` stream.
 
 While the app's lease exists it is the human's: every command that uses it
-(`cloud-inbox-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
+(`cloud-inbox-list`, `cloud-requests-list`, `cloud-conversation-snapshot`, `cloud-conversation-history`,
 `cloud-conversation-thread`, `cloud-conversation-op` with any origin,
 `cloud-inbox-subscribe`, `cloud-conversation-subscribe`, `cloud-mux-subscribe`,
 `cloud-mux-ack`) from another connection is refused the same way and sends
@@ -7324,7 +7324,8 @@ answer from a worker thread, so replies may arrive out of order (match by
 forwards one op tagged by `kind` (`dm.open`, `conversation.create`,
 `participants.add`, `participants.remove`, `message.send`, `message.edit`,
 `message.retract`, `reaction.add`, `reaction.remove`, `read_cursor.set`,
-`title.set`, `thread.update`, `invite.create`) with the client's key and origin and returns
+`title.set`, `thread.update`, `invite.create`, `invite.accept_verified`,
+`request.dismiss {block?}`) with the client's key and origin and returns
 `object{value, rev?, seq?, change?, replayed, transaction, stream, sequence}`.
 Errors carry `error_code` (`cloud_conversation_rejected`, `cloud_signed_out`,
 `cloud_session_expired`, `cloud_unauthenticated`, `cloud_unavailable`),
@@ -7335,6 +7336,23 @@ refused before anything is sent, with `cloud_conversation_rejected`,
 plans/cmux-next/home-cloud-proxy.md.
 `cloud-conversation-snapshot` and `cloud-conversation-history` pass the
 owner's `threads` field through unchanged when it sends one.
+
+### cloud-requests-list
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-requests-list` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversations-v1` |
+
+The lease person's open message requests (plans/cmux-next/home-messaging-invites/DESIGN.md
+2.3): `POST /v1/read home.requests.list {}` with the lease. Takes no fields (an
+unknown field is refused). Returns `object{requests}`, each row
+`{conversation, inviter, kind, title?, preview, created_at, expires_at, trusted}`
+as the owner sent it; a row whose `conversation` is not a conversation id is
+dropped. Accept with `cloud-conversation-op` `invite.accept_verified` and
+dismiss (or block, `block: true`) with `request.dismiss`, both naming the
+conversation. Errors as `cloud-inbox-list`.
 
 ### cloud-conversation-thread
 
