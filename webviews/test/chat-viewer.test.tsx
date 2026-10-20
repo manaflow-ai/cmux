@@ -489,7 +489,7 @@ for (const operation of ["file.list", "file.search"]) {
   }
 }
 
-async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = false) {
+async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = false, surface = "pane") {
   const { createRoot } = await import("react-dom/client");
   const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
   const { configureLabs } = await import("../src/agent-session/acpmux/labs");
@@ -505,7 +505,7 @@ async function changesHarness(chatViewer: boolean, ran = true, failFileOpen = fa
         postMessage: async ({ method, params }: { method: string; params: Record<string, unknown> }) => {
           calls.push([method, params]);
           if (method === "file.open" && failFileOpen) return { ok: false, error: { userMessage: "pathInvalid" } };
-          const value = method === "ready" ? { protocolVersion: 1 } : method === "pane.action" ? { ran } : {};
+          const value = method === "ready" ? { protocolVersion: 1, surface } : method === "pane.action" ? { ran } : {};
           return { ok: true, value };
         },
       },
@@ -623,3 +623,16 @@ test("Changes shows its existing failed-open message when the host cannot open a
   expect(host.querySelector(".acpmux-diff-notice-text")?.textContent).toBe("pathInvalid");
   expect(host.querySelector(".acpmux-diff-panel")).not.toBeNull();
 });
+
+for (const chatViewer of [false, true]) {
+  test(`Quick Chat path links open through the host with chatViewer ${chatViewer ? "on" : "off"}`, async () => {
+    const calls = await changesHarness(chatViewer, true, false, "quick");
+    const { openPathChip } = await import("../src/agent-session/acpmux/chips/host");
+    expect(host.querySelector('[data-surface="quick"]')).not.toBeNull();
+    await act(async () => openPathChip("/chat/note.txt"));
+    expect(calls.filter(([method]) => method === "link.openPath" || method === "link.readPath")).toEqual([
+      ["link.openPath", { path: "/chat/note.txt" }],
+    ]);
+    expect(host.querySelector(".acpmux-file-viewer")).toBeNull();
+  });
+}
