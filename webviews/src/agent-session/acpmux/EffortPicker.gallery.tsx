@@ -24,12 +24,21 @@ const open: Play = async (ctx) => {
 };
 
 const sliderKeyboard: Play = async (ctx) => {
+  ctx.motion.start({
+    kind: "reasoning-slider",
+    target: ".acpmux-effort-track",
+    visual: ".acpmux-effort-thumb",
+    maxMs: 1200,
+  });
   await ctx.click({ role: "button", name: "Effort" });
   await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-effort-range") ?? false);
   await ctx.press("ArrowRight");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-slider-level")?.textContent === "High");
   await ctx.press("End");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-slider-level")?.textContent === "Max");
+  const motion = ctx.motion.stop();
+  if (!motion || motion.status === "fail")
+    throw new Error(motion?.problems.join("; ") ?? "reasoning slider motion was not sampled");
   await ctx.press("Escape");
   await ctx.waitFor(() => {
     const trigger = ctx.find({ role: "button", name: "Effort" });

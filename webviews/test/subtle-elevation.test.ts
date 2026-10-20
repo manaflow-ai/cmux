@@ -252,6 +252,7 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/addProject.css", ".acpmux-add-project-dialog", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-viewer", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-sheet", "--elevation-1"],
+    ["agent-session/acpmux/composerControls.css", ".acpmux-effort-thumb", "--elevation-1"],
   ];
 
   // A surface that drops its shadow on purpose inside one at-rule, and only there.
@@ -272,25 +273,6 @@ describe("one subtle elevation scale", () => {
       if (seen.includes(name)) return [];
       return (definitions.get(name) ?? []).slice(0, 1).flatMap((definition) => steps(definition, [...seen, name]));
     });
-
-  test("the effort thumb stays flat until its focus ring adds elevation", () => {
-    const base = declarations.find(
-      (declaration) =>
-        declaration.file === "agent-session/acpmux/composerControls.css" &&
-        declaration.property === "box-shadow" &&
-        declaration.selector === ".acpmux-effort-thumb",
-    );
-    const focused = declarations.find(
-      (declaration) =>
-        declaration.file === "agent-session/acpmux/composerControls.css" &&
-        declaration.property === "box-shadow" &&
-        declaration.selector === ".acpmux-effort-track:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb",
-    );
-    expect(base).toBeDefined();
-    expect(focused).toBeDefined();
-    expect(steps(base!.value)).toEqual([]);
-    expect(steps(focused!.value)).toEqual(["--elevation-1"]);
-  });
 
   for (const [file, selector, token] of surfaces) {
     test(`${selector} casts ${token}`, () => {

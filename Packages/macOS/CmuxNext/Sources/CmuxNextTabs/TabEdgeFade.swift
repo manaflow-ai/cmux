@@ -28,7 +28,7 @@ import QuartzCore
         let fadeMask = mask, tabsClip = strip.tabsClip
         let width = strip.viewportWidth
         let edges = width > 0
-            ? TabScrollMath.fadedEdges(offset: strip.scroll.value, contentWidth: strip.result.contentWidth, viewportWidth: width)
+            ? TabScrollMath.fadedEdges(offset: strip.scrollOffset, contentWidth: strip.result.contentWidth, viewportWidth: width)
             : (leading: false, trailing: false)
         // The leading fade starts after the fixed pinned band, which never fades.
         let band = min(strip.scrollMapping.band, width)

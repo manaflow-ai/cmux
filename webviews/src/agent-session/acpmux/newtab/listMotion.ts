@@ -26,6 +26,35 @@ function drawnShift(element: HTMLElement): { x: number; y: number } {
 }
 
 /// Where each row's box is laid out, relative to `root`: drawn places less their running slides.
+function cancelRunning(running: { current: Animation[] }): void {
+  // Clear the live set before cancelling: oncancel removes its own animation,
+  // and mutating the array while iterating would skip every other animation.
+  const animations = running.current;
+  running.current = [];
+  for (const animation of animations) animation.cancel();
+}
+
+function trackAnimation(running: { current: Animation[] }, animation: Animation): void {
+  const remove = () => {
+    const index = running.current.indexOf(animation);
+    if (index >= 0) running.current.splice(index, 1);
+  };
+  animation.onfinish = remove;
+  animation.oncancel = remove;
+  running.current.push(animation);
+}
+
+/// More than one row arrives or more than one leaves.
+function isLoad(before: readonly string[], after: readonly string[]): boolean {
+  const was = new Set(before);
+  const is = new Set(after);
+  let arrived = 0;
+  let left = 0;
+  for (const key of is) if (!was.has(key) && ++arrived > 1) return true;
+  for (const key of was) if (!is.has(key) && ++left > 1) return true;
+  return false;
+}
+
 function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
   const origin = root.getBoundingClientRect();
   return new Map(
@@ -47,16 +76,27 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const running = useRef<Animation[]>([]);
   const shown = useRef<string>("");
   const shownKeys = useRef<readonly string[]>([]);
-  const signature = keys.join("\n");
+  const keysRef = useRef(keys);
+  keysRef.current = keys;
+  const signature = JSON.stringify(keys);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(() => () => observed.current?.observer.disconnect(), []);
+  useLayoutEffect(
+    () => () => {
+      observed.current?.observer.disconnect();
+      observed.current = null;
+      cancelRunning(running);
+    },
+    [],
+  );
   // The key signature is the invalidation boundary for list motion. The callers derive `keys`
   // from their snapshots and may allocate a fresh array on every render; depending on that array
   // would put the measurement work back on every render. ResizeObserver remains responsible for
   // layout-only changes such as a grid column switch.
   useLayoutEffect(() => {
+    const currentKeys = keysRef.current;
     const root = list.current;
     if (observed.current?.root !== root) {
+      if (observed.current?.root) cancelRunning(running);
       observed.current?.observer.disconnect();
       observed.current = null;
       if (root && typeof ResizeObserver !== "undefined") {
@@ -70,29 +110,32 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       }
     }
     const elements = root ? [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)] : [];
-    if (!root || elements.length !== keys.length) {
+    if (!root || elements.length !== currentKeys.length) {
+      cancelRunning(running);
       places.current = new Map();
       shown.current = "";
+      shownKeys.current = [];
       return;
     }
     if (isAgentMotionOff()) {
-      for (const animation of running.current) animation.cancel();
-      running.current = [];
-      places.current = measure(root, elements, keys);
+      cancelRunning(running);
+      places.current = measure(root, elements, currentKeys);
       shown.current = signature;
-      shownKeys.current = keys;
+      shownKeys.current = currentKeys;
       return;
     }
-    const changed = shown.current !== "" && shown.current !== signature;
+    // Only a real insert or removal moves: a row or so arriving or leaving. A list that swaps
+    // more at once is a load (a page shows the app's device chats, then acpmux's sessions take
+    // their slots under other keys), and is drawn in place like the first one.
+    const changed = shown.current !== "" && shown.current !== signature && !isLoad(shownKeys.current, currentKeys);
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
-    const drawn = new Map(elements.map((element, index) => [keys[index], drawnShift(element)] as const));
-    if (changed) for (const animation of running.current) animation.cancel();
-    if (changed) running.current = [];
-    const after = measure(root, elements, keys);
+    const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
+    if (shown.current !== signature) cancelRunning(running);
+    const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;
-    shownKeys.current = keys;
+    shownKeys.current = currentKeys;
     if (!changed) return;
     const style = getComputedStyle(root);
     const reduced = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -105,19 +148,20 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     if (motionOff) return;
     // Writes.
     for (const [index, element] of elements.entries()) {
-      const key = keys[index];
+      const key = currentKeys[index];
       const was = before.get(key);
       const is = after.get(key);
       if (!was || !is) {
         if (appear > 0)
-          running.current.push(element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
+          trackAnimation(running, element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: appear, easing }));
         continue;
       }
       const shift = drawn.get(key) ?? { x: 0, y: 0 };
       const x = was.x + shift.x - is.x;
       const y = was.y + shift.y - is.y;
       if (move > 0 && (Math.abs(x) > 0.5 || Math.abs(y) > 0.5)) {
-        running.current.push(
+        trackAnimation(
+          running,
           element.animate([{ transform: `translate(${x}px, ${y}px)` }, { transform: "none" }], {
             duration: move,
             easing,

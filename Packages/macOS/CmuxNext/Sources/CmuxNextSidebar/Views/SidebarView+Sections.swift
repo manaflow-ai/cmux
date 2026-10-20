@@ -7,7 +7,7 @@ import CmuxNextDesign
 // space dots in its row) is outside the capped, scrolling band below the
 // list: it is pinned at the sidebar's bottom. The band below the list draws
 // nothing since cx-n0i9 (no bottom-left sections; All chats is on the New Tab page).
-extension SidebarView {
+extension SidebarViewComponents {
     /// Every region that draws layout items, the footer first.
     var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, aboveRegion] }
 
@@ -84,10 +84,9 @@ extension SidebarView {
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
-        // The one selection marks its top item active (its glyph, accessibility).
+        // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
-        for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
@@ -121,6 +120,14 @@ extension SidebarView {
         let footer = shownBelow.filter(isFooter)
         footerRegion.update(content(footer), width: width)
         releaseAppSections(shown: shownAbove + footer)
+    }
+
+    /// Draws the one selection on the top item it names, in every band and list block: the old and new
+    /// item repaint, nothing lays out (a workspace switch to a workspace with a tile, I6).
+    func showActiveTopItem() {
+        let active: LayoutItemID? = if case let .topItem(id)? = model.selectedItem { id } else { nil }
+        for region in [aboveRegion, belowRegion, footerRegion] { region.activeItem = active }
+        list.activeTopItem = active
     }
 
     /// App sections no band shows any more release their content; one that

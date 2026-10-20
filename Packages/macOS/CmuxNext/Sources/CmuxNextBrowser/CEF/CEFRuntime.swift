@@ -45,6 +45,8 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
+    private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?
@@ -103,7 +105,7 @@ final class CEFRuntime {
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
-    private var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
+    private(set) var loadTask: Task<Result<CEFLoadedLibrary, BootError>, Never>?
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
@@ -224,11 +226,9 @@ final class CEFRuntime {
             let library = try loaded.get()
             let clock = ContinuousClock()
             let started = clock.now
-            try initialize(library, environment: environment)
+            try CEFStartSteps.shared.initialize { () throws(BootError) in try initialize(library, environment: environment) }
             state = .ready
-            startChildMonitor()
-            windowGuard.start()
-            onReady?()
+            CEFStartSteps.shared.timed("ready_hooks") { startChildMonitor(); windowGuard.start(); onReady?() }
             self.trigger = trigger
             loadDuration = library.loadDuration
             initializeDuration = clock.now - started
@@ -276,7 +276,7 @@ final class CEFRuntime {
             let text = String(decoding: message.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             return .failure(.framework(text))
         }
-        primeImageIO()
+        CEFFrameworkPrefetch.warm(layout)
         // Lists the framework's locale directories here, off the main thread.
         let locale = CEFLocale.current(frameworkDirectory: layout.frameworkDirectory)
         return .success(CEFLoadedLibrary(shim: shim, shimABI: shimABI ?? "", layout: layout, locale: locale, loadDuration: clock.now - started))
@@ -305,7 +305,7 @@ final class CEFRuntime {
         self.layout = layout
 
         let pump = CEFMessagePump(
-            work: { [weak self] in self?.shim?.doWork() },
+            work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
             safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
         )
         self.pump = pump
@@ -350,11 +350,11 @@ final class CEFRuntime {
         shim.setFocusRequestHandler(cefFocusRequestCallback)
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
-                shim.initialize(
+                CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
                     storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
-                )
+                ) }
             } ?? 0
         }
         guard ok == 1 else {
@@ -389,7 +389,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] { return host }
+        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

@@ -107,7 +107,7 @@ final class SidebarBlockRowView: SidebarRowView {
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The items the drag lifts (or a held drop moved), which no block draws meanwhile.
     private var blockHidden: Set<String> {
         Set(shownDrag?.docItems ?? [])
@@ -260,7 +260,7 @@ extension SidebarListView {
     }
 }
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// Where a dropped card settles: the block's gap, the list's gap (a tile
     /// dropped among rows), else its own rows at the slot (nil: `land` finds them).
     func settleFrame(_ drag: SidebarListDrag) -> NSRect? {

@@ -2,13 +2,17 @@
 :root[data-settings-look="refined"] {
   --polish-ink: var(--cmux-text, var(--agent-text, CanvasText));
   --polish-base: var(--cmux-surface-solid, var(--agent-accent-text, Canvas));
+  /* Surfaces mix from the page's own background: clear over a see-through window
+     (WebTheme --cmux-surface-background), the theme color in an opaque one. The solid base
+     stays for text and marks that must hide what is under them (Lawrence 2026-10-17). */
+  --polish-layer: var(--cmux-surface-background, var(--polish-base));
   --polish-content: light-dark(
-    color-mix(in srgb, var(--polish-base) 35%, Canvas),
-    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-base))
+    color-mix(in srgb, var(--polish-layer) 35%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-layer))
   );
   --polish-raised: light-dark(
-    color-mix(in srgb, var(--polish-base) 15%, Canvas),
-    color-mix(in srgb, var(--polish-ink) 7%, var(--polish-base))
+    color-mix(in srgb, var(--polish-layer) 15%, Canvas),
+    color-mix(in srgb, var(--polish-ink) 7%, var(--polish-layer))
   );
   --polish-edge: light-dark(
     color-mix(in srgb, var(--polish-ink) 10%, transparent),
@@ -138,6 +142,30 @@
 
 :root[data-settings-look="refined"] .settings .theme-caption { margin-top: 12px; font-size: var(--text-detail); }
 :root[data-settings-look="refined"] .settings .theme-preview { border-radius: 8px; }
+
+/* A narrow pane stacks the categories over the content (layout.css): these refined rules outrank
+   that block, so the stacked shape is restated here (macOS 15 tester, 2026-10-19: the category strip
+   kept the column's side border, padding and 30 px rows, the content its left-cut card). */
+@media (max-width: 600px) {
+  :root[data-settings-look="refined"] .settings > .sidebar {
+    padding: 10px 12px 8px;
+    gap: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--polish-edge);
+  }
+
+  :root[data-settings-look="refined"] .settings .section-link {
+    min-height: 0;
+    padding: 4px 8px;
+  }
+
+  :root[data-settings-look="refined"] .settings > .content {
+    margin: 0 6px 6px;
+    border-left: 1px solid var(--polish-edge);
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+  }
+}
 
 @media (max-width: 640px) {
   :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }

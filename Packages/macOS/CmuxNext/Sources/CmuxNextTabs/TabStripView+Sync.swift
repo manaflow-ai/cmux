@@ -8,8 +8,8 @@ extension TabStripView {
     /// Applies the model when it changed since the strip last synced: the App's
     /// calls (a switch shows strip and content in one transaction, L4) and the
     /// observation's echo of the same change do the work once (I6). A tab switch
-    /// updates the two cells whose selection changed; geometry moves only when
-    /// the strip is too narrow for every tab (`dependsOnSelection`).
+    /// updates the two cells whose selection changed; geometry never moves
+    /// (`TabLayoutEngine` lays tabs out without reading the selection).
     public func syncFromModel() {
         let input = ModelSnapshot(model)
         if hasSynced, window != nil, let last = lastSyncedInput, isAtRest {
@@ -29,17 +29,13 @@ extension TabStripView {
         let selected = input.selectedID
         if let lastSelectedID { cells[lastSelectedID]?.isSelected = false }
         if let selected { cells[selected]?.isSelected = true }
+        if input.multiSelection != lastSyncedInput?.multiSelection { applyMultiSelection() }
         lastSyncedInput = input
-        if result.dependsOnSelection {
-            relayout(animated: !reduceMotion)
-        } else {
-            // Same geometry: only what the selected tab draws over or hides changes.
-            TabSeparatorVisibility.apply(to: self)
-            TabOcclusion.apply(cells: cells, selected: selected, in: tabsClip.layer, band: scrollMapping.band)
-        }
-        if let selected { reveal(selected, animated: !reduceMotion) }
+        // Same geometry: only what the selected tab draws over or hides changes.
+        TabSeparatorVisibility.apply(to: self)
+        updateOcclusion()
+        if let selected, selected != lastSelectedID { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
-        overflowHints.update()
         refreshHoverCard()
     }
 
@@ -52,8 +48,9 @@ extension TabStripView {
             let order = modelOrdered.map(\.id)
             let membership = modelOrdered.map(\.groupID)
             if order != lastModelOrder || membership != groups.lastMembership {
-                // The App applied (or overrode) our change, or tabs came and went.
-                orderOverride = nil
+                // The App applied (or overrode) our change, or tabs came and went. A multi-tab drop
+                // lands one move at a time: its order stays until the last move shows.
+                if multiReorderTarget == nil || multiReorderTarget == order { (orderOverride, multiReorderTarget) = (nil, nil) }
                 groups.membershipOverride = [:]
                 if let detachedID, !order.contains(detachedID) { self.detachedID = nil }
                 if let detached = groups.detachedGroupID, !membership.contains(detached) { groups.detachedGroupID = nil }
@@ -64,7 +61,7 @@ extension TabStripView {
         }
 
         var ordered = modelOrdered.filter { tab in
-            tab.id != detachedID && (tab.groupID == nil || tab.groupID != groups.detachedGroupID)
+            tab.id != detachedID && !dragCompanions.contains(tab.id) && (tab.groupID == nil || tab.groupID != groups.detachedGroupID)
         }
         if !groups.membershipOverride.isEmpty {
             for index in ordered.indices {
@@ -77,7 +74,7 @@ extension TabStripView {
                 let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 ordered = override.compactMap { byID[$0] }
             } else {
-                orderOverride = nil
+                (orderOverride, multiReorderTarget) = (nil, nil)
             }
         }
 
@@ -108,8 +105,7 @@ extension TabStripView {
                 dying.insert(id)
                 let shown = displayed.filter { !dying.contains($0.id) || $0.id == id }.map(\.id)
                 if let i = shown.firstIndex(of: id) { closingAnchors[id] = .some(i > 0 ? shown[i - 1] : nil) }
-                motion[id]?.use(.tabClose)
-                motion[id]?.width.target = metrics.chrome.closeEndWidth
+                placed[id]?.width = metrics.chrome.closeEndWidth
                 cell.beginClosing()
             } else {
                 removeTab(id)
@@ -120,13 +116,16 @@ extension TabStripView {
         for item in ordered {
             if let cell = cells[item.id] {
                 dying.remove(item.id)
+                goesAt[item.id] = nil
                 closingAnchors[item.id] = nil
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
-            } else if let from = handed[item.id], let place = motion[from] {
+            } else if let from = handed[item.id], let place = placed[from], let shown = cells[from] {
                 _ = makeCell(item, animated: false)
-                motion[item.id] = place
+                placed[item.id] = place
+                // It shows where that cell shows now; `relayout` moves it on from there.
+                cells[item.id]?.frame = (shown.layer.presentation() ?? shown.layer).frame
                 removeTab(from)
             } else {
                 added.insert(makeCell(item, animated: cellsAnimate))
@@ -149,6 +148,7 @@ extension TabStripView {
             cell?.isSelected = item.id == model.selectedID
             cell?.style = model.style
         }
+        applyMultiSelection()
         if newTabButton.isHidden == model.showsNewTabButton {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
@@ -185,7 +185,7 @@ extension TabStripView {
         tabsLayer(isPinned: item.isPinned)?.addSublayer(cell.layer)
         cells[id] = cell
         // Placed by `relayout` (Chrome: an opening tab never fades).
-        motion[id] = TabMotion(x: 0, width: 0, alpha: 1)
+        placed[id] = TabPlace(x: 0, width: 0)
         return id
     }
 
@@ -219,10 +219,17 @@ extension TabStripView {
         cells[id]?.layer.removeFromSuperlayer()
         if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
-        motion[id] = nil
-        dying.remove(id)
+        forgetPlace(id)
         closingAnchors[id] = nil
         if hoveredID == id { hoveredID = nil }
         if closeHoveredID == id { closeHoveredID = nil }
+    }
+
+    /// Drops `id`'s place and the moves that tracked it.
+    func forgetPlace(_ id: TabID) {
+        placed[id] = nil
+        dying.remove(id)
+        goesAt[id] = nil
+        occlusionEnds[id] = nil
     }
 }

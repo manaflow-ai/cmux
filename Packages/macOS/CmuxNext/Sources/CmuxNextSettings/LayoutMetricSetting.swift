@@ -22,8 +22,8 @@ public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The tab strip's widths (the Tabs group): the max is today's per density; the minimums and the
     /// pinned width are Chrome's, from the shared tokens (design-tokens.json `motion.tabStrip`).
     public static let tabMaxWidth = LayoutMetricSetting(name: "tabMaxWidth", range: 120...320, compact: 200, comfortable: 240)
-    public static let tabMinActiveWidth = token("tabMinActiveWidth", 32...200) { $0.minActiveWidth }
-    public static let tabMinInactiveWidth = token("tabMinInactiveWidth", 16...120) { $0.minInactiveWidth }
+    public static let tabMinActiveWidth = token("tabMinActiveWidth", 32...320) { $0.minActiveWidth }
+    public static let tabMinInactiveWidth = token("tabMinInactiveWidth", 16...320) { $0.minInactiveWidth }
     public static let tabPinnedWidth = token("tabPinnedWidth", 24...120) { $0.pinnedWidth }
     public static let tabWidths: [LayoutMetricSetting] = [tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth]
 

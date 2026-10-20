@@ -8,8 +8,9 @@ public import CmuxTheme
 /// One value, read by every place a color changes: a layer color blends from the color on screen
 /// (``animate(_:to:)``: OKLab or sRGB keyframes on the render server, so a quick A, B, C
 /// switch retargets from the blend in flight and never jumps back; a theme repaint blends every
-/// layer color its views' hooks change the same way, `ThemeRepaint`), colors drawn in `draw(_:)`
-/// (text, terminal surfaces) switch at once, and web pages transition their theme variables with the same duration
+/// layer color its views' hooks change the same way, `ThemeRepaint`), terminal surfaces blend their
+/// palette and default colors on the GPU along the same curve (`keyframeProgress`), colors drawn in
+/// `draw(_:)` switch at once, and web pages transition their theme variables with the same duration
 /// and curve (``cssTransition``). Every curve, the spring's timing and the color mix come from
 /// cmux-motion (`CCmuxMotionFFI`: `cmux_motion_ease`, `cmux_motion_cubic_bezier`,
 /// `cmux_motion_spring_progress_monotone`, `cmux_motion_mix_rgba`); nothing here keeps its own
@@ -113,6 +114,15 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
             return cmux_motion_spring_progress_monotone(parameters, t * seconds)
         }
     }
+
+    /// The curve as a layer color blend samples it: `progress(at:)` at ``keyframes`` evenly spaced
+    /// time fractions, ending on exactly 1. Terminal surfaces blend their colors on the GPU along
+    /// the same samples (`ghostty_surface_set_color_transition`), so text and backgrounds move
+    /// together with the window.
+    public var keyframeProgress: [Double] { progressSamples(count: Self.keyframes) }
+
+    /// The blend mixes plain sRGB channels (``space`` is sRGB), not OKLab.
+    public var mixesInSRGB: Bool { space == .srgb }
 
     /// `progress(at:)` at `count` evenly spaced time fractions, ending on exactly 1.
     func progressSamples(count: Int) -> [Double] {

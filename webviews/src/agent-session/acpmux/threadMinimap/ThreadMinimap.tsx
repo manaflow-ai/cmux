@@ -146,12 +146,17 @@ export const ThreadMinimap = memo(function ThreadMinimap({
     };
   }, [scroller]);
 
-  const indexAt = (clientY: number) => {
-    const box = root.current?.getBoundingClientRect();
-    if (!box || !turns.length) return undefined;
-    const index = Math.floor((clientY - box.top) / pitch);
-    return Math.max(0, Math.min(turns.length - 1, index));
-  };
+  const indexAt = useCallback(
+    (clientY: number) => {
+      const box = root.current?.getBoundingClientRect();
+      if (!box || !turns.length) return undefined;
+      const index = Math.floor((clientY - box.top) / pitch);
+      return Math.max(0, Math.min(turns.length - 1, index));
+    },
+    [pitch, turns.length],
+  );
+  // Keep the tick callbacks stable while scrolling. The rail itself needs to rerender so the
+  // current marker follows the reader, but stable handlers let memoized Tick rows skip that work.
   const jump = useCallback(
     (index: number) => {
       const node = scroller.current;

@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// repaints the rows whose fill changed and nothing else
 /// (plans/cmux-next/perf-speed-of-light.md I6): no `SidebarLayout.make`,
 /// no row walk, no configure of the other rows.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// Draws a selection change from `oldItem` / `oldSelection` to the model's
     /// on the old and new rows only, then reveals the new active row as a
     /// reload would. False (nothing changed) when the change moves rows (a
@@ -34,7 +34,12 @@ extension SidebarListView {
             guard let view = rowViews[.workspace(id)] as? WorkspaceRowView else { continue }
             view.isSecondarySelected = model.selection.contains(id) && !view.isSelected
         }
-        revealPatchedActive(newActive.map { SidebarRowKey.workspace($0) })
+        if takeTopReveal() {
+            revealedActive = newActive.map { SidebarRowKey.workspace($0) }
+            scrollToTop()
+        } else {
+            revealPatchedActive(newActive.map { SidebarRowKey.workspace($0) })
+        }
         return true
     }
 

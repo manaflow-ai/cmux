@@ -3,11 +3,11 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 
-extension SidebarListView {
+extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
-    func reload(animated: Bool, adopt: Bool = false) {
-        SidebarPerfCounters.add(.listReloads)
+    func reload(animated: Bool, adopt: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
+        SidebarPerfCounters.add(.listReloads, from: file, line: line)
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
@@ -90,10 +90,15 @@ extension SidebarListView {
         return NSRect(x: inset + gutter, y: row.y, width: max(0, bounds.width - inset * 2 - gutter), height: row.height)
     }
     func realizationRect() -> NSRect {
+        // A space page never scrolls: the rows in its frame, no overscan.
+        if enclosingScrollView == nil, let pageViewport { return pageViewport }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
+        let previousHoverSuppression = suppressHoverEffects
+        suppressHoverEffects = true
+        defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
         let old = displayed
         displayed = layout
@@ -116,13 +121,23 @@ extension SidebarListView {
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
         for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
+        // Without motion the rows that leave park first (as they would after the loop), so the rows that
+        // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
+        if !animate, !adopting {
+            for (key, view) in rowViews where layout.row(for: key) == nil {
+                rowViews[key] = nil
+                recycle(view)
+            }
+        }
         for row in layout.rows {
             let target = frame(for: row)
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
-            let view = existing ?? dequeue(row.key)
+            // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
+            // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
+            let view = existing ?? dequeue(row.key, rebinding: !animate && !adopting)
             view.targetSize = target.size
             // A recycled view (a block's region from another time) takes its content at once, not on a spring.
             configure(view, row: row, animated: animate || (adopting && existing != nil))
@@ -166,6 +181,11 @@ extension SidebarListView {
         var leaving: [(SidebarRowView, NSRect)] = []
         let removeRuns = SidebarRowTransition.runTops(of: old, missingFrom: layout)
         for (key, view) in rowViews where !keep.contains(key) {
+            if key == hoveredKey {
+                hoveredKey = nil
+                view.clearHoverImmediately()
+                view.layoutSubtreeIfNeeded()
+            }
             rowViews[key] = nil
             let placeholder = if case .emptySection = key { true } else { false }
             let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
@@ -209,6 +229,7 @@ extension SidebarListView {
             view.configure(item, favicon: item.iconAddress.flatMap { SidebarModel.itemFavicon?($0) }, row: row)
         case let (.block(id), view as SidebarBlockRowView):
             guard let content = blockContent(id, includeGap: true) else { return }
+            view.region.activeItem = activeTopItem
             if springsRows, animated { view.springShow(content, width: bounds.width) } else { view.show(content, width: bounds.width, animated: animated) }
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
@@ -291,7 +312,7 @@ extension SidebarListView {
     }
     /// The selectable rows in visual order (placeholders left out).
     var visibleWorkspaceOrder: [WorkspaceID] {
-        let placeholders = Set(model.allWorkspaces.filter(\.rowState.isPending).map(\.id))
+        let placeholders = Set(model.allWorkspaces.filter { $0.rowState == .placeholder }.map(\.id))
         return displayed.rows.compactMap { if case let .workspace(id) = $0.key, !placeholders.contains(id) { id } else { nil } }
     }
 }

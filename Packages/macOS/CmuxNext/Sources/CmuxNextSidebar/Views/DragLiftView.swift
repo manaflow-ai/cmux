@@ -9,7 +9,7 @@ final class DragLiftView: NSView {
     private let card = NSView()
     private let content: NSView
     private var stack: [NSView] = []
-    private let countBadge = NSTextField(labelWithString: "")
+    private let countBadge = ChromeLabel(labelWithString: "")
     let badgeBackground = NSView()
     private var lifted = false
     /// Landings started (`SidebarReorderLift.land`): only the last one's completion runs.
@@ -57,8 +57,11 @@ final class DragLiftView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// A picture of the dragged rows: VoiceOver keeps the rows in the list, not a second selected copy.
+    override func accessibilityChildren() -> [Any]? { [] }
+    override func isAccessibilityElement() -> Bool { false }
 
     override func layout() {
         super.layout()

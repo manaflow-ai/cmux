@@ -19,6 +19,7 @@ import { rowIconSize } from "./icons/iconSize";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { listRowKeyboardProps } from "../../ui/listRowKeyboard";
 import type { UiAnchor } from "../../ui/Popover";
+import { pressToOpen } from "../../ui/pressToOpen";
 import { AnchoredCard } from "../../ui/Tooltip";
 import { HOVER_INTENT, HoverGroup, useHoverIntent } from "../../ui/hoverIntent";
 import { useSidebarPreviewVariant, type SidebarPreviewVariant } from "./sidebarPreview";
@@ -312,16 +313,9 @@ function SessionsView({
     </button>
   );
   const searching = query.trim() !== "";
-  const { pinned, groups } = useMemo(() => sidebarSections(sessions, query), [sessions, query]);
-  const active = useMemo(
-    () =>
-      sortByRecency(
-        filterSessions(
-          sessions.filter((session) => !session.pinned),
-          query,
-        ),
-      ),
-    [sessions, query],
+  const { pinned, groups, active } = useMemo(
+    () => sidebarSections(sessions, query, groupProjects),
+    [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
   const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
@@ -621,16 +615,10 @@ const SessionRow = memo(function SessionRow({
     cancelPreviewLeave();
     dismissPreview();
   };
-  const keyboard = listRowKeyboardProps(
-    ".acpmux-session-row",
-    (row) => {
-      const sessionId = row.dataset.sessionId;
-      if (sessionId) onSelect(sessionId);
-    },
-    (event) => {
-      if (event.key === "Escape") dismissPreviewNow();
-    },
-  );
+  const keyboard = listRowKeyboardProps(".acpmux-session-row", (row) => {
+    const sessionId = row.dataset.sessionId;
+    if (sessionId) onSelect(sessionId);
+  });
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
@@ -669,9 +657,15 @@ const SessionRow = memo(function SessionRow({
       onPointerEnter={(event) => previewText && hoverPreview(event.currentTarget)}
       onPointerLeave={leavePreviewRow}
       onPointerDown={dismissPreviewNow}
+      // Opens on the press, as the native sidebar rows do; Enter and Space still click.
+      {...pressToOpen(() => onSelect(session.sessionId))}
       onFocus={(event) => previewText && hoverPreview(event.currentTarget, 0)}
       onBlur={leavePreviewCard}
-      onClick={() => onSelect(session.sessionId)}
+      // ui-allow: Escape dismisses this row's anchored preview; arrow/Home/End navigation stays in the shared helper.
+      onKeyDown={(event) => {
+        keyboard.onKeyDown?.(event);
+        if (event.key === "Escape") dismissPreviewNow();
+      }}
     >
       <span className="acpmux-session-row-title">{title}</span>
       {trailing && (

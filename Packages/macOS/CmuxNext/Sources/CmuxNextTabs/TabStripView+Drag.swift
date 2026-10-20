@@ -7,12 +7,18 @@ extension TabStripView {
     // MARK: - Drag reorder
 
     func beginDrag(_ press: TabStripPress) {
-        guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
+        guard let start = displayed.first(where: { $0.id == press.id }), placed[press.id] != nil else { return }
+        // The tab is lifted where it shows now (a move may be in flight), then follows the pointer from there.
+        let shown = shownX(press.id) ?? placed[press.id]?.x ?? 0
         let local = convert(press.start, to: tabsClip)
-        let contentX = scrollMapping.contentX(local.x, isPinned: displayed[index].isPinned)
+        let contentX = scrollMapping.contentX(local.x, isPinned: start.isPinned)
+        guard let index = displayed.firstIndex(where: { $0.id == press.id }) else { return }
+        // Dragging one of several selected tabs takes them all (Chrome): the others hide under it.
+        hideDragCompanions(of: press.id)
+        placed[press.id]?.x = shown
         drag = TabStripDrag(
             id: press.id,
-            grabOffset: contentX - m.x.value,
+            grabOffset: contentX - shown,
             originalIndex: index,
             currentIndex: index,
             isPinned: displayed[index].isPinned,
@@ -37,7 +43,7 @@ extension TabStripView {
             return
         }
         drag.lastPoint = point
-        guard let width = motion[drag.id]?.width.target else { return }
+        guard let width = placed[drag.id]?.width else { return }
         let contentX = scrollMapping.contentX(convert(point, to: tabsClip).x, isPinned: drag.isPinned)
         let region = result.slots.filter { $0.isPinned == drag.isPinned && $0.id != Self.placeholderID }
         guard let first = region.first, let last = region.last else { return }
@@ -56,9 +62,10 @@ extension TabStripView {
                 hysteresis: width * Self.groupJoinHysteresis
             )
             index = displayed.count(where: \.isPinned) + resolution.index
-            group = resolution.groupID
+            // A multi-tab drag moves the tabs only; their groups stay.
+            group = dragCompanions.isEmpty ? resolution.groupID : drag.targetGroup
         }
-        motion[drag.id]?.x.follow(x)
+        placed[drag.id]?.x = x
         // Chrome: a reorder waits until the pointer moved 16 x width / maxWidth pt (the density's max,
         // hq-4e + cmux2-0b) since the last one, the width of the tab being passed: moving right that is
         // the tab now just left of the target index among the others, moving left the one at it.
@@ -77,7 +84,6 @@ extension TabStripView {
             relayout(animated: !reduceMotion)
         } else {
             applyFrames()
-            startAnimating()
         }
     }
 
@@ -106,9 +112,10 @@ extension TabStripView {
         if local < band + edge { speed = -(band + edge - local) * gain }
         if local > viewportWidth - edge { speed = (local - (viewportWidth - edge)) * gain }
         guard speed != 0 else { return false }
-        let target = TabScrollMath.clamp(scroll.value + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
-        guard target != scroll.value else { return false }
-        scroll.snap(to: target)
+        settleScroll()
+        let target = TabScrollMath.clamp(scrollOffset + speed * dt, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
+        guard target != scrollOffset else { return false }
+        scrollOffset = target
         if let drag {
             updateDrag(at: drag.lastPoint, event: nil)
         } else if let groupDrag = groups.drag {
@@ -124,8 +131,8 @@ extension TabStripView {
         self.drag = nil
         escapeMonitor.remove()
         cells[drag.id]?.isLifted = false
-        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome).
-        motion[drag.id]?.use(.tabMove)
+        if !dragCompanions.isEmpty { return endMultiDrag(drag) }
+        // The release settles into the slot on a 200 ms ease-out from where it is (Chrome): `relayout`'s tabMove.
         let regrouped = drag.targetGroup != drag.originalGroup
         // The model may have changed during the drag (tabs closed by the
         // daemon); indexes captured at the start no longer hold.
@@ -160,6 +167,7 @@ extension TabStripView {
         guard var drag else { return }
         drag.currentIndex = drag.originalIndex
         drag.targetGroup = drag.originalGroup
+        drag.cancelled = true
         self.drag = drag
         endDrag()
     }
@@ -192,6 +200,9 @@ extension TabStripView {
         escapeMonitor.remove()
         cell.isLifted = false
         detachedID = drag.id
+        // Only the dragged tab leaves the strip; the other selected tabs show again (multi-tab moves
+        // between strips, windows and the sidebar are a follow-up).
+        dragCompanions = []
         sync(fromModel: false)
         model.send(.dragBegan(start))
     }
@@ -219,7 +230,7 @@ extension TabStripView {
     /// not change.
     public func discardPendingReorder() {
         guard orderOverride != nil || !groups.membershipOverride.isEmpty else { return }
-        orderOverride = nil
+        (orderOverride, multiReorderTarget) = (nil, nil)
         groups.membershipOverride = [:]
         sync(fromModel: false)
     }
@@ -243,7 +254,7 @@ extension TabStripView {
             // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
             guard let self else { return }
             var changed = false
-            if pending.order != nil, self.orderOverride == pending.order { self.orderOverride = nil; changed = true }
+            if pending.order != nil, self.orderOverride == pending.order { (self.orderOverride, self.multiReorderTarget) = (nil, nil); changed = true }
             if !pending.groups.isEmpty, self.groups.membershipOverride == pending.groups { self.groups.membershipOverride = [:]; changed = true }
             if changed { self.sync(fromModel: false) }
         }
@@ -261,8 +272,8 @@ extension TabStripView {
 
     /// Where `id`'s cell shows now, its center in window coordinates; nil when it shows nowhere.
     public func tabCenterInWindow(_ id: TabID) -> CGPoint? {
-        guard let m = motion[id], let cell = cells[id] else { return nil }
-        let x = scrollMapping.viewX(m.x.value + m.width.value / 2, isPinned: cell.item.isPinned)
-        return tabsClip.convert(CGPoint(x: x, y: tabsClip.bounds.midY), to: nil)
+        guard let cell = cells[id] else { return nil }
+        let frame = (cell.layer.presentation() ?? cell.layer).frame
+        return tabsClip.convert(CGPoint(x: frame.midX, y: tabsClip.bounds.midY), to: nil)
     }
 }

@@ -67,12 +67,12 @@ export interface AnchoredCardProps {
   state?: string;
   /** Shows at once, with no fade in (a warm tooltip group's hint). */
   instant?: boolean;
-  onPointerEnter?: PointerEventHandler<HTMLDivElement>;
-  onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   /** Interactive cards use dialog semantics instead of tooltip semantics. */
   interactive?: boolean;
   /** Accessible name for an interactive card. */
   ariaLabel?: string;
+  onPointerEnter?: PointerEventHandler<HTMLDivElement>;
+  onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   children: ReactNode;
 }
 
@@ -89,10 +89,10 @@ export function AnchoredCard({
   side = "bottom",
   state,
   instant,
-  onPointerEnter,
-  onPointerLeave,
   interactive = false,
   ariaLabel,
+  onPointerEnter,
+  onPointerLeave,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();

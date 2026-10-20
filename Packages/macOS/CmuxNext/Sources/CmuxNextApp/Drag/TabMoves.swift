@@ -4,6 +4,7 @@ import CmuxNextDesign
 import enum CmuxNextLayout.DockEdge
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Daemon commands for tab moves. With `tab-drag-v1` every outcome is one
@@ -237,6 +238,14 @@ enum TabMoves {
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
+    }
+
+    /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.
+    static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
+        guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
+        if services.workspace(id: key.rawValue) == nil { await daemon.store.refresh() }
+        guard let handle = services.workspace(id: key.rawValue)?.handle else { return }
+        for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,

@@ -17,8 +17,8 @@ extension TabStripView {
             guard !dying.contains(id) else { continue }
             if animated {
                 dying.insert(id)
-                motion[id]?.width.target = 0
-                motion[id]?.alpha.target = 0
+                placed[id]?.width = 0
+                placed[id]?.alpha = 0
                 chip.isHovered = false
             } else {
                 removeChip(group)
@@ -29,6 +29,7 @@ extension TabStripView {
             let id = TabID.groupChip(group)
             if let chip = groups.chips[group] {
                 dying.remove(id)
+                goesAt[id] = nil
                 chip.update(group: item, memberCount: count)
                 groups.bands[group]?.color = item.tint
                 continue
@@ -46,7 +47,8 @@ extension TabStripView {
             scrollingLayer.addSublayer(chip.layer)
             groups.chips[group] = chip
             groups.bands[group] = band
-            motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
+            // Placed by `relayout`.
+            placed[id] = TabPlace(x: 0, width: 0)
             added.insert(id)
         }
         return added
@@ -58,40 +60,63 @@ extension TabStripView {
         groups.chips[group] = nil
         groups.bands[group]?.remove()
         groups.bands[group] = nil
-        motion[id] = nil
-        dying.remove(id)
+        forgetPlace(id)
         if groups.hoveredChip == group { groups.hoveredChip = nil }
     }
 
     // MARK: - Frames
 
-    /// Positions chips and bands for the current spring values.
+    /// Positions chips and bands at their places; with `move`, each one that moved animates there.
     /// `offset`: the unpinned region's (`TabScrollMapping.offset(isPinned: false)`); chips are never pinned.
-    func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat) {
+    /// `scroll`: the view x the scroll alone moved them by in `move` (`TabStripMove.addScroll`).
+    func applyGroupFrames(offset: CGFloat, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat, move: TabStripMove? = nil,
+                          scroll: CGFloat = 0) {
         var memberMaxX: [TabGroupID: CGFloat] = [:]
         for item in displayed {
-            guard let group = item.groupID, let m = motion[item.id] else { continue }
-            memberMaxX[group] = max(memberMaxX[group] ?? -.infinity, m.x.value + max(0, m.width.value))
+            guard let group = item.groupID, let place = placed[item.id] else { continue }
+            memberMaxX[group] = max(memberMaxX[group] ?? -.infinity, place.maxX)
         }
-        if let drag, let group = drag.targetGroup, let m = motion[drag.id] {
-            memberMaxX[group] = max(memberMaxX[group] ?? -.infinity, m.x.value + max(0, m.width.value))
+        if let drag, let group = drag.targetGroup, let place = placed[drag.id] {
+            memberMaxX[group] = max(memberMaxX[group] ?? -.infinity, place.maxX)
         }
         if let placeholder = result.slot(Self.placeholderID), let group = placeholder.groupID {
             memberMaxX[group] = max(memberMaxX[group] ?? -.infinity, placeholder.maxX)
         }
         for (group, chip) in groups.chips {
-            guard let m = motion[.groupChip(group)] else { continue }
-            let width = max(0, m.width.value)
-            let minX = pixel(m.x.value - offset)
-            chip.frame = CGRect(x: minX, y: tabY, width: pixel(m.x.value - offset + width) - minX, height: tabHeight)
-            let alpha = Float(min(max(m.alpha.value, 0), 1))
-            chip.layer.opacity = alpha
+            let id = TabID.groupChip(group)
+            guard let place = placed[id] else { continue }
+            let width = max(0, place.width)
+            let minX = pixel(place.x - offset)
+            let frame = CGRect(x: minX, y: tabY, width: pixel(place.x - offset + width) - minX, height: tabHeight)
+            let alpha = Float(min(max(place.alpha, 0), 1))
+            let direct = groups.isDragged(id)
+            var moved = false
+            if let move, frame != chip.frame || alpha != chip.layer.opacity || abs(scroll) > 0.01 {
+                let before = TabStripMove.snapshot(chip.layer)
+                chip.frame = frame
+                chip.layer.opacity = alpha
+                moved = move.animate(from: before, scroll: scroll)
+            } else {
+                chip.frame = frame
+                chip.layer.opacity = alpha
+            }
+            if direct { TabStripMove.cancelPosition(chip.layer) }
+            if let move { noteClosing(id, moved: moved, move: move) }
             chip.accessibility.setAccessibilityFrameInParentSpace(tabsClip.convert(chip.frame, to: self))
             guard let band = groups.bands[group] else { continue }
-            let pillMinX = m.x.value + metrics.groupChipOuterInset
-            let chipMaxX = m.x.value + width
+            let pillMinX = place.x + metrics.groupChipOuterInset
+            let chipMaxX = place.x + width
             let end = memberMaxX[group] ?? chipMaxX
             let members = max(0, end - chipMaxX)
+            // The end of a band the dragged tab stretches follows it exactly (its start still moves with the
+            // chip); when the dragged tab starts or stops setting the end, the end moves there on the move's
+            // curve and then follows. A dragged group's band sits under the pointer; a new band is where it starts.
+            let dragSetsEnd = drag.map { $0.targetGroup == group && (placed[$0.id]?.maxX ?? -.infinity) >= end - 0.5 } ?? false
+            let pinsEnd = dragSetsEnd && band.endFollowsDrag
+            band.endFollowsDrag = dragSetsEnd
+            let bandMoves = !direct && (band.washLayer.position != .zero || band.washLayer.bounds.width > 0)
+            let wash = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.washLayer, depth: 0) : nil }
+            let line = move.flatMap { _ in bandMoves ? TabStripMove.snapshot(band.lineLayer, depth: 0) : nil }
             band.apply(
                 span: CGRect(x: pixel(chipMaxX - offset), y: tabY, width: pixel(members), height: tabHeight),
                 lineWidth: members > 0.5 ? pixel(end - pillMinX) : 0,
@@ -100,6 +125,10 @@ extension TabStripView {
                 opacity: alpha
             )
             band.lineLayer.frame.origin.x = pixel(pillMinX - offset)
+            if let move, let wash, let line {
+                move.animate(from: wash, scroll: scroll, pinsEnd: pinsEnd)
+                move.animate(from: line, scroll: scroll, pinsEnd: pinsEnd)
+            }
         }
     }
 

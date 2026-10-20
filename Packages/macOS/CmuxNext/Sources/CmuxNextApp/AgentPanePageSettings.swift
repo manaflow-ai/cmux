@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDiff
 import CmuxNextSettings
 import Observation
 
@@ -13,24 +14,23 @@ final class AgentPanePageSettings {
     private(set) var editedFiles = AgentPaneEditedFilesSetting.fallback
     private(set) var zoom = AgentPaneZoomSetting.fallback
     private(set) var composer = AgentPaneComposerSetting.fallback
+    private(set) var sidebarPreviewVariant = AgentPaneSidebarPreviewVariant.card
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
-    private(set) var diffColors = "theme"; private let debugSettings = AgentPaneDebugSettings()
+    private(set) var diffColors = "theme"
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
     private var composerObservation: Task<Void, Never>?
+    private var reasoningSliderObservation: Task<Void, Never>?
+    private var sidebarPreviewVariantObservation: Task<Void, Never>?
     private var diffColorsObservation: Task<Void, Never>?
     /// Where the composer's Hide or Show Context Usage writes (``setComposer(_:_:)``).
     private weak var settings: SettingsController?
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
-    @MainActor
-    func follow(_ settings: SettingsController, push: @escaping @MainActor @Sendable () -> Void) {
-        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
+    func follow(_ settings: SettingsController, push: @escaping () -> Void) {
+        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
-        debugSettings.follow(setComposer: { [weak self] slider, style in
-            self?.composer.reasoningSlider = slider; self?.composer.reasoningSliderStyle = style
-        }, push: push)
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
             for await on in ObservationStream({ settings.snapshot.previewFeatures }) {
@@ -59,13 +59,28 @@ final class AgentPanePageSettings {
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
-                let reasoningSlider = composer.reasoningSlider
-                let reasoningSliderStyle = composer.reasoningSliderStyle
-                composer = value
-                composer.reasoningSlider = reasoningSlider; composer.reasoningSliderStyle = reasoningSliderStyle
+                composer = value.keepingDebugToggles(of: composer)
                 push()
             }
         }
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        reasoningSliderObservation = Task { [weak self] in
+            for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
+                guard let self else { return }
+                composer.reasoningSlider = on.0
+                composer.reasoningSliderStyle = on.1.rawValue
+                push()
+            }
+        }
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        sidebarPreviewVariantObservation = Task { [weak self] in
+            for await on in ObservationStream({ AgentPaneTunables.sidebarPreviewVariant.value }) {
+                guard let self else { return }
+                sidebarPreviewVariant = on
+                push()
+            }
+        }
+        AgentPaneComposerSetting.followLook(push) // Debug Settings' plain footer look
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
@@ -81,14 +96,14 @@ final class AgentPanePageSettings {
     /// above then pushes to every page.
     func setComposer(_ path: [String], _ show: Bool) async throws {
         try await settings?.set(.bool(show), at: path)
-
     }
 
     /// Gives `view` the current values (the view pushes only a change).
     func apply(to view: AgentPaneView) {
         view.previewFeatures = previewFeatures
         view.editedFiles = editedFiles
-        view.zoom = zoom; debugSettings.apply(to: view)
+        view.zoom = zoom
+        sidebarPreviewVariant.push(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
     }
