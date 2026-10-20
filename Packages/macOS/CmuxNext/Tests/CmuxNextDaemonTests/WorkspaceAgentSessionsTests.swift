@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
@@ -36,6 +37,19 @@ struct WorkspaceAgentSessionsTests {
         let tabs = store.workspaces[0].agentHarnessSessions.map(\.tab)
         #expect(tabs.count == 1)
         #expect(!tabs.contains { $0 == exited })
+    }
+
+    /// A hook-reported agent publishes no `session` (the daemon drops its hook marker) and its
+    /// harness session as `agent_session_id`; the link resolves the terminal by that id.
+    @Test func aHookReportedTerminalListsItsAgentSessionID() throws {
+        let store = store()
+        let wire = #"{"surface":2,"state":"working","source":"hook","session":null,"agent":"claude","agent_session_id":"claude-session-1","updated_at_ms":11}"#
+        let status = try JSONDecoder().decode(AgentStatus.self, from: Data(wire.utf8))
+        #expect(status.agentSessionID == "claude-session-1")
+        store.apply(.agentChanged(status))
+        let sessions = store.workspaces[0].agentHarnessSessions
+        #expect(sessions.map(\.session) == ["ses-1", "claude-session-1"])
+        #expect(sessions.last?.tab == store.tab(surface: 2)?.id)
     }
 
     @Test(arguments: [DaemonEvent.disconnected(reason: "socket closed"), .daemonShutdown])
