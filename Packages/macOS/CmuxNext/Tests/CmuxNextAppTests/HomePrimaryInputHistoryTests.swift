@@ -6,9 +6,9 @@ import Testing
 /// Lawrence 2026-10-19: "Up arrow. You need to do work properly. We need to handle unfocus as well
 /// so that, like it is history, this is for the iMessage, chief ui stuff".
 ///
-/// The key dispatcher's arrow step (`KeyRouter.recallsPrimaryInputHistory`): a plain Up or Down
-/// while a Home container has the keyboard outside its message box goes to the box's history
-/// (`PrimaryInputHistoryTarget`), from every container (a conversation tab, a Home tab, the docked
+/// The key dispatcher's one primary-input path (`KeyRouter.typesIntoPrimaryInput` with
+/// `PrimaryInputTarget.routesToPrimaryInput`): a plain Up or Down while a Home container has the
+/// keyboard outside its message box goes to the box's history, from every container (a conversation tab, a Home tab, the docked
 /// Home); the box itself, other text inputs and the conversation list keep their arrows.
 /// The recall's content (newest sent message, Down back to the draft) is covered by
 /// MessagesLabHomeTests.ComposerHistoryKeysTests.
@@ -85,31 +85,43 @@ import Testing
 
     /// A pane-focus shortcut (Cmd-Opt-Up/Down), the sidebar, a window switch: no responder, or
     /// the transcript after a click. Up focuses the box from every container.
+    /// The dispatcher's decision as `typesIntoPrimaryInput` takes it: the input claims the key and is ready.
+    private static func routes(_ event: NSEvent, _ target: any PrimaryInputTarget) -> Bool {
+        target.routesToPrimaryInput(event) && target.acceptsRedirectedTyping
+    }
+
+    /// A pane-focus shortcut (Cmd-Opt-Up/Down), the sidebar, a window switch: no responder, or
+    /// the pane itself. Up focuses the box and recalls from every container.
     @Test(arguments: Container.allCases)
     func upWithTheKeyboardOutsideTheBoxGoesToItsHistory(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
-        let target = try #require(h.content.historyTarget, "\(container) declares no history target")
+        let target = try #require(h.content.primaryInput, "\(container) declares no primary input")
 
         h.window.makeFirstResponder(nil)
-        #expect(target.historyTakesArrowKeys(from: h.window.firstResponder), "\(container): no responder")
+        #expect(Self.routes(Self.key(126), target), "\(container): no responder")
         h.window.makeFirstResponder(h.home)
-        #expect(target.historyTakesArrowKeys(from: h.window.firstResponder), "\(container): the pane")
+        #expect(Self.routes(Self.key(126), target), "\(container): the pane")
+        #expect(!target.routesToPrimaryInput(Self.key(126, [.function, .numericPad, .shift])), "\(container): Shift-Up")
 
-        #expect(target.recallHistory(older: true))
+        target.beginTyping(with: Self.key(126))
         #expect(h.window.firstResponder === h.box, "\(container): the box did not take the keyboard")
     }
 
-    /// The box recalls through its own keys (first-line rule); other inputs and the list keep arrows.
+    /// The box recalls through its own keys (first-line rule); the conversation list keeps arrows.
     @Test(arguments: Container.allCases)
-    func theBoxTextInputsAndTheListKeepTheirArrows(_ container: Container) async throws {
+    func theBoxAndTheListKeepTheirArrows(_ container: Container) async throws {
         let h = try await Self.harness(container)
         defer { h.close() }
-        let target = try #require(h.content.historyTarget)
+        let target = try #require(h.content.primaryInput)
         h.window.makeFirstResponder(h.box)
-        #expect(!target.historyTakesArrowKeys(from: h.box))
+        #expect(!Self.routes(Self.key(126), target), "\(container): the box's own Up was taken by the dispatcher")
         if let list = h.list {
-            #expect(!target.historyTakesArrowKeys(from: list), "\(container): the conversation list lost its arrows")
+            h.window.makeFirstResponder(list)
+            let responder = h.window.firstResponder as? NSView
+            if let responder, responder === list || responder.isDescendant(of: list) {
+                #expect(!target.routesToPrimaryInput(Self.key(125)), "\(container): the conversation list lost its arrows")
+            }
         }
     }
 }

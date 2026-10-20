@@ -12,7 +12,14 @@ extension TopHomePageView: PrimaryInputTarget {
     var primaryInputView: NSView? { host?.primaryInputView }
 
     /// The shown conversation's keys (Home's one key path: `HomeHostView`).
-    func routesToPrimaryInput(_ event: NSEvent) -> Bool { host?.routesToPrimaryInput(event) ?? false }
+    func routesToPrimaryInput(_ event: NSEvent) -> Bool {
+        guard let host else { return false }
+        // The conversation list keeps its arrow keys (they move the selection).
+        if KeyRouter.historyArrow(event) != nil, let view = window?.firstResponder as? NSView, view.isDescendant(of: list) {
+            return false
+        }
+        return host.routesToPrimaryInput(event)
+    }
 
     func beginTyping(with event: NSEvent) { host?.beginTyping(with: event) }
 
