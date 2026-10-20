@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAgentChat
 import Foundation
 import CmuxMobilePairedMac
 import CmuxMobileShell
@@ -223,7 +224,6 @@ struct WorkspaceShellView: View {
     var showComputers: () -> Void = {}
     /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
     var showAddSSHComputer: (() -> Void)? = nil
-    var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -248,8 +248,8 @@ struct WorkspaceShellView: View {
     @State private var whatsNewWebLoads: [String: MobileWhatsNewWebPageLoad] = [:]
     @State private var showsWhatsNewSheet = false
     @State private var notificationNavigationPath: [MobileWorkspacePreview.ID] = []
-    /// Compact Feed-tab stack: workspaces opened from Feed rows push here.
-    @State private var feedNavigationPath: [MobileWorkspacePreview.ID] = []
+    /// Compact Chat-tab stack: workspace routes opened from Chat push here.
+    @State private var chatNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var notificationSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var workspaceSearchNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingPrimarySearchWorkspaceNavigationID: MobileWorkspacePreview.ID?
@@ -337,7 +337,7 @@ struct WorkspaceShellView: View {
             notificationNavigationPath: notificationNavigationPath,
             workspaceSearchNavigationPath: workspaceSearchNavigationPath,
             notificationSearchNavigationPath: notificationSearchNavigationPath,
-            feedNavigationPath: feedNavigationPath
+            chatNavigationPath: chatNavigationPath
         )
         #if os(iOS)
         GeometryReader { geometry in
@@ -362,13 +362,6 @@ struct WorkspaceShellView: View {
                 )
                 if !isPresented {
                     consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
-                }
-            }
-            .onChange(of: displaySettings.feedReplacesNotifications, initial: true) { _, replaces in
-                // A hidden destination cannot stay selected; the Feed is its
-                // replacement.
-                if replaces, selectedPrimaryTab == .notifications {
-                    selectedPrimaryTab = .feed
                 }
             }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
@@ -430,27 +423,20 @@ struct WorkspaceShellView: View {
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
             notificationUnreadCount: presentation.notificationUnreadCount,
-            feedNeedsInputCountProvider: {
-                presentation.selectionScope.agentFeedNeedsInputCount(
-                    from: store.agentFeedItems
-                )
-            },
-            showsNotificationsTab: !displaySettings.feedReplacesNotifications,
-            taskComposerAction: usesCompactStack && !compactNavigationPath.isEmpty
-                ? nil
-                : taskComposerAction
+            chatNeedsInputCountProvider: { 0 },
+            showsNotificationsTab: true,
+            taskComposerAction: nil
         ) {
             workspaceTabContent(
                 presentation: presentation
             )
-        } feed: {
-            NavigationStack(path: $feedNavigationPath) {
-                agentFeedStoreView(
-                    for: presentation,
-                    isActive: selectedPrimaryTab == .feed
+        } chat: {
+            NavigationStack(path: $chatNavigationPath) {
+                agentChatView(
+                    searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
                 )
                     .toolbar {
-                        if feedNavigationPath.isEmpty {
+                        if chatNavigationPath.isEmpty {
                             rootToolbarContent
                         }
                     }
@@ -464,7 +450,7 @@ struct WorkspaceShellView: View {
                     }
             }
             // The root stack owns the shared picker toolbar. Keep its title
-            // region inline so the list and Feed start directly below it.
+            // region inline so the list starts directly below it.
             .mobileInlineNavigationTitle()
         } notifications: {
             if !usesCompactStack {
@@ -536,7 +522,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: $workspaceSearchNavigationPath
         case .notifications: $notificationSearchNavigationPath
-        case .feed: .constant([])
+        case .chat: .constant([])
         }
     }
 
@@ -566,8 +552,10 @@ struct WorkspaceShellView: View {
                                 createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
                             )
                         }
-                    case .feed:
-                        agentFeedStoreView(for: presentation)
+                    case .chat:
+                        agentChatView(
+                            searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
+                        )
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -649,17 +637,6 @@ struct WorkspaceShellView: View {
             compactNavigationPath = [selectedWorkspaceID]
         }
         #if os(iOS)
-        .taskComposerPresentation(
-            isPresented: taskComposerPresentation.isPresented,
-            onDismiss: taskComposerPresentation.didDismiss
-        ) { launch, switchDraft in
-            TaskComposerSheet(
-                store: store,
-                launchIntent: launch.intent,
-                onSwitchDraft: switchDraft,
-                submitTaskComposer: submitTaskComposerFromShell
-            )
-        }
         // Wait for the first remote-list attempt before presenting, so a
         // cached native page cannot overtake a newer remote announcement.
         // A failed fetch still permits the cached/offline pages.
@@ -814,7 +791,7 @@ struct WorkspaceShellView: View {
         NavigationStack(path: $compactNavigationPath) {
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .push,
@@ -907,15 +884,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func openTaskComposer() {
-        taskComposerPresentation.present()
-    }
-
-    private var taskComposerAction: (() -> Void)? {
-        guard store.supportsTaskComposer else { return nil }
-        return openTaskComposer
-    }
-
     #if os(iOS)
     private func splitLayout(presentation: WorkspaceShellRenderPresentation) -> some View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
@@ -925,7 +893,7 @@ struct WorkspaceShellView: View {
             #else
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -965,7 +933,7 @@ struct WorkspaceShellView: View {
         NavigationSplitView(columnVisibility: $splitColumnVisibility) {
             MobilePrimaryWorkspaceSearchHost(
                 searchCoordinator: primarySearchCoordinator,
-                taskComposerAction: taskComposerAction
+                taskComposerAction: nil
             ) { searchText in
                 workspaceList(
                     navigationStyle: .sidebar,
@@ -1000,8 +968,10 @@ struct WorkspaceShellView: View {
         let notificationItems = presentation.notificationFeedItems
         return Group {
             switch splitSidebarDestination {
-            case .feed:
-                agentFeedStoreView(for: presentation)
+            case .chat:
+                agentChatView(
+                    searchText: primarySearchCoordinator.searchDestinationText(for: .chat)
+                )
             case .notifications:
                 NotificationFeedStoreView(
                     store: store,
@@ -1026,7 +996,7 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             if splitSidebarDestination == .notifications
-                || splitSidebarDestination == .feed
+                || splitSidebarDestination == .chat
                 || (splitSidebarDestination == .cloud && cloudTabContent != nil) {
                 ToolbarItem(placement: .topBarTrailing) {
                     // Notifications has no WorkspaceListView toolbar, so the
@@ -1053,8 +1023,8 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
-            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
-                .tag(MobilePrimarySearchScope.feed)
+            Text(L10n.string("mobile.tabs.chat", defaultValue: "Chat"))
+                .tag(MobilePrimarySearchScope.chat)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
         }
@@ -1094,9 +1064,9 @@ struct WorkspaceShellView: View {
             WorkspaceSidebarDestinationControl(
                 selection: splitSidebarDestinationSelection,
                 workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
-                feedTitle: L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
+                chatTitle: L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
                 notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount),
-                showsNotifications: !displaySettings.feedReplacesNotifications,
+                showsNotifications: true,
                 cloudTitle: cloudTabContent == nil
                     ? nil
                     : L10n.string("mobile.tabs.cloud", defaultValue: "Cloud")
@@ -1105,26 +1075,12 @@ struct WorkspaceShellView: View {
         if #available(iOS 26.0, *) {
             ToolbarSpacer(.flexible, placement: .bottomBar)
         }
-        if let taskComposerAction {
-            ToolbarItem(placement: .bottomBar) {
-                Button(action: taskComposerAction) {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.taskComposer.button.accessibilityLabel", defaultValue: "New Task")
-                )
-                .accessibilityHint(
-                    L10n.string("mobile.taskComposer.button.accessibilityHint", defaultValue: "Opens the task composer.")
-                )
-                .accessibilityIdentifier("MobileTaskComposerButton")
-            }
-        }
     }
 
     private struct WorkspaceSidebarDestinationControl: View {
         let selection: Binding<MobilePrimaryTab>
         let workspacesTitle: String
-        let feedTitle: String
+        let chatTitle: String
         let notificationsTitle: String
         let showsNotifications: Bool
         /// Nil in a build without Cloud, which omits the destination.
@@ -1138,9 +1094,9 @@ struct WorkspaceShellView: View {
                     accessibilityID: "MobileSplitSidebarWorkspaces"
                 )
                 destinationButton(
-                    .feed,
-                    title: feedTitle,
-                    accessibilityID: "MobileSplitSidebarFeed"
+                    .chat,
+                    title: chatTitle,
+                    accessibilityID: "MobileSplitSidebarChat"
                 )
                 if showsNotifications {
                     destinationButton(
@@ -1272,8 +1228,8 @@ struct WorkspaceShellView: View {
 
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
-        case .feed:
-            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
+        case .chat:
+            Text(L10n.string("mobile.chat.search.placeholder", defaultValue: "Search chats"))
         case .workspaces:
             Text(
                 L10n.string(
@@ -1493,16 +1449,41 @@ struct WorkspaceShellView: View {
         )
     }
 
-    private func agentFeedStoreView(
-        for presentation: WorkspaceShellRenderPresentation,
-        isActive: Bool = true
-    ) -> AgentFeedStoreView {
-        AgentFeedStoreView(
-            store: store,
-            selectionScope: presentation.selectionScope,
-            isActive: isActive,
-            searchCoordinator: primarySearchCoordinator
+    /// First-class agent chat destination. The legacy Feed remains available
+    /// only to migration and debug fixtures; production navigation mounts Chat.
+    private func agentChatView(searchText: String = "") -> MobileChatRootView {
+        MobileChatRootView(
+            sourceProvider: { store.makeChatEventSource() },
+            searchText: searchText,
+            connectionGeneration: store.chatConnectionGeneration,
+            startNewChat: startNewChat,
+            showSettings: showSettings
         )
+    }
+
+    /// Start a provider in a fresh workspace, then let the chat session stream
+    /// discover the resulting conversation. This keeps the mobile surface
+    /// provider-neutral while reusing the host's existing workspace creation
+    /// and agent discovery paths.
+    private func startNewChat(_ provider: ChatAgentKind) {
+        let command: String
+        switch provider {
+        case .claude: command = "claude"
+        case .codex: command = "codex"
+        case .openCode: command = "opencode"
+        case .other: return
+        }
+        guard canCreateWorkspaceOnForegroundConnection else { return }
+        Task { @MainActor in
+            let result = await store.createWorkspaceRequest(
+                spec: MobileWorkspaceCreateSpec(
+                    title: "\(provider.displayName) chat",
+                    initialCommand: command,
+                    operationID: UUID()
+                )
+            )
+            handleWorkspaceActionResult(result, action: .createWorkspace)
+        }
     }
 
     private func rootToolbarRenderContext(
@@ -1612,10 +1593,10 @@ struct WorkspaceShellView: View {
             return
         }
         if request.origin == .agentFeed,
-           selectedPrimaryTab == .feed,
+           selectedPrimaryTab == .chat,
            !primarySearchCoordinator.isPresented {
-            if feedNavigationPath.last != workspaceID {
-                feedNavigationPath = [workspaceID]
+            if chatNavigationPath.last != workspaceID {
+                chatNavigationPath = [workspaceID]
             }
             return
         }
@@ -1643,7 +1624,7 @@ struct WorkspaceShellView: View {
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
             pendingPrimarySearchWorkspaceNavigationID = nil
             selectWorkspaceImmediately(workspaceID)
-        case .feed:
+        case .chat:
             // The Feed has no search-result navigation lane yet.
             break
         case .notifications:
@@ -1724,7 +1705,7 @@ struct WorkspaceShellView: View {
     private func diagnosticPrimaryTab(_ tab: MobilePrimaryTab) -> DiagnosticPrimaryTab {
         switch tab {
         case .workspaces: .workspaces
-        case .feed: .feed
+        case .chat: .feed
         case .notifications: .notifications
         case .cloud: .cloud
         case .search: .search
@@ -1735,7 +1716,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: .workspaces
         case .notifications: .notifications
-        case .feed: .feed
+        case .chat: .feed
         }
     }
 

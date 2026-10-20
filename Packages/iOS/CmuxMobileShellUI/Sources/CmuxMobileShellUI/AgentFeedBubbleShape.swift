@@ -1,85 +1,161 @@
 #if os(iOS)
+import CoreGraphics
 import SwiftUI
 
 /// An iMessage-style message bubble with its tail at a bottom corner.
 ///
-/// Drawn as one continuous path so the same shape can be stroked for quoted
-/// messages and filled for replies. The body is inset ``tailWidth`` points
-/// from ``tailEdge``; the tail hooks out into that gutter and curls back into
-/// the bottom edge, matching Messages. A trailing tail (a sent message) is the
-/// leading geometry mirrored. Callers add ``tailWidth`` to their content
-/// padding on the tail edge.
+/// The outline is the measured iOS 26 ChatKit balloon geometry. Keeping the
+/// curve here (rather than approximating it with rounded rectangles) makes
+/// quoted and sent Feed messages share the same corners and tucked tail as
+/// Messages. The shape's frame includes the tail drop; callers reserve that
+/// space with ``tailReserve`` so the tail does not overlap the next row.
 struct AgentFeedBubbleShape: Shape {
-    static let tailWidth: CGFloat = 4
+    /// ChatKit tucks the iOS 26 tail inside the bubble's horizontal bounds.
+    static let tailWidth: CGFloat = 0
+
+    /// Space reserved below the body for the tail. The actual path scales the
+    /// drop with its effective corner radius, while this reserve keeps the
+    /// usual footnote-sized Feed bubbles inside their layout frame.
+    static let tailReserve: CGFloat = 6
+
+    private static let referenceRadius: CGFloat = 20.1435546875
+    private static let referenceTailDrop: CGFloat = 6.8337
+
     var tailEdge: HorizontalEdge = .leading
     var cornerRadius: CGFloat = 18
 
     func path(in rect: CGRect) -> Path {
-        let path = leadingTailPath(in: rect)
-        guard tailEdge == .trailing else { return path }
-        return path.applying(
-            CGAffineTransform(translationX: rect.minX + rect.maxX, y: 0).scaledBy(x: -1, y: 1)
+        // The layout frame includes a small tail reserve. Solve the body
+        // height once or twice so the scaled ChatKit tail ends at the frame's
+        // bottom edge even when Dynamic Type changes the corner radius.
+        var bodyHeight = max(0, rect.height - Self.tailReserve)
+        for _ in 0..<3 {
+            let radius = min(cornerRadius, bodyHeight / 2, rect.width / 2)
+            let drop = Self.referenceTailDrop * max(0, radius) / Self.referenceRadius
+            bodyHeight = max(0, rect.height - drop)
+        }
+
+        let body = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: bodyHeight)
+        let side: AgentFeedBubbleGeometry.Side = tailEdge == .leading ? .leading : .trailing
+        let cgPath = AgentFeedBubbleGeometry.path(
+            in: body,
+            side: side,
+            tail: true,
+            radius: cornerRadius,
+            tailWidth: Self.tailWidth,
+            tailDrop: Self.referenceTailDrop * max(0, cornerRadius) / Self.referenceRadius
         )
+        return Path(cgPath)
+    }
+}
+
+/// The continuous corners and tucked tail used by CKBalloonShapeLayer on
+/// iOS 26. Coordinates are top-left-origin, matching SwiftUI's Path space.
+private extension AgentFeedBubbleShape {
+    struct AgentFeedBubbleGeometry {
+    enum Side {
+        case leading
+        case trailing
     }
 
-    private func leadingTailPath(in rect: CGRect) -> Path {
-        let left = rect.minX + Self.tailWidth
-        let right = rect.maxX
-        let top = rect.minY
-        let bottom = rect.maxY
-        let radius = min(cornerRadius, rect.height / 2, (right - left) / 2)
-        // Bezier handle for a circular-looking corner (8/20 in the classic
-        // Messages bubble geometry).
-        let handle = radius * 0.4
-        let tailTop = max(top + radius, bottom - 11)
+    static func path(
+        in rect: CGRect,
+        side: Side,
+        tail: Bool,
+        radius: CGFloat,
+        tailWidth: CGFloat,
+        tailDrop: CGFloat
+    ) -> CGPath {
+        var body = rect
+        body.size.width -= tailWidth
+        if side == .leading { body.origin.x += tailWidth }
+        // `tailDrop` is part of the public call shape for documentation and
+        // future variants; the measured offsets below carry the drop itself.
+        _ = tailDrop
+        return iOSPath(in: body, side: side, tail: tail, radius: radius)
+    }
 
-        var path = Path()
-        path.move(to: CGPoint(x: left + 21, y: bottom))
-        path.addLine(to: CGPoint(x: right - radius, y: bottom))
-        path.addCurve(
-            to: CGPoint(x: right, y: bottom - radius),
-            control1: CGPoint(x: right - handle, y: bottom),
-            control2: CGPoint(x: right, y: bottom - handle)
-        )
-        path.addLine(to: CGPoint(x: right, y: top + radius))
-        path.addCurve(
-            to: CGPoint(x: right - radius, y: top),
-            control1: CGPoint(x: right, y: top + handle),
-            control2: CGPoint(x: right - handle, y: top)
-        )
-        path.addLine(to: CGPoint(x: left + radius, y: top))
-        path.addCurve(
-            to: CGPoint(x: left, y: top + radius),
-            control1: CGPoint(x: left + handle, y: top),
-            control2: CGPoint(x: left, y: top + handle)
-        )
-        path.addLine(to: CGPoint(x: left, y: tailTop))
-        // Tail: down and out to a slightly lifted, rounded tip, then curl
-        // back into the bottom edge, so filled bubbles never end in a point.
-        path.addCurve(
-            to: CGPoint(x: rect.minX + 0.7, y: bottom - 0.6),
-            control1: CGPoint(x: left, y: bottom - 2.4),
-            control2: CGPoint(x: rect.minX + 2.1, y: bottom - 0.7)
-        )
-        path.addQuadCurve(
-            to: CGPoint(x: rect.minX + 1.6, y: bottom - 0.2),
-            control: CGPoint(x: rect.minX + 0.4, y: bottom - 0.1)
-        )
-        // The inner edge peaks with a horizontal tangent so it arches
-        // smoothly back into the bottom edge instead of meeting it in a cusp.
-        let archPeak = CGPoint(x: left + 7, y: bottom - 3.5)
-        path.addCurve(
-            to: archPeak,
-            control1: CGPoint(x: rect.minX + 3.4, y: bottom + 0.2),
-            control2: CGPoint(x: left + 4, y: archPeak.y)
-        )
-        path.addCurve(
-            to: CGPoint(x: left + 21, y: bottom),
-            control1: CGPoint(x: left + 10, y: archPeak.y),
-            control2: CGPoint(x: left + 16, y: bottom)
-        )
+    private struct CornerAxis {
+        var a: [CGFloat]
+
+        init(halfExtent: CGFloat, radius r: CGFloat) {
+            let pill: [CGFloat] = [1, 0.87327, 0.74768, 0.62993, 0.37476, 0.17266, 0.07099, 0.02408]
+            let normal: [CGFloat] = [1.52866, 1.08849, 0.86841, 0.63152, 0.37282, 0.16905, 0.07491, 0]
+            let t = r > 0 ? max(0, min(1, (halfExtent - r) / (0.52866 * r))) : 1
+            a = zip(pill, normal).map { ($0 + ($1 - $0) * t) * r }
+        }
+    }
+
+    private static func cornerPoints(vertical v: CornerAxis, horizontal h: CornerAxis) -> [CGPoint] {
+        [
+            CGPoint(x: 0, y: v.a[0]),
+            CGPoint(x: 0, y: v.a[1]), CGPoint(x: v.a[7], y: v.a[2]), CGPoint(x: v.a[6], y: v.a[3]),
+            CGPoint(x: v.a[5], y: v.a[4]), CGPoint(x: h.a[4], y: h.a[5]), CGPoint(x: h.a[3], y: h.a[6]),
+            CGPoint(x: h.a[2], y: h.a[7]), CGPoint(x: h.a[1], y: 0), CGPoint(x: h.a[0], y: 0),
+        ]
+    }
+
+    /// Offsets from the bottom-trailing corner at the reference radius.
+    private static let iOSTail: [CGPoint] = [
+        CGPoint(x: 0, y: -15.806), CGPoint(x: -1.425, y: -11.584), CGPoint(x: -4.057, y: -8.134),
+        CGPoint(x: -5.123, y: -6.736), CGPoint(x: -6.355, y: -5.503), CGPoint(x: -7.715, y: -4.455),
+        CGPoint(x: -9.654, y: -2.943), CGPoint(x: -10.493, y: -1.366), CGPoint(x: -10.493, y: 0.407),
+        CGPoint(x: -10.493, y: 1.598), CGPoint(x: -10.282, y: 2.775), CGPoint(x: -8.571, y: 5.023),
+        CGPoint(x: -7.750, y: 6.101), CGPoint(x: -8.574, y: 7.201), CGPoint(x: -9.857, y: 6.714),
+        CGPoint(x: -12.496, y: 5.711), CGPoint(x: -15.502, y: 3.887), CGPoint(x: -18.134, y: 1.941),
+        CGPoint(x: -20.493, y: 0.196), CGPoint(x: -21.122, y: 0.020), CGPoint(x: -22.228, y: 0.013),
+    ]
+
+    private static func iOSPath(in rect: CGRect, side: Side, tail: Bool, radius: CGFloat) -> CGPath {
+        let r = max(0, min(radius, rect.height / 2, rect.width / 2))
+        let local = iOSTrailingTailPath(width: rect.width, height: rect.height, radius: r, tail: tail)
+        var transform = side == .leading
+            ? CGAffineTransform(translationX: rect.maxX, y: rect.minY).scaledBy(x: -1, y: 1)
+            : CGAffineTransform(translationX: rect.minX, y: rect.minY)
+        return local.copy(using: &transform) ?? local
+    }
+
+    private static func iOSTrailingTailPath(width w: CGFloat, height h: CGFloat, radius r: CGFloat, tail: Bool) -> CGPath {
+        let vertical = CornerAxis(halfExtent: h / 2, radius: r)
+        let horizontal = CornerAxis(halfExtent: w / 2, radius: r)
+        let corner = cornerPoints(vertical: vertical, horizontal: horizontal)
+        let path = CGMutablePath()
+
+        func addCorner(_ map: (CGPoint) -> CGPoint, reversed: Bool) {
+            let points = reversed ? Array(corner.reversed()) : corner
+            path.addLine(to: map(points[0]))
+            for index in stride(from: 1, to: points.count, by: 3) {
+                path.addCurve(
+                    to: map(points[index + 2]),
+                    control1: map(points[index]),
+                    control2: map(points[index + 1])
+                )
+            }
+        }
+
+        path.move(to: CGPoint(x: horizontal.a[0], y: 0))
+        addCorner({ CGPoint(x: w - $0.x, y: $0.y) }, reversed: true)
+        if tail {
+            let scale = r / 20.1435546875
+            path.addLine(to: CGPoint(x: w, y: h - vertical.a[0]))
+            for index in stride(from: 0, to: iOSTail.count, by: 3) {
+                func point(_ offset: CGPoint) -> CGPoint {
+                    CGPoint(x: w + offset.x * scale, y: h + offset.y * scale)
+                }
+                path.addCurve(
+                    to: point(iOSTail[index + 2]),
+                    control1: point(iOSTail[index]),
+                    control2: point(iOSTail[index + 1])
+                )
+            }
+        } else {
+            addCorner({ CGPoint(x: w - $0.x, y: h - $0.y) }, reversed: false)
+        }
+        addCorner({ CGPoint(x: $0.x, y: h - $0.y) }, reversed: true)
+        addCorner({ $0 }, reversed: false)
         path.closeSubpath()
         return path
+    }
     }
 }
 #endif

@@ -56,8 +56,8 @@ struct MobilePrimarySearchNavigationStack<Root: View, Destination: View>: View {
         switch searchCoordinator.scope {
         case .workspaces:
             Text(L10n.string("mobile.workspaces.search.placeholder", defaultValue: "Search workspaces"))
-        case .feed:
-            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
+        case .chat:
+            Text(L10n.string("mobile.chat.search.placeholder", defaultValue: "Search chats"))
         case .notifications:
             Text(L10n.string("mobile.notificationFeed.search.placeholder", defaultValue: "Search notifications"))
         }

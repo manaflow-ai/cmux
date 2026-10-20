@@ -7,7 +7,7 @@ import SwiftUI
 /// the same labels, symbols, badge behavior, and selection semantics as the app.
 struct MobilePrimaryTabScaffold<
     Workspaces: View,
-    Feed: View,
+    Chat: View,
     Notifications: View,
     Cloud: View,
     Search: View
@@ -15,13 +15,13 @@ struct MobilePrimaryTabScaffold<
     @Binding var selection: MobilePrimaryTab
     @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
     let notificationUnreadCount: Int
-    let feedNeedsInputCount: Int
-    let feedNeedsInputCountProvider: (@MainActor () -> Int)?
-    /// False when the Feed replaces the Notifications tab (CMUX Labs).
+    let chatNeedsInputCount: Int
+    let chatNeedsInputCountProvider: (@MainActor () -> Int)?
+    /// False when Chat replaces the Notifications tab (CMUX Labs).
     let showsNotificationsTab: Bool
     let taskComposerAction: (() -> Void)?
     let workspaces: Workspaces
-    let feed: Feed
+    let chat: Chat
     let notifications: Notifications
     let cloud: Cloud
     let search: Search
@@ -30,12 +30,12 @@ struct MobilePrimaryTabScaffold<
         selection: Binding<MobilePrimaryTab>,
         searchCoordinator: MobilePrimarySearchCoordinator,
         notificationUnreadCount: Int,
-        feedNeedsInputCount: Int = 0,
-        feedNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
+        chatNeedsInputCount: Int = 0,
+        chatNeedsInputCountProvider: (@MainActor () -> Int)? = nil,
         showsNotificationsTab: Bool = true,
         taskComposerAction: (() -> Void)? = nil,
         @ViewBuilder workspaces: () -> Workspaces,
-        @ViewBuilder feed: () -> Feed,
+        @ViewBuilder chat: () -> Chat,
         @ViewBuilder notifications: () -> Notifications,
         @ViewBuilder cloud: () -> Cloud,
         @ViewBuilder search: () -> Search
@@ -43,12 +43,12 @@ struct MobilePrimaryTabScaffold<
         _selection = selection
         self.searchCoordinator = searchCoordinator
         self.notificationUnreadCount = notificationUnreadCount
-        self.feedNeedsInputCount = feedNeedsInputCount
-        self.feedNeedsInputCountProvider = feedNeedsInputCountProvider
+        self.chatNeedsInputCount = chatNeedsInputCount
+        self.chatNeedsInputCountProvider = chatNeedsInputCountProvider
         self.showsNotificationsTab = showsNotificationsTab
         self.taskComposerAction = taskComposerAction
         self.workspaces = workspaces()
-        self.feed = feed()
+        self.chat = chat()
         self.notifications = notifications()
         self.cloud = cloud()
         self.search = search()
@@ -102,10 +102,10 @@ struct MobilePrimaryTabScaffold<
                 workspaces
                     .tabItem { workspacesLabel }
                     .tag(MobilePrimaryTab.workspaces)
-                feed
-                    .tabItem { feedLabel }
-                    .tag(MobilePrimaryTab.feed)
-                    .badge(resolvedFeedNeedsInputCount)
+                chat
+                    .tabItem { chatLabel }
+                    .tag(MobilePrimaryTab.chat)
+                    .badge(resolvedChatNeedsInputCount)
                 if showsNotificationsTab {
                     notifications
                         .tabItem { notificationsLabel }
@@ -120,8 +120,8 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
-    private var resolvedFeedNeedsInputCount: Int {
-        feedNeedsInputCountProvider?() ?? feedNeedsInputCount
+    private var resolvedChatNeedsInputCount: Int {
+        chatNeedsInputCountProvider?() ?? chatNeedsInputCount
     }
 
     /// A tab-view bottom accessory always adds a full-width plate, which is
@@ -162,12 +162,12 @@ struct MobilePrimaryTabScaffold<
             workspacesLabel
         }
 
-        Tab(value: MobilePrimaryTab.feed) {
-            feed
+        Tab(value: MobilePrimaryTab.chat) {
+            chat
         } label: {
-            feedLabel
+            chatLabel
         }
-        .badge(resolvedFeedNeedsInputCount)
+        .badge(resolvedChatNeedsInputCount)
 
         if showsNotificationsTab {
             Tab(value: MobilePrimaryTab.notifications) {
@@ -184,12 +184,12 @@ struct MobilePrimaryTabScaffold<
         }
     }
 
-    private var feedLabel: some View {
+    private var chatLabel: some View {
         Label(
-            L10n.string("mobile.tabs.feed", defaultValue: "Feed"),
-            systemImage: "waveform"
+            L10n.string("mobile.tabs.chat", defaultValue: "Chat"),
+            systemImage: "bubble.left.and.bubble.right"
         )
-        .accessibilityIdentifier("MobilePrimaryTabFeed")
+        .accessibilityIdentifier("MobilePrimaryTabChat")
     }
 
     private var workspacesLabel: some View {

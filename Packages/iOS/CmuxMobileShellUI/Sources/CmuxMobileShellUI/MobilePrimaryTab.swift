@@ -2,7 +2,7 @@
 /// The mobile app's primary destinations and transient search selection.
 enum MobilePrimaryTab: Hashable {
     case workspaces
-    case feed
+    case chat
     case notifications
     case cloud
     case search

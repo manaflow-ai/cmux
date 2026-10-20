@@ -40,6 +40,21 @@ struct TerminalWireCodableTests {
         #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
     }
 
+    @Test("ChatSessionEvent.stateChanged carries an optional descriptor version")
+    func stateChangedVersionRoundTrip() throws {
+        let date = Date(timeIntervalSince1970: 42)
+        let event = ChatSessionEvent.stateChanged(.working(since: date), version: 12)
+        let data = try encoder.encode(event)
+        #expect(String(decoding: data, as: UTF8.self).contains("\"version\":12"))
+        #expect(try decoder.decode(ChatSessionEvent.self, from: data) == event)
+
+        let legacy = #"{"event":"state_changed","state":{"state":"idle"}}"#.data(using: .utf8)!
+        #expect(
+            try decoder.decode(ChatSessionEvent.self, from: legacy)
+                == .stateChanged(.idle, version: nil)
+        )
+    }
+
     @Test("ChatSessionEvent.sessionRemoved round-trips")
     func sessionRemovedEventRoundTrip() throws {
         let event = ChatSessionEvent.sessionRemoved(version: 9)

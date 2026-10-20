@@ -389,7 +389,7 @@ final class AgentChatTranscriptService {
         switch record.agentKind {
         case .codex:
             return true
-        case .claude, .other:
+        case .claude, .openCode, .other:
             return endedListability.shouldList(record, resolver: resolver, now: now())
         }
     }
@@ -662,7 +662,10 @@ final class AgentChatTranscriptService {
             return
         }
         if stateChanged {
-            emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
+            emit(frame: ChatSessionEventFrame(
+                sessionID: record.sessionID,
+                event: .stateChanged(record.state, version: record.version)
+            ))
         }
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
