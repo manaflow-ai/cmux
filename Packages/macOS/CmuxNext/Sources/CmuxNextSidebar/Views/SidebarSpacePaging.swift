@@ -190,10 +190,13 @@ import QuartzCore
     func prepareSlide(oldSections: [SidebarSection]) {
         finishSlide()
         guard pendingTarget == nil, pager == nil else { return }
-        snapshot = makePage(oldSections)
+        snapshot = makePage(oldSections, offset: host.scrollView.contentView.bounds.minY)
     }
 
-    private func makePage(_ sections: [SidebarSection]) -> SpacePageView {
+    /// A page of `sections` scrolled to `offset`, as the list showed them: it makes views for the
+    /// rows in the page's frame only (`SidebarListView.pageViewport`), so a switch or a swipe costs
+    /// the rows on screen, never every workspace of the space (space-switch-fast).
+    private func makePage(_ sections: [SidebarSection], offset: CGFloat = 0) -> SpacePageView {
         let model = SidebarModel(sections: sections)
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
         model.collapsedWorkspaces = host.model.collapsedWorkspaces
@@ -204,7 +207,9 @@ import QuartzCore
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)
         container.wantsLayer = true
-        list.frame = container.bounds
+        container.layer?.masksToBounds = true
+        list.frame = NSRect(x: 0, y: -offset, width: container.bounds.width, height: container.bounds.height)
+        list.pageViewport = NSRect(x: 0, y: offset, width: container.bounds.width, height: container.bounds.height)
         list.autoresizingMask = [.width]
         container.addSubview(list)
         container.list = list
