@@ -35,7 +35,7 @@ package struct AgentChatTabActions {
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
-    package func run(_ id: String, cwd: String?, on target: String? = nil) {
+    package func run(_ id: String, cwd: String?, on target: String? = nil, inPane: Bool = false) {
         // The header's Terminal names the chat's folder, the one a split inherits: with Ghostty's
         // `split-inherit-working-directory = false` it names none, and the split starts in the home
         // folder as any split does (PaneHandlers.split, NewTerminalStart). Only for a chat on this Mac:
@@ -46,6 +46,7 @@ package struct AgentChatTabActions {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         // The header's Terminal and Split Down open a terminal, not the New Tab page a person's split from a chat opens.
         invocation.opensTerminal = terminal
+        invocation.opensTabInPane = inPane
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 

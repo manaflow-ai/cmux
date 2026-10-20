@@ -94,7 +94,7 @@ final class AgentChatSplitToggles {
     /// the target's column, or with no target in a new column right of the chat.
     private static func run(_ id: String, cwd: String?, url: String?, chat: String, store: DaemonStore?,
                             on target: String?, actions: AgentChatTabActions) {
-        if AgentChatPanelPlacement().open(id, on: target, terminal: { actions.run("newSurface", cwd: cwd ?? store?.tab(id: chat)?.cwd, on: target) }, browser: { actions.runBeside("openBrowser", arguments: [:], on: target) }) { return }
+        if AgentChatPanelPlacement().open(id, on: target, terminal: { actions.run("newSurface", cwd: cwd ?? store?.tab(id: chat)?.cwd, on: target, inPane: true) }, browser: { actions.runBeside("openBrowser", arguments: [:], on: target) }) { return }
         switch id {
         case changes:
             // The chat's repository, whichever tab the diff opens beside.
