@@ -54,6 +54,10 @@ pub struct HeadlessSource {
     /// When an unused browser closes (`crate::headless_linger`).
     linger: Mutex<crate::headless_linger::Linger>,
     linger_wake: Condvar,
+    /// Each session's connection policy (crate::headless_policy).
+    pub(crate) policies: Mutex<crate::headless_policy::Policies>,
+    /// The isolated host's egress listener, for the policy listeners.
+    pub(crate) egress: Option<std::net::SocketAddr>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -115,6 +119,8 @@ impl HeadlessSource {
             configs: Mutex::default(),
             linger: Mutex::default(),
             linger_wake: Condvar::new(),
+            policies: Mutex::default(),
+            egress: options.egress_listener,
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -507,6 +513,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
+        self.0.connection_policy_refusal(call.session, call.method, call.target_id)?;
         self.0.drive(call.session, call.target_id);
         match call.method {
             // The events this session has a handler for in the tab (routing).
@@ -597,7 +604,21 @@ impl TabSource for SharedHeadless {
         true
     }
 
+    fn set_connection_policy(
+        &self,
+        session: u64,
+        _engine: &str,
+        policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<bool, DriverError> {
+        self.0.set_connection_policy(session, policy)
+    }
+
+    fn outside_connection_policy(&self, session: u64, target_id: &str) -> bool {
+        self.0.outside_connection_policy(session, target_id)
+    }
+
     fn session_ended(&self, session: u64) {
+        self.0.connection_policy_ended(session);
         self.0.configure_ended(session);
         // Its open dialogs are dismissed (beforeunload: the page stays) and
         // its file choosers cancelled (driver-protocol.md: when the session
@@ -819,6 +840,13 @@ impl Driver for HeadlessSession {
 
     fn set_request_filter(&self, filter: Option<RequestFilter>) -> bool {
         self.engine.as_ref().is_some_and(|e| e.set_request_filter(filter))
+    }
+
+    fn set_connection_policy(
+        &self,
+        policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<(), DriverError> {
+        self.engine.as_ref().map_or(Ok(()), |e| e.set_connection_policy(policy))
     }
 
     fn send_session_event(&self, event: DriverEvent) -> bool {

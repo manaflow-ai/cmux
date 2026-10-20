@@ -52,7 +52,8 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: var(--ui-popup-padding);
-  border: 1px solid var(--ui-line);
+  /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
+  border: 0;
   border-radius: var(--ui-popup-radius);
   background: var(--surface-popup);
   color: var(--ui-fg);
@@ -87,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: var(--ui-row-height);
+  min-height: var(--ui-row-height, var(--cmux-control-height));
   padding: 2px var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   outline: none;
@@ -220,7 +221,7 @@
   padding: 6px 8px 2px;
   color: var(--ui-fg-2);
   font-size: var(--text-caption);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-separator {
@@ -281,7 +282,7 @@
   border-radius: 12px 12px 0 0;
   background: var(--ui-surface);
   color: var(--ui-fg);
-  box-shadow: 0 -8px 30px color-mix(in srgb, black 22%, transparent);
+  box-shadow: var(--elevation-2);
 }
 
 .ui-sheet-top {
@@ -349,15 +350,28 @@
   }
 }
 
-/* Tooltips and sheets only fade, so they fade under Reduce Motion too. */
-.ui-tooltip,
+/* Sheets only fade, so they fade under Reduce Motion too. Tooltips fade (and rise) with the
+   tooltip surface (pages/shared/desktop.css). */
 .ui-sheet {
   transition: opacity 90ms ease-out;
 }
 
-.ui-tooltip[data-starting-style],
-.ui-tooltip[data-ending-style],
 .ui-sheet[data-starting-style],
 .ui-sheet[data-ending-style] {
   opacity: 0;
+}
+
+/* Dialog buttons show the key that presses them (u2647, ui/DialogButton): a subtle keycap after
+   the title in the secondary color, as macOS menus show their keys. */
+.ui-dialog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.ui-keyhint {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  color: var(--ui-fg-2);
+  opacity: 0.9;
 }

@@ -55,6 +55,10 @@ import CmuxNextCompat
     var draining = false
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
+    /// This Mac's acpmux socket from the last handshake (the agent CLI card's update and restart).
+    var acpmuxSocket: String?
+    /// The acpmux that serves ``acpmuxSocket``, for a background process's terminal (``AgentPaneProcessViewer``).
+    var acpmuxExecutable: URL?
     /// The permission options the daemon sent, to tell an allow from a deny.
     public let permissionOptions = AcpmuxPermissionOptions()
     /// The sessions this pane started or shows.
@@ -67,11 +71,18 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
-    /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
-    /// first `session/prompt` on that connection goes with it, however long the start took.
-    var remoteStartCredit: (connection: Int, at: TimeInterval)?
-    /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
-    static let remoteStartCreditLifetime: TimeInterval = 120
+    /// A `session/new` took the person's send gesture: the first `session/prompt` on that
+    /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
+    /// that gesture; on this Mac it needs none but carries one it finds.
+    var startCredit = AgentPaneGestureCredit()
+    /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
+    /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
+    var remoteTrustCredit = AgentPaneGestureCredit()
+    /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
+    /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
+    public internal(set) var remoteHomeChosen: Set<String> = []
+    /// How long a start's gesture waits for its first prompt (the start may take 75 s).
+    static let startCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
     /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
@@ -119,12 +130,6 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
-    /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
-    /// Archive). Replaced in tests.
-    public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
-        throw AcpmuxStatusClient.Failure.closed
-    }
-
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
@@ -141,10 +146,6 @@ import CmuxNextCompat
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)
-        }
-        tagSession = { [weak self] session, set, remove in
-            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
-            try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
         markUnread = { [weak self] session in
             guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
@@ -173,7 +174,8 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
-        remoteStartCredit = nil
+        if !remoteWire { remoteHomeChosen = [] }
+        startCredit.clear()
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
@@ -257,13 +259,19 @@ import CmuxNextCompat
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
         // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
-        // pane was shown, and only for an option that prompt offers as an allow. Page script can
-        // still turn a click into an allow of such a prompt (cx-ocdz: a native person-input gate
-        // for the permission card is the fix).
+        // pane was shown, only for an option that prompt offers as an allow, and only right after
+        // the person's own click (cx-ocdz: a posted click or a keystroke's gesture never answers).
         if intent.method == "_acpmux/permission_respond" {
             guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
                   case .string(let option)? = intent.params["optionId"], sessions.contains(session),
-                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option),
+                  gestures.hasFreshAnswerGesture else { return nil }
+        }
+        // A prompt held for the folder trust answer right after a new chat's start: the start took
+        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
+        if intent.method == "session/prompt", !gestures.isAvailable,
+           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+            return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent)
     }

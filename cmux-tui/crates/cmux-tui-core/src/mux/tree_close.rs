@@ -61,7 +61,7 @@ impl Mux {
         }
         if removed.is_some() || !changed_screens.is_empty() {
             for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
+                self.emit_layout_changed(screen, None);
             }
         }
         self.emit_empty_if_current(empty_revision);
@@ -169,7 +169,7 @@ impl Mux {
         if tree_removed {
             self.emit_tree_delta(delta, selection_resync);
             for screen in changed_screens {
-                self.emit(MuxEvent::LayoutChanged(screen));
+                self.emit_layout_changed(screen, None);
             }
         }
         self.emit_empty_if_current(empty_revision);
@@ -253,6 +253,28 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<WorkspaceMutationResult> {
+        self.close_workspace_with_mutation_guarded(
+            target,
+            requested_key,
+            expected_generation,
+            expected_revision,
+            mutation,
+            false,
+        )
+    }
+
+    /// `close-workspace`; with `if_empty` (`close-workspace-if-empty-v1`) it
+    /// closes only a workspace that has no tab when the close commits
+    /// (`workspace_not_empty` otherwise).
+    pub fn close_workspace_with_mutation_guarded(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+        if_empty: bool,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
         let authority = self.authorize_workspace_lifecycle_mutation(
@@ -266,6 +288,7 @@ impl Mux {
             expected_revision,
             mutation,
             true,
+            if_empty,
         );
         drop(authority);
         result
@@ -338,12 +361,14 @@ impl Mux {
             expected_revision,
             &mutation,
             project_resource,
+            false,
         );
         drop(authority);
         let result = result?;
         Ok(Some((result.workspace.unwrap_or(resolved_target), result.key, result.revision)))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn close_workspace_with_mutation_inner(
         &self,
         target: Option<WorkspaceId>,
@@ -352,6 +377,7 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         project_resource: bool,
+        if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         let fingerprint = serde_json::json!({
             "op": "close-workspace",
@@ -399,6 +425,7 @@ impl Mux {
                 &fingerprint,
                 resolved_target,
                 project_resource,
+                if_empty,
             );
             drop(workspace_lifecycle);
             return result;
@@ -416,6 +443,7 @@ impl Mux {
         fingerprint: &Value,
         resolved_target: WorkspaceId,
         project_resource: bool,
+        if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
@@ -431,6 +459,7 @@ impl Mux {
             if workspace_id != resolved_target {
                 anyhow::bail!("workspace selector changed while closing");
             }
+            Self::require_empty_workspace_for_close(&state, index, if_empty)?;
             let previous_active = state.active_pane();
             let key = state.workspaces[index].key.clone();
             registry.read_state(|db| crate::state::home_store::refuse_close_key(db, &key))?;

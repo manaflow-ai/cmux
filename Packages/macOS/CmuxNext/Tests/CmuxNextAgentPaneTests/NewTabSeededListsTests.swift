@@ -38,8 +38,8 @@ struct NewTabSeededListsTests {
         // What `AgentPageChats.seed` does as the page is made: the page is still loading.
         view.deviceChats = [AgentPaneDeviceChat(key: "claude-code:s-1", harness: "claude-code", title: "Fix the flaky upload test",
                                                 updatedAt: Date(timeIntervalSince1970: 1_790_000_000))]
-        view.recentlyClosed = [AgentPaneClosedItem(id: "closed:1", kind: .terminal, title: "zsh", detail: "~/repo",
-                                                   closedAt: Date(timeIntervalSince1970: 1_790_000_000), icon: nil, isAvailable: true)]
+        view.recentlyClosed = AgentPaneClosedList([AgentPaneClosedItem(id: "closed:1", kind: .terminal, title: "zsh", detail: "~/repo",
+                                                   closedAt: Date(timeIntervalSince1970: 1_790_000_000), icon: nil, isAvailable: true)])
 
         var received: [String: [[String: Any]]] = [:]
         for _ in 0..<50 {

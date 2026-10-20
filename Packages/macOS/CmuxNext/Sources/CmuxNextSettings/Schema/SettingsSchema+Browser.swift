@@ -7,16 +7,28 @@ nonisolated enum BrowserSettingsSchema {
         let memory = SettingsText.keyed("settings.group.memory", "Memory")
         let remote = SettingsText.keyed("settings.group.remote", "Remote Machines")
         let bookmarks = SettingsText.keyed("settings.group.bookmarks", "Bookmarks")
+        let toolbar = SettingsText.keyed("settings.group.toolbar", "Toolbar")
+        let extensions = SettingsText.keyed("settings.group.extensions", "Extensions")
+        let agentInput = SettingsText.keyed("settings.group.agentInput", "Agent Input")
         return [
+            BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
-                title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),
-                help: SettingsText.keyed("settings.browser.defaultEngine.help", "New browser tabs open in this engine."),
+                title: SettingsText.keyed("settings.browser.defaultEngine", "Browser Engine"),
+                help: SettingsText.keyed("settings.browser.defaultEngine.help", "Browser tabs and cmux pages, such as History and Apps, open in this engine."),
                 kind: .choice([
                     SettingChoice(BrowserDefaultEngine.chromium.rawValue, "Chromium"),
                     SettingChoice(BrowserDefaultEngine.webkit.rawValue, "WebKit"),
                 ]),
                 default: .string(BrowserDefaultEngine.fallback.rawValue), keywords: ["chrome", "safari", "cef"]
+            ),
+            SettingDescriptor(
+                BrowserSiteEngines.configPath, section: .browser, group: engine,
+                title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
+                help: SettingsText.keyed("settings.browser.siteEngines.help",
+                                         "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                kind: .stringMap, default: BrowserSiteEngines.fallback.jsonValue,
+                keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
             ),
             SettingDescriptor(
                 BrowserNewTabPage.configPath, section: .browser, group: engine,
@@ -29,6 +41,47 @@ nonisolated enum BrowserSettingsSchema {
                 title: SettingsText.keyed("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
                 help: SettingsText.keyed("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
                 kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
+            ),
+            SettingDescriptor(
+                AgentCursorSetting().configPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.showAgentCursor", "Show Agent Cursor"),
+                help: SettingsText.keyed(
+                    "settings.browser.showAgentCursor.help",
+                    "When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots."
+                ),
+                kind: .toggle, default: .bool(AgentCursorSetting().fallback),
+                keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
+            ),
+            SettingDescriptor(
+                AgentMouseSetting().motionPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMotion.help",
+                    "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+                ),
+                kind: .choice([
+                    SettingChoice("human", SettingsText.keyed("settings.choice.agentMouseHuman", "Human")),
+                    SettingChoice("instant", SettingsText.keyed("settings.choice.agentMouseInstant", "Instant")),
+                ]),
+                default: .string(AgentMouseSetting().fallback.motion.rawValue),
+                keywords: ["agent", "mouse", "pointer", "cursor", "human", "motion", "automation"]
+            ),
+            SettingDescriptor(
+                AgentMouseSetting().maxMoveMsPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentMouseMaxMove", "Longest Agent Pointer Move"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentMouseMaxMove.help",
+                    "The longest time one agent pointer move takes with human motion. Short moves take less."
+                ),
+                kind: .number(SettingNumber(AgentMouseSetting().maxMoveMsRange, step: 10, unit: .milliseconds)),
+                default: .number(AgentMouseSetting().fallback.maxMoveMs),
+                keywords: ["agent", "mouse", "pointer", "speed", "duration"]
+            ),
+            SettingDescriptor(
+                BuiltInAdBlockerSetting().configPath, section: .browser, group: extensions,
+                title: SettingsText.keyed("settings.browser.builtInAdBlocker", "Built-in uBlock Origin"),
+                help: SettingsText.keyed("settings.browser.builtInAdBlocker.help", "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts."),
+                kind: .toggle, default: .bool(BuiltInAdBlockerSetting().fallback), keywords: ["ublock", "ad blocker", "adblock", "extensions", "trackers"]
             ),
             SettingDescriptor(
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,
@@ -54,11 +107,34 @@ nonisolated enum BrowserSettingsSchema {
                 kind: .toggle, default: .bool(BrowserHibernationSetting.fallback.includesPinnedTabs)
             ),
             SettingDescriptor(
+                ["browser", "freezeHiddenTabs"], section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.freezeHiddenTabs", "Freeze Hidden Tabs"),
+                help: SettingsText.keyed(
+                    "settings.browser.freezeHiddenTabs.help",
+                    "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
+                ),
+                kind: .choiceOrNumber([
+                    SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
+                ], SettingNumber(5...3_600, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
+                default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
+            ),
+            SettingDescriptor(
+                BrowserHibernationSetting.neighborRadiusPath, section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.keepNeighborTabsAwake", "Keep Neighbor Tabs Awake"),
+                help: SettingsText.keyed(
+                    "settings.browser.keepNeighborTabsAwake.help",
+                    "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+                ),
+                kind: .number(SettingNumber(0...3, step: 1, unit: .count)),
+                default: .number(Double(BrowserHibernationSetting.defaultNeighborRadius)),
+                keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
+            ),
+            SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,
                 title: SettingsText.keyed("settings.browser.remoteLocalhost", "Open localhost on the Workspace's Machine"),
                 kind: .toggle, default: .bool(RemoteLocalhostSetting.fallback.enabled), keywords: ["ssh", "cloud", "port"]
             ),
-        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + TerminalLinkRoutingSchema.descriptors
-            + BrowserPasswordsSettingsSchema.descriptors
+        ] + OmnibarSettingsSchema.descriptors + BrowserLinkClickSchema.descriptors + LinkRoutingSchema.descriptors
+            + BrowserPasswordsSettingsSchema.descriptors + BrowserVerificationAutofillSettingsSchema.descriptors
     }
 }

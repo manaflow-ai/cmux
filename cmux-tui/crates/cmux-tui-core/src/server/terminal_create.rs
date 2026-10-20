@@ -35,6 +35,9 @@ struct CreationSlot {
     launched: Mutex<Option<Option<String>>>,
     /// Debug timing marks of this create (`CMUX_TUI_DEBUG_SPANS`).
     trace: Mutex<Option<crate::debug_spans::Trace>>,
+    /// The caller-minted terminal id whose input queue this creation owns, with its generation:
+    /// creating from submit to commit (`terminal-input-while-creating-v1`, `mux::creating_input`).
+    creating_terminal: Option<(String, u64)>,
 }
 
 impl Command {
@@ -127,15 +130,13 @@ impl PrelaunchRequest {
             None => None,
         };
         // An invalid environment is reported by the create itself.
-        let env = env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
-        Some(Self {
-            pane,
-            terminal_id,
-            cwd: cwd.cloned(),
-            argv: shell_argv(&env, shell_args.cloned(), frontend_shell),
-            env,
-            size,
-        })
+        let mut env =
+            env.map(crate::mux::validate_terminal_env).transpose().ok()?.unwrap_or_default();
+        let argv = shell_argv(&env, shell_args.cloned(), frontend_shell);
+        // The create adopts this host only with the same launch: mark it as
+        // `placement_spawn_options` does.
+        crate::login_shell::mark(&mut env, argv.as_deref());
+        Some(Self { pane, terminal_id, cwd: cwd.cloned(), argv, env, size })
     }
 
     fn launch(self, mux: &Arc<Mux>) -> Option<String> {
@@ -171,10 +172,14 @@ impl ConnectionSurfaceScheduler {
             _ => "create",
         };
         let trace = crate::debug_spans::Trace::start(label, Instant::now());
+        let creating_terminal = pending.request.cmd.created_terminal_id().and_then(|terminal_id| {
+            mux.begin_creating_input(&terminal_id).map(|generation| (terminal_id, generation))
+        });
         let slot = Arc::new(CreationSlot {
             request: Mutex::new(Some(pending)),
             launched: Mutex::new(None),
             trace: Mutex::new(None),
+            creating_terminal,
         });
         self.begin_creation();
         self.creations.state.lock().unwrap().slots.push_back(slot.clone());
@@ -242,9 +247,17 @@ impl ConnectionSurfaceScheduler {
         let trace = slot.trace.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         crate::debug_spans::install(trace);
         crate::debug_spans::mark("commit.start");
+        // The terminal id the app minted (or the prelaunch chose) names the
+        // trace, so app marks join it, and owes the first-output marks
+        // (`debug_spans::FOLLOW_MARKS`): its reader starts in this commit.
+        let created_terminal = slot.creating_terminal.as_ref().map(|(terminal_id, _)| terminal_id);
+        if let Some(terminal_id) = launched.as_ref().or(created_terminal) {
+            crate::debug_spans::follow(terminal_id);
+        }
+        let cancelled = self.cancelled.is_cancelled();
         let keep_open = match pending {
             // A closed connection drops its queued requests unexecuted.
-            Some(_) if self.cancelled.is_cancelled() => true,
+            Some(_) if cancelled => true,
             Some(mut pending) => {
                 if let Some(terminal_hex) = launched.as_ref() {
                     match &mut pending.request.cmd {
@@ -263,6 +276,11 @@ impl ConnectionSurfaceScheduler {
             }
             None => true,
         };
+        // Input queued for the new terminal goes to it now, before any later input, or back to
+        // its senders when the create failed or was dropped.
+        if let Some((terminal_id, generation)) = &slot.creating_terminal {
+            mux.finish_creating_input(terminal_id, *generation, cancelled.then_some("cancelled"));
+        }
         crate::debug_spans::mark("reply.queued");
         crate::debug_spans::finish(crate::debug_spans::take());
         if let Some(terminal_hex) = launched {

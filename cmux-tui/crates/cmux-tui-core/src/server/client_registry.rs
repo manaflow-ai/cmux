@@ -3,6 +3,11 @@
 //! surfaces and view leases) and the daemon handoff reservation. Attach and
 //! view-lease methods are in `client_registry_views`.
 
+#[cfg(unix)]
+pub(super) mod machine_catalog;
+mod record;
+pub(super) use record::ClientRecord;
+
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
@@ -272,30 +277,6 @@ impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
     }
 }
 
-pub(super) struct ClientRecord {
-    pub(super) transport: ClientTransport,
-    pub(super) connected_at: Instant,
-    pub(super) name: Option<String>,
-    pub(super) kind: Option<String>,
-    /// Shared-sizing identity from `set-client-info`. `user_id` is asserted
-    /// by the connection; this daemon has no Stack session to verify it.
-    pub(super) identity: ClientIdentityWire,
-    pub(super) capabilities: HashSet<String>,
-    pub(super) browser_pointer_owner: Option<BrowserPointerOwner>,
-    pub(super) attached: BTreeMap<SurfaceId, AttachedSurface>,
-    pub(super) view_leases: HashMap<String, (SurfaceId, u64)>,
-    pub(super) retired_view_leases: HashMap<String, SurfaceId>,
-    pub(super) retired_view_lease_order: VecDeque<String>,
-    pub(super) retired_surfaces: HashSet<SurfaceId>,
-    pub(super) retired_surface_order: VecDeque<SurfaceId>,
-    pub(super) resource_streams: HashMap<String, ResourceClientStream>,
-    pub(super) resource_waits: HashMap<ResourceRequestId, ResourceClientWait>,
-    pub(super) announced_attached: bool,
-    pub(super) writer: MessageWriter,
-    /// Hello role, peer and confirmations (request_origin.rs).
-    pub(super) origin: crate::request_origin::ConnectionOrigin,
-}
-
 #[derive(Clone)]
 pub(super) struct ResourceClientRecord {
     pub(super) client: u64,
@@ -349,6 +330,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The binary's page listener opener (`ws-listen-v1`).
+    pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -409,6 +392,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -455,6 +439,9 @@ impl ClientRegistry {
                 announced_attached: false,
                 writer,
                 origin: Default::default(),
+                person: false,
+                #[cfg(unix)]
+                machine_catalog: None,
             },
         );
         drop(state);
@@ -668,10 +655,28 @@ impl ClientRegistry {
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
                     || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
+                    || capability == super::FRONTEND_BROWSER_TABS_CAPABILITY
+                    || capability == super::conversation_runs::CONVERSATION_RUNS_CAPABILITY
+                    || capability == super::conversation_live::CHIEF_LIVE_CAPABILITY
+                    || capability == super::cloud_conversations::CLOUD_TYPING_CAPABILITY
+                    // No placement restatement on `session.events`
+                    // (state/placement_shift.rs).
+                    || capability == crate::state::placement_shift::CAPABILITY
+                    || capability == crate::state::sidebar_doc_store::CAPABILITY
+                    || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
+                    || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
         Ok((record.name.clone(), record.kind.clone()))
+    }
+
+    /// The client's declared API revision (server/api_revision_wire.rs).
+    pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.writer.api_revision.declare(revision)
     }
 
     /// Merge identity fields: absent fields keep their previous value.
@@ -858,6 +863,19 @@ impl ClientRegistry {
                     .collect(),
             })
             .collect()
+    }
+
+    /// Whether a connected client that is not a page declared `capability`
+    /// (for `frontend-browser-tabs-v1`: a frontend that renders browser
+    /// tabs, the cmux app, is attached to this session). A page relay or a
+    /// page's WebSocket renders no tabs, so its declaration never counts.
+    pub(crate) fn any_client_supports(&self, capability: &str) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.values().any(|record| {
+            record.origin.role != crate::request_origin::HelloRole::PageRelay
+                && record.origin.page.is_none()
+                && record.capabilities.contains(capability)
+        })
     }
 
     pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {

@@ -23,6 +23,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case theme
     /// A font family name (`TerminalFontSetting`).
     case fontFamily
+    /// Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+    case text
     /// A list of numbers, each in the range (`layout.columnWidthPresets`: strip width fractions).
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).
@@ -33,4 +35,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     /// the default order (`sidebar.workspaceRow.secondLineOrder`). Exported
     /// as a `string_list` with `choices`, so older readers see a string list.
     case orderedChoices([SettingChoice])
+    /// Any subset of the choices, kept in the choices' order; the page shows
+    /// a switch per choice (`browser.toolbarButtons`). Exported as a
+    /// `string_list` with `choices` and `ordered: false`.
+    case choiceSet([SettingChoice])
 }

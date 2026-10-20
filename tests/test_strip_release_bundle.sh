@@ -49,6 +49,29 @@ for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-mus
 done
 printf '{}\n' > "$APP/Contents/Resources/bin/cmux-tui-ssh/manifest.json"
 
+# Compiled String Catalogs in package resource bundles arrive as UTF-16 XML
+# property lists; they ship as binary ones. Binary and old-style text tables
+# stay as they are.
+STRINGS_DIR="$APP/Contents/Resources/CmuxNext_Fixture.bundle/Contents/Resources/ja.lproj"
+mkdir -p "$STRINGS_DIR"
+python3 -I - "$STRINGS_DIR" <<'PY'
+import plistlib, sys
+d = sys.argv[1]
+table = {"Open": "\u958b\u304f", "Quote": "\"%@\" & <tag>"}
+xml = plistlib.dumps(table, fmt=plistlib.FMT_XML).decode("utf-8")
+open(f"{d}/Localizable.strings", "wb").write(b"\xff\xfe" + xml.encode("utf-16-le"))
+open(f"{d}/Binary.strings", "wb").write(plistlib.dumps(table, fmt=plistlib.FMT_BINARY))
+open(f"{d}/InfoPlist.strings", "wb").write('"CFBundleName" = "\u958b";\n'.encode("utf-8"))
+# A UTF-16 big-endian table that declares its real encoding converts too.
+declared = xml.replace('encoding="UTF-8"', 'encoding="UTF-16"')
+open(f"{d}/Declared.strings", "wb").write(b"\xfe\xff" + declared.encode("utf-16-be"))
+# An unreadable table is kept as it is instead of failing the release.
+open(f"{d}/Broken.strings", "wb").write(b"\xff\xfe" + "<?xml version".encode("utf-16-le") + b"\x00")
+PY
+cp "$STRINGS_DIR/Binary.strings" "$TMP_DIR/Binary.before"
+cp "$STRINGS_DIR/InfoPlist.strings" "$TMP_DIR/InfoPlist.before"
+cp "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before"
+
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
@@ -73,14 +96,17 @@ CMUX_FILE_TOOL="$TMP_DIR/tools/file" \
 CMUX_STRIP_TOOL="$TMP_DIR/tools/strip" \
   "$ROOT/scripts/strip-release-bundle.sh" "$APP"
 
+# cmux's own executables lose every symbol dyld doesn't need (plain strip
+# keeps undefined and dynamically referenced ones): crashes symbolicate from the
+# uploaded dSYMs. Plug-ins, libraries and extensions keep their global symbols.
 expected="$TMP_DIR/expected.log"
 printf '%s\n' \
-  "-S -x $APP/Contents/MacOS/cmux" \
+  "$APP/Contents/MacOS/cmux" \
   "-S -x $APP/Contents/Resources/bin/cmux" \
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "-S -x $APP/Contents/Resources/bin/cmux-app-host" \
   "-S -x $APP/Contents/Resources/bin/cmux-browser-host" \
   "-S -x $APP/Contents/Resources/bin/cmux-cloud" \
-  "-S -x $APP/Contents/Resources/bin/cmux-diff-sidecar" \
   "-S -x $APP/Contents/Resources/bin/ghostty" \
   "-S -x $APP/Contents/Resources/libexec/cmux-server-helper" \
   "-S -x $APP/Contents/Resources/bin/cmux-tui-ssh/cmux-tui-aarch64-apple-darwin" \
@@ -97,3 +123,17 @@ if ! diff -u "$expected" "$TMP_DIR/strip.sorted.log"; then
   echo "strip-release-bundle.sh stripped the wrong files" >&2
   exit 1
 fi
+
+python3 -I - "$STRINGS_DIR" <<'PY' || { echo "strip-release-bundle.sh left compiled strings as XML" >&2; exit 1; }
+import plistlib, sys
+d = sys.argv[1]
+data = open(f"{d}/Localizable.strings", "rb").read()
+assert data.startswith(b"bplist00"), data[:16]
+assert plistlib.loads(data) == {"Open": "\u958b\u304f", "Quote": "\"%@\" & <tag>"}
+declared = open(f"{d}/Declared.strings", "rb").read()
+assert declared.startswith(b"bplist00"), declared[:16]
+assert plistlib.loads(declared) == plistlib.loads(data)
+PY
+cmp -s "$STRINGS_DIR/Binary.strings" "$TMP_DIR/Binary.before" || { echo "binary strings table changed" >&2; exit 1; }
+cmp -s "$STRINGS_DIR/InfoPlist.strings" "$TMP_DIR/InfoPlist.before" || { echo "text strings table changed" >&2; exit 1; }
+cmp -s "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before" || { echo "unreadable strings table changed" >&2; exit 1; }

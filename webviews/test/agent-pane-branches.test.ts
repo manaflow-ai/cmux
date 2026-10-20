@@ -9,12 +9,16 @@
 // - The prompt before the fork point, and a fork nobody sent in, have no versions.
 // - Editing the fork's edited prompt again forks the chat forked from, at the same turn, so the new
 //   version is a sibling (not a fork of the fork).
+// - Right-clicking an earlier turn's reply reports its fork point and, in a chat on this computer,
+//   that the native menu's Open in Side Chat opens a side chat there (cx-a7r); a chat on another
+//   host forks but opens no side chat.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-branches.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -32,6 +36,7 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
   const PARENT = "0190a000-0000-7000-8000-000000000001";
   const FORK = "0190a000-0000-7000-8000-000000000002";
   const IDLE_FORK = "0190a000-0000-7000-8000-000000000003";
+  const REMOTE = "0190a000-0000-7000-8000-000000000004";
   const START = Date.UTC(2026, 9, 11, 9, 0, 0);
   const say = (text: string) => ({
     method: "session/update",
@@ -56,6 +61,7 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
     ...turn("Now cover it with two tests", "Two tests added."),
   ]);
   const idleEvents = events(IDLE_FORK, [...first, ["mux", "forked", { parentId: PARENT, forkSeq: 4 }]]);
+  const remoteEvents = events(REMOTE, [...first, ...turn("Now cover it with a test", "One test added.")]);
   const summary = (sessionId: string, title: string, turnCount: number, lineage?: object) => ({
     sessionId,
     cwd: "/home/dev/uploader",
@@ -71,11 +77,13 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
     summary(PARENT, "Uploader retry", 2),
     summary(FORK, "Uploader retry (edited)", 2, { parentId: PARENT, forkSeq: 4 }),
     summary(IDLE_FORK, "Uploader retry fork", 1, { parentId: PARENT, forkSeq: 4 }),
+    summary(REMOTE, "Uploader retry on the build box", 2, { host: "build-box", hostKind: "ssh" }),
   ];
   const transcripts: Record<string, ReturnType<typeof events>> = {
     [PARENT]: parentEvents,
     [FORK]: forkEvents,
     [IDLE_FORK]: idleEvents,
+    [REMOTE]: remoteEvents,
   };
 
   const forks: Record<string, any>[] = [];
@@ -138,6 +146,7 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
     // again if it stalls, so the test times only the versions.
@@ -209,6 +218,50 @@ await requireBrowserLane("agent-pane-branches.test.ts", async () => {
     await page.locator(".cv-user__edit").getByRole("button", { name: "Send" }).click();
     await page.waitForFunction(() => document.querySelector(".cv-user__edit") === null, undefined, { timeout: 10_000 });
     expect(forks).toEqual([{ sessionId: PARENT, throughSeq: 4 }]);
+    await page.close();
+  });
+
+  /// What the page reports to the native menu on a right-click of the reply with this text.
+  const reportOn = async (page: Page, reply: string) => {
+    await page.getByText(reply, { exact: true }).first().click({ button: "right" });
+    await page.waitForFunction(() => ((window as any).cmuxMenuReports ?? []).length > 0, undefined, {
+      timeout: 10_000,
+    });
+    return page.evaluate(() => (window as any).cmuxMenuReports.at(-1)) as Promise<{
+      forkSeq?: number;
+      sideChat?: true;
+    }>;
+  };
+  const withMenuHandler = async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    // The app's handler for the page's right-click report (AgentPaneView+ContextMenu.swift).
+    await page.addInitScript(() => {
+      (window as any).webkit = {
+        messageHandlers: {
+          cmuxAgentContextMenu: { postMessage: (body: unknown) => ((window as any).cmuxMenuReports ??= []).push(body) },
+        },
+      };
+    });
+    return page;
+  };
+
+  test("an earlier turn's reply opens a side chat through that turn", async () => {
+    const page = await withMenuHandler();
+    await page.goto(url(PARENT));
+    await page.getByText("One test added.").waitFor();
+    const report = await reportOn(page, "Retry added.");
+    expect(report.forkSeq).toBe(4);
+    expect(report.sideChat).toBe(true);
+    await page.close();
+  });
+
+  test("a chat on another host forks an earlier turn but opens no side chat", async () => {
+    const page = await withMenuHandler();
+    await page.goto(url(REMOTE));
+    await page.getByText("One test added.").waitFor();
+    const report = await reportOn(page, "Retry added.");
+    expect(report.forkSeq).toBe(4);
+    expect(report.sideChat).toBeUndefined();
     await page.close();
   });
 });

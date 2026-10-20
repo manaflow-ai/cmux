@@ -10,7 +10,8 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
     public static let disconnectOp = "cloud.machine.disconnect"
     /// `first-party-apps/cloud/server/src/link/ops.rs` error codes.
     static let revokedCode = "cmux.cloud.link_revoked"
-    static let downCodes: Set<String> = ["cmux.cloud.link_down", "cmux.cloud.link_unavailable"]
+    static let downCodes: Set<String> = ["cmux.cloud.link_down"]
+    static let helperCode = "cmux.cloud.link_unavailable"
 
     private let run: CloudAppOpRunner
     private let check: @Sendable (String) throws -> Void
@@ -60,6 +61,7 @@ public struct CloudConnectOpResolver: CloudLinkResolver {
 
     static func linkError(_ error: CloudAppOpError) -> CloudLinkError {
         if error.code == revokedCode { return .revoked(reason: error.message) }
+        if error.code == helperCode { return .helperNotRunning(reason: error.message) }
         if downCodes.contains(error.code) { return .disconnected(reason: error.message) }
         return .failed(code: error.code, message: error.message)
     }

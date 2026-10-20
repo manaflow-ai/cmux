@@ -3,8 +3,8 @@ import CmuxNextDesign
 import CmuxNextIcons
 import QuartzCore
 
-/// One color dot in the group editor: the theme's palette color, or for
-/// none (grey) the neutral fill with a hairline edge. The chosen dot gets a
+/// One color dot in the group editor: the group palette's swatch, or for
+/// none (grey) the grey swatch with a hairline edge. The chosen dot gets a
 /// ring in the primary text color.
 final class SidebarGroupSwatchView: NSView {
     let color: GroupColor
@@ -27,6 +27,7 @@ final class SidebarGroupSwatchView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(GroupEditorStrings.colorName(color))
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.color.\(color.rawValue)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
     }
 
@@ -57,7 +58,7 @@ final class SidebarGroupSwatchView: NSView {
 
     private func updateColors() {
         performWithTheme {
-            // The same color the group's header bar takes; none draws an edge too.
+            // The group's swatch, as its members' line draws it; none draws an edge too.
             fill.backgroundColor = color.headerFill.cgColor
             fill.borderColor = Palette.textTertiary.cgColor
             fill.borderWidth = color == .grey ? Metrics.dividerThickness : 0
@@ -84,9 +85,9 @@ final class SidebarGroupSwatchView: NSView {
 final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
-    private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
-    private let shortcut = NSTextField(labelWithString: "")
+    private let icon = DecorativeImageView() // the row's label names the action
+    private let label = ChromeLabel(labelWithString: "")
+    private let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
 
     init(_ item: SidebarGroupEditorItem) {
@@ -121,6 +122,7 @@ final class SidebarGroupEditorRow: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(item.title)
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.action.\(item.id)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
         updateColors()
     }
@@ -156,15 +158,20 @@ final class SidebarGroupEditorRow: NSView {
 }
 
 /// The group editor's and the group chip's strings (Resources/Localizable.xcstrings, en and ja).
+/// Rows the group's right-click menu also offers use its words (Close Group, Ungroup, Move to
+/// New Window: CmuxNextActions ObjectMenuLabels).
 enum GroupEditorStrings {
     static var editor: String { String(localized: "sidebar.groupEditor.ax", defaultValue: "Edit Workspace Group", bundle: .module) }
     static var nameLabel: String { String(localized: "sidebar.groupEditor.name", defaultValue: "Group name", bundle: .module) }
     static var namePlaceholder: String { String(localized: "sidebar.groupEditor.namePlaceholder", defaultValue: "Name this group", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.groupEditor.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module) }
-    static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move Group to New Window", bundle: .module) }
+    static var moveToNewWindow: String { String(localized: "sidebar.groupEditor.moveToNewWindow", defaultValue: "Move to New Window", bundle: .module) }
     static var close: String { String(localized: "sidebar.groupEditor.close", defaultValue: "Close Group", bundle: .module) }
     static var ungroup: String { String(localized: "sidebar.groupEditor.ungroup", defaultValue: "Ungroup", bundle: .module) }
     static var delete: String { String(localized: "sidebar.groupEditor.delete", defaultValue: "Delete Group", bundle: .module) }
+    static var pin: String { String(localized: "sidebar.groupEditor.pin", defaultValue: "Pin Group", bundle: .module) }
+    static var unpin: String { String(localized: "sidebar.groupEditor.unpin", defaultValue: "Unpin Group", bundle: .module) }
+    static var moveToTop: String { String(localized: "sidebar.groupEditor.moveToTop", defaultValue: "Move to Top", bundle: .module) }
     static var moreActions: String { String(localized: "sidebar.groupEditor.moreActions", defaultValue: "More Group Actions…", bundle: .module) }
     static var more: String { String(localized: "sidebar.group.more", defaultValue: "Group options", bundle: .module) }
     static var collapse: String { String(localized: "sidebar.group.collapse", defaultValue: "Collapse group", bundle: .module) }
@@ -172,12 +179,19 @@ enum GroupEditorStrings {
     static var customColor: String { String(localized: "sidebar.groupColor.custom", defaultValue: "Custom color", bundle: .module) }
     static var emoji: String { String(localized: "sidebar.groupEditor.emoji", defaultValue: "Choose emoji or icon", bundle: .module) }
 
-    /// A dot's spoken name: none, or its slot in the theme's palette (the
-    /// color itself follows the theme, so no fixed color word is used).
+    /// A dot's spoken name: none, or the palette color's own name (group
+    /// colors are a fixed palette, not the theme's).
     static func colorName(_ color: GroupColor) -> String {
-        guard color != .grey, let slot = GroupColor.editorOrder.firstIndex(of: color) else {
-            return String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
+        switch color {
+        case .grey: String(localized: "sidebar.groupColor.none", defaultValue: "No color", bundle: .module)
+        case .blue: String(localized: "sidebar.groupColor.blue", defaultValue: "Blue", bundle: .module)
+        case .red: String(localized: "sidebar.groupColor.red", defaultValue: "Red", bundle: .module)
+        case .yellow: String(localized: "sidebar.groupColor.yellow", defaultValue: "Yellow", bundle: .module)
+        case .green: String(localized: "sidebar.groupColor.green", defaultValue: "Green", bundle: .module)
+        case .pink: String(localized: "sidebar.groupColor.pink", defaultValue: "Pink", bundle: .module)
+        case .purple: String(localized: "sidebar.groupColor.purple", defaultValue: "Purple", bundle: .module)
+        case .cyan: String(localized: "sidebar.groupColor.cyan", defaultValue: "Cyan", bundle: .module)
+        case .orange: String(localized: "sidebar.groupColor.orange", defaultValue: "Orange", bundle: .module)
         }
-        return String(format: String(localized: "sidebar.groupColor.slot", defaultValue: "Theme color %d", bundle: .module), slot)
     }
 }

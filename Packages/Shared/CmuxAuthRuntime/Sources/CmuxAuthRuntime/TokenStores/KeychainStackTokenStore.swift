@@ -18,6 +18,9 @@ import Security
 public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
+    #if canImport(Security)
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
+    #endif
     private let service: String
     private let accessGroup: String?
     private let legacyProjectID: String?
@@ -100,6 +103,9 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         log.log("clearTokens called")
         cachedAccessToken = nil
         cachedRefreshToken = nil
+        if !hardenTokensBeforeClear() {
+            log.log("clearTokens continuing after one or more accessibility preflights failed")
+        }
         keychainDelete(account: Self.accessTokenAccount)
         keychainDelete(account: Self.refreshTokenAccount)
         deleteLegacyTokens()
@@ -141,7 +147,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
         )
         let matches = current == compareRefreshToken
-        log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
+        log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false) \(AccessTokenLifetime.logFields(newAccessToken))")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
             log.log("keychain.compareAndSet: cleared definitively-rejected session")
@@ -155,6 +161,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         legacyAccount: String?
     ) -> String? {
         if let current = keychainRead(account: account) {
+            if accessGroup != nil,
+               let legacyAccount,
+               !hardenLegacyTokenIfPresent(account: legacyAccount, deleteAfterHardening: true) {
+                return nil
+            }
             return current
         }
         // Legacy account-only items are ambiguous without the exact signed
@@ -166,14 +177,30 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
               keychainWrite(legacy, account: account) else {
             return nil
         }
-        keychainDeleteLegacy(account: legacyAccount)
+        _ = keychainDeleteLegacy(account: legacyAccount)
         return legacy
     }
 
     private func deleteLegacyTokens() {
         guard accessGroup != nil, let legacyProjectID else { return }
-        keychainDeleteLegacy(account: "stack-auth-access-\(legacyProjectID)")
-        keychainDeleteLegacy(account: "stack-auth-refresh-\(legacyProjectID)")
+        _ = keychainDeleteLegacy(account: "stack-auth-access-\(legacyProjectID)")
+        _ = keychainDeleteLegacy(account: "stack-auth-refresh-\(legacyProjectID)")
+    }
+
+    private func hardenTokensBeforeClear() -> Bool {
+        var allOK = true
+        allOK = hardenCurrentTokenIfPresent(account: Self.accessTokenAccount) && allOK
+        allOK = hardenCurrentTokenIfPresent(account: Self.refreshTokenAccount) && allOK
+        guard accessGroup != nil, let legacyProjectID else { return allOK }
+        allOK = hardenLegacyTokenIfPresent(
+            account: "stack-auth-access-\(legacyProjectID)",
+            deleteAfterHardening: false
+        ) && allOK
+        allOK = hardenLegacyTokenIfPresent(
+            account: "stack-auth-refresh-\(legacyProjectID)",
+            deleteAfterHardening: false
+        ) && allOK
+        return allOK
     }
 
     private func baseQuery(account: String) -> [String: Any] {
@@ -216,23 +243,34 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             }
             return nil
         }
+        let migrationStatus = SecItemUpdate(
+            baseQuery(account: account) as CFDictionary,
+            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+        )
+        guard migrationStatus == errSecSuccess else {
+            log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         let lookup = baseQuery(account: account)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: Self.keychainAccessibility,
+        ]
         let updateStatus = SecItemUpdate(
             lookup as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
+            attributes as CFDictionary
         )
         if updateStatus == errSecSuccess { return true }
         if updateStatus != errSecItemNotFound {
             log.log("keychain UPDATE status=\(updateStatus) account=\(account)")
         }
         var insert = lookup
-        insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        insert.merge(attributes) { _, new in new }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus != errSecSuccess {
             log.log("keychain ADD status=\(addStatus) account=\(account)")
@@ -257,13 +295,52 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             }
             return nil
         }
+        guard hardenLegacyTokenIfPresent(account: account, deleteAfterHardening: false) else {
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
-    private func keychainDeleteLegacy(account: String) {
-        _ = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
+    private func hardenLegacyTokenIfPresent(account: String, deleteAfterHardening: Bool) -> Bool {
+        guard accessGroup != nil else { return false }
+        let query = legacyBaseQuery(account: account)
+        let status = SecItemUpdate(
+            query as CFDictionary,
+            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+        )
+        if status == errSecItemNotFound { return true }
+        guard status == errSecSuccess else {
+            log.log("keychain legacy ACCESSIBILITY UPDATE status=\(status) account=\(account)")
+            return false
+        }
+        if deleteAfterHardening { _ = keychainDeleteLegacy(account: account) }
+        return true
+    }
+
+    private func hardenCurrentTokenIfPresent(account: String) -> Bool {
+        let status = SecItemUpdate(
+            baseQuery(account: account) as CFDictionary,
+            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+        )
+        if status == errSecItemNotFound { return true }
+        guard status == errSecSuccess else {
+            log.log("keychain ACCESSIBILITY PREFLIGHT status=\(status) account=\(account)")
+            return false
+        }
+        return true
+    }
+
+    @discardableResult
+    private func keychainDeleteLegacy(account: String) -> Bool {
+        let status = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
+        if status != errSecSuccess, status != errSecItemNotFound {
+            log.log("keychain legacy DELETE status=\(status) account=\(account)")
+            return false
+        }
+        return true
     }
 #else
+    private func hardenTokensBeforeClear() -> Bool { true }
     private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
     private func deleteLegacyTokens() {}
     private func keychainRead(account: String) -> String? { nil }

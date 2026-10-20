@@ -7,7 +7,16 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -31,6 +40,8 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     customElements: window.customElements,
+    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
@@ -82,6 +93,19 @@ test("a copy the page was refused never says Copied", async () => {
   expect(button("Copy code")).toBeDefined();
 });
 
+test("a code handoff completes immediately when pane animation is disabled", async () => {
+  const { CodeHandoff } = await import("../src/agent-session/acpmux/conversation/StreamingCode");
+  document.documentElement.dataset.agentMotion = "off";
+  try {
+    // Over the highlight budget keeps this focused test on the handoff state machine rather than
+    // loading Pierre's asynchronous highlighter chunk.
+    await render(<CodeHandoff code={"x".repeat(200_001)} lang="text" />);
+    expect(host.querySelector(".cv-code-handoff")?.className).toContain("is-done");
+  } finally {
+    delete document.documentElement.dataset.agentMotion;
+  }
+});
+
 const call = (kind: string, output: string, command?: string) =>
   ({
     kind: "activity",
@@ -124,10 +148,28 @@ test("a long output shows its last lines until Show all output", async () => {
   expect(shown()).toBe(lines.join("\n"));
 });
 
+// The `hover-actions` experiment's "all" arm: a Copy in the output's corner on hover.
 test("an opened call's output copies whole, without colour codes", async () => {
   const count = 5000;
   const lines = Array.from({ length: count }, (_, index) => `\x1b[1mrow\x1b[0m ${index}`);
-  await openRow("fetch", lines.join("\n"));
-  await click(button("Copy"));
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "hover-actions": "all" };
+  try {
+    await openRow("fetch", lines.join("\n"));
+    await click(button("Copy"));
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
   expect(clipboard).toEqual([Array.from({ length: count }, (_, index) => `row ${index}`).join("\n")]);
+});
+
+// No Copy shows on hover; its right-click menu's Copy Output copies it whole (menuParts.ts; Leo
+// dogfood 2026-10-13: hover buttons everywhere).
+test("an opened call's output copies whole from its menu", async () => {
+  const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");
+  const count = 5000;
+  const lines = Array.from({ length: count }, (_, index) => `\x1b[1mrow\x1b[0m ${index}`);
+  await openRow("fetch", lines.join("\n"));
+  expect(button("Copy")).toBeUndefined();
+  const output = host.querySelector(".cv-tool-output-card");
+  expect(menuPartAt(output)?.output).toBe(Array.from({ length: count }, (_, index) => `row ${index}`).join("\n"));
 });

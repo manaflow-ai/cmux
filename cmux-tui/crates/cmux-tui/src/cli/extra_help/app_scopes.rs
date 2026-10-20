@@ -1,5 +1,5 @@
-//! Help for the app scopes (cli/app.rs), the app's browser pages and
-//! `notify`, which route before the resource grammar's help.
+//! Help for the app scopes (cli/app.rs), the app's browser pages, `notify`
+//! and `status`, which route before the resource grammar's help.
 
 use std::io::Write;
 
@@ -47,10 +47,13 @@ fn text(args: &[String]) -> Option<String> {
     };
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
-        ["browser", target, ..] if *target == "page" || target.starts_with("tab_") => {
+        ["browser", target, ..]
+            if *target == "page" || *target == "right" || target.starts_with("tab_") =>
+        {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
+        ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
@@ -64,7 +67,7 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" => messages.settings_usage,
+        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,
@@ -80,6 +83,7 @@ fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) ->
         "accounts" => ACCOUNTS_HELP,
         "open" => OPEN_HELP,
         "ghostty" => GHOSTTY_HELP,
+        "errors" => ERRORS_HELP,
         _ => return None,
     };
     Some(format!("{}\n", text.trim_end()))
@@ -118,7 +122,8 @@ usage: cmux history list [--kind <kind,...>] [--range <range>] [--profile <profi
        cmux history restore <restore id>
        cmux history <verb...>   (an app action: show, back, forward, reopen, clear, ...)
 The session daemon keeps history, so these work while the app is closed.
-Every removal of page visits answers a restore id.";
+Every removal of page visits answers a restore id. Removing or clearing a
+closed item deletes it for good: it cannot be reopened.";
 
 const BOOKMARK_HELP: &str = "\
 usage: cmux bookmark list [--folder <folder>] [--profile <profile>] [--limit <n>]
@@ -135,6 +140,18 @@ URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
 line first and stops at the first URL the app refuses.";
+
+const ERRORS_HELP: &str = "\
+usage: cmux errors [list] [--since <90s|15m|2h|3d>] [--source <source>]... [--level <level>]
+                   [--text <text>] [--top] [--limit <n>] [--no-harvest]
+       cmux errors clear [--fingerprint <fingerprint>]...
+The app's error journal: its warnings, errors, faults and crashes, one entry
+per kind with a count, first and last seen, and one redacted sample. Sources:
+app, page:<page>, acpmux, acpmux-app, chief, crash, system:<subsystem>,
+journal (`--source page` matches every page). --level shows that level and
+worse (warning, error, fault, crash); --top orders by count instead of most
+recent. Each list reads new log lines first unless --no-harvest. The journal
+is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

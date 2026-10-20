@@ -54,16 +54,19 @@ public final class AgentPaneStartFolders {
     }
 
     /// `workspace.useFolder` (cx-nn3e): a folder the user picked for a chat, before any chat starts
-    /// there. A project folder is used at once (`ok`; a folder outside every root still passes the
-    /// relay on the user's click). The home folder is asked about first (`confirm`, reason `home`):
-    /// an agent there can read all of it, and macOS asks for Photos, Documents and more. The
-    /// answer (`confirm`) spends its click's gesture and makes the home folder a root, so the chat
-    /// starts there at once. `/` and the folders above the home folder are refused (reason `root`).
+    /// there. A project folder is used at once (`ok`), and the person's click makes a folder outside
+    /// every root a root (``grantPicked(_:transport:)``). The home folder is asked about first
+    /// (`confirm`, reason `home`): an agent there can read all of it, and macOS asks for Photos,
+    /// Documents and more. The answer (`confirm`) spends its click's gesture and makes the home
+    /// folder a root, so the chat starts there at once. `/` and the folders above the home folder are refused (reason `root`).
     func use(_ path: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
         let homeFolder = transport.homeFolder
         // The store's rules when the daemon has them (cx-9aps): it names the folder or why not.
         if let resolve, let answer = await resolve(path) {
-            if answer.kind == .seed, let cwd = answer.cwd { return AgentPaneReply.success(["status": "ok", "cwd": cwd]) }
+            if answer.kind == .seed, let cwd = answer.cwd {
+                await Self.grantPicked(cwd, transport: transport)
+                return AgentPaneReply.success(["status": "ok", "cwd": cwd])
+            }
             // An agent-home folder picked itself (cx-djoj7): the store names it as the chat's.
             if answer.kind == .agentHome, answer.skipped == nil, let home = answer.agentHome {
                 return AgentPaneReply.success(["status": "ok", "cwd": home])
@@ -88,9 +91,53 @@ public final class AgentPaneStartFolders {
              homeFolder.flatMap(AcpmuxPathPolicy.canonical))
         }.value
         guard let folder = canonical else { return AgentPaneModel.transportFailure(.pathInvalid) }
-        guard AgentHome.isHomeOrAbove(folder, home: home) else { return AgentPaneReply.success(["status": "ok", "cwd": folder]) }
+        guard AgentHome.isHomeOrAbove(folder, home: home) else {
+            await Self.grantPicked(folder, transport: transport)
+            return AgentPaneReply.success(["status": "ok", "cwd": folder])
+        }
         guard let home, folder == home else { return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": folder]) }
         return Self.answerHome(home, confirm: confirm, transport: transport)
+    }
+
+    /// A new chat on another machine (cx-1bhjj): that machine's store decides its folder by the
+    /// same rules, against its own home folder, so a home or above-home seed never starts there by
+    /// itself. Its agent-home folder is this app's to make, so a chat there gets no folder yet.
+    func applyRemote(to handshake: inout AgentPaneHandshake, model: AgentPaneModel) async {
+        guard model.sessionId == nil, let resolve, let answer = await resolve(handshake.cwd) else { return }
+        self.answer = answer
+        handshake.cwd = answer.kind == .agentHome ? nil : answer.cwd
+    }
+
+    /// `workspace.useFolder` in a chat on another machine: the same answers as on this Mac, from
+    /// that machine's store (its home folder is asked about first; `/` and above are refused). A
+    /// store without the rules uses the folder; that machine's acpmux still checks it.
+    func useRemote(_ path: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
+        guard let resolve, let answer = await resolve(path) else { return AgentPaneReply.success(["status": "ok", "cwd": path]) }
+        switch answer.skipped?.reason {
+        case .home:
+            // Use Home Folder on that machine: asked first; the answer spends its click's gesture.
+            let home = answer.skipped?.cwd ?? path
+            if transport.remoteHomeChosen.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
+            guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
+            guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            transport.remoteHomeChosen.insert(home)
+            return AgentPaneReply.success(["status": "ok", "cwd": home])
+        case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
+        case .missing: return AgentPaneModel.transportFailure(.pathInvalid)
+        case .agentHome, nil: return AgentPaneReply.success(["status": "ok", "cwd": answer.kind == .seed ? answer.cwd ?? path : path])
+        }
+    }
+
+    /// A project folder the person picked (hq#2569 item 1): their click on it makes it a root of
+    /// this pane, so the chat's start there passes the relay without spending the Send's gesture,
+    /// which the chat's first prompt needs. A pick with no gesture behind it (page script) grants
+    /// nothing, and a folder that is already a root spends nothing.
+    private static func grantPicked(_ path: String, transport: AgentPaneTransport) async {
+        // The store's spelling is not always the canonical one the relay compares (a symlink).
+        guard let folder = await Task.detached(operation: { AcpmuxPathPolicy.canonical(path) }).value,
+              !transport.addedRoots.contains(folder), !transport.roots().contains(folder),
+              transport.gestures.consume() else { return }
+        transport.grant(folder)
     }
 
     /// The home folder the user picked: asked about first; the answer (on its click) makes it a

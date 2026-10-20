@@ -3,7 +3,7 @@ public import CmuxNextDesign
 public import CmuxNextResources
 // The list's targets for the app's hover cards (WorkspaceHoverCardController,
 // HoverCardCoordinator): workspace rows, hit-tested by position.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// The coordinator this list reports to (the App injects the app's one).
     public var hoverCards: HoverCardCoordinator {
         get { hoverCard.coordinator }
@@ -23,8 +23,25 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
+              // The list's own rows (a dictionary): `model.isPlaceholder` walks every section, and this
+              // runs on each scroll frame (hover geometry), O(workspaces) per frame at 1,000 rows.
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, let row = workspaces[id],
+              !row.rowState.isPending else { return nil }
         return id
+    }
+    /// The group header under `point` that may have a summary card now
+    /// (`sidebar.hoverCards.groups.workspaceGroups`): none during a drag, a rename or an open group
+    /// editor. One row lookup by position, like a workspace row's: a hover never walks the groups.
+    func hoverCardGroup(at point: CGPoint) -> GroupID? {
+        guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
+              visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
+              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil else { return nil }
+        return id
+    }
+    /// The group header's frame on screen, nil when it is not laid out.
+    func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
+        guard let window, let row = displayed.row(for: .group(id)) else { return nil }
+        return window.convertToScreen(convert(frame(for: row), to: nil))
     }
     /// The row's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {
@@ -33,7 +50,7 @@ extension SidebarListView {
     }
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// CPU and memory for the workspace hover card. Sampled only while a
     /// card is pending or shown.
     public var resourceSource: (any ResourceSampleSource)? {
@@ -52,6 +69,19 @@ extension SidebarView {
     public var hoverCards: HoverCardCoordinator {
         get { list.hoverCards }
         set { list.hoverCards = newValue }
+    }
+
+    /// The user's customization: its hover card replaces the built-in one (cx-swovq.1).
+    public var customization: (any SidebarCustomization)? {
+        get { list.hoverCard.customization }
+        set { list.hoverCard.customization = newValue }
+    }
+
+    /// A workspace's history for its hover card (u3320): prompts, starts, waits and finished
+    /// turns, newest first. Nil shows no history.
+    public var timelineSource: SidebarTimelineSource? {
+        get { list.hoverCard.timelineSource }
+        set { list.hoverCard.timelineSource = newValue }
     }
 
     /// True while the workspace hover card samples resources.

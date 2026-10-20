@@ -25,13 +25,14 @@ pub mod services;
 pub mod session;
 mod ssh_args;
 pub use ssh_artifacts::{
-    SSH_PAYLOAD_DOWNLOAD_CAPABILITY, SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY,
+    SSH_PAYLOAD_DOWNLOAD_CAPABILITY, SSH_PAYLOAD_MACOS_FROM_CLIENT_CAPABILITY, pinned_linux_payload,
 };
 mod ssh_artifacts;
 pub mod ssh_bootstrap;
 mod ssh_payload_proxy;
 #[cfg(unix)]
 mod unix_socket;
+pub mod update_need;
 #[cfg(feature = "wireguard-transport")]
 pub mod wireguard_hub;
 #[cfg(all(feature = "wireguard-transport", unix))]

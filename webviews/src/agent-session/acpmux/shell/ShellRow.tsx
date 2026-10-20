@@ -39,9 +39,7 @@ export function ShellRow({
         <span className="acpmux-shell-block-glyph" aria-hidden="true">
           !
         </span>
-        <code className="acpmux-shell-block-command" title={run.command}>
-          {run.command}
-        </code>
+        <code className="acpmux-shell-block-command">{run.command}</code>
         <span className="acpmux-shell-block-status">
           {run.status === "running" ? (
             <button type="button" className="acpmux-shell-block-stop" onClick={() => actions?.stop(run.id)}>

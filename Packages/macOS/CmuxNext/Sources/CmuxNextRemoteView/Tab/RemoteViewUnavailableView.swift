@@ -16,8 +16,8 @@ public final class RemoteViewUnavailableView: NSView {
     /// Connect pressed (confirm content only).
     public var onConnect: (() -> Void)?
     private let icon: NSImageView
-    private let title: NSTextField
-    private let detail: NSTextField
+    private let title: ChromeLabel
+    private let detail: ChromeLabel
     private let button: RemoteChromeButton?
     private let column = NSStackView()
     private var colors: RemotePaneColors?

@@ -35,14 +35,21 @@ final class CEFMediaBridge {
             ("Page.enable", [:]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": observer, "worldName": BrowserMediaState.world, "runImmediately": true]),
             ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserMediaState.actionsScript, "runImmediately": true]),
-            Self.binding,
-        ]
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserPageBusy.recorderScript, "runImmediately": true]),
+            // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.probeScript, "runImmediately": true]),
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": BrowserProtectedMedia.relayScript, "worldName": BrowserMediaState.world,
+                                                       "runImmediately": true]),
+        ] + Self.bindings
         run(calls, browser)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
-    private static var binding: (String, [String: Any]) {
-        ("Runtime.addBinding", ["name": BrowserMediaState.channel, "executionContextName": BrowserMediaState.world])
+    /// The media world's bindings: the media report and the protected-media refusal.
+    private static var bindings: [(String, [String: Any])] {
+        [BrowserMediaState.channel, BrowserProtectedMedia.channel].map {
+            ("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
+        }
     }
 
     /// A document committed or finished: its world exists now.
@@ -53,7 +60,7 @@ final class CEFMediaBridge {
         let document = (url: state.url, phase: state.phase)
         guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
         boundDocument = document
-        run([Self.binding], browser)
+        run(Self.bindings, browser)
     }
 
     private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
@@ -72,6 +79,10 @@ final class CEFMediaBridge {
     /// A `Runtime.bindingCalled` of the media binding: applies the page's
     /// report. False for every other message (the agent relay's).
     func handle(_ json: String) -> Bool {
+        if let refused = BrowserProtectedMedia.refused(bindingCall: json) {
+            tab?.emit(.protectedMediaUnavailable(refused))
+            return true
+        }
         guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(BrowserMediaState.channel)\""),
               let data = json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],

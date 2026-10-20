@@ -395,7 +395,7 @@ impl CmuxClient {
                     connection.close();
                     return Err(CmuxError::QueueOverflow { limit: self.config.max_queued_events });
                 }
-                buffered.push_back(decode_event(message));
+                buffered.push_back(message);
                 continue;
             }
             if message.get("id") != Some(&id) {
@@ -558,7 +558,8 @@ impl Drop for CmuxClient {
 
 pub struct CmuxStream {
     connection: JsonLineConnection,
-    buffered: VecDeque<Event>,
+    /// Event frames that arrived before the stream's reply, as sent.
+    buffered: VecDeque<Value>,
     control: Arc<StreamControl>,
     terminal_event: Option<&'static str>,
     max_queued_events: usize,
@@ -570,8 +571,8 @@ impl CmuxStream {
         if self.finished || self.control.closed.load(Ordering::Acquire) {
             return Err(CmuxError::Closed);
         }
-        if let Some(event) = self.buffered.pop_front() {
-            return Ok(self.finish_if_terminal(event));
+        if let Some(value) = self.buffered.pop_front() {
+            return Ok(self.finish_if_terminal(decode_event(value)));
         }
         loop {
             let value = self.connection.recv().map_err(|error| map_closed(error, &self.control))?;
@@ -581,12 +582,39 @@ impl CmuxStream {
         }
     }
 
+    /// The next event frame exactly as the daemon sent it (`{event, ...}`),
+    /// whether or not this SDK has a type for it, so a client can surface
+    /// every event without a per-event patch ([`decode_event`] gives the
+    /// typed view of the same frame). Ends the stream like [`Self::recv`].
+    pub fn recv_frame_timeout(&mut self, timeout: Duration) -> Result<Value> {
+        if self.finished || self.control.closed.load(Ordering::Acquire) {
+            return Err(CmuxError::Closed);
+        }
+        let value = match self.buffered.pop_front() {
+            Some(value) => value,
+            None => {
+                let control = Arc::clone(&self.control);
+                self.connection.with_read_timeout(timeout, |connection| {
+                    loop {
+                        let value =
+                            connection.recv().map_err(|error| map_closed(error, &control))?;
+                        if value.get("event").is_some() {
+                            return Ok(value);
+                        }
+                    }
+                })?
+            }
+        };
+        self.finish_if_terminal_name(value.get("event").and_then(Value::as_str));
+        Ok(value)
+    }
+
     pub fn recv_timeout(&mut self, timeout: Duration) -> Result<Event> {
         if self.finished || self.control.closed.load(Ordering::Acquire) {
             return Err(CmuxError::Closed);
         }
-        if let Some(event) = self.buffered.pop_front() {
-            return Ok(self.finish_if_terminal(event));
+        if let Some(value) = self.buffered.pop_front() {
+            return Ok(self.finish_if_terminal(decode_event(value)));
         }
         let control = Arc::clone(&self.control);
         let value = self.connection.with_read_timeout(timeout, |connection| {
@@ -618,14 +646,18 @@ impl CmuxStream {
     }
 
     fn finish_if_terminal(&mut self, event: Event) -> Event {
-        let terminal = self.terminal_event.is_some_and(|name| event.wire_name() == Some(name))
-            || event.wire_name() == Some("overflow");
+        self.finish_if_terminal_name(event.wire_name());
+        event
+    }
+
+    fn finish_if_terminal_name(&mut self, name: Option<&str>) {
+        let terminal = self.terminal_event.is_some_and(|terminal| name == Some(terminal))
+            || name == Some("overflow");
         if terminal {
             self.finished = true;
             self.control.closed.store(true, Ordering::Release);
             self.connection.close();
         }
-        event
     }
 }
 
@@ -997,7 +1029,9 @@ mod tests {
     #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
-        let root = crate::test_roots::TempRoot::new(); // the probe also scans its cmux-tui-<uid>
+        // The probe also scans the root's cmux-tui-<uid>. A short root, so the
+        // hashed path fits sun_path as every product-chosen hashed path does.
+        let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("rf{}-{id}", std::process::id());
         let dir = root.path().join(private_runtime_dir_name());
@@ -1007,6 +1041,7 @@ mod tests {
         std::fs::create_dir_all(&hashed_dir).unwrap();
         let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));
+        assert!(unix_socket_path_fits(&config.socket_path), "{}", config.socket_path.display());
         assert!(is_hashed_socket(&config.socket_path));
         let listener = UnixListener::bind(&legacy.0).unwrap();
         assert_eq!(hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));

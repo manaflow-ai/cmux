@@ -1,4 +1,4 @@
-//! `git status|diff|files|list|checkpoint|commit|push|worktree create|apply|remove`: the session host's git operations. The repository
+//! `git status|diff|branches|files|list|checkpoint|commit|push|worktree create|apply|remove`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -19,7 +19,8 @@ const TARGETS: &[(&str, &str)] = &[
     ("terminal", "term"),
 ];
 
-/// `git status`, `git diff [<path>...]`, `git files <query>...` and `git list`.
+/// `git status`, `git diff [<path>...]`, `git branches`, `git files <query>...` and
+/// `git list`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
@@ -31,6 +32,12 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         ["worktree", "apply"] => return write::worktree_apply(flags, &selectors, params),
         ["worktree", "remove"] => return write::worktree_remove(flags, &selectors, params),
         ["status"] => Op::GitStatus,
+        ["branches"] => {
+            if let Some(value) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 1000)?;
+            }
+            Op::GitBranches
+        }
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
             validate_one_of("--scope", &scope, SCOPES)?;

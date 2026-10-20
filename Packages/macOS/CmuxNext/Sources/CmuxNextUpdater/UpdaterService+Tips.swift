@@ -1,19 +1,37 @@
-import Foundation
+import AppKit
+public import Foundation
 
 /// The "Did you know" card (BOTTOM-LEFT-CARDS K1): one tip a day for a
 /// feature the user has not used, picked only at launch and when cmux
 /// becomes active again (never while the user works in it), dismissable per
-/// tip, off with `sidebar.cards.tips`. Usage flags stay on this Mac.
+/// tip, muted for a day or a week (``TipMenuOption``; the end is read only
+/// here, when a tip would show), off with `sidebar.cards.tips`. Usage flags
+/// stay on this Mac.
 extension UpdaterService {
-    /// Picks today's tip (``TipChooser``) and saves the choice.
-    public func refreshTip() {
-        guard tipsEnabled else {
+    /// Picks today's tip (``TipChooser``) and saves the choice; none while
+    /// tips are off or a timed mute holds at `date` (default now).
+    public func refreshTip(at date: Date? = nil) {
+        let date = date ?? now()
+        guard tipsEnabled == true, !tipsMuted(at: date) else {
             if tip != nil { tip = nil }
             return
         }
-        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(now()))
+        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id)
         storeTipState(state)
         if tip != next { tip = next }
+    }
+
+    /// A return to cmux re-picks the tip (a new day's tip, or the end of a
+    /// timed mute) and re-reads the update card's reminder (a Mac that slept
+    /// past it); the App calls this once at launch.
+    public func refreshTipOnActivation() {
+        activationObservation?.cancel()
+        activationObservation = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.refreshTip()
+                self?.refreshUpdateSnooze()
+            }
+        }
     }
 
     /// The user ran `action` (palette, menu, shortcut, click): its tip is
@@ -51,7 +69,7 @@ extension UpdaterService {
         tip = TipCatalog.all.first { $0.id == id } ?? TipCatalog.all.first
     }
 
-    private func storeTipState(_ state: TipState) {
+    func storeTipState(_ state: TipState) {
         guard state != tipState else { return }
         tipState = state
         state.save(to: defaults)
@@ -61,6 +79,4 @@ extension UpdaterService {
 extension UpdaterService {
     /// The card's small heading ("Did you know?").
     public static var tipEyebrow: String { UpdaterStrings.tipEyebrow }
-    /// The x's tooltip and VoiceOver label.
-    public static var tipDismissLabel: String { UpdaterStrings.tipDismiss }
 }

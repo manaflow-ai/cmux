@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 import os
+import StackAuth
 
 /// macOS hosted-browser sign-in flow, including external URL callbacks and
 /// attempt/sign-out race guards.
@@ -14,7 +15,15 @@ public final class HostBrowserSignInFlow {
     /// Whether the UI should offer the default-browser fallback.
     public private(set) var signInIsSlow = false
     /// Display-safe failure from the most recent hosted-browser sign-in attempt.
-    public private(set) var lastFailure: AuthError?
+    public private(set) var lastFailure: AuthError? {
+        didSet { lastFailureDetail = lastFailure?.failureDetail }
+    }
+    /// One-line, token-free description of ``lastFailure`` (error code, HTTP
+    /// status, provider request ID) that users can copy into a bug report.
+    public private(set) var lastFailureDetail: String?
+    /// Whether the callback completion is waiting to retry after the sign-in
+    /// service answered 429. The UI shows a rate-limit message, not a failure.
+    public private(set) var isRetryingAfterRateLimit = false
 
     private let coordinator: AuthCoordinator
     private let tokenStore: any StackAuthTokenStoreProtocol
@@ -56,6 +65,16 @@ public final class HostBrowserSignInFlow {
     @ObservationIgnored private var issuedCallbackStates = HostBrowserIssuedCallbackStates()
     @ObservationIgnored private var isAwaitingCallbackApproval = false
     @ObservationIgnored private var signOutGeneration: UInt64 = 0
+    /// The attempt whose callback is being completed: its tokens are already
+    /// seeded, so a Cancel then is ignored rather than tearing it down mid-way.
+    @ObservationIgnored private var completingAttemptID: UInt64?
+    /// Pending waits before rate-limited completions retry, keyed by epoch.
+    /// Sign-out and a replacing attempt cancel every one, so no stale wait
+    /// lingers or retries beside the new attempt.
+    @ObservationIgnored private var rateLimitWaits: [UInt64: Task<Void, Never>] = [:]
+    /// Bumped per rate-limit wait and per cancellation, so a stale completion
+    /// cannot clear ``isRetryingAfterRateLimit`` for a newer wait.
+    @ObservationIgnored private var rateLimitEpoch: UInt64 = 0
 
     /// Creates the flow.
     public init(
@@ -103,9 +122,12 @@ public final class HostBrowserSignInFlow {
     /// - Parameter selectAccount: `true` (Switch Account) asks the hosted page
     ///   to confirm which account to use even when the browser is signed in.
     ///   It never reuses a handed-off attempt, whose page did not ask.
+    /// - Parameter inDefaultBrowser: `true` skips the popup: the hosted page
+    ///   opens in the default browser at once and the attempt waits for its
+    ///   `<scheme>://auth-callback`, as after a handoff.
     @discardableResult
-    public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
-        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount)")
+    public func beginSignIn(selectAccount: Bool = false, inDefaultBrowser: Bool = false) -> Task<Bool, Never> {
+        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount) defaultBrowser=\(inDefaultBrowser)")
         if !selectAccount,
            let activeAttemptID,
            handedOffAttemptID == activeAttemptID,
@@ -114,7 +136,21 @@ public final class HostBrowserSignInFlow {
             signInIsSlow = true
             return activeAttemptTask
         }
-        return startAttempt(selectAccount: selectAccount)
+        return startAttempt(selectAccount: selectAccount, inDefaultBrowser: inDefaultBrowser)
+    }
+
+    /// Ends the sign-in in progress (the person's Cancel). A late callback
+    /// carrying its state is then rejected. Once its callback has arrived,
+    /// the sign-in finishes instead: the tokens already replaced the previous
+    /// session, so undoing it would sign the person out of every account.
+    public func cancelSignIn() {
+        guard let activeAttemptID else { return }
+        guard completingAttemptID != activeAttemptID else {
+            log.log("auth.browser.cancelSignIn.ignored id=\(activeAttemptID) reason=callbackCompleting")
+            return
+        }
+        log.log("auth.browser.cancelSignIn")
+        cancelActiveAttempt()
     }
 
     /// The hosted sign-in URL for a manual fallback.
@@ -275,7 +311,7 @@ public final class HostBrowserSignInFlow {
 
     // MARK: - Attempt lifecycle
 
-    private func startAttempt(selectAccount: Bool = false) -> Task<Bool, Never> {
+    private func startAttempt(selectAccount: Bool = false, inDefaultBrowser: Bool = false) -> Task<Bool, Never> {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
@@ -303,7 +339,7 @@ public final class HostBrowserSignInFlow {
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
             guard self.activeAttemptID == attemptID else { return false }
-            guard let result = await self.runBrowserSession(attemptID: attemptID) else {
+            guard let result = await self.runBrowserSession(attemptID: attemptID, inDefaultBrowser: inDefaultBrowser) else {
                 self.log.log("auth.browser.attempt.noResult id=\(attemptID) signedIn=\(self.coordinator.isAuthenticated)")
                 return self.coordinator.isAuthenticated
             }
@@ -325,11 +361,17 @@ public final class HostBrowserSignInFlow {
         return task
     }
 
-    private func runBrowserSession(attemptID: UInt64) async -> HostBrowserAuthSessionResult? {
+    private func runBrowserSession(attemptID: UInt64, inDefaultBrowser: Bool) async -> HostBrowserAuthSessionResult? {
         await withCheckedContinuation {
             (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
+            if inDefaultBrowser {
+                // No popup: the attempt waits for its callback, a cancel or the timeout.
+                log.log("auth.browser.session.defaultBrowser id=\(attemptID)")
+                continueInDefaultBrowser(attemptID: attemptID, staleReason: "staleDefaultBrowser")
+                return
+            }
             let callbackState = activeCallbackState ?? callbackStateGenerator.make()
             let signInURL = attemptSignInURL(callbackState)
             let scheme = callbackScheme()
@@ -453,6 +495,7 @@ public final class HostBrowserSignInFlow {
         cancelAttemptTimeout()
         cancelSlowSignInHint()
         popupAge = nil
+        cancelRateLimitWait()
         activeAttemptID = nil
         activeAttemptTask = nil
         handedOffAttemptID = nil
@@ -518,6 +561,25 @@ public final class HostBrowserSignInFlow {
 
     // MARK: - Callback completion
 
+    /// Clears the rate-limit wait state when `epoch` still owns it.
+    private func endRateLimitWait(_ epoch: UInt64?) {
+        guard let epoch, epoch == rateLimitEpoch else { return }
+        isRetryingAfterRateLimit = false
+    }
+
+    /// Cancels any pending rate-limit wait and its UI state.
+    private func cancelRateLimitWait() {
+        for wait in rateLimitWaits.values { wait.cancel() }
+        rateLimitWaits.removeAll()
+        rateLimitEpoch &+= 1
+        isRetryingAfterRateLimit = false
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int64 {
+        let parts = duration.components
+        return parts.seconds * 1000 + parts.attoseconds / 1_000_000_000_000_000
+    }
+
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
     private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
@@ -540,6 +602,8 @@ public final class HostBrowserSignInFlow {
             return false
         }
         let generation = signOutGeneration
+        if let attemptID { completingAttemptID = attemptID }
+        defer { if completingAttemptID == attemptID { completingAttemptID = nil } }
         log.log("auth.callback.tokens.seed attempt=\(attemptID.map(String.init) ?? "external") generation=\(generation)")
         await tokenStore.seed(accessToken: payload.accessToken, refreshToken: payload.refreshToken)
         guard signOutGeneration == generation,
@@ -552,24 +616,86 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        do {
-            log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external")")
-            try await coordinator.completeExternalSignIn()
-        } catch {
-            log.log("auth.callback completion failed: \(error)")
-            guard signOutGeneration == generation,
-                  attemptID == nil || activeAttemptID == attemptID
-            else {
+        // A 429 from the sign-in service is retried here, keeping the seeded
+        // tokens: the callback already proved the sign-in, only the user
+        // fetch was refused. The retry count and each wait are bounded.
+        var rateLimitRetries = 0
+        var ownedRateLimitEpoch: UInt64?
+        defer { endRateLimitWait(ownedRateLimitEpoch) }
+        while true {
+            do {
+                log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries)")
+                // This loop reports its own 429s with the backoff it chooses.
+                let coordinator = self.coordinator
+                try await StackAuthRateLimitReporting.$callerReports.withValue(true) {
+                    try await coordinator.completeExternalSignIn()
+                }
+                coordinator.rateLimitTelemetry.succeeded(.signInCompletion)
+                break
+            } catch {
+                log.log("auth.callback completion failed: \(error)")
+                guard signOutGeneration == generation,
+                      attemptID == nil || activeAttemptID == attemptID
+                else {
+                    return false
+                }
+                if let rateLimit = AuthRateLimit(error: error),
+                   rateLimitRetries < AuthRateLimit.maximumRetries,
+                   !Task.isCancelled {
+                    rateLimitRetries += 1
+                    let delay = AuthRateLimit.delay(
+                        retryAfter: rateLimit.retryAfter,
+                        retry: rateLimitRetries,
+                        jitter: Double.random(in: 0.5...1.0)
+                    )
+                    coordinator.rateLimitTelemetry.rateLimited(
+                        .signInCompletion, rateLimit: rateLimit, backoff: delay, attempt: rateLimitRetries
+                    )
+                    log.log("auth.callback.rateLimited attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries) retryAfterMs=\(rateLimit.retryAfter.map { String(Self.milliseconds($0)) } ?? "nil") delayMs=\(Self.milliseconds(delay))")
+                    lastFailure = .rateLimited
+                    isRetryingAfterRateLimit = true
+                    rateLimitEpoch &+= 1
+                    ownedRateLimitEpoch = rateLimitEpoch
+                    let clock = self.clock
+                    let epoch = rateLimitEpoch
+                    let wait = Task<Void, Never> { _ = try? await clock.sleep(for: delay) }
+                    rateLimitWaits[epoch] = wait
+                    await wait.value
+                    rateLimitWaits[epoch] = nil
+                    guard !Task.isCancelled,
+                          !wait.isCancelled,
+                          signOutGeneration == generation,
+                          attemptID == nil || activeAttemptID == attemptID
+                    else {
+                        log.log("auth.callback.rateLimited.abandon attempt=\(attemptID.map(String.init) ?? "external") generation=\(signOutGeneration)")
+                        return false
+                    }
+                    continue
+                }
+                if let rateLimit = AuthRateLimit(error: error) {
+                    // Out of retries: the 429 still counts, with no further wait.
+                    coordinator.rateLimitTelemetry.rateLimited(
+                        .signInCompletion, rateLimit: rateLimit, backoff: .zero, attempt: rateLimitRetries + 1
+                    )
+                }
+                let displaySafe: AuthError = AuthRateLimit(error: error) != nil
+                    ? .rateLimited
+                    : AuthError(displaySafe: error) ?? .serverError(0, "auth_failed")
+                if displaySafe != .cancelled {
+                    lastFailure = displaySafe
+                    lastFailureDetail = coordinator.lastExternalSignInFailureDetail
+                        ?? AuthError.failureDetail(for: error)
+                } else if rateLimitRetries > 0, lastFailure == .rateLimited {
+                    // This loop set the rate-limit state; a cancelled retry
+                    // must not leave it on screen.
+                    lastFailure = nil
+                }
+                // Do not clear seeds here. The coordinator owns raced sign-out
+                // teardown credentials and concurrent publish cancellation.
                 return false
             }
-            let displaySafe = AuthError(displaySafe: error) ?? .serverError(0, "auth_failed")
-            if displaySafe != .cancelled {
-                lastFailure = displaySafe
-            }
-            // Do not clear seeds here. The coordinator owns raced sign-out
-            // teardown credentials and concurrent publish cancellation.
-            return false
         }
+        endRateLimitWait(ownedRateLimitEpoch)
         log.log("auth.callback.coordinator.complete.end attempt=\(attemptID.map(String.init) ?? "external") signedIn=\(coordinator.isAuthenticated)")
         guard signOutGeneration == generation else {
             // Sign-out ran while the validation round trip was in flight. The

@@ -1,17 +1,7 @@
 extension SettingsSchema {
-    /// cmux.json keys cmux used to read and no longer does, with why. The
-    /// loader drops them without a diagnostic (an old file keeps loading
-    /// cleanly), the schema export and Settings never list them, and a
-    /// write through `settings.set` or the palette is refused as removed
-    /// (`SettingRetired`), not as unknown.
-    public static let retiredKeys: [String: String] = [
-        // One background everywhere (plans/cmux-next/windows.md, 2026-10-03).
-        "appearance.tabBarBackground": "every surface draws the one window background",
-        // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.
-        "updates.quietHours": "a staged update shows only the small control on Settings",
-        // New Tab always opens the New Tab page (Leo 2026-10-12): a terminal is an explicit pick.
-        "tabs.newTabKind": "New Tab always opens the New Tab page",
-    ]
+    // `retiredKeys` is generated from schemas/settings/retired-keys.json
+    // (SettingsSchema+RetiredKeys.generated.swift, cx-d5b5d); the daemon
+    // reads the same file.
 
     /// Whether `path` is a retired key.
     public static func isRetired(_ path: [String]) -> Bool {

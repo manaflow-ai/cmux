@@ -1,10 +1,10 @@
 //! `cmux agent message` and `cmux agent inbox` (plans/feat-agent-rooms).
 //!
 //! A message is stored by the daemon first (`agent.message.send`), so it
-//! survives a restart. Then the CLI delivers it to every acpmux recipient as
-//! a prompt whose id is the message id; acpmux runs a prompt id once, so a
-//! retry never delivers twice. A terminal agent takes its messages from the
-//! daemon through its hooks. Messages reach agents as their own input or
+//! survives a restart. The daemon's delivery pump is the one path to acpmux
+//! recipients (it hands a message over under the lock an unsend takes); the
+//! CLI waits for it and reports each acpmux delivery as the pump left it. A
+//! terminal agent takes its messages from the daemon through its hooks. Messages reach agents as their own input or
 //! context, never as keystrokes typed into a terminal.
 
 use std::io::{BufReader, Read};
@@ -14,13 +14,21 @@ use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
 use super::codex_app_server;
-use super::resolve::{Failure, call};
+use super::resolve::{Failure, call, call_as};
 use super::{GlobalArgs, OutputMode, UsageError};
 
+/// Every delivery state `agent inbox --state` takes.
+const DELIVERY_STATES: [&str; 8] =
+    ["held", "queued", "delivered", "acknowledged", "failed", "unsent", "retracted", "declined"];
 /// UTF-8 bytes of one body; the daemon enforces the same limit.
-const MAX_BODY_BYTES: usize = 32 * 1024;
-/// Queued messages one send delivers to an acpmux recipient, oldest first.
+pub(super) const MAX_BODY_BYTES: usize = 32 * 1024;
+/// Queued messages one send hands a Codex terminal agent, oldest first.
 const DELIVERY_BATCH: u32 = 50;
+/// How long a send waits for the daemon's pump to hand its message to each
+/// acpmux recipient: acpmux names the session (2 s), then accepts the
+/// prompt (10 s).
+const PUMP_WAIT: Duration = Duration::from_secs(15);
+const PUMP_POLL: Duration = Duration::from_millis(50);
 const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,9 +115,12 @@ pub(super) fn parse_inbox(
         _ => return Err(UsageError::new("agent inbox takes at most one agent")),
     };
     if let Some(state) = &state
-        && !matches!(state.as_str(), "queued" | "delivered" | "acknowledged" | "failed")
+        && !DELIVERY_STATES.contains(&state.as_str())
     {
-        return Err(UsageError::new("--state must be queued, delivered, acknowledged or failed"));
+        return Err(UsageError::new(format!(
+            "--state must be one of {}",
+            DELIVERY_STATES.join(", ")
+        )));
     }
     let limit = limit
         .map(|value| {
@@ -123,9 +134,10 @@ pub(super) fn parse_inbox(
     Ok(InboxPlan { target, state, limit, ack })
 }
 
-/// The address this process sends from: its acpmux session, else its
-/// terminal, else a plain shell. An agent acpmux started from a cmux
-/// terminal inherits that terminal's variables, so the session wins.
+/// The address this process's inbox has: its acpmux session, else its
+/// terminal. An agent acpmux started from a cmux terminal inherits that
+/// terminal's variables, so the session wins. A send never names it: the
+/// daemon takes the sender from the launch credential.
 fn own_address() -> Option<String> {
     if let Some(session) = env_value("ACPMUX_SESSION_ID") {
         return Some(format!("acp:{session}"));
@@ -142,6 +154,8 @@ type Reader = BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>;
 struct Connection {
     reader: Reader,
     route: Map<String, Value>,
+    /// This process's launch credential, for its own terminal's session only.
+    credential: Option<String>,
 }
 
 impl Connection {
@@ -159,6 +173,8 @@ impl Connection {
                 ))
             })?;
         let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
+        let mut reader = BufReader::new(stream);
+        let credential = super::launch_credential::for_connection(&mut reader, &socket);
         let mut route = Map::new();
         route.insert(
             "machine".into(),
@@ -168,7 +184,7 @@ impl Connection {
             "session".into(),
             Value::String(global.session.clone().unwrap_or_else(|| "current".into())),
         );
-        Ok(Self { reader: BufReader::new(stream), route })
+        Ok(Self { reader, route, credential })
     }
 
     fn read(&mut self, operation: ResourceOperation, fields: Value) -> Result<Value, Failure> {
@@ -188,7 +204,8 @@ impl Connection {
                 .map_err(|error| Failure::Transport(format!("cmux: {error}")))?,
         };
         let params = self.params(fields);
-        let result = call(&mut self.reader, operation, params, Some(&key))?;
+        let credential = self.credential.as_deref();
+        let result = call_as(&mut self.reader, operation, params, Some(&key), credential)?;
         Ok(result.get("value").cloned().unwrap_or(Value::Null))
     }
 
@@ -239,7 +256,7 @@ fn resolve_target(connection: &mut Connection, target: &str) -> Result<String, F
     })
 }
 
-fn read_body(body: Body) -> Result<String, UsageError> {
+pub(super) fn read_body(body: Body) -> Result<String, UsageError> {
     let text = match body {
         Body::Text(text) => text,
         Body::Stdin => {
@@ -292,14 +309,16 @@ pub(super) fn run_message(global: GlobalArgs, plan: MessagePlan) -> i32 {
 /// A sent message as it ends up, what went wrong delivering it or the
 /// recipients' older queued messages, and whether it failed itself.
 #[derive(Debug, Default)]
-struct Sent {
-    message: Value,
-    problems: Vec<String>,
-    failed: bool,
+pub(super) struct Sent {
+    pub message: Value,
+    pub problems: Vec<String>,
+    pub failed: bool,
 }
 
-/// Store the message, then deliver what is queued for its acpmux recipients.
-fn send_and_deliver(
+/// Store the message, then report how it reached its recipients.
+/// `cmux agents chat send` and the `agents_chat_send` tool send through here
+/// too (agents/chat.rs).
+pub(super) fn send_and_deliver(
     global: &GlobalArgs,
     plan: &MessagePlan,
     body: String,
@@ -311,8 +330,6 @@ fn send_and_deliver(
         fields.insert("recipients".into(), json!([recipient]));
     }
     fields.insert("body".into(), Value::String(body));
-    fields
-        .insert("sender".into(), Value::String(own_address().unwrap_or_else(|| "cli".to_owned())));
     for (key, value) in
         [("sender_name", &plan.from), ("thread_id", &plan.thread), ("in_reply_to", &plan.reply_to)]
     {
@@ -332,38 +349,73 @@ fn send_and_deliver(
         .collect();
     let mut sent = Sent { message, ..Sent::default() };
     deliver_to_codex_terminals(&mut connection, &recipients, &mut sent);
-    for recipient in recipients.into_iter().filter(|recipient| recipient.starts_with("acp:")) {
-        // The message is stored by now: a failure here is reported with it,
-        // so the caller sees its id instead of sending it again.
-        let queued = match connection.read(
-            ResourceOperation::AgentMessageList,
-            json!({
-                "recipient": recipient,
-                "state": "queued",
-                "oldest_first": true,
-                "limit": DELIVERY_BATCH,
-            }),
-        ) {
-            Ok(queued) => queued,
+    await_pump(&mut connection, &recipients, &mut sent);
+    Ok(sent)
+}
+
+/// Wait for the daemon's pump to hand the sent message to its acpmux
+/// recipients, and report a delivery that failed or still waits. The
+/// message is stored by now: a problem here is reported with it, so the
+/// caller sees its id instead of sending it again.
+fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sent) {
+    let acp: Vec<&String> = recipients
+        .iter()
+        .filter(|recipient| recipient.starts_with("acp:"))
+        .filter(|recipient| delivery_state(&sent.message, recipient) == Some("queued"))
+        .collect();
+    if acp.is_empty() {
+        return;
+    }
+    let id = sent.message["id"].as_str().unwrap_or_default().to_owned();
+    let sender = sent.message["sender"].clone();
+    let deadline = std::time::Instant::now() + PUMP_WAIT;
+    loop {
+        match connection
+            .read(ResourceOperation::AgentMessageList, json!({"sender": sender, "limit": 50}))
+        {
+            Ok(listed) => {
+                let current = listed.as_array().into_iter().flatten().find(|m| m["id"] == *id);
+                if let Some(current) = current {
+                    sent.message = current.clone();
+                }
+            }
             Err(failure) => {
                 sent.problems.push(format!(
-                    "could not read the messages queued for {recipient}: {}",
+                    "could not read how message {id} was delivered: {}",
                     failure_text(&failure)
                 ));
-                sent.failed = true;
-                continue;
+                return;
             }
-        };
-        let session = recipient.trim_start_matches("acp:").to_owned();
-        deliver_queued(
-            queued.as_array().cloned().unwrap_or_default(),
-            &recipient,
-            &mut sent,
-            |text, id| acp::deliver(&session, text, id),
-            |fields| connection.mutate(ResourceOperation::AgentMessageMark, fields, None),
-        );
+        }
+        let waiting = acp.iter().any(|r| delivery_state(&sent.message, r) == Some("queued"));
+        if !waiting || std::time::Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(PUMP_POLL);
     }
-    Ok(sent)
+    for recipient in acp {
+        match delivery_state(&sent.message, recipient) {
+            Some("failed") => {
+                let error = sent.message["deliveries"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|delivery| delivery["recipient"] == recipient.as_str())
+                    .and_then(|delivery| delivery["error"].as_str())
+                    .unwrap_or("acpmux refused it")
+                    .to_owned();
+                sent.problems.push(format!(
+                    "message {id} was stored but not delivered to {recipient}: {error}"
+                ));
+                sent.failed = true;
+            }
+            Some("queued") => sent.problems.push(format!(
+                "message {id} is queued for {recipient}; the daemon delivers it once acpmux \
+                 takes it"
+            )),
+            _ => {}
+        }
+    }
 }
 
 /// Hand the queued messages of each Codex terminal agent among `recipients`
@@ -530,38 +582,6 @@ fn record_mark(marked: Result<Value, Failure>, recipient: &str, ids: &str, sent:
     }
 }
 
-/// Deliver the queued messages of one acpmux recipient (oldest first, as
-/// listed) and record each outcome. A message an earlier send left queued
-/// goes out here too; its id is the prompt id, so acpmux runs it once even
-/// when another sender delivers it at the same time. A failed message is not
-/// retried: the sender sees the failure and decides.
-fn deliver_queued(
-    queued: Vec<Value>,
-    recipient: &str,
-    sent: &mut Sent,
-    mut deliver: impl FnMut(&str, &str) -> Result<(), String>,
-    mut mark: impl FnMut(Value) -> Result<Value, Failure>,
-) {
-    let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
-    for message in queued {
-        let id = message["id"].as_str().unwrap_or_default().to_owned();
-        let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
-        let mut fields = json!({"ids": [id], "recipient": recipient, "via": "acp.prompt"});
-        match deliver(&text, &id) {
-            Ok(()) => fields["state"] = json!("delivered"),
-            Err(error) => {
-                sent.problems.push(format!(
-                    "message {id} was stored but not delivered to {recipient}: {error}"
-                ));
-                sent.failed |= id == own_id;
-                fields["state"] = json!("failed");
-                fields["error"] = Value::String(truncate(&error, 1024));
-            }
-        }
-        record_mark(mark(fields), recipient, &id, sent);
-    }
-}
-
 fn failure_text(failure: &Failure) -> String {
     match failure {
         Failure::Resource(error) | Failure::Local { error, .. } => {
@@ -593,6 +613,7 @@ fn sent_summary(message: &Value) -> String {
                 "queued" if recipient.starts_with("term_") => {
                     format!("queued for {recipient}; it reaches the agent at its next hook")
                 }
+                "held" => format!("held for {recipient} until you approve it in the cmux app"),
                 _ => format!("{state} to {recipient}"),
             }
         })
@@ -652,7 +673,10 @@ fn inbox(global: &GlobalArgs, plan: &InboxPlan) -> Result<(Vec<Value>, Option<St
         let unread: Vec<String> = messages
             .iter()
             .filter(|message| {
-                !matches!(delivery_state(message, recipient), Some("acknowledged") | None)
+                matches!(
+                    delivery_state(message, recipient),
+                    Some("queued" | "delivered" | "failed")
+                )
             })
             .filter_map(|message| message["id"].as_str().map(str::to_owned))
             .collect();
@@ -739,16 +763,6 @@ mod acp {
                 .map_err(|error| format!("{error:#}"))
         })
     }
-
-    pub(super) fn deliver(session: &str, text: &str, prompt_id: &str) -> Result<(), String> {
-        runtime()?.block_on(async {
-            let client = acpmux::deliver::connect().await.map_err(|error| format!("{error:#}"))?;
-            acpmux::deliver::deliver(client, session, text, prompt_id)
-                .await
-                .map(|_| ())
-                .map_err(|error| format!("{error:#}"))
-        })
-    }
 }
 
 #[cfg(not(unix))]
@@ -756,10 +770,6 @@ mod acp {
     const UNSUPPORTED: &str = "acpmux sessions are not available on this platform";
 
     pub(super) fn resolve(_key: &str) -> Result<String, String> {
-        Err(UNSUPPORTED.to_owned())
-    }
-
-    pub(super) fn deliver(_session: &str, _text: &str, _prompt_id: &str) -> Result<(), String> {
         Err(UNSUPPORTED.to_owned())
     }
 }

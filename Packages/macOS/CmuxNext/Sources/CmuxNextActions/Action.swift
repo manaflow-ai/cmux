@@ -85,6 +85,15 @@ public struct Action: Identifiable {
     /// Whether a toggle is on for this invocation's target (a context menu
     /// checks its row), or nil for a plain row.
     public var targetState: (@MainActor (ActionInvocation) -> Bool?)?
+    /// Whether a toggle is on for the focused object, read without refusing
+    /// anything; the palette row then shows a check. Nil for a plain row.
+    public var paletteState: (@MainActor () -> Bool)?
+    /// The current value of this action's choices argument for a target (a
+    /// context menu's choices submenu checks it); nil defers to the registry's `choiceState`.
+    public var choiceState: (@MainActor (ActionTargetRef?) -> String?)?
+    /// The palette row's title for the focused object (Hide Tab Bar or Show
+    /// Tab Bar), or nil for the catalog title. Search still matches keywords.
+    public var paletteTitle: (@MainActor () -> String?)?
     /// Whether this invocation's target leaves the row out of a context
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.

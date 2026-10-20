@@ -1,28 +1,41 @@
 import AppKit
+public import CmuxNextAgentPane
 import CmuxNextBrowser
-import CmuxNextDesign
+public import CmuxNextDesign
+import CmuxNextTerminal
 
 /// Content a pane keeps in place, hidden, while another tab shows (browser
-/// perf phase 2, cx-asb1). Taking a browser's chrome out of the window and
-/// back costs AppKit tens of ms on each tab switch (its constraints and
-/// controls leave and join the window's layout engine, and a Chromium page
-/// re-adds its child window). A hidden view stops drawing, takes no events
-/// and is not in the accessibility tree; the content lifecycle
-/// (`TabContentCache.conceal`) already stops the page itself rendering.
+/// perf phase 2, cx-asb1; terminals, perf-tabs I6). Taking a browser's chrome
+/// out of the window and back costs AppKit tens of ms on each tab switch (its
+/// constraints and controls leave and join the window's layout engine, and a
+/// Chromium page re-adds its child window). A hidden view stops drawing, takes
+/// no events and is not in the accessibility tree; the content lifecycle
+/// (`TabContentCache.conceal`) stops the page or surface rendering.
 @MainActor
 protocol PaneParkableContent: NSView {}
 
 extension BrowserChromeView: PaneParkableContent {}
+extension TerminalHostView: PaneParkableContent {}
+/// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
+/// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
+/// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
+/// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
+/// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory.
+extension InternalPageView: PaneParkableContent {}
 
 /// One parked view, weak: the content cache owns it.
 struct ParkedContent {
     weak var view: NSView?
 }
 
+/// What bounds the parked set is not a count: every parked view is the live content of a tab in this
+/// pane (`PaneController.dropClosedParked` drops a closed, moved or replaced one on each strip update),
+/// and what it costs is held by its owner anyway: an evicted terminal leaves the window with its surface
+/// (`TabContentCache.evict`), a hibernated page keeps only its picture. A count cap (8) made a pane with
+/// more tabs than that pay a window move on every switch of a cycle: held Ctrl-Tab over 10 or 30 tabs
+/// evicted each view 8 switches before its turn came back (pane-tab-switch-fast).
 extension PaneContentView {
-    /// The most browsers one pane keeps hidden. Older ones leave the window
-    /// (the old cost, paid once for a tab visited long ago).
-    static let parkLimit = 8
 
     /// Puts `view` on screen as the pane's content: unhides it when it is
     /// parked here, else adds it (also from another pane, a moved tab).
@@ -49,7 +62,7 @@ extension PaneContentView {
         if view is PaneParkableContent { view.isHidden = false }
     }
 
-    /// The pane stops showing `view`: a browser stays here, hidden; other
+    /// The pane stops showing `view`: a terminal, browser, agent or internal page stays here, hidden; other
     /// content leaves the pane. A view another pane took is not touched.
     func retire(_ view: NSView) {
         guard view.superview === contentHost else { return }
@@ -65,15 +78,17 @@ extension PaneContentView {
         }
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // Hidden views do not follow pane resizes; `install` sets the frame.
-        view.autoresizingMask = []
+        // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new
+        // size (`AgentPageRedraw.awaits`). Terminals and browsers do no work while hidden: `install`
+        // sets their frame.
+        if !(view is AgentPaneView || view is InternalPageView) { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
     }
 
-    /// Drops parked views that are gone, moved to another pane, past
-    /// ``parkLimit``, or not `live` (a closed tab, a replaced view).
+    /// Drops parked views that are gone, moved to another pane, or not
+    /// `live` (a closed tab, a replaced view).
     func prunePark(live: ((NSView) -> Bool)? = nil) {
         parked.removeAll { entry in
             guard let view = entry.view, view.superview === contentHost, view !== content else { return true }
@@ -82,10 +97,6 @@ extension PaneContentView {
                 return true
             }
             return false
-        }
-        while parked.count > Self.parkLimit {
-            let oldest = parked.removeFirst()
-            if let view = oldest.view, view.superview === contentHost, view !== content { view.removeFromSuperview() }
         }
     }
 

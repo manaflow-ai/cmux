@@ -3,8 +3,8 @@
   "entries": [
     {
       "path": "Contents/MacOS/cmux",
-      "what": "the app: Swift packages, GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
-      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype"]
+      "what": "the app: Swift packages (CmuxNextIcons carries Chromium's vector icons, design/icons/chromium), GhosttyNextKit (static, Zig; its Termio inlines std.math.cbrt, ported from musl), iroh-ffi (Release merges Iroh.framework's Rust code here: rustc 1.91.0 std), Sparkle client",
+      "notices": ["first-party", "section:manual-swift-package-dependencies", "section:manual-ghostty", "section:manual-sparkle", "section:rust-iroh-ffi", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-musl-in-the-zig-standard-library", "section:manual-freetype", "section:manual-chromium-vector-icons-browser-chrome-icons"]
     },
     {
       "path": "Contents/Frameworks/Sparkle.framework/*",
@@ -15,6 +15,11 @@
       "path": "Contents/Frameworks/Sentry.framework/*",
       "what": "Sentry Cocoa SDK (dynamic; crash and exception reports, cx-urd.58)",
       "notices": ["section:manual-sentry-cocoa"]
+    },
+    {
+      "path": "Contents/Frameworks/MediaRemoteAdapter.framework/*",
+      "what": "ungive/mediaremote-adapter (BSD-3-Clause, vendor/mediaremote-adapter) for Now Playing; loaded by /usr/bin/perl, not linked (scripts/cmux-next/bundle-mediaremote-adapter.sh)",
+      "notices": ["section:manual-mediaremote-adapter-now-playing"]
     },
     {
       "path": "Contents/Frameworks/Iroh.framework/*",
@@ -37,6 +42,16 @@
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
+      "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+      "what": "the remote browser host for the iPhone's browser tabs (cmux-tui/crates/cmux-remote-browser-host, its own Cargo workspace; the pinned prebuilt binary of remote-browser-host.pin.json, embed-remote-browser-host.sh): Rust, a first-party C++ shim and CEF's libcef_dll wrapper; it loads the app's CEF through the symlink Contents/Frameworks/Chromium Embedded Framework.framework",
+      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+    },
+    {
+      "path": "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
+      "what": "the remote browser host's CEF helper processes: copies of the same binary (remote-browser-host-layout.sh)",
+      "notices": ["first-party", "section:rust-cmux-remote-browser-host", "rust-std", "section:manual-rust-and-zig-standard-libraries", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
+    },
+    {
       "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
       "what": "the Computer Use helper that onboarding grants Accessibility and Screen Recording to (manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin)",
       "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
@@ -49,6 +64,11 @@
     {
       "path": "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
       "what": "the same cmux-tui binary for remote hosts",
+      "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]
+    },
+    {
+      "path": "Contents/Resources/bin/cmux-tui-host",
+      "what": "the slim terminal host every macOS terminal runs in (cmux-tui crate cmux-tui, bin cmux-tui-host): the terminal-host runtime of bin/cmux with libghostty-vt, a subset of its crates",
       "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]
     },
     {
@@ -75,6 +95,11 @@
       "path": "Contents/Resources/bin/optchat-chief",
       "what": "the Home Chief brain host (Native/OptChat/optchat-chief with optchat-core, optchat-host and cmux-tui's cmux-sdk, cmux-chief, cmux-conversation); cmux-next nightly only",
       "notices": ["first-party", "section:rust-optchat-chief", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
+      "path": "Contents/Resources/bin/cnx-hostd",
+      "what": "the iPhone connection host that Settings > Mobile runs (cnx-ios/rust/crates/cnx-hostd with cnx-link and cmux-tui path crates; build-cnx-hostd.sh)",
+      "notices": ["first-party", "section:rust-cnx-hostd", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
       "path": "Contents/Resources/bin/ghostty",

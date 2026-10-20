@@ -32,7 +32,9 @@ export async function POST(
       const { id } = await params;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
-      const idempotencyKey = idempotencyKeyFromRequest(request);
+      const idempotency = idempotencyKeyFromRequest(request);
+      if (!idempotency.ok) return idempotency.response;
+      const idempotencyKey = idempotency.key;
       setSpanAttributes(span, { "cmux.vm.id": id, "cmux.snapshot.named": !!name, "cmux.idempotency_key_set": !!idempotencyKey });
       const run = await runVmRoute(snapshotVm({
         userId: user.id,
@@ -41,7 +43,7 @@ export async function POST(
         providerVmId: id,
         name,
         idempotencyKey,
-      }), { request });
+      }), { request, deadline: { operation: "snapshot" } });
       if (!run.ok) return run.response;
       const snapshot = run.value;
       return jsonResponse({ snapshotId: snapshot.id, id: snapshot.id, name: snapshot.name ?? null, createdAt: snapshot.createdAt });

@@ -18,7 +18,7 @@ check() {
 SWIFT=Packages/macOS/CmuxNext/Sources/Fixture/Fixture.swift
 CSS=webviews/src/fixture/styles.css
 TSX=webviews/src/fixture/List.tsx
-PIERRE=webviews/src/agent-session/acpmux/conversation/EditDiff.tsx
+PIERRE=webviews/src/agent-session/acpmux/conversation/EditDiffHunks.tsx
 pass() { check "$1" "$3" || { echo "FAIL: must pass: $2" >&2; exit 1; }; }
 fail() { if check "$1" "$3"; then echo "FAIL: must fail: $2" >&2; exit 1; fi; }
 

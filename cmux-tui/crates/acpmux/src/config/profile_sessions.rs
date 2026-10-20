@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Built-in chat store adapters (Rust code in the device chat index).
 pub const SESSION_BUILTIN_ADAPTERS: &[&str] =
-    &["claude-code", "codex", "opencode", "pi", "gemini", "cursor-agent", "amp", "aider"];
+    &["claude-code", "codex", "opencode", "pi", "gemini", "cursor-agent", "amp", "aider", "muse"];
 /// Data-only adapters a profile describes completely.
 pub const SESSION_DATA_ADAPTERS: &[&str] = &["jsonl", "json", "sqlite"];
 /// Index fields a `sessions.fields` table may map.

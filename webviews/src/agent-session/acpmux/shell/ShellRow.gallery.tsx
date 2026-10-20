@@ -3,7 +3,6 @@ import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
-import { MoveRow } from "./MoveRow";
 import { ShellActionsContext, ShellRow } from "./ShellRow";
 import type { ShellRun } from "./shellRuns";
 
@@ -68,22 +67,13 @@ const row = (shell: ShellRun): AcpmuxRow => ({
   shell,
 });
 
-const move: AcpmuxRow = {
-  id: "gallery-move",
-  kind: "move",
-  at: now,
-  version: 1,
-  text: "Build workspace",
-};
-
 type Props = { row: AcpmuxRow; expanded?: boolean };
 
 function GalleryShellRow({ row: input, expanded: initialExpanded = false }: Props) {
   const [expanded, setExpanded] = useState(initialExpanded);
   const [receipt, setReceipt] = useState("");
   const shell = input.shell;
-
-  if (!shell) return <MoveRow row={input} />;
+  if (!shell) return null;
 
   return (
     <div className="acpmux-shell-row-gallery-stage">
@@ -140,7 +130,6 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/shell/ShellRow.tsx#ShellActionsContext",
     "agent-session/acpmux/shell/ShellRow.tsx#ShellRow",
-    "agent-session/acpmux/shell/MoveRow.tsx#MoveRow",
   ],
   load: async () => GalleryShellRow,
   styles: () =>
@@ -224,10 +213,6 @@ export default componentEntry<Props>({
       note: "Open in terminal is a real button and remains keyboard activatable.",
       props: { row: row(done) },
       play: keyboardOpen,
-    },
-    moved: {
-      note: "A chat move is rendered as the same quiet date-line treatment used in the transcript.",
-      props: { row: move },
     },
   },
 });

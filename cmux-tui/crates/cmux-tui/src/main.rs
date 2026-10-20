@@ -18,6 +18,8 @@ mod app;
 #[cfg(unix)]
 mod app_identity;
 mod browser_input;
+#[cfg(unix)]
+mod build_adopt;
 mod classic_hooks;
 #[cfg(unix)]
 mod claude_wrapper;
@@ -27,14 +29,21 @@ mod client_log;
 mod cloud_conversations_backend;
 #[cfg(unix)]
 mod coderouter_usage;
+#[cfg(unix)]
+mod codex_wrapper;
 mod config;
 mod daemon_build;
 mod headless;
+#[cfg(unix)]
+mod host_orphan_policy;
 mod local_actor;
+mod page_listener;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
+mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
+mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
@@ -81,6 +90,7 @@ mod remote_cli {
     }
 }
 mod owner_start;
+mod remote_host;
 #[cfg(unix)]
 mod remote_runtime;
 mod session;
@@ -92,6 +102,8 @@ mod test_exec;
 #[cfg(test)]
 mod test_wait;
 mod ui;
+mod update_notice;
+mod version_report;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
@@ -936,7 +948,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                if args.peek().is_some_and(|next| next == "--json") {
+                    println!("{}", version_report_json());
+                } else {
+                    println!("cmux {}", version_string());
+                }
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -952,21 +968,63 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     Ok(out)
 }
 
+/// The packaged build's source stamps. Only this crate reads them at compile
+/// time; cmux-tui-core gets them at start (`install_build_stamp`), so a new
+/// stamp recompiles this crate and not the libraries.
+fn build_stamp() -> cmux_tui_core::server::BuildStamp {
+    cmux_tui_core::server::BuildStamp::new(
+        // `or` before the filter: a set but empty CMUX_TUI_BUILD_COMMIT hides
+        // CMUX_MUX_BUILD_COMMIT (no stamp), as before the stamp moved here.
+        option_env!("CMUX_TUI_BUILD_COMMIT")
+            .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
+            .filter(|commit| !commit.is_empty()),
+        option_env!("CMUX_TUI_GHOSTTY_COMMIT"),
+    )
+}
+
 pub(crate) fn version_string() -> String {
     // Packaged builds stamp both source identities so artifact validation can
     // reject a cmux binary built against a different Ghostty checkout before
     // it enters an app bundle. Local builds report the crate version alone.
-    let commit = option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty());
-    let ghostty = option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty());
-    match (commit, ghostty) {
-        (Some(commit), Some(ghostty)) => {
-            format!("{} ({commit}; ghostty {ghostty})", env!("CARGO_PKG_VERSION"))
-        }
-        (Some(commit), None) => format!("{} ({commit})", env!("CARGO_PKG_VERSION")),
-        (None, _) => env!("CARGO_PKG_VERSION").to_string(),
-    }
+    // The version is the npm/PyPI release (version_report.rs), not the crate's.
+    let stamp = build_stamp();
+    version_report::version_text(
+        version_report::release_version(
+            version_report::DISTRIBUTION_VERSION,
+            env!("CARGO_PKG_VERSION"),
+        ),
+        stamp.build_commit(),
+        stamp.ghostty_commit(),
+    )
+}
+
+/// `cmux --version --json`: the facts a tester's bug report needs.
+fn version_report_json() -> serde_json::Value {
+    let stamp = build_stamp();
+    #[cfg(unix)]
+    let (build_identity, build_time, remote_protocol) = (
+        Some(cmux_build_identity::BUILD_IDENTITY),
+        cmux_build_identity::BUILD_TIME,
+        Some(u64::from(cmux_remote_protocol::REMOTE_PROTOCOL_VERSION)),
+    );
+    #[cfg(not(unix))]
+    let (build_identity, build_time, remote_protocol) = (None, 0, None);
+    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let mut report = version_report::version_json(
+        &version_report::BuildFacts {
+            build_identity,
+            build_time,
+            build_commit: stamp.build_commit(),
+            ghostty_commit: stamp.ghostty_commit(),
+            remote_protocol,
+        },
+        executable.as_deref(),
+    );
+    // The invite wave this tester is in and what its signed flags turn off (#10).
+    let (cohort, disabled_features) = feature_flags::report();
+    report["cohort"] = serde_json::json!(cohort);
+    report["disabled_features"] = serde_json::json!(disabled_features);
+    report
 }
 
 #[cfg(unix)]
@@ -1402,6 +1460,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--cloud-identity",
     "--ws",
     "--ws-token",
+    "--ws-allow-origin",
+    "--ws-allow-host",
     "--remote-ws",
     "--remote-http",
     "--remote-state-dir",
@@ -1612,9 +1672,14 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() -> std::process::ExitCode {
+/// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
+/// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
+/// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
+pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
+    // Before any mode can serve `identify` or `ping`.
+    cmux_tui_core::server::install_build_stamp(build_stamp());
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
@@ -1635,6 +1700,23 @@ fn main() -> std::process::ExitCode {
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
+}
+
+/// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
+/// `cmux-tui.exe` calls after it loads the DLL from its own folder. It runs
+/// [`main`] on the calling (main) thread and returns the process exit code.
+/// `std::env::args`, `current_exe` (the exe, not the DLL) and process exit
+/// behave as in the full binary. A panic is reported by the panic hook and
+/// returns 101, the code a panicking Rust `main` exits with.
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_tui_dll_main() -> i32 {
+    match std::panic::catch_unwind(main) {
+        Ok(code) => (0..=u8::MAX)
+            .find(|value| std::process::ExitCode::from(*value) == code)
+            .map_or(1, i32::from),
+        Err(_) => 101,
+    }
 }
 
 /// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
@@ -1659,6 +1741,9 @@ fn run_main() {
         if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
             client_log::exit(claude_wrapper::run(wrapper_args));
         }
+        if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
+            client_log::exit(codex_wrapper::run(wrapper_args));
+        }
     }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
@@ -1679,6 +1764,10 @@ fn run_main() {
         }
         return;
     }
+    // Terminal hosts this process starts run from the slim cmux-tui-host
+    // beside it when that is this build (macOS; host_exe.rs).
+    #[cfg(unix)]
+    cmux_tui_core::host_exe::use_sibling_host(cmux_build_identity::BUILD_IDENTITY);
     // `cmux acp …` (and `cmux harness|chats|route …` = `cmux acp harness|chats|route …`) runs acpmux
     // in this process. It needs none of the mux's provider credentials or signal handlers.
     #[cfg(unix)]
@@ -1688,6 +1777,13 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(if head == "acp" { 2 } else { 1 }).collect();
         client_log::exit(acp::run_scope(head, args));
+    }
+    // `cmux host enable|serve|dial|…`: remote hosting, on every platform
+    // (plans/cmux-next/remote-hosts.md). The other `host` verbs are the
+    // machine supervisor's (`early_unix_scope`).
+    if cli::remote_host_requested(&raw_args) {
+        discard_provider_secret_environment();
+        client_log::exit(remote_host::run(&raw_args[1..]));
     }
     #[cfg(unix)]
     if let Some(run) = cli::early_unix_scope(&raw_args) {
@@ -1775,6 +1871,7 @@ fn run_main() {
         // SAFETY: still single-threaded startup, as for the captures above.
         unsafe { startup_env::take_agent_caller_env() };
     }
+    let headless = args.headless;
     let config = config::StartupConfigSnapshot::load();
     let provider = resolve_provider_launch(&args, &config)
         .unwrap_or_else(|error| usage_exit(&error.to_string()));
@@ -1819,6 +1916,10 @@ fn run_main() {
         None if args.attach => run_attach(args, config),
         None => run_server(args, provider_workspace_authority, config),
     };
+    if result.is_ok() && !headless {
+        // After the TUI restored the terminal: the one update line (#8).
+        update_notice::print_on_exit();
+    }
     if let Err(e) = result {
         if session::is_expected_remote_shutdown(&e) {
             return;
@@ -2101,6 +2202,9 @@ fn run_server(
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();
+    // Windows hosts get no orphan grace (no app bundles there to classify).
+    #[cfg(unix)]
+    host_orphan_policy::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2113,7 +2217,8 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
+    let headless::WsToken { token: ws_token, minted: ws_token_minted } =
+        headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2198,6 +2303,22 @@ fn run_server(
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
     claude_wrapper::configure_pane_path(&mut surface_options);
+    // The Codex shim lives in the same shim directory, so its PATH entry is
+    // usually the one the Claude shim already added.
+    #[cfg(unix)]
+    if let Some(path) = codex_wrapper::pane_path() {
+        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
+            surface_options.extra_env.push(("PATH".into(), path));
+        }
+        // Integrated shells keep this directory first after startup files
+        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
+        // see the terminal's environment, so only the shim routes them.
+        if let Some(dir) =
+            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
+        {
+            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
+        }
+    }
     // The app's bundled `cmux` (the app starts the daemon with it) stays
     // first after the shim on a caller PATH (`terminal_spawn_options`).
     surface_options.bundled_cli = cmux_tui_core::daemon_env::bundled_cli_from_process_env();
@@ -2376,12 +2497,13 @@ fn run_server(
                 let addr = addr
                     .parse()
                     .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
-                Some(cmux_tui_core::server::serve_websocket_with_access(
+                Some(cmux_tui_core::server::serve_websocket_with_pages(
                     mux.clone(),
                     addr,
-                    ws_token,
+                    ws_token.clone(),
                     args.ws_insecure_bind,
                     &args.ws_access,
+                    cmux_tui_core::server::page_bundle_dir(),
                 )?)
             }
             None => None,
@@ -2406,6 +2528,17 @@ fn run_server(
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    let websocket_server = websocket_server.map(|server| {
+        websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
+    });
+    // `ws-listen` (ws-listen-v1): an owner without the listener opens it on request.
+    let page_listener = page_listener::PageListener::install(
+        &mux,
+        socket_path.clone(),
+        args.ws_access.clone(),
+        websocket_server,
+        ws_token.filter(|_| ws_token_minted),
+    );
     // Nor the remote runtime's listeners: a Cloud daemon serves its
     // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
     // `--remote-http`, both reachable at a loopback address on the machine.
@@ -2421,7 +2554,7 @@ fn run_server(
     #[cfg(unix)]
     mux.watch_agent_chats(acp::daemon_socket_path());
     #[cfg(unix)]
-    mux.set_acpmux_starter(acp::daemon_acpmux_starter());
+    acp::install_daemon_acpmux(&mux, &socket_path);
     #[cfg(unix)]
     mux.set_agent_start_host(agent_start_host::source());
     let served_socket = pending_server.into_bound_path();
@@ -2548,8 +2681,8 @@ fn run_server(
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]
     {
-        let shutdown_result = finish_server_shutdown(
-            websocket_server,
+        let shutdown_result = headless::finish_server_shutdown(
+            page_listener.take(),
             &mux,
             &socket_path,
             remote_shutdown,
@@ -2561,7 +2694,7 @@ fn run_server(
     }
     #[cfg(not(unix))]
     {
-        drop(websocket_server);
+        drop(page_listener.take());
         mux.shutdown();
         mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();
@@ -2615,21 +2748,6 @@ fn start_local_owner_event_loop_with_completion(
         }
     });
     LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
-}
-
-#[cfg(unix)]
-fn finish_server_shutdown<W, R>(
-    websocket_server: Option<W>,
-    mux: &Arc<Mux>,
-    socket_path: &Path,
-    remote_shutdown: anyhow::Result<Option<R>>,
-    result: anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    drop(websocket_server);
-    mux.shutdown();
-    mux.release_ownership(socket_path);
-    remote_shutdown.map(|_| ())?;
-    result
 }
 
 /// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the
@@ -2789,6 +2907,8 @@ fn start_detached_owner_session(
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
         chief_tools_socket: None,
+        chief_brains: None,
+        websocket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     // A restore can take minutes on a loaded machine: say so once instead of

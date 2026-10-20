@@ -1,3 +1,4 @@
+import { withTurn } from "./budget.ts"
 import { summary } from "./create.ts"
 import type { OutboxItem, ReduceContext, ReduceResult, RowWrite } from "./engine-types.ts"
 import { rowsOf } from "./engine-types.ts"
@@ -121,8 +122,8 @@ const appendBatch = (head: ConversationHead, rawMessages: unknown, ctx: ReduceCo
       ...next,
       last_seq: message.seq,
       updated_at: message.created_at,
-      ...(text ? (agent ? { agent_text_streak: (next.agent_text_streak ?? 0) + 1, last_agent_text_at: message.created_at } : { agent_text_streak: 0 }) : {})
     }
+    if (text) next = withTurn(next, message.thread_root, agent, message.created_at)
     messages.push(message)
     writes.push({ table: "msg", op: "upsert", key: message.id, n: message.seq, row: message }, { table: "msgkey", op: "upsert", key, n: null, row: { message_id: message.id } })
   }
@@ -132,6 +133,36 @@ const appendBatch = (head: ConversationHead, rawMessages: unknown, ctx: ReduceCo
 const searchItems = (before: ConversationHead | null, head: ConversationHead, messages: ReadonlyArray<Message>, now: string): Array<OutboxItem> => {
   const fan: FanOut = { bumps: [], wakes: [], search: messages.map((m) => searchIntent(head, m)), deliveries: [] }
   return projectionItems(before, { head, change: { kind: "conversation", conversation: summary(head, null) } }, fan, now, head.updated_at)
+}
+
+/**
+ * `conversation.import {id, fill: true, source, messages, read_cursors?}`: the first batch of a Mac
+ * Chief's history into its owner's hosted Chief's main conversation while it is still empty (the Home
+ * move to the Hosted Chief). The conversation goes `importing` until the commit, as a promote does;
+ * the same source replays `{last_seq, state}` so a client resumes after `last_seq`. Continuations and
+ * the commit are the promote's. Only the conversation's owner, only a chief conversation.
+ */
+const fillChief = (state: ConversationHead | null, source: ImportSource | null, params: Params, ctx: ReduceContext, actor: string, now: string): Result => {
+  if (!state) return refuse("unknown_conversation")
+  const me = findParticipant(state, actor)
+  if (state.kind !== "chief" || me?.kind !== "human" || me.role !== "owner" || me.left_at !== undefined) return refuse("forbidden")
+  if (!source) return bad()
+  if (state.import) {
+    const same = state.import.by === actor && state.import.host === source.host && state.import.local_id === source.local_id
+    return same ? { ok: true, state, value: { last_seq: state.last_seq, state: state.state }, changed: false } : refuse("conversation_exists")
+  }
+  if (state.state !== "active" || state.last_seq !== 0) return refuse("conversation_exists")
+  const cursor = isObj(params.read_cursors) ? params.read_cursors[actor] : undefined
+  if (cursor !== undefined && (!Number.isInteger(cursor) || (cursor as number) < 0)) return bad()
+  const head: ConversationHead = {
+    ...state,
+    rev: state.rev + 1,
+    state: "importing",
+    import: { ...source, by: actor },
+    read_cursors: cursor === undefined ? state.read_cursors : { ...state.read_cursors, [actor]: cursor as number }
+  }
+  const batch = appendBatch(head, params.messages, ctx)
+  return { ok: true, state: batch.head, value: { last_seq: batch.head.last_seq }, writes: batch.writes, outbox: searchItems(state, batch.head, batch.messages, now) }
 }
 
 export const reduceImport = (state: ConversationHead | null, op: string, params: Params, ctx: ReduceContext, actor: string, policy: ParticipantPolicy): Result => {
@@ -169,6 +200,7 @@ export const reduceImport = (state: ConversationHead | null, op: string, params:
       return { ok: true, state: head, value: { conversation: summary(head, last) }, outbox }
     }
     const source = parseSource(params.source)
+    if (params.fill === true) return fillChief(state, source, params, ctx, actor, now)
     if (state && params.after_seq === undefined) {
       // A repeated create: same source is a no-op, anything else is a different conversation.
       const same = source && state.import && state.import.by === actor && state.import.host === source.host && state.import.local_id === source.local_id

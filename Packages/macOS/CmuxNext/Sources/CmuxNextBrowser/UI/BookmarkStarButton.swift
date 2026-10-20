@@ -16,16 +16,18 @@ public enum BookmarkStarState: Hashable, Sendable {
 /// The star at the trailing end of the omnibar. Click (or Space/Return when
 /// it has the keyboard) asks the host to bookmark the page or edit its
 /// bookmark; the host anchors the edit bubble at this view.
-final class BookmarkStarButton: NSView {
+final class BookmarkStarButton: NSView, PointerHoverReporting {
     private let image = NSImageView()
-    private var isHovered = false
-    private var tracking: NSTrackingArea?
+    /// Where the pointer is now (`OmnibarPointer`).
+    private var hover: PointerHover?
+    private var isHovered: Bool { hover?.isHovering ?? false }
+    var isPointerHovering: Bool { isHovered }
     var onPress: ((NSView) -> Void)?
 
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             themedToolTip = label
             setAccessibilityLabel(label)
@@ -51,6 +53,7 @@ final class BookmarkStarButton: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityIdentifier("cmux.browser.bookmarkStar")
+        hover = PointerHover(self) { [weak self] _ in self?.paintFill(animated: true) }
     }
 
     @available(*, unavailable)
@@ -65,30 +68,36 @@ final class BookmarkStarButton: NSView {
         onPress?(self)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-        needsDisplay = true
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
     }
 
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
-        needsDisplay = true
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
+        // A redraw during a hover fade leaves the fade running.
+        if layer?.animation(forKey: "backgroundColor") == nil { paintFill(animated: false) }
         performWithTheme {
-            layer?.backgroundColor = isHovered ? OmnibarStyle.chipHoverFill.cgColor : NSColor.clear.cgColor
             image.contentTintColor = state == .on ? OmnibarStyle.textPrimary : OmnibarStyle.textSecondary
+        }
+    }
+
+    /// The hover fill eases in and clears at once (`ChromeHover.fade`).
+    private func paintFill(animated: Bool) {
+        guard let layer else { return }
+        performWithTheme {
+            ChromeHover.paint(layer, isHovered ? OmnibarStyle.chipHoverFill : nil, animated: animated && window != nil)
         }
     }
 }

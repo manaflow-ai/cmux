@@ -88,13 +88,26 @@ pub(super) fn error_code(result: Result<Value, ResourceError>) -> String {
     result.expect_err("request unexpectedly succeeded").code
 }
 
-/// Every change of every resource batch after `revision`.
+/// The changes after `revision` as a connection without `placement-shift-v1`
+/// reads them: each batch's placement shift restated from the current state
+/// (server/session_event_stream.rs `delta_item`).
 pub(super) fn changes_after(mux: &Mux, revision: u64) -> Vec<Value> {
     mux.resource_events_after(revision)
         .unwrap()
         .batches
         .into_iter()
-        .flat_map(|batch| batch.changes.as_array().cloned().unwrap_or_default())
+        .flat_map(|batch| {
+            let mut changes = batch.changes.as_array().cloned().unwrap_or_default();
+            if let Some(shift) = batch
+                .placement_shift
+                .as_ref()
+                .and_then(super::placement_shift::PlacementShift::from_value)
+            {
+                let all = mux.read_registry_state(super::placement_shift::all_changes).unwrap();
+                changes.extend(super::placement_shift::restatement(&all, shift));
+            }
+            changes
+        })
         .collect()
 }
 
@@ -259,6 +272,78 @@ fn workspace_update_carries_identity_through_snapshot_events_and_replay() {
     );
 }
 
+/// workspace-description-v1 and workspace-status-v1: Edit Workspace
+/// Description and the task status (Mark as Done, Set Workspace Status) write
+/// through `workspace.update`; every client reads them from the workspace's
+/// `extra`, a rename keeps them, and null clears each one alone.
+#[test]
+fn workspace_update_sets_and_clears_description_and_task_status() {
+    let mux = Mux::new_for_test("state-workspace-notes", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "notes");
+    let before = revision(&mux);
+    let params = json!({
+        "workspace": workspace,
+        "description": "Ship the release\n- changelog",
+        "task_status": "needs-attention",
+    });
+    let updated = mutate(&mux, "workspace.update", params, "notes-1");
+    assert_eq!(updated["extra"]["description"], "Ship the release\n- changelog");
+    assert_eq!(updated["extra"]["task_status"], "needs-attention");
+    let listed = snapshot(&mux)["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == workspace)
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["extra"]["task_status"], "needs-attention");
+    assert!(changes_after(&mux, before).iter().any(|change| change["resource"] == "workspace"
+        && change["value"]["extra"]["description"] == "Ship the release\n- changelog"));
+
+    let renamed = mutate(
+        &mux,
+        "workspace.rename",
+        json!({"workspace": workspace, "name": "notes-2"}),
+        "notes-rename",
+    );
+    assert_eq!(renamed["extra"]["task_status"], "needs-attention", "a rename keeps the status");
+    let done = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "task_status": "done"}),
+        "notes-2",
+    );
+    assert_eq!(done["extra"]["task_status"], "done");
+    assert_eq!(done["extra"]["description"], "Ship the release\n- changelog");
+    let cleared = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "description": null}),
+        "notes-3",
+    );
+    assert!(cleared["extra"].get("description").is_none());
+    assert_eq!(
+        cleared["extra"]["task_status"], "done",
+        "clearing the description keeps the status"
+    );
+    let automatic = mutate(
+        &mux,
+        "workspace.update",
+        json!({"workspace": workspace, "task_status": null}),
+        "notes-4",
+    );
+    assert!(automatic["extra"].get("task_status").is_none());
+    for (key, bad) in [
+        ("notes-5", json!({"workspace": workspace, "task_status": "inProgress"})),
+        ("notes-6", json!({"workspace": workspace, "description": "  "})),
+    ] {
+        assert_eq!(
+            error_code(send(&mux, "workspace.update", bad, Some(key))),
+            "validation.invalid"
+        );
+    }
+}
+
 #[test]
 fn tab_pin_moves_the_tab_first_and_unpin_returns_it_behind_the_pinned_run() {
     let mux = Mux::new_for_test("state-pins", SurfaceOptions::default());
@@ -312,6 +397,47 @@ fn tab_update_stores_zoom_and_rejects_history_on_a_terminal_tab() {
             "tab.update",
             json!({"tab": tab, "back": ["https://example.com"]}),
             Some("zoom-4")
+        )),
+        "validation.invalid"
+    );
+}
+
+/// tab-mark-unread-v1: Mark Tab Unread sets a manual mark on any tab, with
+/// no notification; every client sees it as `extra.marked_unread`, and
+/// `false` clears it without touching the tab's other state.
+#[test]
+fn tab_update_marks_a_tab_unread_and_clears_it() {
+    let mux = Mux::new_for_test("state-tab-mark-unread", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 1);
+    let tab = tab_id(&mux, tabs[0]);
+    let before = revision(&mux);
+    let marked = mutate(&mux, "tab.update", json!({"tab": tab, "marked_unread": true}), "unread-1");
+    assert_eq!(marked["extra"]["marked_unread"], true);
+    assert!(
+        changes_after(&mux, before)
+            .iter()
+            .any(|change| change["id"] == tab && change["value"]["extra"]["marked_unread"] == true)
+    );
+    let listed = snapshot(&mux)["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|listed| listed["id"] == tab)
+        .cloned()
+        .unwrap();
+    assert_eq!(listed["extra"]["marked_unread"], true);
+    let zoomed = mutate(&mux, "tab.update", json!({"tab": tab, "zoom": 1.5}), "unread-2");
+    assert_eq!(zoomed["extra"]["marked_unread"], true, "another field keeps the mark");
+    let cleared =
+        mutate(&mux, "tab.update", json!({"tab": tab, "marked_unread": false}), "unread-3");
+    assert!(cleared["extra"].get("marked_unread").is_none());
+    assert_eq!(cleared["extra"]["zoom"], 1.5, "clearing the mark keeps the zoom");
+    assert_eq!(
+        error_code(send(
+            &mux,
+            "tab.update",
+            json!({"tab": tab, "marked_unread": "yes"}),
+            Some("unread-4")
         )),
         "validation.invalid"
     );

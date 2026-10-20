@@ -319,9 +319,9 @@ final class BlockLayout: @unchecked Sendable {
             var range = NSRange(location: start, length: n)
             let endsNL = tail.character(at: start + n - 1) == 10
             if endsNL { range.length -= 1 }
-            let line = CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length))
             lines.append(NSRange(location: range.location + from, length: range.length))
-            widths.append(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+            // A blank line is 0 pt (length 0 would lay out the whole rest of the text: TextLayout.make).
+            widths.append(range.length > 0 ? CGFloat(CTLineGetTypographicBounds(CTTypesetterCreateLine(ts, CFRange(location: range.location, length: range.length)), nil, nil, nil)) : 0)
             start += n
             if start == len && endsNL && final { lines.append(NSRange(location: len + from, length: 0)); widths.append(0) }
         }
@@ -337,7 +337,7 @@ final class BlockLayout: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if let a = drawAttr[outgoing] { return a }
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let a = NSMutableAttributedString(string: string as String,
                                           attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
         if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
@@ -461,8 +461,10 @@ final class LongTextLayout: @unchecked Sendable {
         return index.ready ? max(1, tree.total) : placeholderLines
     }
     var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
-    var size: CGSize {
-        CGSize(width: column + 2 * Fixture.bubblePadX, height: textHeight + 2 * Fixture.bubblePadY)
+    var size: CGSize { size(scale: Fixture.renderScale) }
+    /// At a view's scale (the balloon width ends on its device pixels).
+    func size(scale: CGFloat) -> CGSize {
+        CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
     }
     var blockCount: Int { index.blockCount }
     func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) }
@@ -615,7 +617,8 @@ final class LongTextLayout: @unchecked Sendable {
         }
         pending.removeAll()
         // Tiles drawn with the measurement: in the cache before the new height is laid out.
-        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration && k.scale == Fixture.renderScale { TileCache.shared.put(k, img) }
+        // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
+        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
         pendingTiles.removeAll()
         return changed
     }
@@ -822,12 +825,14 @@ final class LongTextStore: @unchecked Sendable {
 
     func size(_ text: String, width: CGFloat) -> CGSize { layout(text, width: width).size }
     /// The row size of a message's long text part: folded (LongTextFold) or full.
-    func size(_ text: String, width: CGFloat, message id: ID, markdown: Bool) -> CGSize {
+    /// `scale`: the view's (the balloon width ends on its device pixels).
+    func size(_ text: String, width: CGFloat, message id: ID, markdown: Bool, scale: CGFloat = Fixture.renderScale) -> CGSize {
         let l = layout(text, width: width, message: id, markdown: markdown)
-        if LongTextFold.isFolded(id, l) { return LongTextFold.size(l) }
+        if LongTextFold.isFolded(id, l) { return LongTextFold.size(l, scale: scale) }
         // Expanded: the "Show less" band follows the last line.
-        if LongTextFold.isFoldable(l) { return CGSize(width: l.size.width, height: l.size.height + LongTextFold.bandHeight) }
-        return l.size
+        let full = l.size(scale: scale)
+        if LongTextFold.isFoldable(l) { return CGSize(width: full.width, height: full.height + LongTextFold.bandHeight) }
+        return full
     }
 
     /// The layout of a long text at a width. Markdown tiles only for a message the host marked
@@ -886,15 +891,34 @@ final class LongTextStore: @unchecked Sendable {
             guard create else { return nil }
             // Streaming: the same text with more at the end keeps every block but the last
             // (a plain stream that turns into markdown is indexed again from its start).
-            if let prev, prev.ready, prev.count < p.count, prev.blockCount > 0,
+            // cmux: a stream whose end was rewritten (a Markdown style that closes rewrites its last
+            // line, and can shorten the text a little) keeps every block before the change, and its
+            // lineage (its tiles): a new index from the start cost every such token O(reply) on main
+            // (plans/cmux-next/home-streaming-perf-DESIGN.md).
+            if let prev, prev.ready, prev.count != p.count, p.count + 64 >= prev.count, prev.blockCount > 0,
                prev.markdown || !LongTextIndex.isMarkdown(String(decoding: UnsafeBufferPointer(rebasing: p.dropFirst(max(0, prev.starts.dropLast().last ?? 0))) /* the last block start, no index math */, as: UTF8.self)) {
-                let keep = prev.blockCount - 1
-                let from = max(0, (prev.starts[checked: keep] ?? 0) - 256) // checked
-                let same = prev.withBytes { q in // no force unwraps
+                let last = prev.blockCount - 1
+                let from = max(0, (prev.starts[checked: last] ?? 0) - 256) // checked
+                // An append: the old text is the new one's start (the previous rule).
+                let appended = prev.count < p.count && prev.withBytes { q in // no force unwraps
                     guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
                     return memcmp(qb + from, pb + from, prev.count - from) == 0
                 }
-                if same {
+                // cmux: else the last block whose start the texts share byte for byte (at least one block kept).
+                var keepAt: Int? = appended ? last : nil
+                if keepAt == nil {
+                    var k = last
+                    while k >= 1, keepAt == nil {
+                        let end = prev.starts[checked: k] ?? 0 // checked
+                        let shared = end <= p.count && prev.withBytes { q in // no force unwraps
+                            guard let qb = q.baseAddress, let pb = p.baseAddress else { return false }
+                            return memcmp(qb, pb, end) == 0
+                        }
+                        if shared { keepAt = k }
+                        k -= 1
+                    }
+                }
+                if let keep = keepAt {
                     let i = LongTextIndex.build(t, lineage: prev.lineage, prefix: prev, keep: keep)
                     LongTextStats.streamExtends += 1
                     let old = layoutsOf(prev)
@@ -997,8 +1021,8 @@ enum LongTextFold {
     static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && (l.index.ready ? l.estimatedLines > maxLines : l.totalLines > maxLines) }
     static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
     static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
-    static func size(_ l: LongTextLayout) -> CGSize {
-        CGSize(width: l.column + 2 * Fixture.bubblePadX,
+    static func size(_ l: LongTextLayout, scale: CGFloat = Fixture.renderScale) -> CGSize {
+        CGSize(width: Sizing.textBalloonWidth(l.column, column: l.column, scale: scale),
                height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
     }
     static func label(_ n: Int) -> String {

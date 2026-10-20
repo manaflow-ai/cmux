@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
@@ -85,6 +89,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.devices.add_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.forward": {
       "scope": "browser:write",
       "class": "mutation"
@@ -117,7 +133,31 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.set_profile": {
       "scope": "browser:write",
       "class": "mutation"
     },
@@ -184,6 +224,46 @@
     "chief.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.adopt": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.avatar.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.avatar.set": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.create": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.delete": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.get": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
+    },
+    "chief.profile.update": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.stop": {
       "scope": "chief:write",
@@ -429,6 +509,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.members": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.search": {
       "scope": "conversation:read",
       "class": "read"
@@ -560,6 +644,10 @@
     "finder.open": {
       "scope": "finder:write",
       "class": "mutation"
+    },
+    "git.branches": {
+      "scope": "git:read",
+      "class": "read"
     },
     "git.checkpoint.create": {
       "scope": "git:write",
@@ -937,7 +1025,23 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "participant.avatar.get": {
+      "scope": "participant:read",
+      "class": "read"
+    },
+    "participant.avatar.set": {
+      "scope": "participant:write",
+      "class": "mutation"
+    },
     "participants.add": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.set_role": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
     },
@@ -954,6 +1058,10 @@
       "class": "mutation"
     },
     "project.remove": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
+    "project.source.update": {
       "scope": "project:write",
       "class": "mutation"
     },
@@ -1169,6 +1277,10 @@
       "scope": "search_app:read",
       "class": "read"
     },
+    "server.network.confirm": {
+      "scope": "server:write",
+      "class": "mutation"
+    },
     "session.get": {
       "scope": "session:read",
       "class": "read"
@@ -1281,6 +1393,78 @@
       "scope": "sidebar_view:write",
       "class": "mutation"
     },
+    "sidebar.adopt": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.apply": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.get": {
+      "scope": "sidebar:read",
+      "class": "read"
+    },
+    "sidebar.group.create": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.ungroup": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.group.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.remove_ref": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.item.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.pin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.reset": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.add": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.move": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.remove": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.section.update": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
+    "sidebar.unpin": {
+      "scope": "sidebar:write",
+      "class": "mutation"
+    },
     "skills_app.cycle_variant": {
       "scope": "skills_app:write",
       "class": "mutation"
@@ -1295,6 +1479,26 @@
     },
     "slack.post_as_bot": {
       "scope": "slack:external",
+      "class": "mutation"
+    },
+    "stash.create": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.import": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.list": {
+      "scope": "stash:read",
+      "class": "read"
+    },
+    "stash.restore": {
+      "scope": "stash:write",
       "class": "mutation"
     },
     "tab_group.add_tabs": {
@@ -1407,6 +1611,10 @@
     },
     "team_vm.status": {
       "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team.ai_limit.get": {
+      "scope": "team:read",
       "class": "read"
     },
     "team.device.compliance": {
@@ -1529,6 +1737,10 @@
       "scope": "terminal:read",
       "class": "read"
     },
+    "thread.update": {
+      "scope": "thread:write",
+      "class": "mutation"
+    },
     "title.set": {
       "scope": "title:write",
       "class": "mutation"
@@ -1563,6 +1775,22 @@
     },
     "window_record.put": {
       "scope": "window_record:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
       "class": "mutation"
     },
     "workspace_group.create": {
@@ -1673,7 +1901,9 @@
   "never": [
     "agent.message.list",
     "agent.message.mark",
+    "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",
@@ -1712,20 +1942,26 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "grant.create",
+    "grant.revoke",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
     "history.entries.remove",
     "history.restore",
     "history.site.remove",
+    "history.trail.record",
     "history.visit.import",
     "history.visit.record",
     "history.visit.remove",
     "history.visit.summaries",
     "history.visit.title",
+    "home.requests.list",
     "home.settings.set",
     "host.enroll",
+    "host.network.bind",
     "host.remove",
+    "host.replica.purge",
     "install.list",
     "install.register",
     "install.rename",
@@ -1737,17 +1973,20 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "invite.accept_verified",
     "keybindings.remove",
     "keybindings.reset",
     "keybindings.set",
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
+    "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
     "participants.remove",
     "request.cancel",
+    "request.dismiss",
     "screen.close",
     "server.pair.approve",
     "server.pair.preview",
@@ -1770,6 +2009,8 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.ai_limit.member.set",
+    "team.ai_limit.set",
     "team.audit.list",
     "team.enrollment_token.create",
     "team.enrollment_token.list",
@@ -1801,6 +2042,7 @@
     "user.text_confirm.lower.challenge",
     "workspace.agent_folder.set",
     "workspace.agent_start.get",
-    "workspace.close"
+    "workspace.close",
+    "workspace.open_url"
   ]
 }

@@ -18,11 +18,15 @@ use serde_json::{Value, json};
 fn serve(
     listener: UnixListener,
     capabilities: Vec<&'static str>,
+    refused: Vec<&'static str>,
     requests: Arc<Mutex<Vec<Value>>>,
 ) {
+    let created_key = Arc::new(Mutex::new(Value::Null));
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let (requests, capabilities) = (requests.clone(), capabilities.clone());
+            let refused = refused.clone();
+            let created_key = created_key.clone();
             std::thread::spawn(move || {
                 let mut out = conn.try_clone().unwrap();
                 for line in BufReader::new(conn.try_clone().unwrap()).lines() {
@@ -50,6 +54,17 @@ fn serve(
                         );
                         continue;
                     }
+                    if refused.contains(&req["cmd"].as_str().unwrap()) {
+                        let _ = writeln!(
+                            out,
+                            "{}",
+                            json!({"id": req["id"], "ok": false, "error": {"code": "operation_failed", "message": "refused"}})
+                        );
+                        continue;
+                    }
+                    if req["cmd"] == "create-workspace" {
+                        *created_key.lock().unwrap() = req["key"].clone();
+                    }
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => {
                             json!({"app": "cmux", "version": "test", "protocol": 12, "capabilities": capabilities,
@@ -66,6 +81,15 @@ fn serve(
                             "screen": 8, "surface": 10, "terminal_id": "term_1",
                             "terminal_incarnation": null, "terminal_revision": 1, "workspace": 7
                         }),
+                        // The real tree (tree_json.rs) carries each workspace's key and public id.
+                        "list-workspaces" => json!({"workspaces": [
+                            {"id": 6, "key": "other", "resource_id": "ws_00000000000000000000000000000006", "name": "Home", "active": true, "screens": []},
+                            {"id": 7, "key": created_key.lock().unwrap().clone(), "resource_id": "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e", "name": "a1 · summarize", "active": false, "screens": []}
+                        ]}),
+                        // The user's own group by a topic name is reused.
+                        "list-workspace-groups" => json!({"groups": [
+                            {"id": "grp_user_sidebar", "name": "Sidebar & Tabs", "collapsed": false}
+                        ]}),
                         "new-conversation-tab" => json!({
                             "content_resource_id": null, "conversation": {"agent_session": req["agent_session"]},
                             "replayed": false, "surface": 11, "tab_resource_id": null
@@ -86,10 +110,22 @@ fn serve(
 fn workspaces(
     caps: Vec<&'static str>,
 ) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
+    workspaces_refusing(caps, vec![])
+}
+
+fn workspaces_refusing(
+    caps: Vec<&'static str>,
+    refused: Vec<&'static str>,
+) -> (DaemonWorkspaces, Arc<Mutex<Vec<Value>>>, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("cmux.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
-    serve(UnixListener::bind(&socket).unwrap(), caps, requests.clone());
+    serve(
+        UnixListener::bind(&socket).unwrap(),
+        caps,
+        refused,
+        requests.clone(),
+    );
     let w = DaemonWorkspaces {
         daemon: socket,
         host: "install:inst_test".into(),
@@ -121,6 +157,7 @@ fn a_subagent_workspace_is_made_in_the_hosts_own_session() {
             &optchat_chief::workspaces::new_key(),
             "sess-1",
             "a1 · summarize",
+            "Chief agents",
             Path::new("/Users/x/fun/repo"),
         )
         .unwrap();
@@ -153,6 +190,7 @@ fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
             &optchat_chief::workspaces::new_key(),
             "sess-1",
             "a1 · x",
+            "Chief agents",
             Path::new("/tmp"),
         )
         .unwrap_err();
@@ -161,4 +199,126 @@ fn a_daemon_without_agent_session_tabs_is_refused_before_any_write() {
         commands(&requests, "create-workspace").is_empty(),
         "nothing half made"
     );
+}
+
+const GROUPED: [&str; 4] = [
+    "workspace-registry-v1",
+    "conversation-tabs-v1",
+    "agent-session-tabs-v1",
+    "workspace-groups-v1",
+];
+
+fn open(w: &DaemonWorkspaces) -> Result<String, String> {
+    w.open(
+        &optchat_chief::workspaces::new_key(),
+        "sess-1",
+        "a1 · x",
+        "Chief agents",
+        Path::new("/tmp"),
+    )
+}
+
+/// Lawrence 2026-10-18: "use groups more aggressively so that you can
+/// organize and the user feels less overwhelmed".
+#[test]
+fn a_subagent_workspace_goes_into_the_chief_agents_group() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    let key = open(&w).unwrap();
+    let group = commands(&requests, "create-workspace-group");
+    assert_eq!(group.len(), 1);
+    assert_eq!(
+        group[0]["group"], "chief-agents",
+        "a fixed id: one group for every spawn"
+    );
+    assert_eq!(group[0]["name"], "Chief agents");
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0]["workspace"], 7);
+    assert_eq!(moved[0]["group"], "chief-agents");
+    assert_eq!(
+        moved[0]["mutation_id"],
+        format!("optchat-subagent-group-{key}")
+    );
+    assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+}
+
+#[test]
+fn a_daemon_without_groups_gets_no_group_requests() {
+    let (w, requests, _dir) = workspaces(GROUPED[..3].to_vec());
+    open(&w).unwrap();
+    assert!(commands(&requests, "create-workspace-group").is_empty());
+    assert!(commands(&requests, "move-workspace-to-group").is_empty());
+}
+
+#[test]
+fn a_refused_group_never_stops_the_subagent_start() {
+    let (w, requests, _dir) = workspaces_refusing(
+        GROUPED.to_vec(),
+        vec!["create-workspace-group", "move-workspace-to-group"],
+    );
+    open(&w).unwrap();
+    assert_eq!(commands(&requests, "create-terminal").len(), 1);
+    assert_eq!(commands(&requests, "new-conversation-tab").len(), 1);
+}
+
+fn open_in(w: &DaemonWorkspaces, group: &str) -> Result<String, String> {
+    w.open(
+        &optchat_chief::workspaces::new_key(),
+        "sess-1",
+        "a1 · Sidebar group drag",
+        group,
+        Path::new("/tmp"),
+    )
+}
+
+/// Lawrence 2026-10-19: "you need to group it better as well": a topic the
+/// session has no group for gets one, with a stable id per topic.
+#[test]
+fn a_subagent_workspace_goes_into_a_new_topic_group() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    open_in(&w, "Home & chat").unwrap();
+    let group = commands(&requests, "create-workspace-group");
+    assert_eq!(group.len(), 1);
+    assert_eq!(group[0]["group"], "chief-topic-home-chat");
+    assert_eq!(group[0]["name"], "Home & chat");
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved[0]["group"], "chief-topic-home-chat");
+    assert_eq!(moved[0]["workspace"], 7);
+}
+
+/// The user's own group of that topic (any case) is reused, never doubled.
+#[test]
+fn a_topic_group_the_session_has_is_reused() {
+    let (w, requests, _dir) = workspaces(GROUPED.to_vec());
+    open_in(&w, "Sidebar & tabs").unwrap();
+    assert!(commands(&requests, "create-workspace-group").is_empty());
+    let moved = commands(&requests, "move-workspace-to-group");
+    assert_eq!(moved.len(), 1);
+    assert_eq!(moved[0]["group"], "grp_user_sidebar");
+}
+
+/// a313 (2026-10-20): the user asked to pin a306's workspace at the top, and
+/// nothing could find it: the spawn reply named only a UUID key, and an agent's
+/// `cmux` talks to the app's daemon, not the Chief's owner daemon that holds
+/// the subagent workspaces. The host names each one by its public id and session.
+#[test]
+fn a_subagent_workspace_is_located_by_its_public_id_and_session() {
+    let (w, _requests, _dir) = workspaces(GROUPED.to_vec());
+    let key = w
+        .open(
+            &optchat_chief::workspaces::new_key(),
+            "sess-1",
+            "a1 · summarize",
+            "Chief agents",
+            Path::new("/tmp"),
+        )
+        .unwrap();
+    let found = w.locate(&key).expect("the daemon names the workspace");
+    assert_eq!(found.id, "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e");
+    assert_eq!(found.session, "main");
+    assert_eq!(
+        found.move_to_top(),
+        "cmux --session main workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
+    );
+    assert!(w.locate("no-such-key").is_none());
 }

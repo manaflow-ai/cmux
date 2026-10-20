@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import CmuxNextOnboarding
 import CmuxNextSettings
 import Observation
@@ -16,8 +17,8 @@ import Observation
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
 /// Start Agent toggles the floating `QuickComposerController` panel.
 /// Computer Use Setup and its two grants run `ComputerUseSetup`.
-/// Terminal-as-chat, Teams, and Computer Use focus/stop are
-/// typed-unavailable.
+/// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
+/// focus/stop are typed-unavailable.
 enum AgentHandlers {
     enum Placement {
         case right, left, above, below, newTab, newWorkspace
@@ -42,9 +43,8 @@ enum AgentHandlers {
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
-        registry.bind("home.toggleChiefSettings", run: { _ in
-            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
-        })
+        // Only the front window's Home answers (`HomeChiefSettingsPopover.toggleTarget`).
+        registry.bind("home.toggleChiefSettings", run: { _ in NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: HomeChiefSettingsPopover.frontToggleTarget) })
         registry.bind(HomeChiefControl.stopAction, run: { _ in
             NotificationCenter.default.post(name: HomeChiefControl.stopNotification, object: nil)
         })
@@ -72,7 +72,7 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
             if let pane = context.scope(invocation).pane,
-               openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
+               DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
             withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
@@ -119,18 +119,17 @@ enum AgentHandlers {
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.runPermissionAction(command)
+                view.runPermissionAction(command, byPerson: invocation.origin == .user)
             })
         }
-        // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt (cx-f7c).
-        let turnSteps: [(ActionID, Bool)] = [("agentPane.previousTurn", false), ("agentPane.nextTurn", true)]
-        for (id, forward) in turnSteps {
-            registry.bind(id, run: { invocation in
+        // Previous and Next Turn and Bookmarked Prompt step the agent chat's transcript (cx-f7c).
+        for step in AgentTranscriptStep.allCases {
+            registry.bind(ActionID(rawValue: step.actionID), run: { invocation in
                 guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
                       let view = context.services.agentTabs.existingView(key) else {
                     return context.refuse(MiscHandlerStrings.noAgentChat)
                 }
-                view.stepTurn(forward: forward)
+                view.step(step)
             })
         }
         // Continue in… is a user-facing chooser. Headless callers use the
@@ -191,8 +190,8 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
-        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
-        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
+        TerminalChatHandler.bind(into: registry, context: context)
+        AgentTeamsLaunch.bind(into: registry, context: context)
         registry.bindUnavailable(
             ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)
@@ -231,45 +230,6 @@ enum AgentHandlers {
         view.zoom = AgentPaneZoomSetting.fallback
         context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
-    }
-
-    /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
-    /// workspace whose only tab is the chat, like a new thread in the Codex
-    /// and Claude apps (lawrence-call-1006 D): always that one screen, never
-    /// the New Tab page (Leo 2026-10-10, cx-9z3j; Cmd-T and Cmd-N open the
-    /// page). The chat inherits the focused tab's cwd and draft as a tab
-    /// would. Scripts, an explicit target and a daemon that cannot hold a chat
-    /// get a tab in `pane`: false.
-    private static func openNewAgentChatWorkspace(from pane: PaneController, invocation: ActionInvocation,
-                                                  context: AppActionContext) -> Bool {
-        let services = context.services
-        guard invocation.origin == .user, invocation.target == nil, services.agentTabs.canHost(on: pane.daemon),
-              let windowID = context.activeWindow?.state.id else { return false }
-        // Cmd-I again on a chat that has not started yet (loaded, untouched, no prompt sent):
-        // that chat is the one target, already on screen. It takes the keyboard; no second
-        // workspace, page load, loading mark or repaint (cx-vurv).
-        if let model = pane.currentTabKey.flatMap({ services.agentTabs.existingView($0) })?.model, model.sessionId == nil, model.newTab == nil,
-           model.hasHandshake, !model.userTouched, model.transport.sessions.isUnstarted {
-            services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
-            return true
-        }
-        let folder = pane.selectedTab?.cwd
-        let source = pane.agentSeedFromSelectedTab()
-        let daemon = pane.daemon
-        context.registry.track(Task { @MainActor in
-            var seed = await source?.take() ?? AgentPaneSeed()
-            seed.cwd = seed.cwd ?? folder
-            var spawn = WorkspaceSpawn(cwd: seed.cwd)
-            spawn.firstChat = seed
-            do {
-                _ = try await services.windows.createWorkspace(spawn, on: daemon, into: windowID)
-                return nil
-            } catch {
-                daemon.logger.error("new agent chat workspace failed: \(String(describing: error), privacy: .public)")
-                return ActionWorkFailure("new agent chat: \(error)")
-            }
-        })
-        return true
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
@@ -349,6 +309,10 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
+            // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
+            if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
+                context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
+            }
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
             return
         }

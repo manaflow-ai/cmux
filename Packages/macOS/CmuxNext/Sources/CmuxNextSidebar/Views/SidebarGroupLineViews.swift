@@ -9,8 +9,15 @@ import CmuxNextDesign
 @MainActor
 final class SidebarGroupLineViews {
     private var views: [GroupID: GroupLineView] = [:]
+    /// The lines the last `update` showed (a group's fold moves them without a pass over every row).
+    private(set) var lines: [SidebarGroupLine] = []
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
+
+    /// Each shown line (not one fading out) by group: its frame and opacity.
+    var shown: [GroupID: (frame: CGRect, alpha: CGFloat)] {
+        views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }
+    }
 
     /// The changes that move the lines to `new`, to run inside the rows'
     /// animation block, and the views to remove when it ends. A kept line
@@ -18,6 +25,7 @@ final class SidebarGroupLineViews {
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+        lines = new
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
@@ -58,6 +66,22 @@ final class SidebarGroupLineViews {
         return (changes, leaving.map(\.0))
     }
 
+    /// Shows at once, at its frame, the line of each group in `lines` that has
+    /// none (a group whose rows a drag hid: the last apply left its line out),
+    /// and leaves every other line, moving or not, as it is.
+    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
+        for line in lines where views[line.group] == nil {
+            let view = GroupLineView()
+            list.addSubview(view, positioned: .above, relativeTo: decorations)
+            views[line.group] = view
+            Motion.withoutAnimation {
+                view.frame = line.frame
+                view.alphaValue = 1
+            }
+            view.color = line.color
+        }
+    }
+
     /// Moves every line by `dy` at once, with the rows and the scroll offset.
     func shift(by dy: CGFloat) {
         for view in views.values { view.frame.origin.y += dy }
@@ -87,8 +111,8 @@ final class GroupLineView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeEffectiveAppearance() {

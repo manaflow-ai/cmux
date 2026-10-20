@@ -4,7 +4,13 @@ import QuartzCore
 
 /// The "+" after the last tab. Mouse handling lives in the strip.
 final class NewTabButtonView: NSView {
-    var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: true) } } }
+    var isHovered = false {
+        didSet {
+            guard oldValue != isHovered else { return }
+            updateColors(animated: true)
+            if isHovered { TabStripSignals.shared.onNewTabButtonHover?() }
+        }
+    }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) the plus.
@@ -29,6 +35,7 @@ final class NewTabButtonView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
+        setAccessibilityIdentifier("cmux.tabs.newTab")
     }
 
     @available(*, unavailable)
@@ -36,8 +43,8 @@ final class NewTabButtonView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
@@ -83,8 +90,8 @@ final class NewTabButtonView: NSView {
     private func updateColors(animated: Bool) {
         let token = animated ? ChromeHover.fade(showing: isHovered || isPressed, pressed: isPressed) : nil
         // An instant change also ends a fill still easing in.
-        if (token.map(Motion.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
-        Motion.transaction(token) {
+        if (token.map(Motion.tabs.duration) ?? 0) == 0 { fillLayer.removeAnimation(forKey: "backgroundColor") }
+        Motion.tabs.transaction(token) {
             performWithTheme {
                 fillLayer.backgroundColor = ChromeHover.fillColor(.init(hovering: isHovered, pressed: isPressed))?.cgColor
                 glyphLayer.strokeColor = (isHovered ? Palette.textPrimary : Palette.textSecondary).cgColor
@@ -100,6 +107,6 @@ final class NewTabButtonView: NSView {
 
 /// Flipped container with no event handling of its own.
 final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

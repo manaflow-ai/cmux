@@ -1,14 +1,24 @@
 /// `labs.previewFeatures` in cmux.json: surfaces still being shaped (the
 /// agent pane's session coverage label and its Pull requests view). Off by
 /// default, so a default app shows only finished surfaces.
+/// The path and default are generated from schemas/settings/source/labs.json
+/// (SettingsSchema+Labs.generated.swift).
 extension CmuxConfigSnapshot {
-    public static let previewFeaturesPath = ["labs", "previewFeatures"]
-
     /// Absent is off; a value that is not a bool is off plus a diagnostic.
     static func parsePreviewFeatures(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: previewFeaturesPath) else { return (false, nil) }
+        guard let value = root.value(at: previewFeaturesPath) else { return (previewFeaturesDefault, nil) }
         guard let on = value.boolValue else {
-            return (false, SettingsDiagnostic(kind: .invalidValue, path: "labs.previewFeatures", message: "expected true or false"))
+            return (previewFeaturesDefault, SettingsDiagnostic(kind: .invalidValue, path: "labs.previewFeatures", message: "expected true or false"))
+        }
+        return (on, nil)
+    }
+
+    /// Another Labs toggle (`labs.classicHome`): absent is `fallback`; a value that is not a bool
+    /// is `fallback` plus a diagnostic.
+    static func parseLabsToggle(_ root: JSONValue, path: [String], fallback: Bool) -> (Bool, SettingsDiagnostic?) {
+        guard let value = root.value(at: path) else { return (fallback, nil) }
+        guard let on = value.boolValue else {
+            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: path.joined(separator: "."), message: "expected true or false"))
         }
         return (on, nil)
     }

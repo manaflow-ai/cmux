@@ -53,8 +53,11 @@ export function createSettingsQueryClient(): QueryClient {
     defaultOptions: {
       // The owner pushes every change (settings-changed, host-changed): data is fresh until then,
       // and a failed read is shown, not retried behind the user's back.
+      // No component observes the cache (useSettingsState reads the store), so nothing would keep
+      // a query alive: cached data never expires.
       queries: {
         staleTime: Number.POSITIVE_INFINITY,
+        gcTime: Number.POSITIVE_INFINITY,
         retry: false,
         refetchOnWindowFocus: false,
         structuralSharing: false,
@@ -77,6 +80,41 @@ export function scopeData({ rows, snapshot }: ScopeRead): ScopeData {
     })),
     domains: publishedDomains(snapshot),
   };
+}
+
+/**
+ * `next` with every row, managed entry, diagnostic list and domain list that reads the same as in
+ * `previous` kept as `previous`'s object. A re-read after one key changed then changes one row's
+ * object, so only that row's subscribers render again.
+ */
+export function shareScope(previous: ScopeData | undefined, next: ScopeData): ScopeData {
+  if (!previous) return next;
+  return {
+    revision: next.revision,
+    rows: shareMap(previous.rows, next.rows),
+    managed: shareMap(previous.managed, next.managed),
+    diagnostics: shareMap(previous.diagnostics, next.diagnostics),
+    problems: same(previous.problems, next.problems) ? previous.problems : next.problems,
+    domains: same(previous.domains, next.domains) ? previous.domains : next.domains,
+  };
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+function shareMap<V>(previous: ReadonlyMap<string, V>, next: ReadonlyMap<string, V>): ReadonlyMap<string, V> {
+  let changed = previous.size !== next.size;
+  const out = new Map<string, V>();
+  for (const [key, value] of next) {
+    const old = previous.get(key);
+    if (old !== undefined && same(old, value)) out.set(key, old);
+    else {
+      out.set(key, value);
+      changed = true;
+    }
+  }
+  return changed ? out : previous;
 }
 
 export type Write =

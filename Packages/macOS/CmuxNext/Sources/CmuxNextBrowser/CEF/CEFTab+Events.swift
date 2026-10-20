@@ -10,6 +10,11 @@ extension CEFTab {
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
         defer { CEFAgentURLGuard.check(self, after: event) }
+        if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         switch event {
         case .loadingState(_, let loading, let back, let forward):
             nativeHistory = (back, forward)
@@ -24,7 +29,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading { clearTitleBeforeCommit() }
-        case .loadStart(_, let url):
+        case .loadStart(_, let url, let fromPost):
             if navigation == nil || !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -32,13 +37,16 @@ extension CEFTab {
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
             restored.navigationCommitted(url: URL(string: url))
+            restored.documentCommitted(url: URL(string: url), formPost: fromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
+            resetPageBackdrop()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
@@ -65,7 +73,7 @@ extension CEFTab {
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
-            machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
@@ -104,15 +112,26 @@ extension CEFTab {
 
     /// Chromium net error codes; -3 (ERR_ABORTED) is a cancelled load (Stop,
     /// a replacing navigation, a download, a rerouted URL). Every other
-    /// main-frame failure shows cmux's error page or certificate warning
-    /// (`ChromiumNetError`), over the error page Chromium commits under it,
-    /// unless `chromiumInterstitial` (Chromium's own certificate page shows).
+    /// main-frame failure shows Chromium's own page, as in Chrome (Lawrence
+    /// 2026-10-13): its net error page or certificate interstitial, which it
+    /// commits right after OnLoadError; cmux shows no page over it. cmux's
+    /// page shows for a failure whose Chromium page is empty, and for a
+    /// certificate error Chromium shows no interstitial for (the shim
+    /// cancels it in an agent-driven tab, so only a person can Proceed).
     static func loadError(code: Int, text: String, url: String, chromiumInterstitial: Bool = false) -> BrowserLoadError {
         if code == -3 {
             return BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCancelled, message: text, failingURL: URL(string: url))
         }
-        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumInterstitial)
+        let cmuxPage = ChromiumNetError.certificateCodes.contains(code) || chromiumDrawsEmptyPage.contains(code)
+        let chromiumPage = chromiumInterstitial || !cmuxPage
+        return ChromiumNetError(code: code, text: text).loadError(failingURL: URL(string: url), engineShowsPage: chromiumPage)
     }
+
+    /// Net errors whose Chromium error page is empty (seen live, cx-zjcq):
+    /// cmux's error page shows for them, not a blank tab.
+    static let chromiumDrawsEmptyPage: Set<Int> = [
+        -338, // ERR_INVALID_AUTH_CREDENTIALS
+    ]
 
     private func loadFavicon(_ url: URL?) {
         faviconTask?.cancel()
@@ -145,6 +164,12 @@ extension CEFTab {
     public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
         guard let browserID, !isClosed else { throw BrowserTabError.closed }
         var params: [String: Any] = ["expression": script, "returnByValue": true, "awaitPromise": true]
+        // A page-world script runs as a user gesture, as WebKit's
+        // evaluateJavaScript does (forceUserGesture): an agent's
+        // `cmux browser click` on a target=_blank link or a window.open
+        // button opens the tab instead of hitting the popup blocker
+        // (browser use thread, 2026-10-19).
+        if world == .page { params["userGesture"] = true }
         if world == .isolated {
             let tree = try await runtime.devTools(browserID, method: "Page.getFrameTree")
             guard let frame = CEFDevToolsResult.mainFrameID(tree) else { throw BrowserTabError.javaScript("no main frame") }
@@ -158,6 +183,23 @@ extension CEFTab {
         }
         let json = try await runtime.devTools(browserID, method: "Runtime.evaluate", params: params)
         return try CEFDevToolsResult.evaluation(json)
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`): a title that changes every
+    /// frame re-rendered the toolbar and the tab's rows every frame.
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            machine.apply(.titleChanged(update.title))
+        case .later(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.machine.apply(.titleChanged(update.title))
+            }
+        }
     }
 
     /// Runs a DevTools protocol method on this tab in process (diagnostics

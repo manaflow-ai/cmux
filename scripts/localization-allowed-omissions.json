@@ -1,4 +1,8 @@
 {
+  "cloud.welcome.title.eyebrow": {
+    "class": "brand",
+    "source": "cmux cloud"
+  },
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
@@ -90,6 +94,30 @@
   },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
+    "identityLocales": {
+      "ar": "Agent product names are invariant brand names; the translated entry is still required.",
+      "bs": "Agent product names are invariant brand names; the translated entry is still required.",
+      "da": "Agent product names are invariant brand names; the translated entry is still required.",
+      "de": "Agent product names are invariant brand names; the translated entry is still required.",
+      "es": "Agent product names are invariant brand names; the translated entry is still required.",
+      "fr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "it": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ja": "Agent product names are invariant brand names; the translated entry is still required.",
+      "km": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ko": "Agent product names are invariant brand names; the translated entry is still required.",
+      "nb": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pl": "Agent product names are invariant brand names; the translated entry is still required.",
+      "pt-BR": "Agent product names are invariant brand names; the translated entry is still required.",
+      "ru": "Agent product names are invariant brand names; the translated entry is still required.",
+      "th": "Agent product names are invariant brand names; the translated entry is still required.",
+      "tr": "Agent product names are invariant brand names; the translated entry is still required.",
+      "uk": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hans": "Agent product names are invariant brand names; the translated entry is still required.",
+      "zh-Hant": "Agent product names are invariant brand names; the translated entry is still required."
+    }
+  },
+  "agent.muse.displayName": {
+    "source": "Muse Code",
     "identityLocales": {
       "ar": "Agent product names are invariant brand names; the translated entry is still required.",
       "bs": "Agent product names are invariant brand names; the translated entry is still required.",
@@ -383,6 +411,13 @@
     "source": "Status",
     "identityLocales": {
       "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "sidebar.cloud.button": {
+    "source": "Cloud",
+    "identityLocales": {
+      "de": "Cloud is the established German UI noun for the product area; an explicit translated entry remains required.",
+      "fr": "Cloud is the established French UI noun for the product area; an explicit translated entry remains required."
     }
   },
   "command.cloudVM.subtitle": {
@@ -2797,6 +2832,10 @@
   "sidebar.tree.group.remote.subtitle": {
     "class": "technical",
     "source": "SSH"
+  },
+  "sidebar.workspace.titleWithHost": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
   },
   "simulator.action.siri": {
     "class": "brand",
@@ -6578,6 +6617,192 @@
           "Mt. McKinley"
         ]
       }
+    }
+  },
+  "status.label.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "status.label.question": {
+    "source": "Question",
+    "identityLocales": {
+      "fr": "Question is the usual French noun for this status label; a translated entry is still required."
+    }
+  },
+  "globalSearch.agent.claude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "settings.account.max.title": {
+    "source": "cmux Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "fr": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ar": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "es": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ko": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      },
+      "ja": {
+        "reason": "Product and plan name cmux Max is a brand name and is not translated.",
+        "values": [
+          "cmux Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithMaxPlan": {
+    "source": "%1$@ · Max",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Max"
+        ]
+      }
+    }
+  },
+  "sidebar.account.teamWithGoPlan": {
+    "source": "%1$@ · Go",
+    "identityLocales": {
+      "de": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "fr": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ar": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "es": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hant": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "zh-Hans": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ko": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      },
+      "ja": {
+        "reason": "Accessible label preserves user-provided names and punctuation.",
+        "values": [
+          "%1$@ · Go"
+        ]
+      }
+    }
+  },
+  "home.engine.section.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "da": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "de": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "fr": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
     }
   },
   "devices.platform.mac": {

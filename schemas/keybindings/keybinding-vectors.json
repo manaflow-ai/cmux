@@ -3,16 +3,16 @@
   "description": "Conformance vectors for cmux key binding resolution (R59). Every client (the Mac key router, the GPUI and browser clients) resolves each vector with the default table of the action catalog, every action runnable where its catalog context holds, plus the vector's own user entries and removals. keys: one stroke per array element in keybindings.json syntax (cmd, ctrl, opt, shift; tab, pagedown, right, escape, f1...). context: the live context keys (bool, string or number values). expect: {\"action\": id, \"args\": {...}} when the last key runs an entry, {\"armed\": true} when the chord waits for more keys, {\"none\": true} when a key completes nothing. Rules: plans/cmux-next/keybindings.md section 8.",
   "vectors": [
     {
-      "name": "Ctrl-Tab in an agent chat is the next sidebar item",
+      "name": "Ctrl-Tab in an agent chat is the focused pane's next tab",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
-      "name": "Ctrl-Shift-Tab in Settings is the previous sidebar item",
+      "name": "Ctrl-Shift-Tab in Settings is the focused pane's previous tab",
       "context": {"surfaceKind": "settings"},
       "keys": ["ctrl+shift+tab"],
-      "expect": {"action": "prevSidebarTab"}
+      "expect": {"action": "prevSurface"}
     },
     {
       "name": "Ctrl-PageDown in Home is the next sidebar item",
@@ -21,22 +21,22 @@
       "expect": {"action": "nextSidebarTab"}
     },
     {
-      "name": "Ctrl-Tab in a terminal is the next sidebar item too (the Chrome tab keys win from every focus, #19788)",
+      "name": "Ctrl-Tab in a terminal is the focused pane's next tab too (#20116: from every focus)",
       "context": {"surfaceKind": "terminal", "terminalFocused": true},
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
-      "name": "Ctrl-Tab in terminal copy mode is the next sidebar item",
+      "name": "Ctrl-Tab in terminal copy mode is the focused pane's next tab",
       "context": {"surfaceKind": "terminal", "terminalFocused": true, "terminal.copyMode": true},
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
-      "name": "Cmd-Shift-] in a web page is the next sidebar item",
+      "name": "Cmd-Shift-] in a web page is the focused pane's next tab",
       "context": {"surfaceKind": "page", "browserFocused": true},
       "keys": ["cmd+shift+]"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
       "name": "Cmd-R in a web page reloads",
@@ -123,21 +123,21 @@
     {
       "name": "A removal takes out the Ctrl-Tab default",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSidebarTab"}],
+      "removals": [{"key": "ctrl+tab", "command": "nextSurface"}],
       "keys": ["ctrl+tab"],
       "expect": {"none": true}
     },
     {
       "name": "A removal with a when leaves a default without one",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSidebarTab", "when": "surfaceKind == agent"}],
+      "removals": [{"key": "ctrl+tab", "command": "nextSurface", "when": "surfaceKind == agent"}],
       "keys": ["ctrl+tab"],
-      "expect": {"action": "nextSidebarTab"}
+      "expect": {"action": "nextSurface"}
     },
     {
       "name": "A removal keeps the action's other keys",
       "context": {"surfaceKind": "agent", "agentPaneFocused": true},
-      "removals": [{"key": "ctrl+tab", "command": "nextSidebarTab"}],
+      "removals": [{"key": "ctrl+cmd+]", "command": "nextSidebarTab"}],
       "keys": ["ctrl+pagedown"],
       "expect": {"action": "nextSidebarTab"}
     },
@@ -146,6 +146,18 @@
       "context": {"surfaceKind": "terminal", "terminalFocused": true},
       "keys": ["cmd+opt+up"],
       "expect": {"action": "focusUp"}
+    },
+    {
+      "name": "Cmd-Opt-Left in a terminal focuses the pane to the left (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+opt+left"],
+      "expect": {"action": "focusLeft"}
+    },
+    {
+      "name": "Cmd-Opt-Right in a web page focuses the pane to the right (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "keys": ["cmd+opt+right"],
+      "expect": {"action": "focusRight"}
     },
     {
       "name": "A removal with the default's own when takes it out (one-clause when)",

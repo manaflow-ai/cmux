@@ -45,4 +45,17 @@ nonisolated extension Strings {
     static var toolbarMore: String {
         String(localized: "browser.toolbar.more", defaultValue: "More Actions", bundle: .module)
     }
+    // The More menu's Show in Toolbar submenu (cx-d0d.81).
+    static var toolbarShowInToolbar: String {
+        String(localized: "browser.toolbar.showInToolbar", defaultValue: "Show in Toolbar", bundle: .module)
+    }
+    static var toolbarPinZoom: String {
+        String(localized: "browser.toolbar.pin.zoom", defaultValue: "Zoom Level", bundle: .module)
+    }
+    static var toolbarPinTheme: String {
+        String(localized: "browser.toolbar.pin.theme", defaultValue: "Browser Theme", bundle: .module)
+    }
+    static var toolbarPinDevTools: String {
+        String(localized: "browser.toolbar.pin.devTools", defaultValue: "Developer Tools", bundle: .module)
+    }
 }

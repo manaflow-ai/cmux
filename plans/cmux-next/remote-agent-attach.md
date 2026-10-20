@@ -143,7 +143,9 @@ Relay analysis (reviewed with the Cloud lane hq-84 and the chief, 2026-10-10):
   named and after it when a profile derives them; a session in a non-asking mode moves to its
   family's asking default or is ended (`agent_session.not_asking`). The folder must already be
   trusted (acpmux's trust record), checked before the agent starts and again for its real family
-  (`agent_session.untrusted_folder`); the remote side never answers the trust question.
+  (`agent_session.untrusted_folder`); the daemon never answers the trust question. The person
+  answers it in the app's chat, which records it on that machine with `agent-session-trust`
+  (cx-1bhjj, the pane relay's gesture rule for a set that trusts), as for a chat on the Mac.
 - What is NOT repeated (security review 2026-10-10, open for the Cloud lane): the daemon is
   acpmux's unix client, so the session is local-control. acpmux's remote approval floor
   (`hub/remote_floor.rs`), the Claude sandbox, the folder-profile refusal

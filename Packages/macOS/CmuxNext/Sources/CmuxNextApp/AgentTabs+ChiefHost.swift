@@ -36,9 +36,7 @@ struct ChiefHomeAcpmux {
 
     init(home: ChiefHome) {
         host = Self.host(muxHome: home.muxHome)
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
-                                                    environment: ["ACPMUX_HOME": home.acpmuxHome.path])
+        let environment = Self.environment(home: home)
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
         // tab only attaches, never hands it off or starts one (cx-ebm.54).
         let chief = AcpmuxHost(environment: environment, startsDaemons: false)
@@ -46,6 +44,12 @@ struct ChiefHomeAcpmux {
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
         let tag = "optchat-chief:" + host.dropFirst("chief:".count)
         localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+    }
+
+    /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.
+    static func environment(home: ChiefHome) -> AcpmuxEnvironment? {
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        return AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": home.acpmuxHome.path])
     }
 
     /// `chief:<home id>` of the Chief home `muxHome`. The id is optchat-chief

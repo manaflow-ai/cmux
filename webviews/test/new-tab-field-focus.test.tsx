@@ -68,9 +68,9 @@ async function caretAfterUpdates(page: (onInputReady: (token: string) => void) =
   const render = () => root.render(page((token) => ready.push(token)));
   try {
     await act(async () => render());
-    const field = host.querySelector<HTMLInputElement>(selector)!;
+    const field = host.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!;
     expect(window.document.activeElement).toBe(field);
-    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
     await act(async () => {
       setValue.call(field, "hello world");
       field.dispatchEvent(new window.Event("input", { bubbles: true }));

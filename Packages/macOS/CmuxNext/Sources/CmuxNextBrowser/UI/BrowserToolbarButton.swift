@@ -2,13 +2,18 @@ public import CmuxNextIcons
 import Foundation
 
 /// The buttons at the trailing end of the browser toolbar, in order, after
-/// the pinned extensions (Edge's right side, cx-6qwm): the media hub while a
+/// the pinned extensions (cx-6qwm): the media hub while a
 /// tab plays media, the zoom level while
 /// the page is not at 100 %, Favorites, Downloads once this session has
 /// downloaded something, then the classic browser pane's
 /// design mode, profile, theme, DevTools and More. Each press runs one
 /// catalog action (`BrowserToolbarHandlers` in the App), so the palette,
 /// the CLI, the socket and the menus share it.
+///
+/// Only pinned buttons show (cx-d0d.81, `browser.toolbarButtons`): by default
+/// the media hub, zoom and Downloads, each only while it has something to
+/// show, so a page shows Back, Forward, Reload, the address bar and More.
+/// The rest are rows of the More menu, whose Show in Toolbar items pin them.
 public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Sendable {
     /// The media hub (`browser.media.show`): what every tab plays, with
     /// its controls. Shown while a tab has media, as in Edge.
@@ -17,8 +22,9 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// while the page is zoomed, as Edge's address bar does.
     case zoom
     case favorites
-    /// The downloads menu (`browser.downloads.show`). Shown once there is
-    /// a download to list, as Edge's toolbar does.
+    /// The downloads menu (`browser.downloads.show`). Shown once the tab
+    /// started a download in this run, or while any download runs, as
+    /// Chrome's toolbar does; never for downloads kept from an earlier run.
     case downloads
     case designMode
     case profile
@@ -53,18 +59,48 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// Whether the button is hidden at collapse `level`.
     public func isCollapsed(at level: Int) -> Bool { collapseLevel.map { $0 <= level } ?? false }
 
-    /// Whether the button shows at collapse `level`: the media hub only
-    /// while a tab has media, zoom only while the page is zoomed, Downloads
-    /// only once there is a download.
-    public func isShown(at level: Int, _ facts: BrowserToolbarFacts) -> Bool {
-        guard !isCollapsed(at: level) else { return false }
+    /// Whether a person can pin or unpin it (More always shows).
+    public var isPinnable: Bool { self != .overflow }
+
+    /// The buttons a person can pin, in toolbar order.
+    public static var pinnable: [BrowserToolbarButton] { allCases.filter(\.isPinnable) }
+
+    /// Whether the button has something to show: the media hub only while a
+    /// tab has media, zoom only while the page is zoomed, Downloads only once
+    /// the tab downloaded something or while a download runs.
+    public func hasContent(_ facts: BrowserToolbarFacts) -> Bool {
         switch self {
-        case .media: return facts.media.sessions > 0
-        case .zoom: return BrowserZoom.percent(facts.zoom) != 100
-        case .downloads: return facts.downloads.count > 0
-        default: return true
+        case .media: facts.media.sessions > 0
+        case .zoom: BrowserZoom.percent(facts.zoom) != 100
+        case .downloads: facts.downloads.count > 0 || facts.downloads.inProgress
+        default: true
         }
     }
+
+    /// Whether the button shows at collapse `level`: pinned (More always),
+    /// not collapsed, and with something to show.
+    public func isShown(at level: Int, _ facts: BrowserToolbarFacts, pinned: Set<BrowserToolbarButton>) -> Bool {
+        guard !isPinnable || pinned.contains(self) else { return false }
+        return !isCollapsed(at: level) && hasContent(facts)
+    }
+
+    /// The Show in Toolbar item's title.
+    public var pinTitle: String {
+        switch self {
+        case .media: Strings.toolbarMedia
+        case .zoom: Strings.toolbarPinZoom
+        case .favorites: Strings.toolbarFavorites
+        case .downloads: Strings.toolbarDownloads
+        case .designMode: Strings.toolbarDesignMode
+        case .profile: Strings.toolbarProfileUnknown
+        case .theme: Strings.toolbarPinTheme
+        case .devTools: Strings.toolbarPinDevTools
+        case .overflow: Strings.toolbarMore
+        }
+    }
+
+    /// The More menu's Show in Toolbar submenu title.
+    public static var showInToolbarTitle: String { Strings.toolbarShowInToolbar }
 }
 
 /// What one toolbar button shows.
@@ -75,6 +111,8 @@ public nonisolated struct BrowserToolbarButtonState: Hashable, Sendable {
     public var isEnabled: Bool
     /// Drawn in the accent color (design mode on, DevTools open).
     public var isActive: Bool
+    /// Hover shows `label` as a tooltip (`BrowserToolbarPolicy.toolTipInforms`).
+    public var showsToolTip = true
 
     public init(icon: IconName, label: String, isEnabled: Bool = true, isActive: Bool = false) {
         self.icon = icon
@@ -97,7 +135,7 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var profileName: String?
     /// The page's zoom factor, 1.0 = 100 %.
     public var zoom: Double
-    /// The App's downloads, every tab's.
+    /// The tab's downloads of this run (`count`) and whether any download runs.
     public var downloads: BrowserToolbarDownloads
     /// Media in every tab.
     public var media: BrowserToolbarMedia

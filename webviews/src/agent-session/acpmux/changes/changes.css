@@ -1,7 +1,7 @@
 /* The changes view's per-file menu. Colors come from the pane's theme tokens only. */
 @import "./git.css";
 .acpmux-file-menu{position:relative;display:inline-flex}
-.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
+.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
 .ui-positioner>.acpmux-file-menu-list{position:static;top:auto;right:auto}
 .acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
@@ -30,7 +30,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
-.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-pull-request-create:hover:enabled{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pull-request-create:active:enabled{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-pull-request-create:disabled{color:var(--agent-muted)}
@@ -39,10 +39,10 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
-.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
+.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-branch-from,.acpmux-branch-to{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-branch-arrow{flex:none;margin:0 10px;color:var(--agent-muted)}
-.acpmux-changes-banner{display:flex;align-items:center;gap:12px;align-self:stretch;padding:12px 14px;border-radius:16px;border-left:2px solid var(--acpmux-warning);background:color-mix(in srgb,var(--acpmux-warning) 6%,var(--agent-page-bg,var(--acpmux-base)));box-shadow:inset 0 0 0 .5px var(--agent-border)}
+.acpmux-changes-banner{display:flex;align-items:center;gap:12px;align-self:stretch;padding:12px 14px;border-radius:16px;border-left:2px solid var(--acpmux-warning);background:color-mix(in srgb,var(--acpmux-warning) 6%,var(--agent-page-bg,var(--acpmux-base)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--agent-border)}
 .acpmux-changes-banner-icon{flex:none;color:var(--acpmux-warning)}
 .acpmux-changes-banner-text{flex:1;min-width:0}
 .acpmux-changes-banner-title{font-weight:600}
@@ -59,8 +59,8 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
    base: clear controls hover at 10% and press at 16% (an on toggle rests at 8%, hovers at 12%);
    filled controls hover at 14% over the page and press at 18% over it; transcript rows hover at
    4% and press at 9%. */
-:root{--acpmux-motion-hover:80ms;--acpmux-motion-ease:ease-out;--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-step-pressed-on-page:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg))}
-.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,.acpmux-edited-undo,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease),border-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+:root{--acpmux-step-pressed:color-mix(in srgb,var(--agent-text) 16%,transparent);--acpmux-step-on-hover:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-step-pressed-on-page:color-mix(in srgb,var(--agent-text) 18%,var(--agent-page-bg))}
+.acpmux-diff-back,.acpmux-diff-tool,button.acpmux-diff-scope,.acpmux-fh-btn,.acpmux-fh-name,.acpmux-file-menu-item,.acpmux-changes-retry,.acpmux-changes-banner-action,.acpmux-changes-banner-refresh,.acpmux-review-changes,.acpmux-edited-undo,button.acpmux-edited-file,.acpmux-edited-more,.acpmux-diff-filter{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),border-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-diff-tool[aria-pressed=true]:hover{background:var(--acpmux-step-on-hover)}
 .acpmux-diff-back:active,.acpmux-diff-tool:active,.acpmux-fh-btn:active,.acpmux-changes-banner-refresh:active{background:var(--acpmux-step-pressed);color:var(--agent-text)}
 /* The on toggle's hover rule outranks :active, so its press is its own rule. */
@@ -69,23 +69,23 @@ button.acpmux-diff-scope:active,.acpmux-changes-retry:active,.acpmux-changes-ban
 .acpmux-file-menu-item:active{background:var(--acpmux-step-pressed)}
 button.acpmux-edited-file:active{background:color-mix(in srgb,var(--agent-text) 9%,transparent)}
 .acpmux-file-menu-item[aria-disabled="true"]:active{background:none}
-.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 9%,var(--agent-page-bg))}
+.acpmux-edited-more:hover{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
 button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:-1.5px}
 /* The file filter is a field: its edge darkens on hover and takes the accent while typing. */
 .acpmux-diff-filter:hover{border-color:color-mix(in srgb,var(--agent-text) 22%,transparent)}
 .acpmux-diff-filter:focus-within{border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
 /* A file's chevron keeps its place and fades in, so the badges after the name never move. */
-.acpmux-fh-chevron{display:block;opacity:0;transition:opacity var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-fh-chevron{display:block;opacity:0;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-file-header:hover .acpmux-fh-chevron,.acpmux-fh-name:focus-visible .acpmux-fh-chevron,.acpmux-fh-name[aria-expanded=false] .acpmux-fh-chevron{opacity:1}
 /* The name collapses its file: hover brings the folder up to the name's color, press dims both. */
 .acpmux-fh-name:hover,.acpmux-fh-name:hover .acpmux-fh-dir{color:var(--agent-text)}
 .acpmux-fh-name:active,.acpmux-fh-name:active .acpmux-fh-dir{color:var(--agent-muted)}
-.acpmux-fh-dir{transition:color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-fh-dir{transition:color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 /* Why a file did not open, under the changes header until the next open. */
 .acpmux-diff-notice{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
 /* Hunk review: each hunk's Reject and Accept under its last changed line, and the bar that sends the rejected ones back. */
 .acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px system-ui,-apple-system,sans-serif;color:var(--agent-muted)}
-.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-hunk-reject{background:color-mix(in srgb,var(--acpmux-del) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-accept{background:color-mix(in srgb,var(--acpmux-add) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-undo:hover,.acpmux-hunk-stage:hover,.acpmux-revert-send:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
@@ -127,7 +127,7 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-review-body.cv-md{margin-top:2px;color:inherit;--cv-font-size:var(--text-body);--cv-line-height:18px;--cv-para-after:6px;overflow-wrap:anywhere;user-select:text}
 .acpmux-review-heading{margin:0;color:var(--agent-muted);font-weight:600;font-size:var(--text-detail)}
 .acpmux-review-actions{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-review-address{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-review-address:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-review-address:active{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-review-address:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}

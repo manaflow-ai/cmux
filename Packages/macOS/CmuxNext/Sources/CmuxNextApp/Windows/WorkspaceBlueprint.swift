@@ -6,30 +6,30 @@ import Foundation
 /// Duplicate Workspace captures one and builds a new workspace from it with
 /// new terminals (`WorkspaceBlueprintBuilder`); a duplicate never shares a
 /// running terminal.
-struct WorkspaceBlueprint: Hashable, Sendable, Codable {
+nonisolated struct WorkspaceBlueprint: Hashable, Sendable, Codable {
     var name: String
     var color: String?
     var icon: String?
     var screens: [Screen]
 
-    struct Screen: Hashable, Sendable, Codable {
+    nonisolated struct Screen: Hashable, Sendable, Codable {
         var name: String?
         /// Scrolling columns left to right; one entry for a split screen.
         var columns: [Column]
     }
 
-    struct Column: Hashable, Sendable, Codable {
+    nonisolated struct Column: Hashable, Sendable, Codable {
         /// Fraction of the viewport; nil for a split screen's only column.
         var width: Double?
         var root: Node
     }
 
-    indirect enum Node: Hashable, Sendable, Codable {
+    nonisolated indirect enum Node: Hashable, Sendable, Codable {
         case pane([Tab])
         case split(direction: SplitDirection, ratio: Double, a: Node, b: Node)
     }
 
-    enum Tab: Hashable, Sendable, Codable {
+    nonisolated enum Tab: Hashable, Sendable, Codable {
         /// `replay`: a file of saved output the new shell prints once above
         /// its first prompt (`CMUX_RESTORE_SCROLLBACK_FILE`); only the
         /// classic import sets it.
@@ -68,7 +68,7 @@ struct WorkspaceBlueprint: Hashable, Sendable, Codable {
     }
 }
 
-extension WorkspaceBlueprint.Node {
+nonisolated extension WorkspaceBlueprint.Node {
     /// Tabs in depth-first pane order.
     var tabs: [WorkspaceBlueprint.Tab] {
         switch self {
@@ -107,7 +107,7 @@ extension WorkspaceBlueprint.Node {
         case .leaf(let pane):
             let found = tabs(pane)
             return found.isEmpty ? nil : .pane(found)
-        case .split(_, let direction, let ratio, let a, let b):
+        case .split(_, _, let direction, let ratio, let a, let b):
             switch (capture(a, tabs: tabs), capture(b, tabs: tabs)) {
             case let (a?, b?): return .split(direction: direction, ratio: ratio, a: a, b: b)
             case let (a?, nil): return a
@@ -141,7 +141,7 @@ extension WorkspaceBlueprint {
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
                     case .browser: tab.url.map {
-                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
+                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.browserProfileID)
                     }
                     // A remote reference or a conversation is not re-created on duplicate.
                     case .remoteTerminal, .conversation, .other: nil

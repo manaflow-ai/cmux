@@ -38,14 +38,16 @@ final class KeybindingsFileService {
         }
         // task-owner: lives as long as the service; event-driven (Observation)
         observation = Task { [weak self] in
-            for await _ in ObservationStream({ [weak self] in self?.serves ?? false }) {
+            // A trigger: a daemon restart that still serves keybindings reads them again.
+            for await _ in ObservationStream({ [weak self] in ObservationTrigger(self?.serves ?? false) }) {
                 guard let self else { return }
                 await read().value
             }
         }
     }
 
-    /// Calls `listener` after every load of the file.
+    /// Calls `listener` after every load of the file and every edit of the
+    /// binding table (``edited()``).
     func onChange(_ listener: @escaping @MainActor () -> Void) -> UUID {
         let id = UUID()
         listeners[id] = listener
@@ -54,6 +56,13 @@ final class KeybindingsFileService {
 
     func removeListener(_ id: UUID) {
         listeners[id] = nil
+    }
+
+    /// An edit of the binding table, the page's or the socket's
+    /// (``KeybindingPageWrites/run(_:_:services:)``): a cmux.json change
+    /// loads no file, so the listeners (every open page) hear it here.
+    func edited() {
+        for listener in listeners.values { listener() }
     }
 
     // MARK: Writing

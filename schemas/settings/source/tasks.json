@@ -1,0 +1,65 @@
+{
+  "$comment": "HAND-EDITED source of the Tasks settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "tasks",
+      "section": "general",
+      "group": {
+        "key": "settings.group.tasks",
+        "text": "Tasks"
+      },
+      "note": "The Tasks pane (plans/cmux-next/tasks.md section 9).",
+      "rows": [
+        {
+          "key": "tasks.layout",
+          "note": "The Tasks pane layout (plans/cmux-next/tasks.md decision T2). The Tasks module declares the same raw values (TasksLayout); the App maps them.",
+          "title": {
+            "key": "settings.tasks.layout",
+            "text": "Tasks Layout"
+          },
+          "help": {
+            "key": "settings.tasks.layout.help",
+            "text": "Inbox lists what needs you first, with the task beside it. Changes apply at once."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "list",
+              "title": {
+                "key": "settings.choice.tasksList",
+                "text": "List"
+              },
+              "note": "Dense rows grouped by status."
+            },
+            {
+              "value": "board",
+              "title": {
+                "key": "settings.choice.tasksBoard",
+                "text": "Board"
+              },
+              "note": "A column per status."
+            },
+            {
+              "value": "inbox",
+              "title": {
+                "key": "settings.choice.tasksInbox",
+                "text": "Inbox"
+              },
+              "note": "Attention first, with the selected task's detail beside it."
+            }
+          ],
+          "default": "inbox",
+          "keywords": [
+            "tasks",
+            "issues",
+            "board",
+            "list",
+            "inbox",
+            "layout",
+            "kanban"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -190,7 +190,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
@@ -202,7 +202,7 @@ public final class CmuxDialogView: NSView {
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content)
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([
@@ -228,13 +228,15 @@ public final class CmuxDialogView: NSView {
 
     private enum TextRole { case primary, secondary }
 
-    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
+    /// A themed label: it re-reads its ink in the scope it draws in (on joining
+    /// a window and on every theme change), never the scope it was built in.
+    private func label(_ text: String, font: NSFont, role: TextRole, width: CGFloat) -> ThemedLabel {
+        let label = ThemedLabel(wrappingLabelWithString: text)
         label.font = font
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
         label.focusRingType = .none
-        performWithTheme { label.textColor = role == .primary ? Palette.textPrimary : Palette.textSecondary }
+        label.ink = role == .primary ? .primary : .secondary
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
     }
@@ -254,11 +256,15 @@ public final class CmuxDialogView: NSView {
             return captioned(caption, box, width: width)
         case .choice(let id, let caption, let options, let selected):
             let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
+            // A disabled option lists greyed out and is never the selection.
+            popup.autoenablesItems = false
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
-                if option.value == selected { popup.select(popup.lastItem) }
+                popup.lastItem?.isEnabled = option.isEnabled
+                if option.value == selected, option.isEnabled { popup.select(popup.lastItem) }
             }
+            if popup.selectedItem?.isEnabled != true, let first = popup.itemArray.first(where: \.isEnabled) { popup.select(first) }
             popup.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             popup.setAccessibilityLabel(caption ?? spec.title)
             popup.translatesAutoresizingMaskIntoConstraints = false

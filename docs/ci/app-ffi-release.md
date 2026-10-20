@@ -7,8 +7,12 @@ FFI source push to `feat-cmux-next` and publishes it as the prerelease
 credentials `CMUX_FFI_RELEASE_APP_ID` and `CMUX_FFI_RELEASE_APP_KEY` (App
 `manaflow-cmux-ffi-release`, id 5246086, installed on this repository only and
 used for nothing else). It mints a token for this repository only,
-with contents:write, and workflows:write only when workflow files changed since
-the last FFI tag. Only the release create uses that token.
+with contents:write, and workflows:write only when the tagged tree's
+`.github/workflows` differs from the default branch tip, from the merge-base
+with it, or from the last FFI tag. GitHub compares a new tag with the default
+branch, not with the last FFI tag: runs 37551889292 and 38682698310 had the
+last tag's workflow tree, minted contents:write only and got HTTP 403. Only the
+release create uses that token.
 
 FFI tags `cmux-app-ffi-*` are protected by two repository rulesets:
 

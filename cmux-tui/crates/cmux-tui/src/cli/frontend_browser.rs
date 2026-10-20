@@ -68,7 +68,7 @@ fn owning_app(global: &GlobalArgs, daemon_socket: &Path) -> Option<UnixStream> {
 
 /// Whether `daemon_socket` is the own daemon of the app this `cmux`
 /// belongs to (app.rs `app_owns_daemon`).
-fn app_daemon_is(daemon_socket: &Path) -> bool {
+pub(super) fn app_daemon_is(daemon_socket: &Path) -> bool {
     let exe = std::env::current_exe().ok();
     crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
         .is_some_and(|identity| super::app::app_owns_daemon(&identity, daemon_socket))
@@ -173,6 +173,8 @@ pub(super) fn open(
         .ok_or_else(|| Failure::Transport("cmux: request params are not an object".into()))?;
     let route = route(params);
     let url = params.get("url").and_then(Value::as_str).unwrap_or_default();
+    // `--engine` (`webkit` or `cef`); absent: the app's `browser.defaultEngine`.
+    let engine = params.get("engine").and_then(Value::as_str);
     let caller_terminal = caller_terminal(caller_route);
     let target = target_tab(reader, &route, params, caller_terminal.as_deref())?;
     let caller = (!caller_route).then(other_session_caller);
@@ -181,7 +183,7 @@ pub(super) fn open(
         None => super::command::random_prefixed("mutation")
             .map_err(|error| app_failure("app.transport", error.to_string()))?,
     };
-    let opened = run_open(app, url, target.as_deref(), caller.as_ref(), &key);
+    let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
         // The window shows a page: no focused pane to open in.
         Err(failure) if target.is_none() && never_ran(&failure) => {
@@ -192,7 +194,8 @@ pub(super) fn open(
                 return Err(failure);
             };
             let default_key = format!("{key}.default");
-            let (reply, tab) = run_open(app, url, Some(&default), caller.as_ref(), &default_key)?;
+            let (reply, tab) =
+                run_open(app, url, engine, Some(&default), caller.as_ref(), &default_key)?;
             (reply, tab, true)
         }
         opened => {
@@ -233,17 +236,19 @@ pub(super) fn reveal_failure(workspace: &str, error: &Value) -> String {
     format!("cmux: tab opened in {workspace}, but the window could not show it: {reason}")
 }
 
-/// Runs `openBrowser` for `url` on `target` with idempotency key `key`:
+/// Runs `openBrowser` for `url` (in `engine`, else the app's default) on
+/// `target` with idempotency key `key`:
 /// the app's reply and the tab it created. `caller` replaces the caller the
 /// environment names (`app::with_caller`); `None` keeps that one.
 fn run_open(
     app: &mut UnixStream,
     url: &str,
+    engine: Option<&str>,
     target: Option<&str>,
     caller: Option<&Value>,
     key: &str,
 ) -> Result<(Value, String), Failure> {
-    let mut params = open_browser_params(url, target);
+    let mut params = open_browser_params(url, engine, target);
     if let Some(caller) = caller {
         params.insert("caller".into(), caller.clone());
     }
@@ -283,10 +288,21 @@ pub(super) fn default_pane_tab(route: &Map<String, Value>) -> Map<String, Value>
 
 /// The `action.run` params of `openBrowser` for `url`, on `target` (a tab
 /// whose pane gets the new tab) or, with none, the app's focused pane.
-pub(super) fn open_browser_params(url: &str, target: Option<&str>) -> Map<String, Value> {
+/// `engine` (`webkit`, `cef`) asks for that engine; with none the app uses
+/// `browser.defaultEngine` (Chromium unless set to WebKit).
+pub(super) fn open_browser_params(
+    url: &str,
+    engine: Option<&str>,
+    target: Option<&str>,
+) -> Map<String, Value> {
     let origin = super::app::action_origin();
     let mut params = action_run_params("openBrowser", ActionName::Any, origin);
-    params.insert("args".into(), json!({ "url": url }));
+    let mut args = Map::new();
+    args.insert("url".into(), json!(url));
+    if let Some(engine) = engine {
+        args.insert("engine".into(), json!(engine));
+    }
+    params.insert("args".into(), Value::Object(args));
     if let Some(tab) = target {
         params.insert("target".into(), json!(format!("tab:{tab}")));
     }

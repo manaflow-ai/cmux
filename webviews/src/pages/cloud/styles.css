@@ -61,7 +61,7 @@ select {
 }
 
 .cloud-header {
-  padding: 18px 18px 10px;
+  padding: 18px var(--page-edge) 10px;
   border-bottom: 1px solid var(--cloud-separator);
 }
 
@@ -578,7 +578,7 @@ select {
   border-radius: 12px;
   background: var(--cloud-elevated);
   border: 1px solid var(--cloud-separator);
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.22);
+  box-shadow: var(--elevation-2);
 }
 
 .cloud-sheet-title {

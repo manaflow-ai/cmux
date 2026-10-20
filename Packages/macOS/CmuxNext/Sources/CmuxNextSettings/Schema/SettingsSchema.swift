@@ -11,13 +11,14 @@ public nonisolated enum SettingsSchema {
     /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
     /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
     public static let all: [SettingDescriptor] = {
-        let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
-            + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
+        let next = general + ShortcutHintsSettingsSchema.descriptors + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
+            + ComputerUseSettingsSchema.descriptors + FreeModelSettingsSchema.descriptors + SessionSettingsSchema.descriptors + SessionSettingsSchema.phoneDescriptors + SubsessionSettingsSchema.descriptors + MobileSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
-            + ChatSettingsSchema().descriptors + PickerSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors
-            + SidebarSectionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
+            + ChatSettingsSchema.descriptors + PickerSettingsSchema.descriptors + ScreenshotsSettingsSchema.descriptors + TaskSettingsSchema.descriptors + appearance + TerminalSettingsSchema.descriptors + EditorSettingsSchema.descriptors
+            + SidebarSectionSettingsSchema.descriptors + HoverCardSettingsSchema.descriptors + NowPlayingSettingsSchema.descriptors + NowPlayingSettingsSchema.newTabDescriptors + ColorTransitionSettingsSchema.descriptors + WorkspaceRowSetting.descriptors() + BrowserSettingsSchema.descriptors + HomeSettingsSchema.descriptors
             + NotificationSettingsSchema.descriptors + LabsSettingsSchema.descriptors + FeedSettingsSchema.descriptors + AgentPaneSettingsSchema.descriptors
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
+            + AgentDefaultsSettingsSchema.descriptors
             + MacScreenSettingsSchema.descriptors + MacScreenDebugSettingsSchema.descriptors
             + DeviceHubSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
@@ -58,6 +59,7 @@ public nonisolated enum SettingsSchema {
         case .general: ["palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
         case .appearance: ["space.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
+        case .editor: ["fileEditor.importEditorSettings"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .home: []
         case .keyboard: ["keybindings.open", "palette.searchShortcuts"]
@@ -189,11 +191,11 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
-        ] + TabBarSettingsSchema.descriptors(group: tabs) + [
+        ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
-        ] + TabSettingsSchema.paneTabBars(group: tabs) + TabSettingsSchema.closeWarnings(group: tabs) + [
+        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
@@ -256,8 +258,8 @@ public nonisolated enum SettingsSchema {
     // MARK: Appearance
 
     static var appearance: [SettingDescriptor] {
-        AppearanceSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
-            + DiffViewerSettingsSchema.descriptors
+        AppearanceSettingsSchema.descriptors + MotionSettingsSchema.descriptors + SurfaceSettingsSchema.descriptors + StatusIndicatorSettingsSchema.descriptors
+            + DiffViewerSettingsSchema.descriptors + MarkdownViewerSettingsSchema.descriptors + AgentPaneDisplaySettingsSchema.descriptors
     }
 
     static func points(_ range: ClosedRange<CGFloat>, step: Double, placeholder: Double? = nil) -> SettingNumber {

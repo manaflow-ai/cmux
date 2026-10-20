@@ -1,15 +1,9 @@
 import AppKit
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
-extension SidebarListView {
+extension SidebarListViewComponents {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        if case let .group(id)? = displayed.row(at: point.y)?.key {
-            // A right-click on a group shows its full menu, the same as its
-            // more button (cx-a9h6); a click on the chip edits name and color.
-            groupEditing.showMenu(id)
-            return nil
-        }
         guard let contextMenuProvider else { return nil }
         let target: SidebarContextTarget
         switch displayed.row(at: point.y)?.key {
@@ -19,12 +13,19 @@ extension SidebarListView {
                 reload(animated: true)
             }
             target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
-        case .group?:
-            return nil
+        case let .group(id)?:
+            // A right-click on a group shows its one flat menu at once, as Finder and Safari
+            // do (Lawrence 2026-10-20: no second step through the editor's More row). A
+            // click on the name or the more button still opens the editor (cx-rcby).
+            target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
+        case let .item(item)?:
+            target = .layoutItem(LayoutItemID(item))
+        case .block?:
+            target = .background
         case nil:
             target = .background
         }

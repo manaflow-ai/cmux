@@ -1,7 +1,9 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
 import { callCapability } from "./automation-caps.ts"
+import { runMachineStep, type MachineExec, type StepOutcome } from "./automation-machine.ts"
 import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
+import { UNATTRIBUTED_USER } from "./usage-user.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 
 /**
@@ -38,7 +40,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       if (p.body.type === "code") {
         // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
         try {
-          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input }, event.timestamp)
+          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input, user: p.charged_user ?? UNATTRIBUTED_USER }, event.timestamp)
         } catch (e) {
           // Only harness refusals carry a code; a tenant error name never chooses the run's error code.
           const code = e instanceof CodeRunError ? e.code : "run.failed"
@@ -49,6 +51,8 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         return
       }
       const steps = p.body.steps
+      // Journaled outputs of machine and agent steps (a replay refills this from the journal).
+      const outputs = new Map<number, string>()
       for (let i = 0; i < steps.length; i++) {
         const s = steps[i]!
         switch (s.type) {
@@ -72,6 +76,22 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
             }
             break
           }
+          case "machine":
+          case "agent": {
+            // One command on one of the team's machines (org-workflows-DESIGN.md 4.2). The result is
+            // journaled, so a replay never runs it again. No automatic retry: a lost answer does not
+            // prove the command did not start (run.retry makes a new run).
+            const input = s.input_from === undefined ? null : (outputs.get(s.input_from) ?? null)
+            const r: StepOutcome = await step.do(`cmux:${s.type}-${i}`, { retries: { limit: 0, delay: 1000, backoff: "constant" }, timeout: (s.timeout_seconds + 60) * 1000 }, () =>
+              runMachineStep(machineExecFor(this.env, p.owner, p.charged_user ?? null), s, { run: p.run, index: i }, input)
+            )
+            if (!r.ok) {
+              await report(`cmux:${s.type}-failed-${i}`, { state: "failed", step: i - 1, error: { code: r.code, message: r.message.slice(0, 500) } })
+              return
+            }
+            outputs.set(i, r.output)
+            break
+          }
         }
         await report(`cmux:done-${i}`, { state: "running", step: i })
       }
@@ -83,6 +103,12 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       })
     }
   }
+}
+
+/** The run team's CloudDO as the machine port (automationExec). */
+const machineExecFor = (env: Env, team: string, user: string | null): MachineExec => {
+  const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team)) as unknown as { automationExec(e: string, u: string | null, m: string, c: string, s: Uint8Array | null, t: number): ReturnType<MachineExec["exec"]> }
+  return { exec: (machine, command, stdin, timeoutMs) => stub.automationExec(team, user, machine, command, stdin, timeoutMs) }
 }
 
 /** The owner already ended the run; the Workflow returns without reporting again. */

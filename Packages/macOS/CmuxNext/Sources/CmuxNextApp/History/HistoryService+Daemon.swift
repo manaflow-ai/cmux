@@ -5,9 +5,9 @@ import CmuxNextHistory
 import Foundation
 
 /// The daemon history module as the owner (`history-v1`, react-pages.md H3). When the local daemon
-/// serves it, page visits, the merged read model and clearing go there; the app keeps the location
-/// trail (client view state). Without it (an older daemon) the app-local paths stay; they are
-/// deleted with the native History page (H4).
+/// serves it, page visits, the location trail (cx-hnmbt.12), the merged read model and clearing go
+/// there; the app keeps only its Back/Forward cursor (view state). Without it (an older daemon) the
+/// app-local paths stay; they are deleted with the native History page (H4).
 extension HistoryService {
     /// The local daemon's history module when it serves `history-v1`, else nil.
     var daemonHistory: DaemonHistoryClient? {
@@ -16,20 +16,18 @@ extension HistoryService {
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// Entries from the daemon (every kind but locations) merged with the app's own trail.
+    /// Entries from the daemon (every kind but commands) merged with every machine's command rows.
     func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
-        let wantsLocations = query.kinds.isEmpty || query.kinds.contains(.location)
         let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
-        // Commands are the daemons' terminal command rows (terminal-command-history-v1), read by
-        // `commands`; the history module no longer folds them from the journal.
-        let appOwned: Set<HistoryEntry.Kind> = [.location, .command]
-        let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : query.kinds.subtracting(appOwned)
+        // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
+        // read by `commands`; the local daemon lists only its own.
+        let appRead: Set<HistoryEntry.Kind> = [.command]
+        let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         var all: [HistoryEntry] = []
         if !kinds.isEmpty {
             let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry() }
+            all = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
         }
-        if wantsLocations { all += HistoryQuery(text: query.text, kinds: [.location], range: query.range).apply(to: locationEntries()) }
         if wantsCommands {
             await commands.refresh()
             all += HistoryQuery(text: query.text, kinds: [.command], range: query.range).apply(to: commands.entries())
@@ -39,17 +37,21 @@ extension HistoryService {
         return all
     }
 
-    /// One entry by id: locations from the app's trail, everything else from the daemon's newest
+    /// One entry by id: commands from every machine's rows, everything else from the daemon's newest
     /// entries of the id's kind.
     func daemonEntry(id: String, _ daemon: DaemonHistoryClient) async -> HistoryEntry? {
-        if id.hasPrefix("location:") { return locationEntries().first { $0.id == id } }
         if id.hasPrefix("command:") {
             await commands.refresh()
             return commands.entries().first { $0.id == id }
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
         let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }?.historyEntry()
+        return rows.first { $0.id == id }?.historyEntry(untitled: Strings.untitledTerminal).map { reachable($0) }
+    }
+
+    /// A location row greyed while its tab is not reachable (the daemon cannot know).
+    private func reachable(_ entry: HistoryEntry) -> HistoryEntry {
+        entry.reachable { services.locationTrail.isAvailable($0) }
     }
 
     /// Runs a daemon mutation off the caller, then tells open pages (they also hear history-changed).

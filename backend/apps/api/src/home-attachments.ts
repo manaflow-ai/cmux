@@ -41,11 +41,11 @@ const L = homeConversation.ATTACHMENT_LIMITS
 const NO_STORE = { "cache-control": "private, no-store" }
 const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/heic": "heic", "application/pdf": "pdf",
-  "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/json": "json", "application/zip": "zip",
+  "text/plain": "txt", "text/markdown": "md", "text/csv": "csv", "application/json": "json", "application/zip": "zip", "application/octet-stream": "bin",
   "video/mp4": "mp4", "video/quicktime": "mov", "audio/mp4": "m4a", "audio/mpeg": "mp3", "audio/aac": "aac", "audio/wav": "wav"
 }
 
-type Fail = { readonly status: number; readonly code: string; readonly message: string; readonly extra?: Record<string, unknown> }
+export type Fail = { readonly status: number; readonly code: string; readonly message: string; readonly extra?: Record<string, unknown> }
 const failure = (f: Fail, headers: Record<string, string> = {}) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: { ...NO_STORE, ...headers } })
 const success = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
 const isFail = (v: unknown): v is Fail => typeof v === "object" && v !== null && "status" in v && "code" in v
@@ -130,7 +130,7 @@ export const downloadPath = (env: Env, a: DownloadArgs): string => {
 type Caller = { readonly principal: Principal; readonly actor: string; readonly user: string }
 
 /** Bearer -> principal with SSO policy and the install's grant; installs need `risk` in their grant. */
-const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-shared"): Promise<Caller | Fail> => {
+export const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-shared"): Promise<Caller | Fail> => {
   const auth = request.headers.get("authorization") ?? ""
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return { status: 401, code: "auth.unauthenticated", message: "sign in first" }

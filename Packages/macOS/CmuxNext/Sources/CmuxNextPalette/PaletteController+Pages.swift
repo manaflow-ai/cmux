@@ -35,13 +35,27 @@ extension PaletteController {
             scope: .root
         )
         page.mergesSectionsWhenTyping = true
+        page.queryItems = goToRows()
+        return previewingActions(page)
+    }
+
+    /// The highlighted row previews its action live when the action has a
+    /// preview (`ActionRegistry.bindPreview`: a "Window Style: Card" row
+    /// shows that style); another row, leaving the page or closing the
+    /// palette puts the committed look back, and running the row keeps it.
+    func previewingActions(_ page: PalettePageSpec) -> PalettePageSpec {
+        var page = page
+        let registry = registry
+        page.onHighlight = { [weak registry] item in registry?.showPreview(item?.actionRefs.first?.action) }
+        page.onLeave = { [weak registry] in registry?.endPreview() }
         return page
     }
 
     /// Scope `commands` (`>`): catalog actions only.
     func commandsOnlyPage() -> PalettePageSpec {
-        PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
-                        symbol: "command", providers: [makeRegistryProvider()], showsRecent: true, scope: PaletteScopeID.commands)
+        previewingActions(PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
+                                          symbol: "command", providers: [makeRegistryProvider()], showsRecent: true,
+                                          scope: PaletteScopeID.commands))
     }
 
     /// Scope `scopes` (`?`): every scope, with its prefix and keyword.
@@ -65,6 +79,8 @@ extension PaletteController {
         case PaletteScopeID.settings: page = settingsPage()
         case PaletteScopeID.shortcuts: page = keyboardShortcutsPage()
         case PaletteScopeID.scopes: page = scopeListPage()
+        case PaletteScopeID.search: page = searchPage()
+        case PaletteScopeID.chats: page = chatsPage()
         default: page = sources.scopes.first { $0.descriptor.id == id }?.page(context)
         }
         page?.scope = id
@@ -85,16 +101,31 @@ extension PaletteController {
         )
     }
 
+    /// Go to Workspace (Cmd-P): the workspaces, and once the user types the
+    /// sidebar groups, panes and tabs too, ranked in one list.
     public func workspacesPage() -> PalettePageSpec? {
         guard let source = sources.workspaces else { return nil }
-        return PalettePageSpec(
+        var providers: [any PaletteProvider] = [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)]
+        if let navigation = sources.navigation { providers.append(NavigationPaletteProvider(source: navigation)) }
+        var page = PalettePageSpec(
             id: "workspaces",
             title: PaletteStrings.workspacesTitle,
-            placeholder: PaletteStrings.workspacesPlaceholder,
+            placeholder: sources.navigation == nil ? PaletteStrings.workspacesPlaceholder : PaletteStrings.goToAnythingPlaceholder,
             symbol: "rectangle.stack",
-            providers: [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)],
+            providers: providers,
             showsRecent: true
         )
+        page.mergesSectionsWhenTyping = sources.navigation != nil
+        page.queryItems = goToRows()
+        return page
+    }
+
+    /// Open and Ask Agent rows for a typed path or web address, first in
+    /// Cmd-P and Cmd-Shift-P; nil without a go-to source.
+    func goToRows() -> (@MainActor (String) -> [PaletteItem])? {
+        guard sources.goTo != nil else { return nil }
+        let rows = GoToPaletteRows()
+        return { [weak self] query in rows.items(query, source: self?.sources.goTo) }
     }
 
     public func tabsPage() -> PalettePageSpec? {

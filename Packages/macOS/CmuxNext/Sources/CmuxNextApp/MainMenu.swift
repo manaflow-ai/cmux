@@ -3,18 +3,17 @@ import CmuxNextActions
 
 /// Builds the menu bar from the action registry (`mainMenu` placements) so
 /// titles and shortcuts match the palette and key router. Edit keeps the
-/// standard responder-chain items so text fields (rename, omnibox) work.
+/// standard responder-chain items so text fields (rename, omnibox) work;
+/// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
     static func make(registry: ActionRegistry) -> NSMenu {
         let mainMenu = NSMenu()
-        var app: [NSMenuItem] = [
-            NSMenuItem(title: Strings.menuAbout, action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""),
-            .separator(),
-        ]
+        // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
+        var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
         // Quit and its two session choices go last, below Show All.
         let quitIDs: [ActionID] = ["quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything"]
-        let quitTitles = Set(quitIDs.compactMap { registry.title(for: $0) })
-        app += registry.makeMainMenuItems(for: .app).filter { !quitTitles.contains($0.title) }
+        let placedElsewhere = Set((quitIDs + ["about"]).compactMap { registry.title(for: $0) })
+        app += registry.makeMainMenuItems(for: .app).filter { !placedElsewhere.contains($0.title) }
         app += [
             .separator(),
             NSMenuItem(title: Strings.menuHide, action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"),
@@ -32,6 +31,8 @@ enum MainMenu {
             item(Strings.menuCut, #selector(NSText.cut(_:)), "x", [.command]),
             item(Strings.menuCopy, #selector(NSText.copy(_:)), "c", [.command]),
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
+            // Cmd+Shift+V, as in Chrome and Slack (Lawrence 2026-10-20): plain text only, in any text input.
+            item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift]),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))
@@ -52,6 +53,10 @@ enum MainMenu {
         var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
         if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu.shared.makeItem(), StatusIconSetMenu.shared.makeItem()] }
         if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
+        // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
+        let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))
+        mainMenu.addItem(helpMenu)
+        NSApp.helpMenu = helpMenu.submenu
         return mainMenu
     }
 
@@ -61,7 +66,7 @@ enum MainMenu {
         return item
     }
 
-    private static func submenu(_ title: String, items: [NSMenuItem]) -> NSMenuItem {
+    static func submenu(_ title: String, items: [NSMenuItem]) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let menu = NSMenu(title: title)
         var previousSeparator = true
@@ -70,6 +75,7 @@ enum MainMenu {
             menu.addItem(child)
             previousSeparator = child.isSeparatorItem
         }
+        if menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
         item.submenu = menu
         return item
     }

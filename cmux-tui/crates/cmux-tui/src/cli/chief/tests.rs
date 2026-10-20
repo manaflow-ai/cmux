@@ -384,7 +384,6 @@ fn a_brain_gets_the_harness_logins_and_nothing_else() {
         "LC_ALL",
         "MUX_HARNESS",
         "OPTCHAT_CHIEF_HARNESS",
-        "CMUX_MCP_COMMAND",
     ] {
         assert!(brain_env_allowed(name), "{name}");
     }
@@ -447,15 +446,86 @@ fn stop_takes_a_subagent_and_engine_takes_speeds() {
         Some(Control::Stop(Some("a3".into())))
     );
     assert_eq!(parse_args(&strings(&["stop"])).unwrap().control, Some(Control::Stop(None)));
-    let parsed =
-        parse_args(&strings(&["engine", "--speed", "fast", "--compactor-speed=default"])).unwrap();
+    let parsed = parse_args(&strings(&[
+        "engine",
+        "--speed",
+        "fast",
+        "--compactor-speed=default",
+        "--compactor-harness",
+        "claude-sr",
+        "--compactor-model=claude-haiku-5-5",
+    ]))
+    .unwrap();
     assert_eq!(
         parsed.control,
         Some(Control::Engine(vec![
             ("speed".into(), "fast".into()),
-            ("compactor_speed".into(), "default".into())
+            ("compactor_speed".into(), "default".into()),
+            ("compactor_harness".into(), "claude-sr".into()),
+            ("compactor_model".into(), "claude-haiku-5-5".into())
         ]))
     );
     let report = json!({"engine": {"harness": "codex", "model": "gpt-6-sol", "effort": "high", "speed": "fast"}});
     assert_eq!(engine_line(&report), "codex · gpt-6-sol · high · fast");
+}
+
+#[test]
+fn chief_usage_runs_the_chief_tool_on_every_chief_by_default() {
+    use super::usage::{Invocation, invocation};
+    let home = Path::new("/u/.cmux/chief/default");
+    let tool = std::path::PathBuf::from("/app/bin/optchat-chief");
+    let all =
+        invocation(&strings(&["--since", "30d", "--by=model"]), home, tool.clone(), false).unwrap();
+    assert_eq!(
+        all,
+        Invocation {
+            tool: tool.clone(),
+            args: strings(&[
+                "usage",
+                "--since",
+                "30d",
+                "--by",
+                "model",
+                "--mux-home",
+                "/u/.cmux/chief/default",
+                "--chiefs"
+            ]),
+        }
+    );
+    // One Chief: its directory under the home, as the daemon names it.
+    let one = invocation(
+        &strings(&["--chief", "agent_01M5A0X7FW3AGR73KR0D4BS6C3", "--json"]),
+        home,
+        tool.clone(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(
+        one.args,
+        strings(&["usage", "--mux-home", "/u/.cmux/chief/default/c/0d4bs6c3", "--json"])
+    );
+    // The global --json asks the same.
+    let json = invocation(&[], home, tool.clone(), true).unwrap();
+    assert_eq!(json.args.last().map(String::as_str), Some("--json"));
+    assert!(invocation(&strings(&["--nope"]), home, tool, false).is_err());
+}
+
+#[test]
+fn chief_usage_finds_the_tool_beside_the_cli_then_on_path() {
+    use super::usage::find_tool;
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let beside = dir.path().join("bin");
+    std::fs::create_dir_all(&beside).unwrap();
+    let tool = beside.join("optchat-chief");
+    std::fs::write(&tool, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let none = |_: &str| None::<String>;
+    assert_eq!(find_tool(&none, Some(&beside)), Some(tool.clone()));
+    let path = format!("/nonexistent:{}", beside.display());
+    let on_path = |k: &str| (k == "PATH").then(|| path.clone());
+    assert_eq!(find_tool(&on_path, Some(dir.path())), Some(tool));
+    let named = |k: &str| (k == "CMUX_OPTCHAT_CHIEF").then(|| "/x/optchat-chief".to_owned());
+    assert_eq!(find_tool(&named, None), Some("/x/optchat-chief".into()));
+    assert_eq!(find_tool(&none, Some(dir.path())), None);
 }

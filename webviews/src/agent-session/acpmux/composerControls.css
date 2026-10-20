@@ -1,52 +1,143 @@
-/* Reasoning menu: one checked row per level the model offers. The track below is the model
-   menu's inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+/* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
+   row's trailing edge as Claude's model list marks it, so every label starts at the row's own
+   inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
+   separators on the label column's rhythm. Theme tokens only. */
 .acpmux-effort-menu {
+  --acpmux-menu-gutter: 16px;
+  --acpmux-menu-gutter-gap: 8px;
   width: max-content;
-  min-width: 140px;
-  max-width: min(240px, calc(100vw - 24px));
-  padding: 5px;
-  border: 1px solid var(--ui-line, var(--acpmux-composer-edge));
-  border-radius: 10px;
+  min-width: 160px;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: var(--ui-popup-padding);
+  border: 0;
+  border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--acpmux-menu-gutter);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 26px;
-  padding: 3px 8px;
-  border-radius: 6px;
+  gap: var(--acpmux-menu-gutter-gap);
+  height: var(--ui-row-height);
+  min-height: 0;
+  padding-block: 0;
+  padding-inline: var(--ui-row-padding-inline);
+  border-radius: var(--ui-row-radius);
   font-size: var(--text-control);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-effort-item .ui-menu-check { order: 2; color: var(--agent-text); }
+.acpmux-effort-item .ui-menu-check {
+  grid-row: 1;
+  grid-column: 2;
+  display: inline-flex;
+  width: var(--acpmux-menu-gutter);
+  justify-content: center;
+  margin: 0;
+  color: var(--agent-text);
+  font-weight: 600;
+}
+.acpmux-effort-text {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.acpmux-effort-text .acpmux-menu-label { flex: none; }
+.acpmux-effort-hint { flex: none; align-self: center; }
+/* A level's note is one quiet line beside its name, never a second line that makes its row taller. */
+.acpmux-effort-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+/* Section headers sit on the label column, in the system's small secondary caption. */
+.acpmux-effort-menu .ui-menu-group-label {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  padding-block: 0;
+  padding-inline: var(--ui-row-padding-inline);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+}
+/* A hairline between sections, inset to the rows' edges, with even space above and below. */
+.acpmux-effort-menu .ui-separator {
+  height: 1px;
+  margin: 5px var(--ui-row-padding-inline);
+  border: 0;
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+/* The opt-in slider (Debug Settings agent.reasoningSlider): wide enough for Faster, Smarter and the
+   recommended line; the title row names the level the thumb sits on. */
+.acpmux-effort-menu:has(.acpmux-effort-slider) {
+  width: min(232px, calc(100vw - 24px));
+}
+.acpmux-effort-slider {
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  padding: 0 8px 6px;
+}
+.acpmux-effort-slider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.acpmux-effort-slider-head .ui-menu-group-label {
+  padding-inline: 0;
+}
+.acpmux-effort-slider-level {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--text-control);
+  color: var(--agent-text);
+  white-space: nowrap;
+}
+.acpmux-effort-slider .acpmux-effort-track {
+  margin-top: 8px;
+}
+/* The menu keeps a row's highlight when focus moves to the slider (a keyboard open, Up from the
+   first speed row): one focus at a time, so a row reads highlighted only while it has focus. */
+.acpmux-effort-menu:has(.acpmux-effort-range:focus) .ui-menu-item.acpmux-effort-item[data-highlighted] {
+  background: none;
+}
 .acpmux-effort-track {
-  --acpmux-effort-inset: 13px;
+  --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
   position: relative;
-  height: 23.5px;
-  margin-top: 12px;
+  height: calc(23.5px * var(--cmux-interface-scale, 1));
+  margin-top: calc(12px * var(--cmux-interface-scale, 1));
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  animation: acpmux-effort-track-in 180ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 .acpmux-effort-fill {
   position: absolute;
   inset: 0 auto 0 0;
   width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--agent-text) 45%, transparent);
-  transition: width 160ms ease;
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
+  transition: width 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
+  will-change: width;
 }
 .acpmux-effort-stop {
   position: absolute;
   top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-stop));
-  width: 15px;
-  height: 15px;
-  margin: -7.5px 0 0 -7.5px;
+  width: calc(15px * var(--cmux-interface-scale, 1));
+  height: calc(15px * var(--cmux-interface-scale, 1));
+  margin: calc(-7.5px * var(--cmux-interface-scale, 1)) 0 0 calc(-7.5px * var(--cmux-interface-scale, 1));
   padding: 0;
   border: 0;
   background: none;
@@ -64,16 +155,32 @@
 }
 .acpmux-effort-thumb {
   position: absolute;
-  top: -2.5px;
+  top: 50%;
   left: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
-  width: 28px;
-  height: 28px;
-  margin-left: -14px;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  border: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 76%, var(--surface-popup));
   border-radius: 50%;
-  background: var(--agent-text);
-  box-shadow: 0 1px 3px var(--agent-shadow);
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
+  box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
-  transition: left 160ms ease;
+  transition: left 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease-out;
+  will-change: left;
+  transform: translateZ(0);
+}
+/* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
+   the same stops and interaction while reducing the thumb's visual weight. */
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-fill {
+  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 34%, transparent);
+}
+.acpmux-effort-track[data-slider-style="minimal"] .acpmux-effort-thumb {
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-width: 1.5px;
+  background: var(--surface-popup);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 32%, transparent);
 }
 /* Faster and Smarter at the track's ends (the track is physical left-to-right, so the row is too),
    the recommended level on its own centred line under them: a narrow panel never cuts it. */
@@ -103,36 +210,41 @@
   opacity: 0;
   cursor: default;
 }
-.acpmux-effort-range:focus-visible + .acpmux-effort-thumb,
 .acpmux-effort-track:has(.acpmux-effort-range:focus-visible) .acpmux-effort-thumb {
-  outline: 2px solid color-mix(in srgb, var(--agent-text) 40%, transparent);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--agent-accent, var(--agent-text)) 78%, var(--surface-popup));
+  outline-offset: 2px;
+  box-shadow:
+    var(--elevation-1),
+    0 0 0 4px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
+  .acpmux-effort-track,
   .acpmux-effort-fill,
   .acpmux-effort-thumb {
+    animation: none;
     transition: none;
+  }
+}
+@keyframes acpmux-effort-track-in {
+  from {
+    opacity: 0;
+    transform: translate3d(-6px, 0, 0) scaleX(0.96);
+    transform-origin: left center;
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 /* The approval menu's question above the modes (permissions-menu.png). */
 .acpmux-menu-heading {
   padding: 6px 10px 4px;
   font-size: var(--text-detail);
-  line-height: 18px;
+  line-height: var(--text-body--line-height, 18px);
   color: var(--agent-muted);
   white-space: normal;
 }
-/* A control the session has not reported yet keeps its place: the chip's box, inert, with one
-   quiet bar where its label goes (ComposerPickers ChipSkeleton, cx-ncc.58). */
-.acpmux-chip-skeleton { pointer-events: none; }
-.acpmux-chip-skeleton .acpmux-chip-skeleton-face { justify-content: center; }
-.acpmux-effort.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 48px; }
-.acpmux-mode.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 34px; padding: 0 3px; }
-.acpmux-chip-skeleton-bar {
-  display: block;
-  width: 60%;
-  height: 8px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--agent-muted) 22%, transparent);
-}
-.acpmux-chip-skeleton .acpmux-chip-skeleton-face:hover { background: none; }
+/* A control the session has not reported yet, as this harness's chats last showed it: the real
+   chip's face, inert until the session's own replaces it in place (ComposerPickers PendingChip). */
+.acpmux-chip-pending { pointer-events: none; }
+.acpmux-chip-pending .acpmux-picker-button:hover { background: none; }

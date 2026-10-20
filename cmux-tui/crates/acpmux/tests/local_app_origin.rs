@@ -5,11 +5,16 @@
 //! Origin header, or another page) stays remote-origin even with the token.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
@@ -54,13 +59,11 @@ impl Daemon {
     }
 
     fn launch(&mut self) {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let mut child = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[])
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "error"])
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", self.home.join("s.sock"))
-            .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("ACPMUX_LOGIN_ENV")
-            .env_remove("XPC_SERVICE_NAME")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .envs(self.env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -231,6 +234,96 @@ async fn the_token_is_new_at_every_launch_private_and_never_in_a_reply() {
     assert_eq!(origin_of(&init), "remote", "the previous launch's token opens nothing");
     let (_, init) = hello(&d, Some(PANE), Some(&second)).await;
     assert_eq!(origin_of(&init), "local");
+}
+
+/// The agent pane's chat menu (cx-jlzsf): Archive and Mark as Unread are
+/// acpmux requests the page sends on its own connection, the app's pane
+/// (LocalApp) and a plain browser tab on the listener (the dev host, remote
+/// origin) alike; no host bridge call is left between the page and the chat.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
+    let d = Daemon::start("chat-state");
+    let token = d.local_token();
+    let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
+    let trust =
+        call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
+    let new = call(&mut app, 3, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
+    let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let summary = |reply: &Value| -> Value {
+        reply["result"]["sessions"]
+            .as_array()
+            .and_then(|all| all.iter().find(|s| s["sessionId"] == json!(id)).cloned())
+            .unwrap_or_else(|| panic!("no summary for {id}: {reply}"))
+    };
+
+    // Archive: acpmux sets the `archived` tag to when (milliseconds); Unarchive removes it.
+    let before =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    let archived =
+        call(&mut app, 4, "_acpmux/archive", json!({"sessionId": id, "archived": true})).await;
+    let when =
+        archived["result"]["tags"]["archived"].as_str().unwrap_or_else(|| panic!("{archived}"));
+    assert!(when.parse::<u128>().is_ok_and(|ms| ms >= before), "{archived}");
+    let unread = call(&mut app, 5, "_acpmux/markUnread", json!({"sessionId": id})).await;
+    assert!(unread.get("error").is_none(), "{unread}");
+    let seen = call(&mut app, 6, "_acpmux/watch", json!({})).await;
+    assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
+    assert!(summary(&seen)["tags"]["archived"].is_string(), "{seen}");
+
+    // The same requests from a plain browser tab on the listener (no Swift in between).
+    let (mut tab, init) = hello(&d, None, None).await;
+    assert_eq!(origin_of(&init), "remote", "{init}");
+    let restored =
+        call(&mut tab, 2, "_acpmux/archive", json!({"sessionId": id, "archived": false})).await;
+    assert!(restored["result"]["tags"].get("archived").is_none(), "{restored}");
+    let again = call(&mut tab, 3, "_acpmux/markUnread", json!({"sessionId": id})).await;
+    assert!(again.get("error").is_none(), "{again}");
+    let seen = call(&mut tab, 4, "_acpmux/watch", json!({})).await;
+    assert!(summary(&seen)["tags"].get("archived").is_none(), "{seen}");
+    assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
+    // Only true or false: the request never names another tag.
+    let odd =
+        call(&mut tab, 6, "_acpmux/archive", json!({"sessionId": id, "archived": "yes"})).await;
+    assert!(odd.get("error").is_some(), "{odd}");
+    // An unknown chat is an error, never a silent success the menu would show as done.
+    let missing =
+        call(&mut tab, 5, "_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await;
+    assert!(missing.get("error").is_some(), "{missing}");
+}
+
+/// New side chat (cx-jlzsf): the pane tags the fork it made as a side chat
+/// of its chat with `_acpmux/side`, which sets only the `side` tag.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
+    let d = Daemon::start("side-chat");
+    let token = d.local_token();
+    let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
+    let trust =
+        call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
+    let mut ids = Vec::new();
+    for id in [3, 4] {
+        let new = call(&mut app, id, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
+        ids.push(new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned());
+    }
+    let (chat, fork) = (&ids[0], &ids[1]);
+    let side = call(&mut app, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
+    assert_eq!(side["result"]["tags"]["side"], json!(chat), "{side}");
+    assert!(side["result"]["tags"].as_object().is_some_and(|t| t.len() == 1), "{side}");
+    // Never its own side chat, never of an unknown chat, and the chat is required.
+    for (id, params) in [
+        (6, json!({"sessionId": chat, "chat": chat})),
+        (7, json!({"sessionId": fork, "chat": "no-such-chat"})),
+        (8, json!({"sessionId": fork})),
+        // The exact id only: a prefix or a name never resolves another chat.
+        (9, json!({"sessionId": fork, "chat": &chat[..chat.len().min(6)]})),
+    ] {
+        let refused = call(&mut app, id, "_acpmux/side", params.clone()).await;
+        assert!(refused.get("error").is_some(), "{params}: {refused}");
+    }
 }
 
 /// A stop right after the ready line is a clean stop: SIGTERM ends the

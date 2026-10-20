@@ -1,3 +1,4 @@
+import CmuxNextDesign
 public import Foundation
 
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
@@ -18,6 +19,15 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var hotkeys: [String: String]
     /// The folder a terminal or chat opened from the page starts in.
     public var cwd: String?
+    /// The machine the page runs on, for its machine chip: this Mac's name once the launch's read
+    /// answered (``AgentPaneModel/localMachineDisplayName``), so the chip names it on the first
+    /// frame instead of "This Mac" until the handshake. nil on another machine, whose handshake
+    /// names it, or before the read answers.
+    public var host: String?
+    /// The newest chats a page on this Mac listed last, as JSON text (`{sessions, device}`, from
+    /// `newTab.warm`): the page lists them on its first frame instead of an empty list until its
+    /// own daemon connection lists them. nil on another machine or before any page listed chats.
+    public var warm: String?
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
@@ -27,7 +37,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
+    /// The template (`tabs.newTabTemplate`: "cards", "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
@@ -47,12 +57,18 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page is agent history (Show Agent History, `agentHistory.show`, cx-zlnl), every chat on this
     /// device with nothing to type; nil is the New Tab page.
     public var history: Bool?
+    /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
+    /// when no harness is installed.
+    public var harnessHintDismissed: Bool?
+    /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
+    /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
+    public var widgets: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil) {
+                template: String? = nil, widgets: Bool? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -67,6 +83,28 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.lastPicks = lastPicks
         self.home = home
         self.inputToken = nil
+        // nil follows the Debug Settings toggle, read as each page context is made.
+        self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+    }
+}
+
+extension AgentPaneNewTab {
+    /// The newest chats a local page posted (`newTab.warm`), for the next page's ``warm``.
+    @MainActor public internal(set) static var warmed: String?
+    /// The largest `newTab.warm` the host keeps.
+    nonisolated public static let maximumWarmBytes = 512 * 1024
+
+    /// The page as it opens on this Mac (`local`): this Mac's name as its `host` once the launch's
+    /// read has answered, and the newest chats a page listed as its ``warm``, so its first frame
+    /// names the Mac and lists the chats. Every opening (Cmd-T, +, a new workspace, a split, an
+    /// adopted spare) makes its context here, so each decides from the same snapshot.
+    @MainActor public func warmedOnThisMac(_ local: Bool = true) -> AgentPaneNewTab {
+        var page = self
+        if local {
+            page.host = AgentPaneModel.localMachineDisplayName
+            page.warm = Self.warmed
+        }
+        return page
     }
 }
 

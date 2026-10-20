@@ -8,6 +8,11 @@
 //! comes to an unsigned daemon only on `--person-key-fd` at spawn) may.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
@@ -159,13 +164,11 @@ impl Daemon {
         )
         .unwrap();
         let socket = dir.join("s.sock");
-        let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+        let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
             .env("ACPMUX_HOME", &dir)
             .env("ACPMUX_SOCKET", &socket)
-            .env_remove("ACPMUX_LOGIN_ENV")
-            .env_remove("XPC_SERVICE_NAME")
-            .env_remove("CLAUDECODE")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null());
@@ -663,13 +666,12 @@ async fn a_person_proof_replayed_on_another_connection_is_refused() {
 /// Starts the real daemon with `args` in `dir` (with its config.json): its
 /// ready line, or None when it exited first, with its exit status and stderr.
 fn run_until_ready(dir: &Path, args: &[&str]) -> (Option<Value>, std::process::Child) {
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(dir)
         .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
         .args(args)
         .env("ACPMUX_HOME", dir)
         .env("ACPMUX_SOCKET", dir.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -922,13 +924,12 @@ fn start_home(tag: &str) -> PathBuf {
 
 /// `acpmux <args>` with this home, `stdin` as its standard input.
 fn acpmux_cli(home: &Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    // `daemon start` passes this environment on to the daemon it starts.
+    let mut cmd = daemon_env::acpmux(home);
     cmd.args(args)
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -977,7 +978,7 @@ async fn daemon_start_hands_its_stdin_key_to_the_daemon_it_starts() {
         "{}",
         String::from_utf8_lossy(&again.stderr)
     );
-    let _ = acpmux_cli(&home, &["daemon", "shutdown"], None);
+    let _ = acpmux_cli(&home, &["daemon", "shutdown", "--end-agents"], None);
     let _ = std::fs::remove_dir_all(&home);
 }
 
@@ -997,7 +998,7 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     let kind = libc::SOCK_STREAM | libc::SOCK_CLOEXEC;
     assert_eq!(unsafe { libc::socketpair(libc::AF_UNIX, kind, 0, fds.as_mut_ptr()) }, 0);
     let (ours, theirs) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::acpmux(&home);
     cmd.args([
         "daemon",
         "run",
@@ -1011,8 +1012,7 @@ fn the_key_reaches_the_daemon_only_after_it_is_not_dumpable() {
     ])
     .env("ACPMUX_HOME", &home)
     .env("ACPMUX_SOCKET", home.join("s.sock"))
-    .env_remove("ACPMUX_LOGIN_ENV")
-    .env_remove("XPC_SERVICE_NAME")
+    .env("ACPMUX_LOGIN_ENV", "0")
     .stdin(std::process::Stdio::null())
     .stdout(std::process::Stdio::piped())
     .stderr(std::process::Stdio::null());
@@ -1141,4 +1141,230 @@ async fn a_keyed_daemon_proves_it_holds_the_key_over_the_apps_nonce() {
     let mut c = Rpc::connect(&plain.socket).await;
     let r = c.call("_acpmux/person_holds", json!({"nonce": nonce})).await;
     assert_eq!(reason(&r), "person.no_key", "{r}");
+}
+
+// ---- Phone approvers (cnx-ios verify/phone-approvals.md, hub/approvers.rs) ----
+
+/// A phone's Secure Enclave key, as a software P-256 key.
+fn phone_key() -> ring::signature::EcdsaKeyPair {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &rng).unwrap();
+    EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, pkcs8.as_ref(), &rng).unwrap()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+}
+
+/// What the phone signs, as `hub/approvers.rs` defines it. Written out here
+/// so the test states the wire contract.
+#[allow(clippy::too_many_arguments)]
+fn approver_signature(
+    key: &ring::signature::EcdsaKeyPair,
+    instance: &str,
+    mac: &str,
+    approver: &str,
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    expires: u64,
+    answers_digest: &str,
+) -> String {
+    let expires = expires.to_string();
+    let mut message = b"acpmux-approver-decision-v1".to_vec();
+    for part in [
+        instance,
+        mac,
+        approver,
+        session,
+        permission,
+        option,
+        nonce,
+        expires.as_str(),
+        answers_digest,
+    ] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex_of(key.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref())
+}
+
+fn signed(
+    session: &str,
+    permission: &str,
+    option: &str,
+    nonce: &str,
+    approver: &str,
+    expires: u64,
+    sig: &str,
+) -> Value {
+    json!({"sessionId": session, "permissionId": permission, "optionId": option,
+           "_meta": {"acpmux": {"decisionNonce": nonce,
+               "approverDecision": {"approver": approver, "expiresAt": expires, "signature": sig}}}})
+}
+
+fn enroll(key: &ring::signature::EcdsaKeyPair) -> Value {
+    use ring::signature::KeyPair;
+    json!({"macDevice": "mac-1", "approvers": [
+        {"id": "phone-1", "publicKey": hex_of(key.public_key().as_ref()), "name": "iPhone"}]})
+}
+
+/// Only the person enrolls approvers; an agent-side client can neither add
+/// its own key nor read the list.
+#[tokio::test]
+async fn only_the_person_enrolls_approvers() {
+    let d = Daemon::start("apset", Some(KEY));
+    let key = phone_key();
+    let mut agent = Rpc::connect(&d.socket).await;
+    agent.initialize().await;
+    let r = agent.call("_acpmux/approvers_set", enroll(&key)).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let r = agent.call("_acpmux/approvers", json!({})).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    assert_eq!(app.ok("_acpmux/approvers_set", enroll(&key)).await["count"], 1);
+    let listed = app.ok("_acpmux/approvers", json!({})).await;
+    assert_eq!(listed["approvers"][0]["id"], "phone-1");
+    assert_eq!(listed["macDevice"], "mac-1");
+}
+
+/// A phone's signed allow counts once, for that prompt, option, Mac and
+/// daemon run, until it expires; a revoked phone's signature counts nothing.
+#[tokio::test]
+async fn a_phones_signed_allow_counts_once_and_stops_when_revoked() {
+    let d = Daemon::start("apallow", Some(KEY));
+    let key = phone_key();
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok("_acpmux/approvers_set", enroll(&key)).await;
+    let mut phone = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut phone, &d).await;
+
+    let rid = phone.send("session/prompt", prompt(&id, "ask: write")).await;
+    let pending = phone.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let exp = unix_now() + 120;
+    let sign = |k: &ring::signature::EcdsaKeyPair,
+                inst: &str,
+                mac: &str,
+                option: &str,
+                n: &str,
+                e: u64| {
+        approver_signature(k, inst, mac, "phone-1", &id, &pid, option, n, e, "")
+    };
+
+    // Unsigned, another option, Mac, daemon run or key, expired, or too far
+    // ahead: refused, and the prompt stays pending.
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid, "optionId": "yes"}),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    for (sig, e) in [
+        (sign(&key, &instance, "mac-1", "no", &nonce, exp), exp),
+        (sign(&key, &instance, "mac-2", "yes", &nonce, exp), exp),
+        (sign(&key, "0123456789abcdef", "mac-1", "yes", &nonce, exp), exp),
+        (sign(&phone_key(), &instance, "mac-1", "yes", &nonce, exp), exp),
+        (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() - 5), unix_now() - 5),
+        (sign(&key, &instance, "mac-1", "yes", &nonce, unix_now() + 900), unix_now() + 900),
+    ] {
+        let r = phone
+            .call(
+                "_acpmux/permission_respond",
+                signed(&id, &pid, "yes", &nonce, "phone-1", e, &sig),
+            )
+            .await;
+        assert_eq!(reason(&r), REASON, "{r}");
+    }
+    assert_eq!(pending_ids(&mut phone, &id).await, vec![pid.clone()]);
+
+    // The phone's signature: the allow counts.
+    let good = sign(&key, &instance, "mac-1", "yes", &nonce, exp);
+    phone
+        .ok("_acpmux/permission_respond", signed(&id, &pid, "yes", &nonce, "phone-1", exp, &good))
+        .await;
+    assert_eq!(turn_said(&mut phone, rid).await, "chose yes");
+
+    // Replayed on the next prompt (spent nonce, other permission): refused.
+    let rid = phone.send("session/prompt", prompt(&id, "ask: again")).await;
+    let next = phone.note("_acpmux/permission_pending", |p| p["permissionId"] != json!(pid)).await;
+    let pid2 = next["permissionId"].as_str().unwrap().to_owned();
+    let nonce2 = next["decisionNonce"].as_str().unwrap().to_owned();
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce, "phone-1", exp, &good),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+
+    // Revoked: a fresh, valid signature counts nothing; a deny still does.
+    app.ok("_acpmux/approvers_set", json!({"macDevice": "mac-1", "approvers": []})).await;
+    let fresh = approver_signature(
+        &key, &instance, "mac-1", "phone-1", &id, &pid2, "yes", &nonce2, exp, "",
+    );
+    let r = phone
+        .call(
+            "_acpmux/permission_respond",
+            signed(&id, &pid2, "yes", &nonce2, "phone-1", exp, &fresh),
+        )
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    phone
+        .ok(
+            "_acpmux/permission_respond",
+            json!({"sessionId": id, "permissionId": pid2, "optionId": "no"}),
+        )
+        .await;
+    assert_eq!(turn_said(&mut phone, rid).await, "chose no");
+}
+
+/// A phone answers a question with a signature that covers the answers:
+/// other answers under the same signature count nothing.
+#[tokio::test]
+async fn a_phones_signed_answer_covers_exactly_its_answers() {
+    let d = Daemon::start("apq", Some(KEY));
+    let key = phone_key();
+    let mut app = Rpc::person(&d.socket, KEY).await;
+    app.ok("_acpmux/approvers_set", enroll(&key)).await;
+    let mut phone = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut phone, &d).await;
+    let rid = phone.send("session/prompt", prompt(&id, "question: Which one?")).await;
+    let pending = phone.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let exp = unix_now() + 120;
+    // sha256 of the canonical answers JSON `{"Which one?":"B"}`.
+    use sha2::Digest;
+    let digest = hex_of(&sha2::Sha256::digest(br#"{"Which one?":"B"}"#));
+    let sig = approver_signature(
+        &key,
+        &instance,
+        "mac-1",
+        "phone-1",
+        &id,
+        &pid,
+        "allow_once",
+        &nonce,
+        exp,
+        &digest,
+    );
+    let mut swapped = signed(&id, &pid, "allow_once", &nonce, "phone-1", exp, &sig);
+    swapped["answers"] = json!({"Which one?": "A"});
+    let r = phone.call("_acpmux/permission_respond", swapped).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let mut answer = signed(&id, &pid, "allow_once", &nonce, "phone-1", exp, &sig);
+    answer["answers"] = json!({"Which one?": "B"});
+    phone.ok("_acpmux/permission_respond", answer).await;
+    assert_eq!(turn_said(&mut phone, rid).await, r#"chose allow_once {"Which one?": "B"}"#);
 }

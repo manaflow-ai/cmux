@@ -13,7 +13,7 @@ use super::{Layout, SourceScan, modified_ms, open_read_only};
 use crate::state::projects::Observation;
 
 /// (product folder, source id).
-const PRODUCTS: [(&str, &str); 5] = [
+pub(super) const PRODUCTS: [(&str, &str); 5] = [
     ("Code", "vscode"),
     ("Code - Insiders", "vscode-insiders"),
     ("Cursor", "cursor"),

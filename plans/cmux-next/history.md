@@ -30,8 +30,8 @@ journal (cmux-tui/spec/session-journal.md).
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
 | `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the daemon history module `cmux-history` (R62, decided 2026-10-04; react-pages.md 2.2); the app reports each visit with `cmux.history.visit.record` | per browser profile, SQLite in the daemon state dir (until H3 lands: app-local `BrowserProfiles/<profile>/History.sqlite`) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
-| `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
-| `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
+| `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus, reported with `history.trail.record` | the daemon (only writer) in the home session personal projection `history.locations` (cx-hnmbt.12; adopts the older `history.trail`) | 200 entries | Go Back / Go Forward, Go To |
+| `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory; Remove and Clear delete the closed group for good (`closed.delete` through `history.entries.remove` / `history.clear`, cx-gzh.30) | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |
 | `command` | a finished shell command: command line, cwd, exit status, start, duration, terminal | the daemon (it parses OSC 133 prompt marks for every terminal, with or without the app) | the daemon's workspace registry, table `terminal_commands` (capability `terminal-command-history-v1`), never the append-only journal | `history.commandRetentionDays` (default 30, user decision 2026-10-01); Remove and Clear delete rows in the daemon | Run Again (new tab, same machine and cwd), Copy |
 | `agent` | an agent session: provider (Claude Code, Codex, …), session id, cwd, terminal, workspace, started, last activity, ended | the daemon (hook ingress, `agent.session.*` / `agent.turn.*` journal kinds, `session-journal-v1`) | the session journal | the journal's retention | Resume (`claude --resume <id>`, `codex resume <id>`) in a new tab on the same machine and cwd |
@@ -181,8 +181,23 @@ Rules:
    first focus is recorded. Incognito entries are never written.
 
 Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
-same split, page history over a page and location history elsewhere
-(follow-up; needs `debug.mouse` coverage first).
+same split, page history over a page and location history elsewhere. The side
+buttons are built (`MouseSideButtons`): over a browser tab they walk its
+history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
+`focusHistoryForward`; a remote desktop in control mode keeps them for its
+host. Debug Settings `navigation.mouseSideButtons` (on) turns them off.
+
+The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
+horizontal swipe goes Back or Forward in the page's history when the page
+cannot scroll that way. The page answers a probe for the scroller under the
+fingers, and for whether a script took the wheels (a carousel), so a gesture the
+page would scroll stays the page's. AppKit tracks the swipe
+(`trackSwipeEvent`); an accent pill with an arrow slides in from that edge, and
+with no page that way it rubber-bands and nothing happens. It needs macOS's
+"Swipe between pages"; Debug Settings `browser.swipeNavigation` (on) turns it
+off. Not built: the swipe over agent chats and internal pages (no horizontal
+scroll answer from them yet; the side buttons cover their Back), and over
+WebKit pages.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
 
@@ -397,5 +412,5 @@ export-and-forget policy removes them. The `cmux-history` crate's
 (H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
 when it wires commands into the merged read model.
 
-Not built: mouse side buttons and swipe for either axis; a daemon list of
+Not built: the swipe outside Chromium pages; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

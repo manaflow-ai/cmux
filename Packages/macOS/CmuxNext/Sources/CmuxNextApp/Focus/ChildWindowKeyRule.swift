@@ -1,10 +1,13 @@
+import CmuxNextFocus
+
 /// What a cmux window does when a window other than itself becomes key
 /// (`FocusEffectApplier.childWindowDidBecomeKey`), and whether it takes the
 /// keys back from a key Chromium page window (`reclaimKeyFromPageWindow`).
-/// Pure, so the input model runs the same rule as the applier.
+/// Pure, so the input model runs the same rule as the applier. The rule is
+/// `cmux-focus-core`'s `child_window`; these are its value types.
 nonisolated enum ChildWindowKeyRule {
     /// The key window's relation to this cmux window.
-    enum Parent: Equatable, Sendable {
+    enum Parent: Equatable, Sendable, Codable {
         case thisWindow
         /// No parent window: a page window Chromium showed or activated
         /// before (or while) the fork placed it as a child.
@@ -12,7 +15,7 @@ nonisolated enum ChildWindowKeyRule {
         case other
     }
 
-    struct Facts: Equatable, Sendable {
+    struct Facts: Equatable, Sendable, Codable {
         var parent: Parent
         var isPanel = false
         /// `CefNSWindow`: a Chromium page window (or docked DevTools).
@@ -27,7 +30,7 @@ nonisolated enum ChildWindowKeyRule {
         var thisWindowIsActive = true
     }
 
-    enum Decision: Equatable, Sendable {
+    enum Decision: Equatable, Sendable, Codable {
         /// Not this window's business.
         case ignore
         /// A click into docked DevTools: the tools have the keyboard.
@@ -44,31 +47,24 @@ nonisolated enum ChildWindowKeyRule {
     }
 
     static func decide(_ facts: Facts) -> Decision {
-        guard isOurs(facts) else { return .ignore }
-        if facts.isDevTools { return .devTools }
-        if facts.isChromiumPage, !facts.clicked || !facts.overPane { return .unchosenPage }
-        guard facts.overPane else { return .ignore }
-        return facts.clicked ? .chosenPage : .reapply
+        answer(facts)?.decision ?? .ignore
     }
 
     /// Whether this window takes the keys back from the key window `facts`
     /// describes, when its target is not a page.
     static func shouldReclaim(_ facts: Facts) -> Bool {
-        isOurs(facts)
+        answer(facts)?.shouldReclaim ?? false
     }
 
-    /// A child of this window, or a parentless Chromium page window while
-    /// this window is the active one: the fork hides and unparents a page
-    /// whose parent view has no bounds or is hidden, and an activation then
-    /// shows and keys it before the fork makes it a child again
-    /// (input-spec.md B13). Only the active window answers for it, so two
-    /// windows never both take the keys back.
-    private static func isOurs(_ facts: Facts) -> Bool {
-        guard !facts.isPanel else { return false }
-        switch facts.parent {
-        case .thisWindow: return true
-        case .none: return facts.isChromiumPage && facts.thisWindowIsActive
-        case .other: return false
-        }
+    private struct Answer: Decodable {
+        var decision: Decision
+        var shouldReclaim: Bool
+    }
+
+    private static func answer(_ facts: Facts) -> Answer? {
+        struct Request: Encodable { var facts: Facts }
+        let answer = FocusReducer.call("focus_child_window_key", Request(facts: facts), as: Answer.self)
+        assert(answer != nil, "focus_child_window_key refused")
+        return answer
     }
 }

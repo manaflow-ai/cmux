@@ -1,0 +1,423 @@
+// Attachments in the Channels view: preparing a file (its SHA-256, size, dimensions and a derived
+// preview or poster image), the owner's chunked upload with progress, and reading stored bytes back.
+// The owner (home-messaging.md section 2; the daemon's `conversation-attachment-*` commands) checks
+// every rule again; the page checks the allow list and the size first only to say so at once.
+//
+// Images, previews and posters come back as data URLs read over the page's own connection, so they
+// show under any page policy (the app's page scheme allows `img-src data:` only). A video plays
+// from a short-lived URL on the daemon's listener, which answers byte ranges (seeking); a page
+// whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
+import type { PageClient } from "../shared/pageClient";
+import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
+
+export type AttachmentClass = "image" | "video" | "audio" | "file";
+
+/** A file with no listed type that does not read as UTF-8 text (home-core GENERIC_FILE_TYPE). */
+export const GENERIC_FILE_TYPE = "application/octet-stream";
+
+/** The owner's types (home-core attachments.ts ATTACHMENT_TYPES). Any file attaches: a file with no
+ * listed type goes as text/plain when its bytes read as UTF-8 (HTML, source code, dotfiles), else
+ * as GENERIC_FILE_TYPE (`resolvedType`). */
+const TYPES: Readonly<Record<string, AttachmentClass>> = {
+  "image/jpeg": "image",
+  "image/png": "image",
+  "image/gif": "image",
+  "image/webp": "image",
+  "image/heic": "image",
+  "application/pdf": "file",
+  "text/plain": "file",
+  "text/markdown": "file",
+  "text/csv": "file",
+  "application/json": "file",
+  "application/zip": "file",
+  [GENERIC_FILE_TYPE]: "file",
+  "video/mp4": "video",
+  "video/quicktime": "video",
+  "audio/mp4": "audio",
+  "audio/mpeg": "audio",
+  "audio/aac": "audio",
+  "audio/wav": "audio",
+};
+/** Types a browser reports under another name, by extension. */
+const BY_EXTENSION: Readonly<Record<string, string>> = {
+  md: "text/markdown",
+  markdown: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+  txt: "text/plain",
+  log: "text/plain",
+  mov: "video/quicktime",
+  m4a: "audio/mp4",
+  heic: "image/heic",
+};
+
+export const MAX_ATTACHMENT_BYTES = 100_000_000;
+export const MAX_ATTACHMENTS = 10;
+const PREVIEW_MAX_BYTES = 512_000;
+const POSTER_MAX_BYTES = 2_000_000;
+const PREVIEW_EDGE = 720;
+const POSTER_EDGE = 1280;
+/** Upload chunk (decoded): about 1.4 MB of base64 per frame. */
+const CHUNK_BYTES = 1024 * 1024;
+/** Read chunk: a multiple of 3, so base64 pieces join into one string. */
+const READ_BYTES = 3 * 1024 * 1024;
+/** Images up to this size come back as data URLs; a larger one shows from its URL. */
+const DATA_URL_MAX_BYTES = 16_000_000;
+/** Image data URLs kept (least recently used goes first). */
+const IMAGE_CACHE_ENTRIES = 64;
+/** The longest wait for the browser to read a video's first frame. */
+const FACTS_TIMEOUT_MS = 5_000;
+
+export function attachmentClass(mimeType: string): AttachmentClass {
+  return TYPES[mimeType] ?? "file";
+}
+
+/** The listed type the owner will see for `file` from its declared type or extension, or undefined
+ * when it has none (`resolvedType` then reads its bytes). */
+export function attachmentType(file: File): string | undefined {
+  const declared = file.type.toLowerCase();
+  if (TYPES[declared] && declared !== GENERIC_FILE_TYPE) return declared;
+  const extension = file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase();
+  const guessed = BY_EXTENSION[extension];
+  return guessed && TYPES[guessed] ? guessed : undefined;
+}
+
+/** How many leading bytes the text check reads. */
+const SNIFF_BYTES = 64 * 1024;
+
+/** True when `bytes` read as UTF-8 text: no NUL, valid UTF-8 (a character cut at the end of a
+ * prefix counts unless `complete`), and almost no control characters besides tab, line breaks,
+ * form feed and escape. Matches CmuxHomeCore's HomeAttachmentPolicy.looksLikeText. */
+export function looksLikeText(bytes: Uint8Array, complete: boolean): boolean {
+  let controls = 0;
+  for (const byte of bytes) {
+    if (byte === 0) return false;
+    if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0c && byte !== 0x0d && byte !== 0x1b) controls += 1;
+  }
+  if (controls * 100 > Math.max(bytes.length, 1)) return false;
+  const decoder = () => new TextDecoder("utf-8", { fatal: true });
+  for (let cut = 0; cut <= (complete ? 0 : Math.min(3, bytes.length)); cut += 1) {
+    try {
+      decoder().decode(bytes.subarray(0, bytes.length - cut));
+      return true;
+    } catch {
+      // try a shorter prefix: the last character may be cut
+    }
+  }
+  return false;
+}
+
+/** The type the owner will see for `file` whose bytes are `bytes`: its listed type, else text/plain
+ * for UTF-8 text, else GENERIC_FILE_TYPE. */
+export function resolvedType(file: File, bytes: Uint8Array): string {
+  const listed = attachmentType(file);
+  if (listed) return listed;
+  const prefix = bytes.subarray(0, SNIFF_BYTES);
+  return looksLikeText(prefix, prefix.length === bytes.length) ? "text/plain" : GENERIC_FILE_TYPE;
+}
+
+export type Refusal = "size";
+
+/** Why the owner would refuse `file`, before any byte moves: only an empty file or one over the
+ * size cap (any type attaches). */
+export function refusal(file: File): Refusal | undefined {
+  if (file.size <= 0 || file.size > MAX_ATTACHMENT_BYTES) return "size";
+  return undefined;
+}
+
+export function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+async function sha256(bytes: ArrayBuffer | Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return btoa(binary);
+}
+
+interface Derived {
+  bytes: Uint8Array;
+  mimeType: string;
+}
+
+/** What the browser learned about a file before its upload. */
+interface Facts {
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  preview?: Derived;
+  poster?: Derived;
+}
+
+/** A canvas frame as JPEG within `maxBytes` (lower quality, then a smaller edge). */
+async function jpeg(source: CanvasImageSource, width: number, height: number, edge: number, maxBytes: number) {
+  let scale = Math.min(1, edge / Math.max(width, height, 1));
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    canvas.getContext("2d")?.drawImage(source, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.82, 0.68, 0.5]) {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+      if (blob && blob.size <= maxBytes)
+        return { bytes: new Uint8Array(await blob.arrayBuffer()), mimeType: "image/jpeg" };
+    }
+    scale *= 0.6;
+  }
+  return undefined;
+}
+
+/** An image's size and small preview (none for a GIF, which would stop moving, or a type the
+ * browser cannot decode). */
+async function imageFacts(file: File): Promise<Facts> {
+  const bitmap = await createImageBitmap(file).catch(() => undefined);
+  if (!bitmap) return {};
+  const facts = { width: bitmap.width, height: bitmap.height };
+  const small = file.size <= PREVIEW_MAX_BYTES && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;
+  const preview =
+    file.type === "image/gif" || small
+      ? undefined
+      : await jpeg(bitmap, bitmap.width, bitmap.height, PREVIEW_EDGE, PREVIEW_MAX_BYTES).catch(() => undefined);
+  bitmap.close();
+  return preview ? { ...facts, preview } : facts;
+}
+
+/** A video's size, length and poster (a frame near its start), when the browser can decode it. */
+async function videoFacts(file: File): Promise<Facts> {
+  const url = URL.createObjectURL(file);
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.preload = "auto";
+  // A file the browser cannot decode may fire nothing: give up after a few seconds (no poster).
+  const once = (name: string) =>
+    new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), FACTS_TIMEOUT_MS);
+      const done = (value: boolean) => {
+        clearTimeout(timer);
+        resolve(value);
+      };
+      video.addEventListener(name, () => done(true), { once: true });
+      video.addEventListener("error", () => done(false), { once: true });
+    });
+  try {
+    const loaded = once("loadeddata");
+    video.src = url;
+    if (!(await loaded)) return {};
+    const facts = {
+      width: video.videoWidth || undefined,
+      height: video.videoHeight || undefined,
+      durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined,
+    };
+    const seeked = once("seeked");
+    video.currentTime = Math.min(1, (video.duration || 0) / 10);
+    if (!(await seeked) || !video.videoWidth) return facts;
+    const poster = await jpeg(video, video.videoWidth, video.videoHeight, POSTER_EDGE, POSTER_MAX_BYTES).catch(
+      () => undefined,
+    );
+    return poster ? { ...facts, poster } : facts;
+  } finally {
+    video.removeAttribute("src");
+    video.load();
+    URL.revokeObjectURL(url);
+  }
+}
+
+export interface UploadProgress {
+  sent: number;
+  total: number;
+}
+
+type UploadReply = { upload?: string | null; needs?: string[]; stored?: unknown; received?: number };
+
+/** The page's attachment work against one host: upload, read, link. One per page client. */
+export class AttachmentService {
+  private supported: Promise<HomeAttachmentSupport> | null = null;
+  private readonly images = new Map<string, Promise<string>>();
+  private readonly urls = new Map<string, { url: Promise<string>; until: number }>();
+
+  constructor(private readonly client: PageClient) {}
+
+  /** Which owners take attachments here (an older host: none). */
+  support(): Promise<HomeAttachmentSupport> {
+    this.supported ??= this.client
+      .call<HomeAttachmentSupport>(HomeOps.attachmentSupport, {})
+      .catch(() => ({ local: false, cloud: false }));
+    return this.supported;
+  }
+
+  /** Hashes, measures and uploads `file` (with its derived image) to `conversation`; the part a
+   * message then names. `signal` cancels the upload. */
+  async upload(
+    conversation: string,
+    file: File,
+    onProgress: (progress: UploadProgress) => void,
+    signal?: AbortSignal,
+  ): Promise<HomeAttachment> {
+    if (refusal(file)) throw new Error("refused");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const mimeType = resolvedType(file, bytes);
+    const kind = attachmentClass(mimeType);
+    const facts: Facts = kind === "image" ? await imageFacts(file) : kind === "video" ? await videoFacts(file) : {};
+    const derived = facts.preview ?? facts.poster;
+    const part: HomeAttachment = {
+      type: "attachment",
+      hash: await sha256(bytes),
+      name: file.name,
+      mimeType,
+      byteCount: bytes.length,
+    };
+    if (facts.width) part.width = facts.width;
+    if (facts.height) part.height = facts.height;
+    if (facts.durationMs !== undefined) part.durationMs = facts.durationMs;
+    let derivedImage: HomeDerivedImage | undefined;
+    if (derived) {
+      derivedImage = { hash: await sha256(derived.bytes), mimeType: derived.mimeType, byteCount: derived.bytes.length };
+      if (kind === "video") part.poster = derivedImage;
+      else part.preview = derivedImage;
+    }
+    const declared = derivedImage
+      ? { sha256: derivedImage.hash, byte_count: derivedImage.byteCount, mime_type: derivedImage.mimeType }
+      : undefined;
+    const begun = await this.client.call<UploadReply>(HomeOps.attachmentUpload, {
+      op: "begin",
+      conversation,
+      sha256: part.hash,
+      byte_count: part.byteCount,
+      mime_type: mimeType,
+      name: file.name,
+      ...(part.width ? { width: part.width } : {}),
+      ...(part.height ? { height: part.height } : {}),
+      ...(part.durationMs !== undefined ? { duration_ms: part.durationMs } : {}),
+      ...(declared ? { [kind === "video" ? "poster" : "preview"]: declared } : {}),
+    });
+    const total = bytes.length + (derived?.bytes.length ?? 0);
+    // The conversation already holds these bytes (the first record of a hash wins: send what it kept).
+    if (!begun.upload) {
+      onProgress({ sent: total, total });
+      return kept(part, begun.stored);
+    }
+    const upload = begun.upload;
+    let sent = 0;
+    try {
+      for (const piece of begun.needs ?? []) {
+        const data = piece === "original" ? bytes : derived?.bytes;
+        if (!data) throw new Error(`no bytes for ${piece}`);
+        for (let offset = 0; offset < data.length; offset += CHUNK_BYTES) {
+          if (signal?.aborted) throw new DOMException("cancelled", "AbortError");
+          const chunk = data.subarray(offset, offset + CHUNK_BYTES);
+          await this.client.call(HomeOps.attachmentUpload, { op: "chunk", upload, piece, offset, data: base64(chunk) });
+          sent += chunk.length;
+          onProgress({ sent, total });
+        }
+      }
+      const committed = await this.client.call<UploadReply>(HomeOps.attachmentUpload, { op: "commit", upload });
+      onProgress({ sent: total, total });
+      return kept(part, committed.stored);
+    } catch (error) {
+      void this.client.call(HomeOps.attachmentUpload, { op: "cancel", upload }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** An image variant as a data URL (cached for the page's life; bytes never change by hash). */
+  image(conversation: string, image: { hash: string; variant: "original" | "preview" | "poster" }): Promise<string> {
+    const key = `${conversation}:${image.hash}:${image.variant}`;
+    let found = this.images.get(key);
+    if (found) this.images.delete(key);
+    else {
+      found = this.readDataUrl(conversation, image.hash, image.variant);
+      found.catch(() => this.images.delete(key));
+    }
+    // Most recent last; the oldest leaves when the cache is full.
+    this.images.set(key, found);
+    while (this.images.size > IMAGE_CACHE_ENTRIES) this.images.delete(this.images.keys().next().value as string);
+    return found;
+  }
+
+  /** A URL of one variant on the daemon's listener (video, large images, downloads). `fresh` asks
+   * for a new link (the old one stopped answering: it ended, or the daemon restarted). */
+  url(
+    conversation: string,
+    hash: string,
+    variant: "original" | "preview" | "poster",
+    name?: string,
+    fresh = false,
+  ): Promise<string> {
+    const key = `${conversation}:${hash}:${variant}:${name ?? ""}`;
+    const now = Date.now();
+    const cached = this.urls.get(key);
+    if (cached && cached.until > now && !fresh) return cached.url;
+    const url = this.client
+      .call<{ url: string; expiresInMs: number }>(HomeOps.attachmentUrl, {
+        conversation,
+        hash,
+        variant,
+        ...(name ? { name } : {}),
+      })
+      .then((link) => {
+        // Renew a minute early: a player that seeks after that asks again.
+        this.urls.set(key, { url, until: Date.now() + Math.max(0, link.expiresInMs - 60_000) });
+        return link.url;
+      });
+    url.catch(() => this.urls.delete(key));
+    this.urls.set(key, { url, until: now + 30_000 });
+    return url;
+  }
+
+  /** Whether an image of this size comes back as a data URL (else from its URL). */
+  static inline(byteCount: number): boolean {
+    return byteCount <= DATA_URL_MAX_BYTES;
+  }
+
+  private async readDataUrl(conversation: string, hash: string, variant: string): Promise<string> {
+    let offset = 0;
+    let data = "";
+    let mimeType = "application/octet-stream";
+    for (;;) {
+      const read = await this.client.call<{ mimeType: string; data: string; eof: boolean; byteCount: number }>(
+        HomeOps.attachmentRead,
+        { conversation, hash, variant, offset, length: READ_BYTES },
+      );
+      mimeType = read.mimeType || mimeType;
+      // Whole base64 quanta only join: every read but the last is a multiple of 3 bytes.
+      const padding = read.data.endsWith("==") ? 2 : read.data.endsWith("=") ? 1 : 0;
+      const decoded = (read.data.length / 4) * 3 - padding;
+      if (!read.eof && decoded % 3 !== 0) throw new Error("short read");
+      data += read.data;
+      offset += decoded;
+      if (read.eof || decoded === 0 || offset >= read.byteCount) break;
+    }
+    // Only raster images become data URLs (never a type that could run as a document).
+    if (!/^image\/(jpeg|png|gif|webp|heic)$/.test(mimeType)) throw new Error("not an image");
+    return `data:${mimeType};base64,${data}`;
+  }
+}
+
+/** The part as the owner keeps it: a hash it already held keeps its first record's derived image. */
+function kept(part: HomeAttachment, stored: unknown): HomeAttachment {
+  if (!stored || typeof stored !== "object") return part;
+  const record = stored as { poster?: Record<string, unknown>; preview?: Record<string, unknown> };
+  const image = (raw?: Record<string, unknown>): HomeDerivedImage | undefined =>
+    raw ? { hash: String(raw.hash), mimeType: String(raw.mime_type), byteCount: Number(raw.byte_count) } : undefined;
+  const { poster: _poster, preview: _preview, ...rest } = part;
+  const result: HomeAttachment = { ...rest };
+  const poster = image(record.poster);
+  const preview = image(record.preview);
+  if (poster) result.poster = poster;
+  if (preview) result.preview = preview;
+  return result;
+}

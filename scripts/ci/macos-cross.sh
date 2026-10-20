@@ -19,7 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
-#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, acpmux, cmux-relay, chatmux-relay
+#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   parity-bins                    compare the daemon family with the Mac references
 #   stubs-check                    the committed framework stubs cover every Mac reference import
@@ -256,6 +256,9 @@ cmd_bins() {
     (cd "$repo_root/cmux-tui"
       export CMUX_TUI_BUILD_COMMIT=$sha CMUX_TUI_GHOSTTY_COMMIT=$ghostty CMUX_TUI_DISTRIBUTION_VERSION=$version
       cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target "$t"
+      # Its own command: cmuxterm-hq's build-cmux-tui-source.sh pins the text
+      # of cmd_bins up to the line above for its cmux-tui-only fast path.
+      cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux --bin acpmux --release --locked --target "$t")
@@ -263,6 +266,7 @@ cmd_bins() {
     local r="$CARGO_TARGET_DIR/$t/release"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
+    cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"
@@ -340,9 +344,12 @@ cmd_parity_vt() {
              <("$nm" --just-symbol-name "$ref" | grep -E '^_ghostty_' | sort -u) > "$XC_ROOT/vt/missing-$t.txt"
     local minos; minos=$("$LLVM_BIN/llvm-objdump" --macho --private-headers "$lib" 2>/dev/null \
       | awk '/cmd LC_BUILD_VERSION|cmd LC_VERSION_MIN_MACOSX/{c=1} c&&/^ *(minos|version) /{print $2; c=0}' | sort -u | tr '\n' ' ')
-    # The archive's objects must carry the daemon's deployment target, not Zig's default.
-    if [[ "$minos" != "${MIN_OS[$t]} " ]]; then
-      echo "FAIL libghostty-vt-$t: member minimum macOS is '$minos', the daemon links at ${MIN_OS[$t]}"; status=1
+    # The archive's objects must carry Ghostty's macOS minimum (osVersionMin in
+    # src/build/Config.zig), the minimum ghostty-vt-sys names for zig on every host.
+    local vt_min; vt_min=$(awk '/pub fn osVersionMin\(/{f=1} f&&/\.macos =>/{m=1} m&&/\.major =/{gsub(/[^0-9]/,"");a=$0} m&&/\.minor =/{gsub(/[^0-9]/,"");print a"."$0; exit}' \
+      "${CMUX_GHOSTTY_SRC:-$repo_root/ghostty-next}/src/build/Config.zig")
+    if [[ -z "$vt_min" || "$minos" != "$vt_min " ]]; then
+      echo "FAIL libghostty-vt-$t: member minimum macOS is '$minos', Ghostty's minimum is '$vt_min'"; status=1
     fi
     if [[ -s "$XC_ROOT/vt/missing-$t.txt" ]]; then
       echo "FAIL libghostty-vt-$t: $(wc -l < "$XC_ROOT/vt/missing-$t.txt") API symbols of the Mac daemon missing: $(head -5 "$XC_ROOT/vt/missing-$t.txt" | tr '\n' ' ')"; status=1
@@ -376,13 +383,13 @@ cmd_ffi() {
   mkdir -p "$out/slices" "$out/macos" "$out/work"
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
   export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=off RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
-  for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h"; do
+  for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u > "$out/work/exports.txt"
   for t in "${TARGETS[@]}"; do
-    use_target "$t" 26.0
+    use_target "$t" 14.0
     (cd "$crates/cmux-app-ffi" && cargo build --locked --release --target "$t")
-    "$LLVM_BIN/clang" --target="$(arch_of "$t")-apple-macos26.0" -isysroot "$SYSROOT" --ld-path="$ct-ld" -r -nostdlib \
+    "$LLVM_BIN/clang" --target="$(arch_of "$t")-apple-macos14.0" -isysroot "$SYSROOT" --ld-path="$ct-ld" -r -nostdlib \
       -Wl,-force_load,"$CARGO_TARGET_DIR/$t/release/libcmux_app_ffi.a" \
       -Wl,-exported_symbols_list,"$out/work/exports.txt" -o "$out/work/$t.o"
     "$ct-libtool" -static -o "$out/slices/$t.a" "$out/work/$t.o"

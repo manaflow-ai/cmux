@@ -27,7 +27,6 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
-    @ObservationIgnored private var reload: Task<Void, Never>?
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -93,13 +92,14 @@ final class AgentHarnessCenter {
     }
 
     /// Starts the harness and runs the ACP handshake (`_acpmux/harness/doctor`); Settings shows
-    /// the steps. `noPrompt` stops after session/new (no model call).
+    /// the steps. `noPrompt` stops after session/new (no model call); otherwise the check sends one
+    /// real hello turn (`prompt: true`), what the Chief editor needs before it saves a backend.
     @discardableResult
     func doctor(id: String, noPrompt: Bool = false) async throws -> JSONValue {
         doctors[id] = ["running": true]
         publish()
         do {
-            let answer = try await manage(.doctor, noPrompt ? ["id": id, "noPrompt": true] : ["id": id])
+            let answer = try await manage(.doctor, noPrompt ? ["id": id, "noPrompt": true] : ["id": id, "prompt": true])
             doctors[id] = answer
             publish()
             return answer
@@ -108,6 +108,31 @@ final class AgentHarnessCenter {
             publish()
             throw error
         }
+    }
+
+    /// Stores `value` in the Keychain for harness `id` under `key` (`_acpmux/harness/secret/set`)
+    /// and answers the item name the profile reads (`keychain:NAME`). The value goes only into
+    /// this one request: never a log, a state Settings draws, or a profile.
+    func setSecret(id: String, key: String, value: String) async throws -> String {
+        let answer: JSONValue
+        do {
+            answer = try await call(.secretSet, ["id": id, "key": key, "value": value])
+        } catch let error as AcpmuxRPCError where error.isMethodMissing {
+            // An acpmux without the Keychain write: the endpoint cannot be added from the app. The
+            // other harness buttons in Settings still work, so this does not switch them off.
+            throw AgentHarnessFailure.unsupported
+        }
+        return answer["item"]?.stringValue ?? "cmux-harness/\(id)/\(key)"
+    }
+
+    /// `_acpmux/models`: every harness's probed models, with their efforts.
+    func models() async throws -> JSONValue {
+        try await call(.models)
+    }
+
+    /// `_acpmux/harnesses` as the daemon answers it (the Chief editor's backend list).
+    func harnessList() async throws -> JSONValue {
+        try await call(.list)
     }
 
     // MARK: Watching
@@ -145,26 +170,9 @@ final class AgentHarnessCenter {
         try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
     }
 
-    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness; `rescan` has
-    /// acpmux look for harnesses first.
-    func health(refresh: Bool = false, rescan: Bool = false) async throws -> [JSONValue] {
-        if rescan { await self.rescan() }
-        return try await call(.health, refresh ? ["refresh": true] : [:])["harnesses"]?.arrayValue ?? []
-    }
-
-    /// `_acpmux/reload_config` (cx-apoko): acpmux reads its profiles and looks on PATH again, for
-    /// a harness the Harnesses page just installed. Running chats stay; idle pooled sessions are
-    /// dropped and model lists probed again, so reloads run one after another, never at once (a
-    /// second install that ends during a reload gets its own after it). A daemon without a config
-    /// file refuses; the health check after it still runs.
-    private func rescan() async {
-        let previous = reload
-        let next = Task { [weak self] in
-            await previous?.value
-            _ = try? await self?.call(.reload)
-        }
-        reload = next
-        await next.value
+    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness.
+    func health() async throws -> [JSONValue] {
+        try await call(.health)["harnesses"]?.arrayValue ?? []
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {

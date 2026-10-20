@@ -1,22 +1,47 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
+import os
+
+private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
 
 /// The pane's first frame (cx-sj96): from the moment it is made until its page draws what it is
 /// (`pane.painted`: the handshake's answer or the host's error), the pane shows its page
 /// background with the shared loading mark, drawn natively, and keeps the page clear. A new chat
 /// is never an empty pane while its page loads (about 0.4 s) and acpmux starts (as long as the
-/// daemon takes), and never shows the page's frames before the handshake. The page's first frame
-/// replaces it in one step.
-final class AgentPaneLoadingView: NSView {
+/// daemon takes), and never shows the page's frames before the handshake. A chat's page then fades
+/// in over it (Leo 2026-10-14, as the Claude app switches to a chat it had not loaded: quick but
+/// seen); a New Tab page replaces it in one step.
+public final class AgentPaneLoadingView: NSView {
     /// The shared busy mark (`appearance.statusIndicator.style`; `none` draws only the background).
     let indicator = StatusIndicatorView()
     static let markSide: CGFloat = 18
+    /// How long the mark waits: a page that paints sooner shows only its background before it
+    /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
+    /// showed (`PanePaintHold.limit`), so the mark never shows the moment a hold gives up.
+    static let markDelay: Duration = .milliseconds(800)
+    /// How often the loading state checks on a page that has not painted (cx-txnr): WebKit
+    /// holds the animation frames of a page it thinks is not visible (a window occluded at a
+    /// relaunch), and its `pane.painted` may then never come. Seen unpainted at two checks in a
+    /// row (4-8 s in sight), the page counts as painted and shows as it is: like the pane's
+    /// other covers (`PanePaintHold.limit`, the launch image), it never stays for good. Out of
+    /// sight (a parked spare, a hidden tab, a window ordered out) it waits.
+    var paintCheckInterval: Duration = .seconds(4) {
+        didSet { if onGiveUp != nil { schedulePaintCheck() } }
+    }
+    private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
+    private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
+    private var onGiveUp: (@MainActor () -> Void)?
+    /// The last check saw the pane, still unpainted.
+    private var seenUnpainted = false
+    private var revealWaiters: [() -> Void] = []
+    /// While it fades out over the page, clicks and scrolls go to the page.
+    private var leaving = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         autoresizingMask = [.width, .height]
-        addSubview(indicator)
         indicator.configure(.busy(progress: nil))
         setAccessibilityElement(true)
         setAccessibilityRole(.progressIndicator)
@@ -26,9 +51,11 @@ final class AgentPaneLoadingView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var isFlipped: Bool { true }
+    override public var isFlipped: Bool { true }
 
-    override func layout() {
+    override public func hitTest(_ point: NSPoint) -> NSView? { leaving ? nil : super.hitTest(point) }
+
+    override public func layout() {
         super.layout()
         let side = Self.markSide
         indicator.frame = NSRect(x: ((bounds.width - side) / 2).rounded(), y: ((bounds.height - side) / 2).rounded(),
@@ -38,6 +65,92 @@ final class AgentPaneLoadingView: NSView {
     /// The page's background, so the pane looks like the page it becomes.
     func paint(_ color: NSColor) {
         layer?.backgroundColor = color.cgColor
+    }
+
+    /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
+    /// the indicator sets its own `isHidden` from its config whenever it refreshes.
+    func showMarkLater() {
+        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
+            guard let self else { return }
+            addSubview(indicator)
+        }
+    }
+
+    /// Runs `giveUp` once the pane has been seen unpainted at two checks in a row, unless the
+    /// loading state leaves first.
+    func giveUpWhenSeenUnpainted(_ giveUp: @escaping @MainActor () -> Void) {
+        onGiveUp = giveUp
+        seenUnpainted = false
+        schedulePaintCheck()
+    }
+
+    private func schedulePaintCheck() {
+        paintTimer.schedule(after: paintCheckInterval) { @MainActor [weak self] in self?.checkPaint() }
+    }
+
+    private func checkPaint() {
+        guard superview != nil, !leaving, let giveUp = onGiveUp else { return }
+        let seen = paneIsSeen
+        if seen, seenUnpainted {
+            onGiveUp = nil
+            giveUp()
+            return
+        }
+        seenUnpainted = seen
+        schedulePaintCheck()
+    }
+
+    /// The pane is on screen: its window is ordered in, and the pane is neither hidden nor
+    /// outside the window's content (a parked New Tab spare). Not the window's occlusion state:
+    /// WebKit's own view of it is what holds the paint.
+    private var paneIsSeen: Bool {
+        guard let pane = superview, let window, window.isVisible, let content = window.contentView,
+              !pane.isHiddenOrHasHiddenAncestor else { return false }
+        // Window coordinates: `visibleRect` does not clip to views that do not clip to bounds.
+        return pane.convert(pane.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
+    }
+
+    func hideMark() {
+        markTimer.cancel()
+        indicator.removeFromSuperview()
+    }
+
+    /// Runs `body` once the page shows: after its fade, if it fades; now if it shows. It
+    /// shows once this has left the pane, which it joins before the page can paint.
+    public func whenRevealed(_ body: @escaping () -> Void) {
+        if superview == nil { body() } else { revealWaiters.append(body) }
+    }
+
+    /// Leaves over `page`, which stayed clear under it. Fading, in ``MotionFade/fadeIn``: this
+    /// background fades out over the page, or, hidden over the pane's last frame of the page (a
+    /// launch image, cleared once this ends), the page fades in over that. A chat already shown
+    /// never gets here: it draws no loading state again, so switching back to it is instant.
+    func leave(over page: NSView, fades: Bool) {
+        // Once: the page's paint can follow the deadline's leave.
+        guard superview != nil, !leaving else { return }
+        paintTimer.cancel()
+        onGiveUp = nil
+        hideMark()
+        leaving = true
+        let overImage = isHidden
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if !fades || !overImage { page.alphaValue = 1 }
+        CATransaction.commit()
+        guard fades else { return left(page) }
+        Motion.home.animate(.fadeIn, in: self, {
+            if overImage { page.animator().alphaValue = 1 } else { animator().alphaValue = 0 }
+        }, completion: { [weak self, weak page] in self?.left(page) })
+    }
+
+    private func left(_ page: NSView?) {
+        page?.alphaValue = 1
+        leaving = false
+        removeFromSuperview()
+        alphaValue = 1
+        let waiters = revealWaiters
+        revealWaiters = []
+        for waiter in waiters { waiter() }
     }
 }
 
@@ -50,7 +163,7 @@ extension AgentPaneView {
     /// frame, and the pane stays clear above it. No effect once the page has painted.
     public var showsLoadingState: Bool {
         get { loadingView.superview != nil && !loadingView.isHidden }
-        set { loadingView.isHidden = !newValue }
+        set { if !model.hasPainted { loadingView.isHidden = !newValue } }
     }
 
     /// Shows the loading state over a page that has not painted; the page's first frame ends it.
@@ -60,17 +173,18 @@ extension AgentPaneView {
         loadingView.frame = topBar.contentFrame(in: bounds)
         addSubview(loadingView, positioned: .above, relativeTo: nil)
         themeLoadingState(themeTokens)
+        loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        loadingView.giveUpWhenSeenUnpainted { [weak self] in
+            guard let self, !model.hasPainted else { return }
+            loadingLogger.error("agent pane page did not report its first paint in sight; showing it")
+            model.markPainted()
+        }
     }
 
-    /// The page shows and the loading state goes, in one frame.
-    func endLoadingState() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        pageContent.alphaValue = 1
-        loadingView.removeFromSuperview()
-        CATransaction.commit()
-    }
+    /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``): a
+    /// chat fades in, a New Tab page or a page a pane holds hidden for its swap shows in one frame.
+    func endLoadingState() { loadingView.leave(over: pageContent, fades: model.newTab == nil && alphaValue > 0) }
 
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }

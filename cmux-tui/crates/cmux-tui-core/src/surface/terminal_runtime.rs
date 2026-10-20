@@ -70,13 +70,21 @@ impl PtyTerminalRuntime {
     /// `recording` false (the default) marks are dropped, any running command
     /// is forgotten, and nothing is read from the screen. The command line
     /// comes from Ghostty's semantic input cells, so a command typed before
-    /// recording turned on is still read whole at `C`.
+    /// recording turned on is still read whole at `C`. It also notes whether
+    /// a running command set the terminal up for interactive use
+    /// (`terminal-activity-v1` `in_use`), recording or not.
     pub(super) fn observe_shell_marks(
         &self,
         term: &mut Terminal,
         recording: impl FnOnce() -> bool,
     ) -> Vec<crate::shell_history::FinishedCommand> {
-        let marks = self.terminal_metadata.lock().unwrap().take_shell_marks();
+        let marks = {
+            let mut metadata = self.terminal_metadata.lock().unwrap();
+            // The modes after this output: a running command that took the
+            // terminal for interaction is `in_use`, not `running`.
+            metadata.observe_modes(|| crate::terminal_activity::terminal_modes(term));
+            metadata.take_shell_marks()
+        };
         if marks.is_empty() {
             return Vec::new();
         }
@@ -183,6 +191,10 @@ pub struct PtyTerminalRuntime {
     pub(super) journal_capture_gate: Mutex<()>,
     pub(super) journal_capture_idle: Condvar,
     pub(super) journal_capture_open: AtomicBool,
+    /// Set when the journal writer failed or stayed full past the durable
+    /// deadline. Capture stops, but `journal_capture_open` stays set so the
+    /// terminal reader keeps reading and rendering output.
+    pub(super) journal_capture_disabled: AtomicBool,
     pub(super) journal_capture_reserved: AtomicBool,
     pub(super) journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain

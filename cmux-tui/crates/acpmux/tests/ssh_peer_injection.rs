@@ -6,10 +6,15 @@
 //! only).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 struct Daemon {
@@ -34,7 +39,7 @@ fn start(tag: &str, peers: Value) -> Daemon {
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(home.join("config.json"), json!({"peers": peers}).to_string()).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(&home)
         .args([
             "daemon",
             "run",
@@ -48,8 +53,7 @@ fn start(tag: &str, peers: Value) -> Daemon {
         ])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
-        .env_remove("XPC_SERVICE_NAME")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

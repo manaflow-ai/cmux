@@ -1,7 +1,9 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextSettings
 import os
 
@@ -10,8 +12,8 @@ import os
 /// before it runs. Scripted runs never get here (they pass `confirm`).
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
-/// and an undo toast offers them back). Closing a workspace, a group's
-/// workspaces or a space asks only while one of its terminals runs a
+/// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
+/// Closing a workspace, a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -39,6 +41,7 @@ enum DestructiveConfirmation {
     /// The question for this invocation, or nil to run without asking.
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         switch id {
         case "cloudKillMachine":
             return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
@@ -52,16 +55,11 @@ enum DestructiveConfirmation {
         case "workspaceGroup.closeWorkspaces":
             // No question of its own (an undo toast offers the workspaces back):
             // only a foreground program in them asks, as for Close Workspace.
-            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                  let group = try? context.group(invocation) else { return nil }
-            let members = WorkspaceGroupClose.members(of: group, context)
-            var programs: [String] = []
-            for (workspace, daemon) in members { programs += await runningPrograms(in: workspace, on: daemon) }
-            guard !programs.isEmpty else { return nil }
-            let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-            return Prompt(title: ConfirmationStrings.closeGroupWorkspacesTitle(name),
-                          body: ConfirmationStrings.stillRunning(Set(programs).sorted().joined(separator: ", ")),
-                          button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+            guard let group = try? context.group(invocation) else { return nil }
+            return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
+                                                   title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
+        case let id where WorkspaceBulkClose.ids.contains(id):
+            return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
         case "browser.allowAgentWithExtensions":
@@ -75,15 +73,21 @@ enum DestructiveConfirmation {
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
+        case "taskManager.killProcess":
+            // A process Kill Process refuses is not asked about: the handler says why.
+            let key = services.taskManager.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.prompt(for: key)
+            return Prompt(title: question.title, body: question.body, button: question.button)
+        case "home.leaveConversation":
+            // The group's name in the question; a conversation not listed is refused by the action.
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
+            let prompt = info.leavePrompt
+            return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
         case "closeWorkspace":
-            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
-                  let workspace = context.scope(invocation).workspace,
-                  let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
-            let programs = await runningPrograms(in: workspace, on: daemon)
-            guard !programs.isEmpty else { return nil }
-            return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
-                          body: ConfirmationStrings.stillRunning(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
-                          suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
+            guard let workspace = context.scope(invocation).workspace, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
+            return await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
         default:
             return nil
         }
@@ -98,17 +102,24 @@ enum DestructiveConfirmation {
 
     /// The same for `tabs` (their live terminals only).
     static func runningPrograms(of tabs: [TabModel], on daemon: DaemonService) async -> [String] {
+        await runningPrograms(bySurface: tabs, on: daemon).programNames
+    }
+
+    /// The same, per asked terminal: each live terminal's foreground program,
+    /// or nil when it runs none (or did not answer). One gesture asks once and
+    /// passes this on (a close's question, then its undo toast decision).
+    static func runningPrograms(bySurface tabs: [TabModel], on daemon: DaemonService) async -> RunningPrograms {
         let surfaces = tabs.filter { $0.kind == .pty && !$0.dead }.map(\.surface)
-        guard let connection = daemon.connection, !surfaces.isEmpty else { return [] }
-        return await withTaskGroup(of: String?.self) { group in
+        guard let connection = daemon.connection, !surfaces.isEmpty else { return [:] }
+        return await withTaskGroup(of: (SurfaceID, String?).self) { group in
             for surface in surfaces {
                 group.addTask {
-                    try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1)).runningProgram
+                    (surface, try? await connection.request(TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1)).runningProgram)
                 }
             }
-            var programs: [String] = []
-            for await program in group { if let program, !programs.contains(program) { programs.append(program) } }
-            return programs.sorted()
+            var programs: RunningPrograms = [:]
+            for await (surface, program) in group { programs[surface] = .some(program) }
+            return programs
         }
     }
 

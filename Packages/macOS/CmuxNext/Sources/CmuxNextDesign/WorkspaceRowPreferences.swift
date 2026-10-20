@@ -17,9 +17,11 @@ public nonisolated struct WorkspaceRowElements: Hashable, Sendable {
 
     /// The default set: `minimal` plus what agents and scripts report
     /// (status entries, the log line, progress), which a row draws only for
-    /// a workspace that reported some (#16431, classic's status block), and
-    /// an unread notification's text, as classic shows it.
-    public static let standard = Self(shown: minimal.shown.union([.agentStatus, .log, .progress, .notification]))
+    /// a workspace that reported some (#16431, classic's status block). An
+    /// unread notification's text is opt-in (`notification`, classic's second
+    /// line): a compact row stays one line, its status glyph says the state
+    /// and the hover card says the text (Leo 2026-10-14; #19862 had it on).
+    public static let standard = Self(shown: minimal.shown.union([.agentStatus, .log, .progress]))
 
     public func shows(_ element: WorkspaceRowElement) -> Bool { shown.contains(element) }
 

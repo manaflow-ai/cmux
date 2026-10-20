@@ -23,23 +23,29 @@ final class TabContentCache {
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
-    /// Shown tabs whose content did not exist yet (a Chromium page being
-    /// created): the token of their `mount`, answered when it installs.
+    /// Shown tabs whose content does not exist yet (a Chromium page being created): their `mount` token, answered at install.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
+    /// Set while a smaller warm budget evicts: surfaces close at once, with no last picture.
+    var evictsAtOnce = false
     var onRelease: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
+    /// on demand for its hover card.
+    var lastFrames = TerminalLastFrames()
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
     let goneTabs = GoneTabWatch()
-    /// Browser pages' hover card thumbnails, captured when a page leaves the
-    /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
-    /// apart from `previews`, whose full-size page images hibernation shows.
+    /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
+    /// each, with the page version each shows (`pageVersion`): a page is captured again only when
+    /// its version moved. Kept apart from `previews`, whose full-size page images hibernation shows.
     let pageThumbnails = PreviewImageCache(capacityBytes: 16 << 20)
+    var pageThumbnailVersions: [String: Int] = [:]
+    var pageCapturesInFlight: Set<String> = []
     /// How long a leave capture may take before its thumbnail is dropped
     /// (the capture runs on the main thread). Tests that do not test this
     /// deadline use the shared 30 s test configuration.
@@ -69,7 +75,7 @@ final class TabContentCache {
     let browserTabs: BrowserTabService
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
-    private var pendingBrowsers: Set<String> = []
+    private(set) var pendingBrowsers: Set<String> = [] // Chromium pages being created (ChromiumWarmup waits)
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
     /// until the user reloads one: set after cmux quit unexpectedly twice in
     /// a row (`LaunchRecovery.restartedSafely`).
@@ -79,9 +85,9 @@ final class TabContentCache {
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
-    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in
-        try await cef.makeTab($0)
-    }
+    lazy var makeCEFTab: (BrowserTabConfiguration) async throws -> any BrowserTab = { [cef] in try await cef.makeUserTab($0) }
+    /// Makes a Chromium page in the current turn while Chromium runs (`ChromiumNewTabNow`; a seam for tests).
+    lazy var chromiumNow = ChromiumNow(cef)
     /// The remote-localhost store and navigation guard of a Chromium page for
     /// a tab (`RemoteLocalhostService.configuration`). Nil result: the proxy
     /// could not start, so the page must not load (never this Mac's localhost).
@@ -107,6 +113,8 @@ final class TabContentCache {
     /// closed, address bar editing ended); the App routes it through the
     /// window's focus coordinator.
     var onPageFocusRequest: ((String) -> Void)?
+    /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
+    var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's
@@ -136,13 +144,13 @@ final class TabContentCache {
     /// over `daemon`'s socket (the local daemon, or a Cloud machine's link).
     func terminal(for tab: TabModel, daemon: DaemonService) -> TerminalEntry {
         let validity = Self.terminalValidity(tab, daemon: daemon)
-        if let entry = terminals[tab.id], entry.validity == validity { return entry }
-        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
-                                                     generation: daemon.store.generation)
-        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) {
-            goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+        // A provisional split's view stays: its own tab's confirm attaches it (`awaitConfirm`).
+        if let entry = terminals[tab.id], entry.validity == validity || entry.gate != nil {
+            if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
+        let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
+                                                     generation: daemon.store.generation)
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.
@@ -156,13 +164,15 @@ final class TabContentCache {
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, policyBlocked: daemon.policyBlock.check,
+        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
+                                  policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
         goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+        if gate != nil { awaitConfirm(entry, of: tab, daemon: daemon) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
         return entry
@@ -193,23 +203,22 @@ final class TabContentCache {
 
     /// The page for a daemon browser tab on the engine its record names,
     /// written back to the record (url, title, favicon) while it lives.
-    /// CEF starts lazily and creates tabs asynchronously: nil until ready.
+    /// CEF starts lazily and creates tabs asynchronously (nil until ready); a New Tab page while it runs is made now.
     /// A Chromium record opens in WebKit when CEF is missing or fails to
     /// start (`ChromiumFallbackLog`: typed reason, one notice per process);
     /// the record keeps naming Chromium, so a build with CEF restores it.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
         claimAgentDriven(surface: tab.surface, key: key)
+        // A close the daemon makes (`cmux tab close`, another client) frees the page too.
+        goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests).
-            let key = tab.id
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
             return nil
         }
-        if let adopted = pageRequests.takeAdoption(for: tab) {
-            return tracked(install(adopted, for: key), tab)
-        }
+        if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
         // A browser tab on a Mac Screen address (dev builds before Mac Screen had its own tab
         // kind, or restored from then): the Mac Screen tab replaces it, waiting for Connect.
@@ -221,20 +230,22 @@ final class TabContentCache {
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
-        guard pendingBrowsers.insert(key).inserted else { return nil }
+        if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
+        guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         Task {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url))
+                page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url)), cache: self)))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
                 onBrowserReady?(key)
                 return
             }
+            guard goneTabs.tracks(key) else { return page.close() } // closed while it started (release forgot it)
             let entry = install(page, for: key)
             // By id, not the captured TabModel: a tab moved while its page
             // started (`cmux browser open` then split) has a new model.
@@ -300,12 +311,21 @@ final class TabContentCache {
         }
     }
 
+    /// Move Tab to Browser Profile (data-model.md 5): an engine fixes a page's store when it makes it, so `key`'s page is
+    /// re-made in `profile` (its record already names it) and loads `url`; the old page closes now. History and form input
+    /// stay with the old profile. A page made later (deferred, asleep, none yet) takes the profile from the record.
+    func recreatePage(_ key: String, in profile: BrowserProfileID, url: URL) {
+        guard let old = browsers[key]?.tab, !(old is DeferredBrowserTab), !(old is HibernatedBrowserTab) else { return }
+        if old.engineKind == .cef { return reroute(key, to: url) }  // a new browser in the record's request context
+        swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
+    }
+
     /// A WebKit page for a Chromium record, with the fallback recorded and
     /// the one-time notice shown when this is the first.
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
-        return tracked(browser(for: tab.id, url: url), tab)
+        return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)
     }
 
     /// Starts the record write-back and shows a pending fallback notice.
@@ -328,7 +348,7 @@ final class TabContentCache {
         if page.engineKind == .cef { page.keyRouter = keyRouter }
         (page as? CEFTab)?.devToolsObserver = self
         let incognito = OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoMemory : nil
-        let entry = BrowserEntry(tab: page, suggestionEngine: incognito.map { incognitoSuggestions($0) } ?? suggestions(for: page.profileID),
+        let entry = BrowserEntry(tab: page, suggestionEngine: suggestionEngine(forPage: page),
                                  history: incognito?.history ?? history(for: page.profileID))
         entry.chrome.addressBar.tabKey = key
         showPendingNotice(on: entry, key: key); MachineBrowserPages(cache: self).wireChip(entry, page: page, key: key)
@@ -364,11 +384,14 @@ final class TabContentCache {
 
     /// Replaces `key`'s page (hibernation, restore): the old page closes,
     /// the record write-back follows the new one, and panes showing `key`
-    /// re-show with the new view.
-    func swapPage(_ key: String, with page: any BrowserTab) {
+    /// re-show with the new view. A page woken from hibernation passes the
+    /// state it slept on (`asleep`): its omnibar shows that address from the
+    /// first frame, not the new page's blank one.
+    func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
         installReplacement(page, for: key)
+        if let asleep { browsers[key]?.chrome.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) {
             browserTabs.track(page, tabID: key)
         }
@@ -395,8 +418,9 @@ final class TabContentCache {
         browserTabs.untrack(key)
         previews.remove(key)
         pageThumbnails.remove(key)
+        pageThumbnailVersions[key] = nil
         shownPages.remove(key)
-        presentationChanges.notify()
+        presentationChanges.notify(changed: [key])
     }
 }
 

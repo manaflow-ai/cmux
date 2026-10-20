@@ -136,6 +136,7 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
+                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -332,9 +333,14 @@ impl Surface {
                                 }
                             }
                             if title_changed.swap(false, Ordering::Relaxed) {
-                                let title = term.title().unwrap_or_default();
-                                *pty.title.lock().unwrap() = title.clone();
-                                title_update = Some(title);
+                                // A program that rewrites the same title (a spinner's
+                                // resting frame, a prompt redraw) announces nothing.
+                                let title = crate::terminal_title::read(&term);
+                                let mut stored = pty.title.lock().unwrap();
+                                if *stored != title {
+                                    *stored = title.clone();
+                                    title_update = Some(title);
+                                }
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
@@ -476,7 +482,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let master = BackendMaster::new(side.clone(), initial_geometry.pty_size()?);
+        let master = BackendMaster::new(side.clone(), initial_geometry.pty_size());
         let reader = master.try_clone_reader()?;
         let writer = master.take_writer()?;
         let command = vec![side.terminal.clone()];

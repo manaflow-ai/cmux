@@ -16,10 +16,63 @@ pub fn mux_home() -> PathBuf {
     user.join(".cmux").join("mux")
 }
 
-/// A short id for a `MUX_HOME` (FNV-1a of its path, 8 hex digits). Two
-/// homes sharing one acpmux daemon tag their children and name their acpmux
-/// preset with it, so neither takes the other's.
+/// A short id for a `MUX_HOME` (8 hex digits). Two homes sharing one acpmux
+/// daemon tag their children and name their acpmux preset with it, so
+/// neither takes the other's.
+///
+/// The id is given once and kept in `optchat/home-id`
+/// ([`Paths::create`] writes it at the first host start): a home moved to
+/// another folder or machine (`cmux chief move`) keeps its id, so the Chief
+/// still finds its own acpmux sessions. Until it is written, the id is the
+/// FNV-1a of the path, the value every home had before the file existed.
 pub fn home_id(home: &Path) -> String {
+    if let Some(pinned) = pinned_home_id(home) {
+        return pinned;
+    }
+    path_home_id(home)
+}
+
+/// The id kept in `optchat/home-id`, when it is there and well formed.
+fn pinned_home_id(home: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(home_id_file(home)).ok()?;
+    let id = text.trim();
+    (id.len() == 8
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))
+    .then(|| id.to_owned())
+}
+
+fn home_id_file(home: &Path) -> PathBuf {
+    home.join("optchat").join("home-id")
+}
+
+/// Writes the home's id once (the path's FNV-1a, the id it already had);
+/// an existing file is never changed. Atomic: a crash leaves no half id.
+pub fn pin_home_id(home: &Path) -> io::Result<String> {
+    if let Some(pinned) = pinned_home_id(home) {
+        return Ok(pinned);
+    }
+    let id = path_home_id(home);
+    let file = home_id_file(home);
+    let tmp = file.with_extension(format!("tmp-{}", std::process::id()));
+    {
+        use std::io::Write;
+        let mut out = std::fs::File::create(&tmp)?;
+        out.write_all(format!("{id}\n").as_bytes())?;
+        out.sync_all()?;
+    }
+    std::fs::rename(&tmp, &file)?;
+    if let Some(dir) = file.parent()
+        && let Ok(dir) = std::fs::File::open(dir)
+    {
+        let _ = dir.sync_all();
+    }
+    Ok(id)
+}
+
+/// FNV-1a of the home's path, 8 hex digits.
+fn path_home_id(home: &Path) -> String {
     let mut hash: u32 = 0x811c_9dc5;
     for b in home.as_os_str().as_encoded_bytes() {
         hash ^= u32::from(*b);
@@ -73,6 +126,11 @@ pub struct Paths {
     /// The user's own instructions file, the end of every turn's system
     /// prompt (section 7.2); read once per host start.
     pub instructions: PathBuf,
+    /// The person profile (`optchat/person.md`): who the user is and how
+    /// they want work done, short and user-editable; it heads the user's
+    /// part of every system prompt, before `instructions` (prompt.rs
+    /// `chief_instructions`). Not `profile.json`, the app's avatar file.
+    pub person: PathBuf,
     /// Every subagent's working directory (section 9): its MCP servers
     /// (zoom and date only), project settings, and instructions file.
     pub subagent: PathBuf,
@@ -102,6 +160,7 @@ impl Paths {
             compactor_codex: root.join("compactor-codex"),
             codex_bin: root.join("codex").join("bin").join("codex"),
             instructions: root.join("AGENTS.md"),
+            person: root.join("person.md"),
             subagent: root.join("subagent"),
             turn_codex: root.join("turn-codex"),
             traces: root.join("traces"),
@@ -126,6 +185,7 @@ impl Paths {
         if let Some(parent) = self.host_lock.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        pin_home_id(&self.home)?;
         Ok(())
     }
 }

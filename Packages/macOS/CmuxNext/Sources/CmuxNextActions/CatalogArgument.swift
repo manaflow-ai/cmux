@@ -19,8 +19,22 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "window", title: String(localized: "argument.window", defaultValue: "Window", bundle: .module), kind: .target(.window))
     }
 
+    /// Where a screenshot goes: an absolute PNG path, `-` for the image
+    /// inline in the result (base64), or omitted for a file in the
+    /// temporary directory (ScreenshotHandlers).
+    static var screenshotOut: ActionArgument {
+        ActionArgument(name: "out", title: String(localized: "argument.out", defaultValue: "Output File", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var nameString: ActionArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
+    }
+
+    /// Tabs by id, comma-separated (`--arg tabs=<id>,<id>`): a tab action's tabs for the CLI and
+    /// MCP, which have no strip selection. The palette never asks for it.
+    static var tabsList: ActionArgument {
+        ActionArgument(name: "tabs", title: String(localized: "argument.tabs", defaultValue: "Tabs", bundle: .module), kind: .string, isRequired: false)
     }
 
     static var descriptionString: ActionArgument {
@@ -28,7 +42,14 @@ nonisolated enum CatalogArgument {
     }
 
     static var statusChoice: ActionArgument {
-        ActionArgument(name: "status", title: String(localized: "argument.status", defaultValue: "Status", bundle: .module), kind: .enumeration([choice("auto"), choice("todo"), choice("inProgress"), choice("review"), choice("done"), choice("blocked")]))
+        ActionArgument(name: "status", title: String(localized: "argument.status", defaultValue: "Status", bundle: .module), kind: .enumeration([choice("auto"), choice("todo"), choice("working"), choice("needs-attention"), choice("review"), choice("done")]))
+    }
+
+    /// A workspace checklist item (`chk_…`); without one a checklist action acts on the current
+    /// item (the first in progress, else the first to do).
+    static var checklistItem: ActionArgument {
+        ActionArgument(name: "item", title: String(localized: "argument.checklistItem", defaultValue: "Checklist Item", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 
     static var textString: ActionArgument {
@@ -40,7 +61,8 @@ nonisolated enum CatalogArgument {
     }
 
     static var templateString: ActionArgument {
-        ActionArgument(name: "template", title: String(localized: "argument.template", defaultValue: "Template", bundle: .module), kind: .string)
+        ActionArgument(name: "template", title: String(localized: "argument.template", defaultValue: "Template", bundle: .module), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.layoutTemplates, pinned: []))
     }
 
     static var groupWorkspaceGroup: ActionArgument {
@@ -238,10 +260,10 @@ nonisolated enum CatalogArgument {
         case "cef": String(localized: "argument.value.cef", defaultValue: "Chromium", bundle: .module)
         case "auto": String(localized: "argument.value.auto", defaultValue: "Automatic", bundle: .module)
         case "todo": String(localized: "argument.value.todo", defaultValue: "To Do", bundle: .module)
-        case "inProgress": String(localized: "argument.value.inProgress", defaultValue: "In Progress", bundle: .module)
+        case "working": String(localized: "argument.value.working", defaultValue: "Working", bundle: .module)
+        case "needs-attention": String(localized: "argument.value.needsAttention", defaultValue: "Needs Attention", bundle: .module)
         case "review": String(localized: "argument.value.review", defaultValue: "In Review", bundle: .module)
         case "done": String(localized: "argument.value.done", defaultValue: "Done", bundle: .module)
-        case "blocked": String(localized: "argument.value.blocked", defaultValue: "Blocked", bundle: .module)
         case "system": String(localized: "argument.value.system", defaultValue: "System", bundle: .module)
         case "light": String(localized: "argument.value.light", defaultValue: "Light", bundle: .module)
         case "dark": String(localized: "argument.value.dark", defaultValue: "Dark", bundle: .module)
@@ -259,5 +281,27 @@ nonisolated enum CatalogArgument {
         case "editor": String(localized: "argument.value.editor", defaultValue: "Editor", bundle: .module)
         default: value
         }
+    }
+
+    /// A fit for `browserFit`: an aspect ratio W:H ("16:10") or a layout width in CSS px ("1440"),
+    /// or `off`. The pinned values are the fit bar's; any other value goes to the daemon as typed.
+    static var fitChoice: ActionArgument {
+        let pinned = ["16:9", "16:10", "4:3", "21:9"].map { ActionEnumCase(value: $0, title: $0) }
+            + [1280, 1440, 1920].map { ActionEnumCase(value: String($0), title: String(localized: "argument.value.fitWidth", defaultValue: "\($0) px", bundle: .module)) }
+            + [ActionEnumCase(value: "off", title: String(localized: "argument.value.fitOff", defaultValue: "Turn Off", bundle: .module))]
+        return ActionArgument(name: "fit", title: String(localized: "argument.fit", defaultValue: "Aspect Ratio or Width", bundle: .module), kind: .string,
+                              suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
+    }
+
+    /// A device title from the daemon's list, or none (`browserDevice`).
+    static var deviceString: ActionArgument {
+        ActionArgument(name: "device", title: String(localized: "argument.device", defaultValue: "Device", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
+    /// portrait, landscape, unfolded-portrait or unfolded-landscape (`browserDevice`).
+    static var orientationString: ActionArgument {
+        ActionArgument(name: "orientation", title: String(localized: "argument.orientation", defaultValue: "Orientation", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 }

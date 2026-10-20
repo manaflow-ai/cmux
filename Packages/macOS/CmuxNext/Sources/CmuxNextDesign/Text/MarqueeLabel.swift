@@ -9,7 +9,8 @@ public import AppKit
 /// padding), so the view draws outside its bounds there.
 public final class MarqueeLabel: NSView {
     private let text = ChromeTextLayer()
-    private lazy var fade = TitleFade(textLayer: text)
+    private let gate: MotionGate
+    private lazy var fade = TitleFade(textLayer: text, gate: gate)
 
     public var stringValue: String {
         get { text.string }
@@ -42,8 +43,23 @@ public final class MarqueeLabel: NSView {
     /// actions, cx-qno.22): the title stays where it is, fades out before
     /// them, and its marquee ends there. The frame never changes.
     public var trailingOcclusion: CGFloat = 0 { didSet { if oldValue != trailingOcclusion { needsLayout = true } } }
+    /// The next layout fades the title's end to a new `trailingOcclusion`
+    /// (Motion `hover`), as the actions over it fade in or out.
+    private var fadesOcclusion = false
 
-    public override init(frame: NSRect) {
+    /// Sets `trailingOcclusion`, fading the title's end to it when `animated`.
+    public func setTrailingOcclusion(_ occlusion: CGFloat, animated: Bool) {
+        guard occlusion != trailingOcclusion else { return }
+        fadesOcclusion = animated
+        trailingOcclusion = occlusion
+    }
+
+    /// - Parameters:
+    ///   - gate: The owner's motion category (`Motion.sidebar`): the
+    ///     marquee and fades obey its switch.
+    ///   - frame: The text rect at rest.
+    public init(gate: MotionGate, frame: NSRect = .zero) {
+        self.gate = gate
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
@@ -56,7 +72,7 @@ public final class MarqueeLabel: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override var intrinsicContentSize: NSSize {
@@ -90,7 +106,8 @@ public final class MarqueeLabel: NSView {
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        fade.apply(geometry, frame: bounds, animated: false)
+        fade.apply(geometry, frame: bounds, animated: fadesOcclusion)
         CATransaction.commit()
+        fadesOcclusion = false
     }
 }

@@ -28,6 +28,11 @@ enum DebugTimings {
     /// each turn-state drain (`AgentTurnStateFeed`): cx-9c8m.6 measures the per-change cost.
     private static var chatsFeedApplies: [(lines: Int, ms: Double)] = []
     private static var turnStateApplies: [(lines: Int, ms: Double)] = []
+    /// Main-actor time of each control snapshot publish and its tab count (cx-1ox9m).
+    private static var controlPublishes: [(tabs: Int, ms: Double)] = []
+    /// Each omnibar focusing click (`debug.omnibar_bench`): the mouse-down's age when the field
+    /// took focus, and mouse-down to the committed frame that shows the editing look.
+    private static var omnibarClicks: [(engine: String, input: Double, keyToFrame: Double)] = []
     private static let capacity = 256
 
     private static func milliseconds(_ duration: Duration) -> Double {
@@ -95,6 +100,14 @@ enum DebugTimings {
         if turnStateApplies.count < capacity { turnStateApplies.append((lines, milliseconds(duration))) }
     }
 
+    static func controlPublished(tabs: @autoclosure () -> Int, _ duration: Duration) {
+        if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
+    }
+
+    static func omnibarClicked(engine: String, input: Double, keyToFrame: Double) {
+        if omnibarClicks.count < capacity { omnibarClicks.append((engine, input, keyToFrame)) }
+    }
+
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         let report = self.report
         if params["clear"]?.boolValue == true {
@@ -103,6 +116,8 @@ enum DebugTimings {
             surfaces.removeAll()
             chatsFeedApplies.removeAll()
             turnStateApplies.removeAll()
+            controlPublishes.removeAll()
+            omnibarClicks.removeAll()
         }
         return report
     }
@@ -114,7 +129,8 @@ enum DebugTimings {
         return [
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in
-                ["ms": round(milliseconds(open.total)), "model_ms": round(milliseconds(open.model)),
+                ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
+                 "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),
                  "panel_ms": round(milliseconds(open.panel)), "present_ms": round(milliseconds(open.present)),
                  "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
             }),
@@ -123,9 +139,13 @@ enum DebugTimings {
                  "page_ms": round(milliseconds(open.page)), "present_ms": round(milliseconds(open.present)),
                  "created_page": .bool(open.createdPage)]
             }),
+            "omnibar_clicks": .array(omnibarClicks.map {
+                ["engine": .string($0.engine), "input_ms": round($0.input), "key_to_frame_ms": round($0.keyToFrame)]
+            }),
             "terminal_surfaces_ms": .array(surfaces.map(round)),
             "chats_feed_applies": .array(chatsFeedApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "turn_state_applies": .array(turnStateApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
+            "control_publishes": .array(controlPublishes.map { ["tabs": .number(Double($0.tabs)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(milliseconds($0.duration))) },
                                                      uniquingKeysWith: { first, _ in first })),
         ]

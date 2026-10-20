@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files chief-inspector home-channels debug-settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage mobile-pairing chief-inspector home-channels debug-settings"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
@@ -40,11 +40,9 @@ trap 'rm -rf "$WORK"' EXIT
 cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
-# The strings tables are committed: a build checks them and never writes them (cx-t3e5).
-if ! bun scripts/pages/gen-strings.mjs --check; then
-  echo "error: generated file is stale; run gen-strings and commit: bun webviews/scripts/pages/gen-strings.mjs" >&2
-  exit 1
-fi
+# The strings tables are build output (#21946), made from the commit's catalogs; a missing
+# translation fails.
+bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.

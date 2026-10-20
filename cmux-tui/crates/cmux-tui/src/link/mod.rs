@@ -9,6 +9,7 @@ mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
+mod enrollment;
 mod ensure;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
@@ -20,6 +21,7 @@ mod inbound;
 mod launchd;
 mod lines;
 mod machine_gate;
+pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
 mod process_exit;
@@ -35,7 +37,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context as _, anyhow};
+use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
@@ -114,9 +116,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("access") {
         return access_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("machine") {
+        return machine_update::run(&args[1..]);
+    }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
-        print!("{}", catalog().remote_client.link_help);
+        print!("{}", help_text());
         return 0;
     }
     match run_link(args) {
@@ -128,17 +133,23 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
+fn help_text() -> String {
+    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+}
+
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
     Ok(tokio::runtime::Builder::new_multi_thread().enable_all().build()?)
 }
 
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
-    let help = || anyhow!(catalog().remote_client.link_help);
+    let help = || anyhow!(help_text());
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
-        "init" => run_init(&flags(rest, &["--state-dir", "--install", "--port"])?),
+        "init" => {
+            run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
+        }
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
@@ -159,6 +170,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             )
         }
         "stop" => ensure::run_stop(&flags(rest, &["--state-dir"])?),
+        "archive" => ensure::run_archive(&flags(rest, &["--state-dir"])?),
         "status" => ensure::run_status(&flags(rest, &["--state-dir"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
@@ -212,15 +224,31 @@ fn print_json(value: &serde_json::Value) {
 }
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
-    let state = state(flags)?;
     let port = match flags.get("--port") {
         Some(port) => port
             .parse()
             .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
         None => state::DEFAULT_PORT,
     };
-    let install = required(flags, "--install")?.to_string();
-    state.init(&LinkConfig { install, port })?;
+    // Resolve an enrollment before opening (and creating) link state. It never
+    // creates or changes a server identity, and never copies its private key.
+    let (install, server_identity) = match flags.get("--server-identity") {
+        Some(path) => {
+            let path = PathBuf::from(path);
+            let identity = cmux_server::pairing::EnrolledIdentity::load(&path)?;
+            let install = identity.paired().install.clone();
+            if flags.get("--install").is_some_and(|wanted| wanted != &install) {
+                bail!("server_link.identity_conflict");
+            }
+            (install, Some(std::fs::canonicalize(path)?))
+        }
+        None => (required(flags, "--install")?.to_string(), None),
+    };
+    let state = state(flags)?;
+    let _ensure_lock = server_identity.as_ref().map(|_| ensure::ensure_lock(&state)).transpose()?;
+    // `serve` holds this lock for its lifetime: init cannot rewrite its config.
+    let _lock = server_identity.as_ref().map(|_| serve_lock(&state)).transpose()?;
+    state.init(&LinkConfig { install, port, server_identity })?;
     run_show_state(&state)
 }
 
@@ -239,6 +267,15 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
     let public_key = state::public_key(&*state.private_key()?);
     let live = ensure::live(state);
+    if config.server_identity.is_some()
+        && let Some(live) = &live
+        && !ensure::query_status(&live.socket)
+            .map(|status| ensure::matches_enrollment(state, &status))
+            .transpose()?
+            .unwrap_or(false)
+    {
+        bail!("server_link.identity_mismatch");
+    }
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -247,12 +284,13 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "running": live.is_some(),
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
+        "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
     }))
 }
 
 fn run_peer(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else {
-        return Err(anyhow!(catalog().remote_client.link_help));
+        return Err(anyhow!(help_text()));
     };
     let rest = &args[1..];
     match action {
@@ -404,12 +442,13 @@ async fn serve(
     served: ensure::Served,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
+    let private_key = state.private_key()?;
+    let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
-    let private_key = state.private_key()?;
     let mesh = WgMesh::start(
         WgMeshConfig {
             private_key: private_key.clone(),
@@ -430,7 +469,9 @@ async fn serve(
     let pid = std::process::id();
     let udp = overlay.local_addr()?.to_string();
     let status: Arc<str> =
-        ensure::status_line(&state, &config, &socket_path, pid, &udp, &served).to_string().into();
+        ensure::status_line(&state, &config, &socket_path, pid, &udp, &served, &public_key)
+            .to_string()
+            .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
     let ready_line = json!({
         "event": "link-ready",

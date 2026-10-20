@@ -116,10 +116,14 @@ naming anyone but the connection's principal is refused (`actor_mismatch`). The 
 token and hands it to the brain host in a 0600 file (`MUX_AGENT_TOKEN_FILE`). Remaining gap: any
 same-uid process is `user_local` (socket mode `automation`, D16) until the launch credential lands.
 
-Agent turn budget (owner-enforced, head loop guard): the head keeps `agent_text_streak` (agent text
-messages since the last human text message) and `last_agent_text_at`, both omitted on the wire while
-unset; an agent text `message.send` is refused with `agent_budget` at a streak of 4 and with
-`agent_rate` within 2 s of the last agent text. Text-less work cards neither count nor reset it, and
+Agent turn budget (owner-enforced, head loop guard, per thread since 2026-10-14): the head keeps
+`agent_text_streak` (agent text messages at the top level since its last human text message),
+`thread_agent_streaks` (the same per thread root, only threads above 0, absent when empty) and
+`last_agent_text_at`; an agent text `message.send` is refused with `agent_budget` when the streak of
+the thread it joins is 6 and with `agent_rate` within 2 s of the last agent text in the conversation.
+A person's text (or question answer) resets its own thread only; agents in two threads do not spend
+each other's budget. Hosts and pages compute the same count from rows (`thread_agent_streak`;
+"Chiefs paused" when it is at the budget). Text-less work cards neither count nor reset it, and
 no row window can be filled with them (home-messaging.md section 20 item 6). The op ledger is keyed
 by (conversation, actor, idempotency key), so two participants never share a key. Replays of committed keys are never refused (the ledger is checked
 first). The brain host retries an `agent_rate` reply once after the gap and drops `agent_budget`.
@@ -171,8 +175,8 @@ first). The brain host retries an `agent_rate` reply once after the gap and drop
 - Mentions: `TextRun.mention = ParticipantId`. Wake rule: in a conversation with more than one human or
   more than one agent, an agent wakes only on a mention, a reply to its own message, or a DM; with one
   human and one mux it wakes on every human message.
-- Budget: at most 4 agent turns per human message per conversation and a 2 s minimum gap between agent
-  turns, enforced by the owner (rejects `agent_budget`, `agent_rate`; built in phase A), so two muxes
+- Budget: at most 6 agent turns per thread after a person's message in that thread and a 2 s minimum
+  gap between agent turns, enforced by the owner (rejects `agent_budget`, `agent_rate`; built in phase A), so two muxes
   cannot loop.
 - Non-owner prompts: a non-owner may talk to a mux; any op beyond `read` and replies becomes an
   `approval` part addressed to the mux's owner (`approval.request` / `approval.decide`).

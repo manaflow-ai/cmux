@@ -47,6 +47,12 @@ const requireBody = (rows: RowReader | undefined, hash: string, owner: string): 
 
 export const automationRowOf = (rows: RowReader | undefined, id: string): AutomationRow | undefined => rows?.get<AutomationRow>(TABLE_AUTOMATION, id)?.row
 
+/** The member an automation's runs are charged to (cx-ds09i per-user AI limit): who created it. */
+export const chargedUser = (rows: RowReader | undefined, id: string): string | undefined => {
+  const by = (automationRowOf(rows, id) as { created_by?: unknown } | undefined)?.created_by
+  return typeof by === "string" && by ? by : undefined
+}
+
 /** The automation with its body joined. */
 export const automationOf = (rows: RowReader | undefined, id: string): Automation | undefined => {
   const row = automationRowOf(rows, id)
@@ -99,7 +105,7 @@ export const openRuns = (s: Pick<SchedulerState, "open_runs">, rows: RowReader |
 
 /** The public shape of a run (no dispatch fields, no body). */
 export const publicRun = (r: RunRecord | RunRow): Run => {
-  const { dispatched: _d, deadline_at: _dl, wall_clock_seconds: _w, ...run } = r as RunRecord & { body_hash?: string }
+  const { dispatched: _d, deadline_at: _dl, wall_clock_seconds: _w, charged_user: _c, ...run } = r as RunRecord & { body_hash?: string }
   const { body: _b, body_hash: _h, ...pub } = run as typeof run & { body_hash?: string }
   return pub
 }

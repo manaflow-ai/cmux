@@ -44,7 +44,7 @@ typedef enum {
   CMUX_SHIM_TITLE = 5,            // s1 = title
   CMUX_SHIM_FAVICON = 6,          // s1 = first favicon url or ""
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
-  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
+  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url, a = 1 when the entry came from a POST
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
   CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
                                   // interstitial for it, s1 = text, s2 = url
@@ -234,6 +234,17 @@ CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void);
 // Chromium disables unpacked (--load-extension) extensions without it.
 // Development and verification only; call before cmux_shim_initialize.
 CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
+// Chromium's default search provider in every profile, incognito included,
+// now and for profiles made later: template_url_json is
+// default_search_provider_data.template_url_data as JSON (browser.searchEngine);
+// NULL or "" restores Chromium's own default. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json);
+// Chrome enterprise policies Chromium reads natively (CefSettings.chrome_policy_id):
+// a managed preference domain such as "com.google.Chrome", read the way Chrome
+// reads it (forced values mandatory, others recommended). NULL or "" reads none.
+// Call before cmux_shim_initialize; later calls do nothing.
+// plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
+CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
@@ -364,6 +375,12 @@ CMUX_SHIM_EXPORT int cmux_shim_devtools_command(int browser_id, int command, int
 // The DevTools browser id of browser_id, or 0 when DevTools is closed.
 CMUX_SHIM_EXPORT int cmux_shim_devtools_browser(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_devtools_set_focus(int browser_id, int focus);
+// Shows browser_id's DevTools on one panel or drawer view of its frontend
+// ("network", "timeline", "heap-profiler", "rendering"; letters, digits
+// and '-' only): opens DevTools when closed and selects the panel once its
+// frontend has loaded (DevToolsAPI.showPanel). Returns 0 when browser_id is
+// gone or panel is not a valid id.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_show_panel(int browser_id, const char* panel);
 
 // Extension actions (fork API v1). Returned strings are freed with
 // cmux_shim_free.
@@ -411,6 +428,10 @@ CMUX_SHIM_EXPORT void cmux_shim_context_menu_done(int token, int command_id, int
 CMUX_SHIM_EXPORT void cmux_shim_set_popup_windows_enabled(int enabled);
 // Screen DIPs, top-left origin. Returns 0 when the window is unknown.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y, int* width, int* height);
+// DevTools device mode (fork API 24): the device's screen area the DevTools of
+// browser_id (the inspected page) asks for, DIPs from the DevTools view's
+// top-left corner. Returns 0 while device mode is off or on an older fork.
+CMUX_SHIM_EXPORT int cmux_shim_devtools_inspected_bounds(int browser_id, int* x, int* y, int* width, int* height);
 // Attaches the kept window over parent_view (NSView*); 1 on success. Call on a
 // later run loop turn than its event.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);

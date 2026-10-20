@@ -397,8 +397,38 @@ def slow3_turns():
     ]
 
 
+def chiefux_turns():
+    """Chief speed and delegation (hq-6d, 2026-10-14): a short ask, a 3-ask
+    burst, one message with three tool-heavy asks (the 8-asks-in-3-minutes
+    case of the Chief review), and one long ask. Uses only the fixtures."""
+    t = []
+    def add(tid, gap, kind, text, check=None, **kw):
+        t.append(dict(id=tid, gap=gap, kind=kind, text=text, check=check, **kw))
+    add("u01", 0, "short", "Reply with exactly one word: OK", ["has", "ok"])
+    add("u02", 20, "short", "What is 17 * 23? Number only.", ["num", 391])
+    add("u03a", 20, "burst", "What is 12 * 12? Number only.", ["num", 144])
+    add("u03b", 1, "burst-b", "Also: the capital of Japan, one word.", ["has", "tokyo"], during="u03a")
+    add("u03c", 2, "burst-c", "And the largest planet of the solar system, one word.", ["has", "jupiter"], during="u03a")
+    add("u04", 20, "multi",
+        "Three separate things, please: "
+        "(1) for each of {work}/fixtures/sub/a.py, b.py and c.py, count the lines that start with `def `; "
+        "(2) count the lines containing ERROR in {work}/fixtures/app.log; "
+        "(3) sum the amount column of each CSV in {work}/fixtures/sub3/ and give the grand total. "
+        "Report all the numbers.",
+        ["all", ["num", 4], ["num", 7], ["num", 5], ["num", 17], ["num", CSV_GRAND]])
+    add("u05", 20, "long",
+        "Go through every file under {work}/fixtures (all subfolders), read each one, and write a one-line summary of each "
+        "into {work}/parity/inventory.md. Then tell me how many files you summarized.", ["num", 10])
+    # The review's heavy case (36 tool calls in one Chief turn): 30+ separate commands.
+    add("u06", 20, "heavy",
+        "Audit {work}/fixtures: for each of its 10 files (all subfolders) run three separate shell commands, one per tool call: "
+        "`wc -l`, `wc -w` and `shasum -a 256`. Then write a table of all the results into {work}/parity/audit.md "
+        "and tell me the total line count of the 10 files.", ["num", 349])
+    return t
+
+
 def turns(name):
-    return {"smoke": smoke_turns, "soak": soak_turns, "interrupt": interrupt_turns, "codex6": codex6_turns, "import": list, "effort": effort_turns, "warm20": warm20_turns, "refimport": refrecall_turns, "slow3": slow3_turns}[name]()
+    return {"smoke": smoke_turns, "soak": soak_turns, "interrupt": interrupt_turns, "codex6": codex6_turns, "import": list, "effort": effort_turns, "warm20": warm20_turns, "refimport": refrecall_turns, "slow3": slow3_turns, "chiefux": chiefux_turns}[name]()
 
 
 def check(turn, reply):

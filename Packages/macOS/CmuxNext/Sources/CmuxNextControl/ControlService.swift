@@ -15,7 +15,7 @@ public import Foundation
 /// ```
 ///
 /// Path: ``LaunchIdentity/socketPath`` (the bundle/tag convention, or
-/// `CMUX_NEXT_SOCKET_PATH`). Inherited `CMUX_*` variables never choose it.
+/// `CMUX_NEXT_SOCKET_PATH`), with a symlink at its old `/tmp` name. Inherited `CMUX_*` variables never choose it.
 /// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
 /// `automation.socketControlMode`, else `automation` (any process of this
 /// user; see ``defaultAccessMode``). Password mode checks
@@ -67,7 +67,8 @@ public final class ControlService {
             settingsStore: settings?.file,
             settingsWriter: settings,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
-                                                             trustedExecutables: bundledExecutables(bundle, environment: environment)),
+                                                             trustedExecutables: bundledExecutables(bundle, environment: environment),
+                                                             compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog
@@ -97,6 +98,12 @@ public final class ControlService {
     public func stop() {
         server.stop()
         bridge.detach()
+    }
+
+    /// Binds the control socket again (Restart CLI Listener): open
+    /// connections close; the router and its methods stay.
+    public func restartListener() throws {
+        try server.restart()
     }
 
     /// The mode when nothing chooses one. The socket file is 0600 in a

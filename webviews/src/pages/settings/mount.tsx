@@ -6,23 +6,27 @@ import { SettingsPage } from "./components/SettingsPage";
 import type { SettingsClient } from "./ops";
 import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
+import { holdPaintUntil } from "../shared/paintGate";
+import { PARKED_NAME } from "../shared/pageClient";
 
-/**
- * The shipped look (layout.css): quiet, the grouped cards of macOS System Settings. "dense" (no
- * cards, hairline rows) stays a gallery variant; shipping it is this one line.
- */
-export const SHIPPED_LOOK: "quiet" | "dense" = "quiet";
+/** A pooled document the host has not claimed yet (pageClient.ts). */
+const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === true;
 
 /** Renders the page and starts its store; the returned function unmounts both. */
 export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
   setLocale(document.documentElement.lang || navigator.language);
-  // A gallery variant sets its own look first; the app takes the shipped one.
-  document.documentElement.dataset.settingsLook ??= SHIPPED_LOOK;
+  // The one look (refined.css over layout.css): section nav, grouped cards, the app drawn as an
+  // illustration in the Theme preview (Lucas #21120; the only look, Lawrence 2026-10-16).
+  document.documentElement.dataset.settingsLook = "refined";
   document.title = t("settingsPage.title");
   const store = new SettingsStore(client);
   const reactRoot = createRoot(root);
   reactRoot.render(<SettingsPage store={store} />);
-  await store.start();
+  const started = store.start();
+  // The host shows the page once its first screen is in: the user's values (no control drawn
+  // disabled with its default) and the host's lists (no card added after the first frame).
+  holdPaintUntil(() => started, parked());
+  await started;
   return () => {
     reactRoot.unmount();
     store.dispose();

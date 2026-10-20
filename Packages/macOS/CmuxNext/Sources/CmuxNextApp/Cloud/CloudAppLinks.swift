@@ -16,10 +16,12 @@ enum CloudAppLinks {
     /// Sends one `apps-run` line and returns its result value.
     typealias Send = @Sendable (AppsRunRequest) async throws -> JSONValue
 
-    /// Runs Cloud app ops on `local`'s current connection.
-    static func runner(local: DaemonService) -> CloudAppOpRunner {
+    /// Runs Cloud app ops on `local`'s current connection. `beforeConnect`
+    /// runs before each `cloud.machine.connect` (it starts this Mac's link).
+    static func runner(local: DaemonService, beforeConnect: (@Sendable () async -> Void)? = nil) -> CloudAppOpRunner {
         let timeout = connectTimeout
         return { op, args, key, origin in
+            if op == CloudConnectOpResolver.connectOp { await beforeConnect?() }
             guard let connection = await local.connection else {
                 throw CloudLinkError.disconnected(reason: DaemonError.notConnected.description)
             }
@@ -102,6 +104,7 @@ enum CloudAppLinks {
         switch error as? CloudLinkError {
         case .revoked?: CloudStrings.linkRevoked
         case .disconnected?, nil: CloudStrings.linkDisconnected
+        case .helperNotRunning?: CloudStrings.linkHelperNotRunning
         case .unsafeSocket(let detail)?, .invalidAnswer(let detail)?: CloudStrings.linkFailed(detail)
         case .failed(_, let message)?: CloudStrings.linkFailed(message)
         case .unsupported?: CloudStrings.linkFailed(String(describing: CloudLinkError.unsupported))

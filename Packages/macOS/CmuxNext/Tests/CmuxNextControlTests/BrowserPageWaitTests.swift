@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// `browser.page.wait` blocks in the page until a selector, URL, text,

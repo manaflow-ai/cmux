@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{HarnessKind, HarnessProfile, codex_through_adapter_package, which};
+use super::{HarnessKind, HarnessProfile, which};
 
 /// The profile name of a configured CodeRouter Claude route.
 pub const CODEROUTER_CLAUDE_PROFILE: &str = "claude-cr";
@@ -36,7 +36,49 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     let mut found = discover_harnesses_from(acpx.as_deref(), &which);
     add_coderouter_route(&mut found, route, &which);
     add_cmux_router(&mut found, &which);
+    add_uniichat(&mut found, self_argv());
     found
+}
+
+/// The profile name of the built-in UniiChat harness.
+pub const UNIICHAT_PROFILE: &str = "unii";
+
+/// This process's own binary and the prefix that reaches its subcommands
+/// (`cmux acp …` when acpmux runs inside cmux): the bundled adapter.
+fn self_argv() -> Option<Vec<String>> {
+    let exe = std::env::current_exe().ok()?;
+    let mut argv = vec![exe.to_string_lossy().into_owned()];
+    argv.extend(crate::daemon::daemon_prefix().iter().map(|p| p.to_string_lossy().into_owned()));
+    Some(argv)
+}
+
+/// Adds `unii`: a Chief or chat on UniiChat (uniichat.com, or the server
+/// `$UNII_URL` names) through the bundled `uniichat-agent` adapter, which
+/// speaks UniiChat's own protocol with the sign-in `unii login` keeps. It
+/// needs no program on PATH, so it is always offered; a missing sign-in
+/// fails the session with the setup steps. A profile file named `unii`
+/// (the old `cli-agent` one) still wins.
+pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Option<Vec<String>>) {
+    if found.contains_key(UNIICHAT_PROFILE) {
+        return;
+    }
+    let Some(mut argv) = self_argv else { return };
+    argv.push("uniichat-agent".into());
+    found.insert(
+        UNIICHAT_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv,
+            env: BTreeMap::new(),
+            description: Some("UniiChat: one chat that never ends (uniichat.com)".into()),
+            fallback: None,
+            family: Some("unii".into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
 }
 
 /// The profile name of the cmux model router harness.
@@ -162,6 +204,8 @@ pub fn discover_harnesses_from(
             }
         }
     }
+    // A `codex` the user imported from ~/.acpx stays theirs.
+    let codex_imported = agents.contains_key("codex");
     for (name, bin) in [
         ("codex", "codex-acp"),
         ("claude", "claude"),
@@ -259,16 +303,69 @@ pub fn discover_harnesses_from(
             },
         );
     }
-    // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
-    // entry), an installed codex still gets a harness through the pinned adapter package.
-    if !agents.contains_key("codex")
-        && let Some(profile) =
-            codex_through_adapter_package(which("codex").as_deref(), which("npx").as_deref())
+    // Muse Code (Meta's `muse`) has no ACP mode: it speaks its own session
+    // protocol (`muse serve`), which acpmux does not bridge yet. It is offered
+    // as a terminal harness (`cmux harness run muse`); its chats come from the
+    // chat index (`muse resume <id>`) and its status from its hooks.
+    if !agents.contains_key("muse")
+        && let Some(path) = which("muse")
     {
-        agents.insert("codex".to_owned(), profile);
+        agents.insert(
+            "muse".to_owned(),
+            HarnessProfile {
+                kind: HarnessKind::Terminal,
+                argv: vec![path],
+                env: BTreeMap::new(),
+                description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
+                fallback: None,
+                family: Some("muse".into()),
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+    }
+    // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
+    // `codex_app_server.rs`), is `codex` whenever codex is installed; an ACP
+    // adapter on PATH stays as `codex-acp`. A profile's (or the family's)
+    // CODEX_PATH picks the codex binary it runs (`agent.rs`), and a `prefer`
+    // list still picks among the family's profiles. Without an adapter on
+    // PATH no npx adapter package is offered: it reads the account through
+    // codex's `account/read`, which a ChatGPT login behind a routing proxy
+    // (subrouter) fails, so its chats never started; the bridge does not.
+    if !codex_imported && let Some(codex) = which("codex") {
+        if let Some(adapter) = agents.remove("codex") {
+            agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
+        }
+        let bridge = |description: &str| HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![codex.clone(), "app-server".into()],
+            env: BTreeMap::new(),
+            description: Some(description.into()),
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        // Names the bridge stands in for, so sessions, presets and model picks
+        // that recorded them run it: its name before it became `codex`, and
+        // `codex-acp` when no adapter is on PATH.
+        let alias = "Codex through codex app-server, in process (same as codex)";
+        agents.entry(CODEX_APP_SERVER.to_owned()).or_insert_with(|| bridge(alias));
+        agents.entry(CODEX_ACP.to_owned()).or_insert_with(|| bridge(alias));
+        agents.insert("codex".to_owned(), bridge("Codex through codex app-server, in process"));
     }
     agents
 }
+
+/// The harness name of the Codex ACP adapter once `codex` is the bridge.
+pub const CODEX_ACP: &str = "codex-acp";
+
+/// The bridge's name before the flip (kept for what recorded it).
+pub const CODEX_APP_SERVER: &str = "codex-app-server";
 
 /// True when the program at `path` resolves (through links) to Cursor's
 /// `cursor-agent` binary.
@@ -277,4 +374,29 @@ fn cursor_agent_launcher(path: &str) -> bool {
         .ok()
         .and_then(|real| real.file_name().map(|n| n == "cursor-agent"))
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod uniichat_tests {
+    use super::*;
+
+    #[test]
+    fn unii_is_built_in_through_the_bundled_adapter() {
+        let mut found = BTreeMap::new();
+        add_uniichat(&mut found, Some(vec!["/App/bin/cmux".into(), "acp".into()]));
+        let unii = &found[UNIICHAT_PROFILE];
+        assert_eq!(unii.argv, vec!["/App/bin/cmux", "acp", "uniichat-agent"]);
+        assert_eq!(unii.kind, HarnessKind::Acp);
+        assert_eq!(unii.family.as_deref(), Some("unii"));
+    }
+
+    #[test]
+    fn a_unii_profile_file_still_wins() {
+        let mut found = BTreeMap::new();
+        add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
+        let mine = HarnessProfile { argv: vec!["/mine".into()], ..found[UNIICHAT_PROFILE].clone() };
+        let mut found = BTreeMap::from([(UNIICHAT_PROFILE.to_owned(), mine.clone())]);
+        add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
+        assert_eq!(found[UNIICHAT_PROFILE], mine);
+    }
 }

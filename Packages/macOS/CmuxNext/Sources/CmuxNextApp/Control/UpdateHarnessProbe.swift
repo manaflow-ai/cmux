@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextCompat
 import CmuxNextUpdater
 import CmuxNextWakeups
 
@@ -33,7 +34,7 @@ final class UpdateHarnessProbe {
     private func start(_ updater: UpdaterService) {
         // task-owner: the probe, which lives for the process (static shared).
         observation = Task { [weak self, weak updater] in
-            for await installing in Observations({ updater?.readyCard?.isInstalling == true }) where installing {
+            for await installing in ObservationStream({ updater?.readyCard?.isInstalling == true || updater?.card == .installing }) where installing {
                 self?.feedbackState()
                 return
             }

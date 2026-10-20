@@ -3,6 +3,7 @@
 // the composer never shows that phrasing. A default model draws as the model it resolves to,
 // once known, else as "Default"; a default reasoning level draws as "Default" inside the menu
 // and not at all on the model chip. Menus mark the default choice with a small hint instead.
+import type { Translate } from "./i18n";
 import type { AcpmuxSnapshot } from "./model";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -18,12 +19,12 @@ export function isDefaultChoice(choice: { id: string; name?: string }): boolean 
 /// A readable name for a Claude model id the catalog does not list: "claude-opus-5-5" is
 /// "Opus 5.5", "claude-haiku-4-5-20251001" is "Haiku 4.5", a `[1m]` suffix adds "1M context".
 /// Any other id is returned as it is.
-export function modelIdName(id: string): string {
+export function modelIdName(id: string, t: Translate): string {
   const claude = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i.exec(id);
   if (!claude) return id;
   const [, family, major, minor, wide] = claude;
   const name = `${family![0]!.toUpperCase()}${family!.slice(1).toLowerCase()} ${major}${minor ? `.${minor}` : ""}`;
-  return wide ? `${name} · 1M context` : name;
+  return wide ? t("model.wideContext", { name }) : name;
 }
 
 /// The model the session actually runs when it asked for the default: the agent reports it as

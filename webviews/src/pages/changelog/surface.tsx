@@ -4,6 +4,7 @@
 // itself to the height this page reports. Data: `cmux.changelog.surface.get` and the stream
 // `cmux.changelog.surface.changes` (UpdateHighlights, or null while there is nothing to show).
 import { createRoot } from "react-dom/client";
+import { CARD_SCROLL_ATTRIBUTE } from "../../scrollers";
 import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
@@ -20,7 +21,6 @@ export const SurfaceOps = {
   size: "cmux.changelog.surface.size",
   openChangelog: "cmux.changelog.surface.openChangelog",
   dismiss: "cmux.changelog.surface.dismiss",
-  share: "cmux.changelog.surface.share",
   stream: "cmux.changelog.surface.changes",
 } as const;
 
@@ -39,12 +39,11 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     kind === "updated"
       ? {
           openChangelog: () => call(SurfaceOps.openChangelog),
-          share: () => call(SurfaceOps.share),
           dismiss: () => call(SurfaceOps.dismiss),
         }
       : { openChangelog: () => call(SurfaceOps.openChangelog) };
   const react = createRoot(root);
-  const render = (data: UpdateHighlights | null) =>
+  const render = (data: UpdateHighlights | null) => {
     react.render(
       data === null ? null : kind === "ready" ? (
         <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
@@ -52,14 +51,24 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
         <UpdatedCard data={data} strings={strings} actions={actions} />
       ),
     );
+    // The new rows exist after React's commit: size them from the next frame on.
+    requestAnimationFrame(observeCard);
+  };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
+  // A scrolling card (the popover) reports its whole content, not the part the page view shows.
   let reported = -1;
-  new ResizeObserver(() => {
-    const height = Math.ceil(root.getBoundingClientRect().height);
+  const sizer = new ResizeObserver(() => {
+    const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
     if (height === reported) return;
     reported = height;
     call(SurfaceOps.size, { height });
-  }).observe(root);
+  });
+  sizer.observe(root);
+  const observeCard = () => {
+    const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    for (const child of card?.children ?? []) sizer.observe(child);
+  };
   if (!client) return;
   void client.call<UpdateHighlights | null>(SurfaceOps.get, {}).then(render, () => render(null));
   void client.subscribe<UpdateHighlights | null>(SurfaceOps.stream, (data) => render(data));

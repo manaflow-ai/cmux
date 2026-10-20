@@ -30,8 +30,11 @@ case "$target" in preview-*) secret_file="$HOME/.secrets/cmux-next-api-preview.e
 # CMUX_DEPLOY_NO_SECRETS=1 (the development CI job): ship code only. No --secrets-file, so the
 # Worker keeps the secrets it has; the job checks first that the vars would not change either.
 no_secrets=""
+# CMUX_RELEASE_PROMOTE=1 (the backend.yml promote-production job): production keeps the secrets it has too,
+# so CI never overwrites JWT_PRIVATE_JWK (cx-w1ald); the job holds no copy of it.
 if [ "${CMUX_DEPLOY_NO_SECRETS:-}" = 1 ]; then
-  [ "$target" = development ] || { echo "CMUX_DEPLOY_NO_SECRETS is for development only" >&2; exit 2; }
+  { [ "$target" = development ] || { [ "$target" = production ] && [ "${CMUX_RELEASE_PROMOTE:-}" = 1 ]; }; } \
+    || { echo "CMUX_DEPLOY_NO_SECRETS is for development (and the production promote job) only" >&2; exit 2; }
   no_secrets=1
 elif [ -n "${JWT_PRIVATE_JWK:-}" ]; then
   printf '{"JWT_PRIVATE_JWK":%s}\n' "$(python3 -c 'import json,os;print(json.dumps(os.environ["JWT_PRIVATE_JWK"]))')" > "$secrets"
@@ -45,7 +48,11 @@ else
   echo "no JWT_PRIVATE_JWK for $env_name" >&2; exit 1
 fi
 # Merging deploys: code ships only onto a schema that already has every migration.
-if [ "$env_name" = staging ] || [ "$env_name" = production ]; then
+# The Chief off switch redeploys the code production serves now, so the schema already fits it; a later
+# migration applied ahead of its code (the rule) must not block the switch (review of #21864, P1).
+if [ "${CMUX_DEPLOY_CHIEF_OFF:-}" = 1 ]; then
+  echo "chief-off: the serving code again; schema verify skipped"
+elif [ "$env_name" = staging ] || [ "$env_name" = production ]; then
   (cd ../../db && bun migrate.ts --env "$env_name" --verify)
 fi
 # Workflow names are account-wide: a preview gets its own (`cmux-automation-run-preview-<n>`)
@@ -83,10 +90,34 @@ if [ -n "$worker" ]; then
   fi
   bun "$rails" previous --worker "$worker" --wrangler ./node_modules/.bin/wrangler --out "$previous"
 fi
+# Production config gate (cx-f5tk4, cx-w1ald): every secret the production config needs is set
+# (names only), e.g. HOME_INVITES_SEND "on" needs HOME_INVITE_FROM. Refuses before the deploy.
+if [ "$env_name" = production ]; then
+  # The version tag must name exactly the code that runs: no change and no untracked file (cx-w1ald review P2).
+  if [ -n "$(git -C ../../.. status --porcelain --untracked-files=all)" ]; then
+    echo "refused: production deploys only from a clean checkout (git status --porcelain is not empty)" >&2; exit 2
+  fi
+  bun ../../../scripts/cmux-next/release/prod-promote.ts config --config wrangler.jsonc
+fi
+# Every version names its source (cx-w1ald): tag = the commit's first 12 hex digits, message = the full SHA
+# and the run. The promote job and the staleness check read the tag back; a dirty tree is marked.
+sha="$(git rev-parse HEAD)"
+git -C ../../.. diff --quiet HEAD 2>/dev/null || sha="${sha}-dirty"
+# CMUX_DEPLOY_CHIEF_OFF=1 (backend.yml target=chief-off): the Chief brain's off switch on production. The
+# same code (no Durable Object lifecycle change) with CHIEF_BRAIN_ENABLED "0", so brain and hand routes
+# answer 404 and wakes stop. `prod-promote.ts rollback` turns it on again (the previous version).
+off=()
+off_note=""
+if [ "${CMUX_DEPLOY_CHIEF_OFF:-}" = 1 ]; then
+  { [ "$env_name" = production ] && [ "${CMUX_RELEASE_PROMOTE:-}" = 1 ]; } || { echo "CMUX_DEPLOY_CHIEF_OFF is for the production off switch only" >&2; exit 2; }
+  off=(--var "CHIEF_BRAIN_ENABLED:0")
+  off_note=" chief-off"
+fi
+tag=(--tag "${sha:0:12}" --message "source ${sha}${off_note} ${GITHUB_RUN_ID:+run ${GITHUB_RUN_ID}}")
 if [ -n "$no_secrets" ]; then
-  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}"
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${off[@]}" "${tag[@]}"
 else
-  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" --secrets-file "$secrets"
+  ./node_modules/.bin/wrangler deploy "${config[@]}" --env "$env_name" "${extra[@]}" "${off[@]}" "${tag[@]}" --secrets-file "$secrets"
 fi
 if [ -n "$worker" ] && [ "${CMUX_RELEASE_VERIFY_STEP:-}" != 1 ]; then
   bun "$rails" verify --worker "$worker" --url "$origin" --routes release-smoke.json --previous-file "$previous" \

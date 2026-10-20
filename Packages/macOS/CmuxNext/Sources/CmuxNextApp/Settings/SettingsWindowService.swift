@@ -115,9 +115,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// Whether a Settings tab in `window` would be seen: the window shows (or can leave its top
     /// page for) a workspace with a pane, and Home does not stand for that workspace.
     private static func holdsTab(_ window: WindowController, _ services: AppServices) -> Bool {
-        if window.shownTopPage == .page(.settings) { return false }
-        guard hasPane(window), let workspace = window.workspaceContent?.workspace else { return false }
-        return !(workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+        window.shownTopPage != .page(.settings) && window.holdsVisiblePageTab
     }
 
     /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.
@@ -186,13 +184,15 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     var machines: [SettingsListRow] {
-        let ssh = services.machines.ssh.map { session in
-            SettingsListRow(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
-                            symbol: "server.rack", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let machines = services.machines
+        let ssh = machines.ssh.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
+                                    icon: machines.icon(machine: session.machineID), symbol: "server.rack",
+                                    isActive: Self.isConnected(session.daemon.store.connectionState))
         }
-        let cloud = services.machines.cloud.map { session in
-            SettingsListRow(id: session.machineID, title: session.machine.title, subtitle: nil,
-                            symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let cloud = machines.cloud.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.machine.title, icon: machines.icon(machine: session.machineID),
+                                    symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
         }
         return ssh + cloud
     }
@@ -213,13 +213,17 @@ final class SettingsWindowService: InternalPageProvider {
 
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
 
-    /// The window opacity the theme resolved (Ghostty's, or the default a
-    /// chosen material gets), so the unset slider sits where the window is:
-    /// read through the active window's theme scope (the app scope when no
-    /// window is open), which inherits the app theme unless a room
-    /// overrides it.
+    /// The window opacity the window shows (`ThemeScope.shownWindowOpacity`), so the unset slider
+    /// sits where the window is: read through the active window's theme scope (the app scope when
+    /// no window is open), which inherits the app theme unless a room overrides it.
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).input.backgroundOpacity : nil
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
+    }
+
+    /// The least value a number row's slider offers (`ThemeScope.windowOpacityFloor`): over a
+    /// background picture the window Opacity stops at the legibility floor; nil keeps the schema's.
+    func derivedMinimum(at path: [String]) -> Double? {
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).windowOpacityFloor : nil
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {

@@ -15,19 +15,28 @@
 //     history) and from then on saves, watches (`changes` for that path) and resolves links for it;
 //   - `cmux.markdown.openLink {path, href, kind, target?}` opens what the page does not show
 //     itself: `kind` "external" (http(s): a cmux browser tab), "file" (another file, `target` its
-//     resolved path: the file viewer) or "mail" (mailto:/tel:: the system handler);
+//     resolved path: the file viewer), "mail" (mailto:/tel:: the system handler) or "app" (a cmux
+//     link, `cmux://workspace/ws_…` and the other deep links: opened inside cmux, never the system);
 //   - `cmux.markdown.resolveLinks {from, paths}` answers `{links: {[path]: ResolvedLink}}` for
 //     relative link targets (decoded, no fragment) of the file `from`: whether each exists, its
 //     absolute path and kind. The page batches and caches the calls;
 //   - `cmux.markdown.listFiles {from, prefix}` answers `{entries: string[]}`, relative paths
 //     under the file's folder starting with `prefix` (directories end in "/"), for link completion;
+//   - `cmux.markdown.loadRemoteImages {path}` requires the click's user gesture, grants only the
+//     document still at `path`, and answers its unguessable `{remoteImageBase}`;
+//   - `cmux.markdown.setTableWidths {path, value}` keeps the file's table column widths
+//     (`SavedTableWidths` in tables.ts, null forgets them) with the file, never in its text: its
+//     extended attribute, then an app-side copy (MARKDOWN-TABLE-WIDTHS-DESIGN.md). The config sends
+//     them back as `tableWidths`. `cmux.markdown.contextTable {table}` says which table (its index,
+//     or null) a right-click was on, for the native menu's Reset Column Widths;
 //   - page commands (cmux.page.command) from the app's key dispatcher: `save` (Cmd-S), `back`
 //     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
 //     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
-// `<assetBase><path relative to the file's folder>` for images, `<libBase>mermaid.js` and
-// `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams, and, when the host fetches
-// remote images for the page (`markdown.remoteImages`), `<remoteImageBase><base64url of the URL>`.
+// `<assetBase><path relative to the file's folder>` for images, `<libBase>ondine.js`, `<libBase>mermaid.js` and
+// `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams, and, after the reader
+// approves this document (or explicitly enables automatic loading),
+// `<remoteImageBase><base64url of the URL>` for guarded remote images.
 import type { DiffViewerAppearance } from "../../appearance";
 
 export const MARKDOWN_CONFIG_OP = "cmux.markdown.config";
@@ -36,13 +45,33 @@ export const MARKDOWN_SAVE_OP = "cmux.markdown.save";
 export const MARKDOWN_EDITED_OP = "cmux.markdown.edited";
 /** Host to page: saves pending edits now and answers `{dirty}` (before a tab closes or the app quits). */
 export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
+/** Host to page: the selection's text and source lines, `{text, startLine?, endLine?}`, or null with
+ * nothing selected (a viewer comment, viewer-comments-DESIGN.md). */
+export const MARKDOWN_SELECTION_OP = "cmux.markdown.selection";
+/** Page to host: `{path, id}` forgets one viewer comment (its card's Delete); the host sends the list again. */
+export const MARKDOWN_DELETE_COMMENT_OP = "cmux.markdown.deleteComment";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
+/** A user click approves guarded web-image loads for the document currently shown in this tab. */
+export const MARKDOWN_LOAD_REMOTE_IMAGES_OP = "cmux.markdown.loadRemoteImages";
+export const MARKDOWN_SET_TABLE_WIDTHS_OP = "cmux.markdown.setTableWidths";
+export const MARKDOWN_CONTEXT_TABLE_OP = "cmux.markdown.contextTable";
+/**
+ * Page to host: `{key, value}` stores one `markdown.*` settings key (the Reading Settings popover;
+ * value null resets it) through the settings write path; the host re-sends the look.
+ */
+export const MARKDOWN_SET_PREFERENCE_OP = "cmux.markdown.setPreference";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
+
+/**
+ * Why a file opens read only (FileReadOnlyReason in the host): not valid UTF-8, binary, not
+ * writable, or a chat transcript the host opens read only. `outside` comes only from an older host.
+ */
+export type MarkdownReadOnlyReason = "outside" | "encoding" | "binary" | "permission" | "transcript";
 
 export interface MarkdownConfig {
   /** The file's absolute path. */
@@ -53,8 +82,15 @@ export interface MarkdownConfig {
   hash: string;
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
-  /** The page may not save: the file is outside every workspace root (or not writable). */
+  /**
+   * The native omnibar above the page shows the file's full path
+   * (plans/cmux-next/markdown-omnibar-DESIGN.md), so the toolbar shows no file name of its own.
+   */
+  omnibar?: boolean;
+  /** The page may not save: see `readOnlyReason`. */
   readOnly?: boolean;
+  /** Why the page may not save; the page names it. */
+  readOnlyReason?: MarkdownReadOnlyReason;
   /**
    * A recovered crash draft of this file (R96), sent once: the page loads it as unsaved edits on
    * `hash`. Ignored when read only or equal to `text`.
@@ -73,6 +109,10 @@ export interface MarkdownConfig {
   remoteImageBase?: string;
   /** The `markdown` section of cmux.json (settings.ts `MarkdownSettings`), unparsed. */
   settings?: unknown;
+  /** The file's saved table column widths (`SavedTableWidths`, tables.ts), when it has some. */
+  tableWidths?: unknown;
+  /** The file's viewer comments, `{v: 1, comments: [...]}` (comments.ts). */
+  comments?: unknown;
   /** `<cmux.json dir>/markdown/theme.css`, applied after the settings; absent when missing. */
   themeCSS?: string;
 }
@@ -115,6 +155,7 @@ export interface MarkdownFile {
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
   readOnly?: boolean;
+  readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
 }
 
@@ -125,14 +166,15 @@ export function isMarkdownConfig(value: unknown): value is MarkdownConfig {
 
 /**
  * The image URL for `src` in the markdown file: relative paths through the host's asset base,
- * http(s) URLs through its remote image base (the host fetches them).
+ * http(s) URLs through its remote image base (the host fetches them); an empty string before the
+ * reader approves this document. Returning the original URL would make privacy depend on CSP.
  */
 export function resolveImageURL(src: string, assetBase: string | undefined, remoteImageBase?: string): string {
   const value = src.trim();
   if (!value) return "";
   if (/^(data:image\/|blob:)/i.test(value)) return value;
-  if (/^https?:\/\//i.test(value)) return remoteImageBase ? remoteImageURL(value, remoteImageBase) : value;
-  if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//")) return value;
+  if (/^https?:\/\//i.test(value)) return remoteImageBase ? remoteImageURL(value, remoteImageBase) : "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value) || value.startsWith("//")) return "";
   if (!assetBase) return "";
   // Path segments stay as the file wrote them (already percent-encoded or not), without `..` escape.
   const path = value.replace(/[?#].*$/, "").replace(/^\.\//, "");

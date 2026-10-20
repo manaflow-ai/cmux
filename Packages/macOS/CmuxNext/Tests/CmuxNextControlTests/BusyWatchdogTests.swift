@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// The busy watchdog (plans/cmux-next/idle-wakeups.md) records CPU use that

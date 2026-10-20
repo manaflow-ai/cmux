@@ -13,6 +13,11 @@ public nonisolated enum SidebarRowKey: Hashable, Sendable {
     case emptySection(SectionID)
     /// Group by Folder's header over one folder's loose rows ("" = none).
     case folder(SectionID, String)
+    /// A document item listed as a row (`SidebarNode.item`): its item id.
+    case item(String)
+    /// A document section's items in its own arrangement (tiles, a grid, a
+    /// line, item rows), drawn by one region: the section id.
+    case block(String)
 }
 
 /// A workspace row's control for its inline tabs (`sidebar.showWorkspaceTabs`).
@@ -50,11 +55,11 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var titlesProjects = false
     /// A workspace row's tab disclosure; nil when `sidebar.showWorkspaceTabs` is off.
     public var tabDisclosure: SidebarTabDisclosure? = nil
+    /// Group levels the row sits in (remote-groups-DESIGN.md slice 2): 0 at the top level, a group
+    /// header its group's level, a member one more. The list indents each level by one gutter.
+    public var depth: Int = 0
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
-    /// A group header drawn as a thin line, its name small beside a hairline (minimal mode).
-    public var isThinHeader = false
-
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.

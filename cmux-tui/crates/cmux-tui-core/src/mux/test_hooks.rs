@@ -24,6 +24,16 @@ impl Mux {
         *self.terminal_move_before_projection.lock().unwrap() = hook;
     }
 
+    /// Runs in `emit_tab_changed` after the tree decorations are read (their
+    /// git lookups are the slow part), before the delta is built.
+    #[cfg(test)]
+    pub(crate) fn set_tab_changed_after_decorations(
+        &self,
+        hook: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) {
+        *self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()) = hook;
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics

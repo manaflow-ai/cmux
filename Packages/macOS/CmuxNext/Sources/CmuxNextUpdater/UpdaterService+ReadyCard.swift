@@ -8,10 +8,16 @@ public import Foundation
 extension UpdaterService {
     /// The card while an update is staged or installing; nil otherwise and,
     /// for a staged update, under `updates.notify` silent (``footerPill``)
-    /// until the user asks to check: Sparkle skips checks while an update
-    /// waits, so a check answers with the waiting update, never nothing.
+    /// or closed or snoozed by its x (``updateSnooze``) until the user asks
+    /// to check (the check clears the close first): Sparkle skips checks
+    /// while an update waits, so a check answers with the waiting update,
+    /// never nothing. Installing always shows.
     public var readyCard: UpdateReadyCard? {
         guard let pill = footerPill ?? askedWhileStaged else { return nil }
+        // An install the person followed on the notice card stays there (``UpdateCard/installing``).
+        if pill == .installing, flow.card(downloadsAutomatically: true) == .installing { return nil }
+        if pill == .ready, case .ready(let version) = flow.phase,
+           updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
         return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
                                changelog: stagedChangelog)
@@ -33,7 +39,7 @@ extension UpdaterService {
     /// The checkbox: writes the setting; the setting's change comes back
     /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
     public func setAutomaticUpdates(_ on: Bool) {
-        writeAutomaticUpdates?(on)
+        writeSetting?(.automaticUpdates, on)
     }
 
     /// Follows the flow's phase: a staged update records its version and

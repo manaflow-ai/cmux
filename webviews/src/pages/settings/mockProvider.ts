@@ -14,6 +14,7 @@ import {
   settingsPageActions,
   type BrowserProfile,
   type HostLists,
+  type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
   type AgentsRun,
@@ -82,6 +83,48 @@ export const mockManagedKey = "browser.remoteLocalhost";
 
 type Params = Record<string, unknown>;
 
+const cmuxButton = (id: string, title: string, destructive = false) => ({
+  id,
+  title,
+  disabled: false,
+  help: null,
+  destructive,
+});
+
+/** cmux's own row as the app serves it: signed in, signed out, and a sign-in in progress. */
+export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", AccountsCmux> = {
+  signedIn: {
+    title: "cmux Account",
+    detail: "s…@e…",
+    status: "Signed in",
+    statusKind: "success",
+    busy: false,
+    buttons: [cmuxButton("cmux.switchAccount", "Switch Account…"), cmuxButton("cmux.signOut", "Sign Out", true)],
+    note: null,
+    error: null,
+  },
+  signedOut: {
+    title: "cmux Account",
+    detail: null,
+    status: "Signed out",
+    statusKind: "quiet",
+    busy: false,
+    buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    note: null,
+    error: null,
+  },
+  signingIn: {
+    title: "cmux Account",
+    detail: null,
+    status: "Signing in…",
+    statusKind: "neutral",
+    busy: true,
+    buttons: [cmuxButton("cmux.continueInBrowser", "Open in Browser"), cmuxButton("cmux.cancelSignIn", "Cancel")],
+    note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
+    error: null,
+  },
+};
+
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
@@ -140,8 +183,80 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.mobile.allow_again": () => {
+        const iphone = this.host.iphone;
+        if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
+        return {};
+      },
+      "cmux.settings.mobile.answer_pair": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone)
+          this.setHost({
+            ...this.host,
+            iphone: { ...iphone, pending: (iphone.pending ?? []).filter((p) => p.id !== params.id) },
+          });
+        return {};
+      },
+      "cmux.settings.mobile.remove_phone": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone)
+          this.setHost({
+            ...this.host,
+            iphone: { ...iphone, phones: iphone.phones.filter((p) => p.id !== params.id) },
+          });
+        return {};
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
+      "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
+      "cmux.chief.profile.avatar.get": () => ({ avatar: null }),
+      "cmux.chief.profile.history": (params) => ({
+        chief: params.chief,
+        revisions: this.chiefs
+          .filter((chief) => chief.id === params.chief)
+          .map((chief) => ({
+            rev: chief.rev,
+            at: "2026-10-10T09:00:00Z",
+            actor: "",
+            operation: "chief.profile.create",
+            record: chief,
+          })),
+      }),
+      "cmux.chief.profile.update": (params) => {
+        const index = this.chiefs.findIndex((chief) => chief.id === params.chief);
+        const { chief: _id, machine: _m, session: _s, idempotency_key: _k, harness, model, effort, ...fields } = params;
+        const old = this.chiefs[index]!;
+        const engine = {
+          ...(old.engine as Params),
+          ...(harness !== undefined ? { harness } : {}),
+          ...(model !== undefined ? { model } : {}),
+          ...(effort !== undefined ? { effort } : {}),
+        };
+        this.chiefs[index] = { ...old, ...fields, engine, rev: Number(old.rev) + 1 };
+        return { value: this.chiefs[index] };
+      },
+      "cmux.chief.profile.create": (params) => {
+        const made = {
+          ...this.chiefs[0]!,
+          id: `agent_new${this.chiefs.length}`,
+          display_name: params.display_name,
+          role: params.role ?? "",
+          is_default: false,
+          rev: 1,
+          locked: params.locked === true,
+        };
+        this.chiefs.push(made);
+        return { value: made };
+      },
+      "cmux.chief.backend.list": () => ({
+        harnesses: {
+          defaultHarness: "claude",
+          harnesses: { claude: { displayName: "Claude Code" }, codex: { displayName: "Codex" } },
+        },
+        models: { harnesses: [] },
+      }),
+      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -180,6 +295,28 @@ export class MockSettingsProvider {
           advanced: [{ id: "reloadConfiguration", title: "Reload Configuration", enabled: true }],
         })[String((params as { section: string }).section)] ?? [],
       "cmux.settings.backdrop.choose_image": () => ({ id: null }),
+      "cmux.settings.backdrop.wallpaper_settings": () => ({}),
+      "cmux.settings.backdrop.image.link": (params) => {
+        const url = String((params as { url: string }).url);
+        if (!url.startsWith("https://"))
+          throw new ProtocolError("cmux.settings.backdrop.not_https", "not an https link");
+        if (url.endsWith(".txt")) throw new ProtocolError("cmux.settings.backdrop.not_media", "not an image or movie");
+        const id = `file:/backgrounds/${url.split("/").pop()}`;
+        const title = url.split("/").pop() ?? id;
+        const own = { id, title, attribution: title, collection: "yours", collection_title: "Your images" };
+        this.host = { ...this.host, backdrops: [own, ...(this.host.backdrops ?? [])] };
+        this.values.set("appearance.background", id);
+        return { id };
+      },
+      "cmux.settings.backdrop.image.remove": (params) => {
+        const id = String((params as { id: string }).id);
+        this.host = { ...this.host, backdrops: (this.host.backdrops ?? []).filter((row) => row.id !== id) };
+        return { bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000 };
+      },
+      "cmux.settings.backdrop.image.reveal": () => ({}),
+      "cmux.settings.backdrop.image.usage": () => ({
+        bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
+      }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -255,6 +392,13 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
+      "cmux.chief.profile.list",
+      "cmux.chief.profile.avatar.get",
+      "cmux.chief.profile.history",
+      "cmux.chief.profile.update",
+      "cmux.chief.profile.create",
+      "cmux.chief.backend.list",
+      "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
       "cmux.settings.devices.state",
@@ -265,6 +409,11 @@ export class MockSettingsProvider {
       "cmux.settings.file.reveal",
       "cmux.settings.folders.add",
       "cmux.settings.backdrop.choose_image",
+      "cmux.settings.backdrop.wallpaper_settings",
+      "cmux.settings.backdrop.image.link",
+      "cmux.settings.backdrop.image.remove",
+      "cmux.settings.backdrop.image.reveal",
+      "cmux.settings.backdrop.image.usage",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",
@@ -402,6 +551,42 @@ export class MockSettingsProvider {
     }
   }
 
+  /** The Chief records the host's page relay lists (`chief.profile.list`). */
+  chiefs: Params[] = [
+    {
+      id: "agent_chief",
+      display_name: "Chief",
+      role: "Runs the team's agents",
+      personality: "",
+      instructions: "",
+      tools: ["chiefs", "spawn", "tell", "workspaces"],
+      harnesses: [],
+      self_edit: ["avatar"],
+      is_default: true,
+      rev: 2,
+      created_at: "2026-10-10T09:00:00Z",
+      avatar: null,
+      engine: {},
+      locked: false,
+    },
+    {
+      id: "agent_release",
+      display_name: "Release Chief",
+      role: "Ships the release",
+      personality: "",
+      instructions: "",
+      tools: ["spawn", "tell"],
+      harnesses: [],
+      self_edit: ["avatar"],
+      is_default: false,
+      rev: 5,
+      created_at: "2026-10-11T09:00:00Z",
+      avatar: null,
+      engine: { harness: "codex", model: "gpt-6-astra", effort: "high" },
+      locked: true,
+    },
+  ];
+
   /** acpmux's harnesses as the app serves them (`SettingsHarnesses.state`). */
   harnesses: HarnessesState = {
     loading: false,
@@ -475,7 +660,17 @@ export class MockSettingsProvider {
     ghostty_diagnostics: [],
     computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
-    backdrops: [{ id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" }],
+    backdrops: [
+      { id: "starryNight", title: "The Starry Night", attribution: "Van Gogh, 1889" },
+      {
+        id: "system:/System/Library/Desktop Pictures/.wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov",
+        title: "Sonoma Graphic",
+        attribution: "macOS system wallpaper · Sonoma Graphic",
+        collection: "video",
+        collection_title: "Moving wallpapers",
+        video: true,
+      },
+    ],
   };
   private readonly hostChanged = new Set<EventSourceContext>();
   private readonly accountsChanged = new Set<EventSourceContext>();
@@ -486,7 +681,7 @@ export class MockSettingsProvider {
   accounts: AccountsState = {
     refresh: "Refresh",
     refreshing: false,
-    signIn: null,
+    cmux: mockCmuxAccount.signedIn,
     removeTitle: "Remove from CodeRouter",
     groups: [
       {
@@ -566,6 +761,10 @@ export class MockSettingsProvider {
         );
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
+    } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
+      this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signedOut };
+    } else if (run.action === "cmux.signIn") {
+      this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signingIn };
     }
     for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
     return error ? { error } : {};
@@ -661,7 +860,7 @@ export class MockSettingsProvider {
   private snapshot(): SnapshotResult {
     return {
       revision: this.revision,
-      schema_hash: schema.schema_hash,
+      schema_hash: "", // the owner hashes the rows it loads; the export commits no hash (#21946)
       effective: this.effective(),
       managed: Object.fromEntries(
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),

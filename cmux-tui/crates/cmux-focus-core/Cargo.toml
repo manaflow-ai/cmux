@@ -1,0 +1,16 @@
+[package]
+name = "cmux-focus-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux window focus state machine and key rules (pure; the macOS app applies the effects over the app FFI)"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[lints]
+workspace = true

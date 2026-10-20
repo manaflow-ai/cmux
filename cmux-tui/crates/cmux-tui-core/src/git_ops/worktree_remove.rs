@@ -114,9 +114,22 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
 /// Refused while the worktree has uncommitted changes, or commits that only
 /// its HEAD reaches: on a detached HEAD, or on the branch that goes with it.
 fn guard(repository: &Repository, attempt: &Attempt) -> Result<(), ResourceError> {
-    let arguments = ["status", "--porcelain", "-z", "--untracked-files=all", "--no-renames"];
+    // One deadline for every run here, the submodule search included.
+    let repository = &repository.within(deadline());
+    let arguments = [
+        "status",
+        "--porcelain",
+        "-z",
+        "--untracked-files=all",
+        "--no-renames",
+        "--ignore-submodules=none",
+    ];
+    // Submodules stay in the status (a changed one is work to keep, even one
+    // `submodule.<name>.ignore` hides), so their own filter drivers are
+    // blanked too.
     let output = repository
-        .run(&arguments, MAX_STATUS_BYTES)
+        .with_submodule_filters()
+        .and_then(|repository| repository.run(&arguments, MAX_STATUS_BYTES))
         .map_err(|failure| run_failed(OPERATION, &failure))?;
     let files: Vec<String> = output
         .stdout
@@ -186,7 +199,7 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     let Some(branch) = attempt.branch.as_deref().filter(|_| attempt.delete_branch) else {
         return Ok(false);
     };
-    let main = Repository::open(&attempt.main_root, OPERATION)?;
+    let main = super::open_repository(&attempt.main_root, OPERATION)?;
     let reference = format!("refs/heads/{branch}");
     if main.commit(&reference).is_none() {
         return Ok(true);

@@ -62,6 +62,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
         answers: Vec::new(),
         answers_pending: Vec::new(),
         thread_root: None,
+        thread: None,
         created_at: String::new(),
         edited_at: None,
         retracted_at: None,
@@ -140,6 +141,8 @@ pub struct Owner {
     pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
     /// The owner lacks `link-preview-v1` (an older daemon).
     pub no_link_previews: bool,
+    /// Every run record summary the brain appended (`run_append`'s run).
+    pub runs: Vec<Value>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -245,6 +248,25 @@ impl PreviewPort for FakeUploader {
             height,
         ));
         Ok(image)
+    }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        self.upload_image(
+            conversation,
+            bytes,
+            mime_type,
+            name,
+            width.unwrap_or(0),
+            height.unwrap_or(0),
+        )
     }
 }
 
@@ -403,6 +425,11 @@ impl ConversationPort for FakeDaemon {
         Ok(())
     }
 
+    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
+        self.0.lock().unwrap().runs.push(run);
+        Ok(())
+    }
+
     fn draft(
         &mut self,
         conversation: &str,
@@ -485,10 +512,14 @@ pub struct Agents {
     pub released: usize,
     /// The next turn loses its acpmux connection instead of answering.
     pub lose: bool,
+    /// Every turn loses its acpmux connection instead of answering.
+    pub lose_always: bool,
     /// `events` fails with this error while set.
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
+    pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
     /// The next prompt fails with this JSON-RPC error message, used once
@@ -510,6 +541,12 @@ pub struct Agents {
     pub slow_session: Option<(String, Duration)>,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
+    /// The next `new_session` calls fail with these texts, one each, in order.
+    pub session_errors_once: std::collections::VecDeque<String>,
+    /// The next `start_prompt` calls fail with these texts, one each, in
+    /// order (acpmux refused the prompt: the harness died, the socket
+    /// dropped).
+    pub prompt_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -518,6 +555,11 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// The status `session` reports per session id; without one, `idle`
+    /// once the session's last turn answered or lost its link, else `running`.
+    pub session_status: BTreeMap<String, String>,
+    /// Sessions whose last turn answered or lost its link.
+    pub turn_over: std::collections::BTreeSet<String>,
     /// Every folder the host trusted (`acp.trust.set`, level trusted).
     pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
@@ -678,6 +720,9 @@ impl AgentPort for FakeAgents {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
         }
+        if let Some(e) = self.inner.lock().unwrap().session_errors_once.pop_front() {
+            return Err(e);
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
@@ -685,9 +730,13 @@ impl AgentPort for FakeAgents {
             std::thread::sleep(delay);
         }
         // acpmux refuses any other session env key (acpmux session_env.rs ALLOWED_KEYS).
-        if let Some(key) = spec.env.keys().find(|k| k.as_str() != "CMUX_WORKSPACE_ID") {
+        if let Some(key) = spec
+            .env
+            .keys()
+            .find(|k| !matches!(k.as_str(), "CMUX_WORKSPACE_ID" | "OPTCHAT_TURN_SEAL"))
+        {
             return Err(format!(
-                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID)"
+                "session/new: env key {key} is not one a session may set (allowed: CMUX_WORKSPACE_ID, OPTCHAT_TURN_SEAL)"
             ));
         }
         let mut inner = self.inner.lock().unwrap();
@@ -710,17 +759,22 @@ impl AgentPort for FakeAgents {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
+        if let Some(e) = self.inner.lock().unwrap().prompt_errors_once.pop_front() {
+            return Err(e);
+        }
         let turn = {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
+            inner.turn_over.remove(session);
             inner.prompts.len() - 1
         };
         self.changed.notify_all();
         self.append_events(session, (self.script)(turn, &blocks));
         let me = self.me.upgrade().expect("alive");
+        let session = session.to_owned();
         std::thread::spawn(move || {
             {
                 let mut inner = me.inner.lock().unwrap();
@@ -734,7 +788,7 @@ impl AgentPort for FakeAgents {
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
-                    std::mem::take(&mut inner.lose),
+                    std::mem::take(&mut inner.lose) || inner.lose_always,
                     inner.answer.take(),
                     inner.answer_error.take(),
                     inner.answer_delay,
@@ -744,7 +798,11 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
-            me.inner.lock().unwrap().answered_turns += 1;
+            {
+                let mut inner = me.inner.lock().unwrap();
+                inner.answered_turns += 1;
+                inner.turn_over.insert(session.clone());
+            }
             me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
@@ -810,8 +868,16 @@ impl AgentPort for FakeAgents {
             .session_harness
             .clone()
             .unwrap_or_else(|| spec.harness.clone());
+        let status = inner.session_status.get(id).cloned().unwrap_or_else(|| {
+            if inner.turn_over.contains(id) {
+                "idle"
+            } else {
+                "running"
+            }
+            .into()
+        });
         Ok(Some(serde_json::from_value(json!({
-            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": "running",
+            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
         })).unwrap()))
     }
 
@@ -910,6 +976,14 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        let mut inner = self.inner.lock().unwrap();
+        inner
+            .removed_queued
+            .push((session.to_owned(), prompt_id.to_owned()));
+        Ok(true)
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());
@@ -961,6 +1035,9 @@ pub fn settings(dir: &Path) -> Settings {
         trace_dir: Some(dir.join("traces")),
         cache_ttl: None,
         shared_ttl: Default::default(),
+        home_view: None,
+        membership: Default::default(),
+        keep_turn_session: false,
     }
 }
 

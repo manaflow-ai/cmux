@@ -11,7 +11,8 @@ import { inDO, sessionToken } from "./team-ssh-support.ts"
  * permission set is empty, or a truncated list) must not make every team sync answer 503, and must
  * not get privilege. The real webhook route and the real Stack client run here; only Stack's HTTP
  * API is fake. A member missing from the team-wide list is read directly once: zero permissions is
- * role member, the member's own permissions keep their role, and a failed direct read answers 503.
+ * role member, the member's own permissions keep their role, and a failed direct read changes nothing
+ * (the delivery is kept as `queued` for a later sync, cx-f5tk4).
  */
 const fakeStackHttp = (stackTeam: string) => {
   const members = new Map<string, string>()
@@ -109,14 +110,18 @@ describe("Stack members with no permission entries (cx-6wc8)", { timeout: 60_000
     expect(await memberRow(t.team, admin.user)).toBeNull()
   })
 
-  it("a failed direct read of a left-out member answers 503 and changes nothing", async () => {
+  it("a failed direct read of a left-out member is kept for a later sync and changes nothing", async () => {
     const t = await emptyDefaultTeam()
     const admin = await t.person("Admin", [...STACK_MEMBER, "cmux:admin"])
     expect((await deliver("team_membership.created", { team_id: t.stackTeam, user_id: admin.stackUser })).status).toBe(200)
     const before = await teamState(t.team)
     t.s.omitTeamWide.add(admin.stackUser)
     t.s.failDirect.add(admin.stackUser)
-    expect((await teamUpdated(t.stackTeam)).status).toBe(503)
+    const r = await teamUpdated(t.stackTeam)
+    expect(r.status).toBe(200)
+    expect(r.body.outcome).toBe("queued")
+    // The sync waits with backoff (cx-f5tk4): one pending row with one failure.
+    expect(await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec<{ fails: number }>(`SELECT fails FROM stack_team_recheck WHERE k LIKE 'sync|%'`).toArray())).toEqual([{ fails: 1 }])
     expect(await rolesOf(t.creator.token, t.team)).toEqual({ [t.creator.user]: "owner", [admin.user]: "admin" })
     expect((await teamState(t.team)).member_count).toBe(before.member_count)
   })

@@ -1,5 +1,5 @@
 public import CoreGraphics
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Every size the strip uses, derived from the CmuxNextDesign density tokens
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
@@ -9,10 +9,15 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var maxTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat
-    /// The selected tab never gets narrower than this, so it keeps room for
-    /// its icon and close button while the others shrink to icons.
+    /// The selected tab never gets narrower than this (nor than the inactive
+    /// minimum), so it keeps room for its icon, title and close button.
     public var minActiveTabWidth: CGFloat
+    /// `tabs.overflow`: with `.scroll` both minimums are `scrollTabMinWidth`.
+    public var overflow: TabOverflow
     public var pinnedTabWidth: CGFloat
+    /// Chrome's strip geometry (design-tokens.json `motion.tabStrip`, at the UI scale): open and
+    /// close widths, the minimum widths above, the reorder threshold, closing mode.
+    public var chrome: MotionTabStrip
     /// Width of every unpinned tab in `.compact` style.
     public var compactTabWidth: CGFloat
     /// Extra space between the last pinned tab and the first unpinned tab.
@@ -20,7 +25,7 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     /// Contents width (the tab less both content insets) from which a
     /// hovered inactive tab shows its x. Chromium's
-    /// `Tab::kMinimumContentsWidthForCloseButtons` (68 DIP).
+    /// `Tab::kMinimumContentsWidthForCloseButtons`, as Helium sets it (56 DIP; Chromium 68).
     public var closeMinContentsWidth: CGFloat
     /// Narrowest title fragment worth showing after the icon; below it the
     /// icon centers instead (Chromium shows any positive width, which
@@ -49,12 +54,13 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var scrollFadeWidth: CGFloat
     /// Inset of the tab background from the tab frame, so neighbors read as separate.
     public var tabBackgroundInset: CGFloat
-    /// Height of the 1 px separator between tabs.
-    public var separatorHeight: CGFloat
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
 
     public var cornerRadius: CGFloat
+    /// Corner of the close button's hover and pressed fill: Helium's rounded
+    /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
+    public var closeCornerRadius: CGFloat
 
     // MARK: Groups
 
@@ -70,10 +76,24 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Between the name and the collapsed member count.
     public var groupChipCountSpacing: CGFloat
     public var groupUnderlineHeight: CGFloat
+    /// Whether a line separates tabs (`tabs.separators`), its height and its strength.
+    public var showsSeparators: Bool
+    public var separatorHeight: CGFloat
+    public var separatorOpacity: CGFloat
     /// A group chip's icon: the tab icon size, inset inside the pill's height.
     public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
     /// Between a group chip's icon and its name or count.
     public var groupChipIconSpacing: CGFloat { groupChipCountSpacing }
+
+    /// Narrowest slot that holds the favicon and the close button whole, side by side (Lawrence
+    /// 2026-10-20): both pill insets, the leading inset, the favicon, the favicon-to-x gap, the x and
+    /// its trailing inset. The x's click target is the drawn button plus 2 pt a side
+    /// (`TabStripView.isInCloseButton`), Apple's 20 x 20 pt macOS minimum, and it stays clear of the
+    /// favicon and inside the pill. 50 comfortable (2 + 8 + 16 + 4 + 16 + 4), 48 compact (14 pt
+    /// favicon), 46 under Compact tabs (6 pt leading inset): the default minimum tab width.
+    public var faviconCloseWidth: CGFloat {
+        2 * tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+    }
 
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
@@ -98,8 +118,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Reads the design tokens for the current density.
     public init() {
         maxTabWidth = Metrics.tabMaxWidth
-        minInactiveTabWidth = Metrics.tabMinWidth
-        pinnedTabWidth = Metrics.tabMinWidth
+        chrome = MotionTabStrip(comfortable: Metrics.density == .comfortable).scaled(by: Metrics.scale(1))
+        // Chrome crowding: every tab shrinks evenly to the active minimum, then the inactive ones to theirs.
+        // The minimums and the pinned width are settings (defaults: the shared tokens); min <= max.
+        pinnedTabWidth = Metrics.tabPinnedWidth
         compactTabWidth = TabTunables.compactTabWidth.value
         pinnedGroupGap = TabTunables.pinnedGroupGap.value
         contentLeadingInset = Metrics.tabContentLeadingInset
@@ -111,20 +133,35 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        minActiveTabWidth = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        // Never narrower than the active tab's icon and close button need (`faviconCloseWidth`; self is
+        // not usable before every property is set), never wider than the max; the inactive minimum never
+        // passes the active one.
+        let activeFloor = 2 * Metrics.tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize
+            + contentTrailingInset
+        overflow = DesignSettings.shared.tabOverflow
+        switch overflow {
+        case .shrink:
+            // A larger inactive minimum (a user's) raises the active one, never the other way round.
+            minInactiveTabWidth = min(Metrics.tabMinInactiveWidth, maxTabWidth)
+            minActiveTabWidth = min(max(Metrics.tabMinActiveWidth, activeFloor, minInactiveTabWidth), maxTabWidth)
+        case .scroll:
+            // Scrolling tabs: every unpinned tab stays this wide, then the strip scrolls.
+            minActiveTabWidth = min(max(TabTunables.scrollTabMinWidth.value, activeFloor), maxTabWidth)
+            minInactiveTabWidth = minActiveTabWidth
+        }
         closeMinContentsWidth = TabTunables.closeMinContentsWidth.value
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        // The strip's edges are the content border's edges (the chrome line).
-        stripHorizontalPadding = PaneChromeMetrics.pillLeading
-        stripTopOutset = Metrics.panePadding
-        newTabButtonWidth = Metrics.tabHeight
+        // The first and last pills keep the gap above them to the strip's ends (the chrome line).
+        stripHorizontalPadding = Metrics.paneChromeInset
+        stripTopOutset = Metrics.stripTopOutset
+        newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
-        separatorHeight = TabTunables.separatorHeight.value
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
+        closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)
@@ -132,6 +169,9 @@ public struct TabStripMetrics: Equatable, Sendable {
         groupChipMaxNameWidth = (Metrics.tabMaxWidth / 2).rounded()
         groupChipCountSpacing = Metrics.space2
         groupUnderlineHeight = TabTunables.groupUnderlineHeight.value
+        showsSeparators = TabTunables.separators.value
+        separatorHeight = TabTunables.separatorHeight.value
+        separatorOpacity = TabTunables.separatorOpacity.value
     }
 
     /// Token-derived metrics for the current density.

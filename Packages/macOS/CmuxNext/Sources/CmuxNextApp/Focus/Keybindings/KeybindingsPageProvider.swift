@@ -41,17 +41,9 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.keymap.import":
             return try await keymapFile(export: false)
         case "cmux.keybindings.set", "cmux.keybindings.remove", "cmux.keybindings.reset":
-            guard let settings = services.settings else {
-                throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
-            }
-            let writes = KeybindingPageWrites(registry: services.registry, settings: settings, file: services.keybindingsFile)
-            let fields = params.objectValue ?? [:]
-            switch op {
-            case "cmux.keybindings.set": try await writes.set(fields)
-            case "cmux.keybindings.remove": try await writes.remove(fields)
-            default: try await writes.reset(fields)
-            }
-            for listener in changedListeners.values { listener([:]) }
+            // The page hears its own edit as the socket's: `cmux.keybindings.changed`.
+            let edit: KeybindingEdit = op == "cmux.keybindings.set" ? .set : op == "cmux.keybindings.remove" ? .remove : .reset
+            try await edit.run(params.objectValue ?? [:], services: services)
             return .object([:])
         default:
             throw PageError.unknownOp(op)
@@ -66,7 +58,7 @@ final class KeybindingsPageProvider: PageProvider {
             recordedListeners[id] = onEvent
             return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
         case "cmux.keybindings.changed":
-            // Fires after a keymap import and whenever keybindings.json loads.
+            // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
             let id = UUID()
             changedListeners[id] = onEvent
             if fileListener == nil {

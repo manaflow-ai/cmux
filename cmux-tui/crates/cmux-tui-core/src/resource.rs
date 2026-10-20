@@ -128,6 +128,30 @@ pub enum ResourceOperation {
     ChiefEngineSet,
     #[serde(rename = "chief.stop")]
     ChiefStop,
+    #[serde(rename = "chief.profile.list")]
+    ChiefProfileList,
+    #[serde(rename = "chief.profile.get")]
+    ChiefProfileGet,
+    #[serde(rename = "chief.profile.create")]
+    ChiefProfileCreate,
+    #[serde(rename = "chief.profile.adopt")]
+    ChiefProfileAdopt,
+    #[serde(rename = "chief.profile.update")]
+    ChiefProfileUpdate,
+    #[serde(rename = "chief.profile.delete")]
+    ChiefProfileDelete,
+    #[serde(rename = "chief.profile.avatar.set")]
+    ChiefProfileAvatarSet,
+    #[serde(rename = "chief.profile.avatar.get")]
+    ChiefProfileAvatarGet,
+    #[serde(rename = "chief.profile.history")]
+    ChiefProfileHistory,
+    #[serde(rename = "chief.profile.undo")]
+    ChiefProfileUndo,
+    #[serde(rename = "participant.avatar.set")]
+    ParticipantAvatarSet,
+    #[serde(rename = "participant.avatar.get")]
+    ParticipantAvatarGet,
     #[serde(rename = "credential.verify")]
     CredentialVerify,
     #[serde(rename = "credential.mint")]
@@ -150,6 +174,8 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "git.branches")]
+    GitBranches,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -190,6 +216,8 @@ pub enum ResourceOperation {
     HistoryVisitSummaries,
     #[serde(rename = "history.visit.import")]
     HistoryVisitImport,
+    #[serde(rename = "history.trail.record")]
+    HistoryTrailRecord,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
@@ -368,6 +396,10 @@ pub enum ResourceOperation {
     AgentMessageList,
     #[serde(rename = "agent.message.mark")]
     AgentMessageMark,
+    #[serde(rename = "agent.message.release")]
+    AgentMessageRelease,
+    #[serde(rename = "agent.message.unsend")]
+    AgentMessageUnsend,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
@@ -422,6 +454,42 @@ pub enum ResourceOperation {
     SidebarLayoutGet,
     #[serde(rename = "sidebar_layout.update")]
     SidebarLayoutUpdate,
+    #[serde(rename = "sidebar.get")]
+    SidebarGet,
+    #[serde(rename = "sidebar.move")]
+    SidebarMove,
+    #[serde(rename = "sidebar.pin")]
+    SidebarPin,
+    #[serde(rename = "sidebar.unpin")]
+    SidebarUnpin,
+    #[serde(rename = "sidebar.item.add")]
+    SidebarItemAdd,
+    #[serde(rename = "sidebar.item.remove")]
+    SidebarItemRemove,
+    #[serde(rename = "sidebar.item.update")]
+    SidebarItemUpdate,
+    #[serde(rename = "sidebar.item.remove_ref")]
+    SidebarItemRemoveRef,
+    #[serde(rename = "sidebar.section.add")]
+    SidebarSectionAdd,
+    #[serde(rename = "sidebar.section.update")]
+    SidebarSectionUpdate,
+    #[serde(rename = "sidebar.section.move")]
+    SidebarSectionMove,
+    #[serde(rename = "sidebar.section.remove")]
+    SidebarSectionRemove,
+    #[serde(rename = "sidebar.group.create")]
+    SidebarGroupCreate,
+    #[serde(rename = "sidebar.group.update")]
+    SidebarGroupUpdate,
+    #[serde(rename = "sidebar.group.ungroup")]
+    SidebarGroupUngroup,
+    #[serde(rename = "sidebar.adopt")]
+    SidebarAdopt,
+    #[serde(rename = "sidebar.apply")]
+    SidebarApply,
+    #[serde(rename = "sidebar.reset")]
+    SidebarReset,
     #[serde(rename = "project.list")]
     ProjectList,
     #[serde(rename = "project.observe")]
@@ -434,6 +502,26 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "project.source.update")]
+    ProjectSourceUpdate,
+    #[serde(rename = "browser.devices.list")]
+    BrowserDevicesList,
+    #[serde(rename = "browser.devices.add_custom")]
+    BrowserDevicesAddCustom,
+    #[serde(rename = "browser.devices.remove_custom")]
+    BrowserDevicesRemoveCustom,
+    #[serde(rename = "browser.tab.emulate")]
+    BrowserTabEmulate,
+    #[serde(rename = "browser.tab.emulate.clear")]
+    BrowserTabEmulateClear,
+    #[serde(rename = "browser.tab.set_profile")]
+    BrowserTabSetProfile,
+    #[serde(rename = "browser.profile.list")]
+    BrowserProfileList,
+    #[serde(rename = "browser.profile.create")]
+    BrowserProfileCreate,
+    #[serde(rename = "browser.profile.open")]
+    BrowserProfileOpen,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]
@@ -444,6 +532,16 @@ pub enum ResourceOperation {
     PaletteUsageHide,
     #[serde(rename = "palette_usage.forget")]
     PaletteUsageForget,
+    #[serde(rename = "stash.create")]
+    StashCreate,
+    #[serde(rename = "stash.list")]
+    StashList,
+    #[serde(rename = "stash.restore")]
+    StashRestore,
+    #[serde(rename = "stash.delete")]
+    StashDelete,
+    #[serde(rename = "stash.import")]
+    StashImport,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -522,6 +620,8 @@ pub enum ResourceOperation {
     WorkspaceAgentFolderSet,
     #[serde(rename = "workspace.agent_start.get")]
     WorkspaceAgentStartGet,
+    #[serde(rename = "workspace.open_url")]
+    WorkspaceOpenUrl,
     #[serde(rename = "workspace_group.create")]
     WorkspaceGroupCreate,
     #[serde(rename = "workspace_group.delete")]
@@ -538,6 +638,14 @@ pub enum ResourceOperation {
     WorkspaceLogClear,
     #[serde(rename = "workspace_log.list")]
     WorkspaceLogList,
+    #[serde(rename = "workspace_checklist.add")]
+    WorkspaceChecklistAdd,
+    #[serde(rename = "workspace_checklist.list")]
+    WorkspaceChecklistList,
+    #[serde(rename = "workspace_checklist.remove")]
+    WorkspaceChecklistRemove,
+    #[serde(rename = "workspace_checklist.update")]
+    WorkspaceChecklistUpdate,
     #[serde(rename = "workspace_progress.clear")]
     WorkspaceProgressClear,
     #[serde(rename = "workspace_progress.set")]
@@ -751,6 +859,9 @@ impl Selector {
         if is_registered_public_id(value) {
             return Ok(Self::Id(value.to_string()));
         }
+        if let Some(reason) = mistyped_id_reason(value) {
+            return Err(ResourceError::validation_invalid(None, reason));
+        }
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
@@ -761,31 +872,56 @@ impl Selector {
     }
 }
 
+/// Every public id prefix, with the CLI scope that lists such ids (if any).
+const PUBLIC_ID_PREFIXES: &[(&str, Option<&str>)] = &[
+    ("machine", Some("machine")),
+    ("session", Some("session")),
+    ("ws", Some("workspace")),
+    ("screen", Some("screen")),
+    ("pane", Some("pane")),
+    ("tab", Some("tab")),
+    ("term", Some("terminal")),
+    ("browser", Some("browser")),
+    ("client", None),
+    ("split", None),
+    ("stream", None),
+    ("notification", Some("notification")),
+    ("agent", Some("agent")),
+    ("projection", None),
+    ("pairing", None),
+    ("sidebar_view", None),
+    ("sidebar_plugin", None),
+];
+
 fn is_registered_public_id(value: &str) -> bool {
     let Some((prefix, payload)) = value.rsplit_once('_') else {
         return false;
     };
-    matches!(
-        prefix,
-        "machine"
-            | "session"
-            | "ws"
-            | "screen"
-            | "pane"
-            | "tab"
-            | "term"
-            | "browser"
-            | "client"
-            | "split"
-            | "stream"
-            | "notification"
-            | "agent"
-            | "projection"
-            | "pairing"
-            | "sidebar_view"
-            | "sidebar_plugin"
-    ) && payload.len() == 32
+    PUBLIC_ID_PREFIXES.iter().any(|(known, _)| *known == prefix)
+        && payload.len() == 32
         && payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Why `value` looks like a public id but is not one (a digit too few or
+/// many, uppercase), with where real ids come from; `None` when it does not
+/// look like an id. An agent that copies an id wrong gets this instead of
+/// the name rules.
+fn mistyped_id_reason(value: &str) -> Option<String> {
+    let (prefix, payload) = value.rsplit_once('_')?;
+    let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
+    if payload.is_empty() || !payload.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let shape = if payload.len() == 32 {
+        format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
+    } else {
+        format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())
+    };
+    let source = match scope {
+        Some(scope) => format!("copy one from `cmux {scope} list --json`, or "),
+        None => String::new(),
+    };
+    Some(format!("{value} is not an id: {shape}; {source}pass name:{value} for a name"))
 }
 
 #[cfg(test)]

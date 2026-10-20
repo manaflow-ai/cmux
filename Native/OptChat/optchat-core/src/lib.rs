@@ -20,11 +20,15 @@ pub use compact::{
     strip_head, system_prompt, CompactPrompt, CompactRequest, MissingNode, SizeCheck,
     CMUX_PROMPT_ADDITIONS, FRAGMENT_DIVISOR, MIDRUN, RULER, TAELIN_PROMPT,
 };
-pub use memory::{most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
+pub use memory::{free_node_text, most_due, Checkpoint, Memory, NotRunning, Store, Work, AHEAD};
 pub use node::{Kind, NodeId};
 pub use render::{
     block_cuts, block_pieces, cache_marks, cache_pieces, mark_piece, render_parts, render_view,
     view_line, zoom, RenderedView, ZoomError, BLOCK_LINES, LOOKBACK_BLOCKS, MARK_REACH,
+};
+pub use render::{
+    deleted, delta_line, delta_range, edit_of, frozen_text, retracted, turn_input, Frozen,
+    TurnInput, DELTA_HARD, DELTA_MAX,
 };
 
 /// Target size of one summary line, in UTF-8 bytes (section 3).

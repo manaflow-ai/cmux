@@ -6,21 +6,30 @@ import CmuxNextIcons
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
-    private var iconName = IconName.placeholder
+    /// The pack icon the button draws (`BrowserToolbarReport.icons`).
+    private(set) var iconName = IconName.placeholder
     private var iconLabel = ""
-    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
-    private var tracking: NSTrackingArea?
+    /// Where the pointer is now (`OmnibarPointer`); a disabled button shows none.
+    private var hover: PointerHover?
+    var isHovering: Bool { hover?.isHovering ?? false }
 
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    /// False where the tooltip would only repeat the icon's name (Back,
+    /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
+    /// label stays.
+    var showsToolTip: Bool {
+        didSet { if showsToolTip != oldValue { themedToolTip = showsToolTip ? iconLabel : nil } }
+    }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
-    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
+    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
+        showsToolTip = toolTip
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -30,7 +39,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -43,6 +52,8 @@ final class ChromeIconButton: NSButton {
             applyIcon()
         }
         density.start()
+        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
+        hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
 
     @available(*, unavailable)
@@ -59,16 +70,21 @@ final class ChromeIconButton: NSButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
     }
 
     override var isEnabled: Bool {
-        didSet { if isEnabled != oldValue { alphaValue = isEnabled ? 1 : 0.35; updateFill() } }
+        didSet {
+            guard isEnabled != oldValue else { return }
+            alphaValue = isEnabled ? 1 : 0.35
+            hover?.refresh()
+            updateFill()
+        }
     }
 
     override var isHighlighted: Bool {
@@ -81,16 +97,28 @@ final class ChromeIconButton: NSButton {
         didSet { if isOn != oldValue { updateFill() } }
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    /// Chrome's pressed lock: the button keeps its pressed fill while its menu or bubble is
+    /// open. When it closes the hover is read again from the pointer: an `NSMenu` tracks the
+    /// mouse itself, so the button got no exit event while it was open (u2426).
+    var isMenuOpen = false {
+        didSet {
+            guard isMenuOpen != oldValue else { return }
+            if !isMenuOpen { hover?.refresh() }
+            updateFill()
+        }
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    // A button hidden under a still pointer (collapsed, its tab parked)
+    // gets no exit event: hover follows the pointer and the frame instead.
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         menuProvider?() ?? super.menu(for: event)
@@ -124,7 +152,9 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = true
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = false
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -134,6 +164,7 @@ final class ChromeIconButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hover?.refresh()
         updateFill()
     }
 
@@ -141,7 +172,7 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted || isOn {
+            } else if isHighlighted || isOn || isMenuOpen {
                 Palette.selectionFill
             } else if isHovering {
                 Palette.hoverFill
@@ -160,8 +191,8 @@ final class ChromeIconButton: NSButton {
 class ChromeTextButton: NSButton {
     private let density = DensityBinding()
     private let prominent: Bool
-    private var isHovering = false { didSet { if isHovering != oldValue { updateFill(animated: true) } } }
-    private var tracking: NSTrackingArea?
+    private var hover: PointerHover?
+    private var isHovering: Bool { hover?.isHovering ?? false }
     private var titleText = ""
 
     init(title: String, prominent: Bool, action: Selector?, target: AnyObject?) {
@@ -182,6 +213,7 @@ class ChromeTextButton: NSButton {
             invalidateIntrinsicContentSize()
         }
         density.start()
+        hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         updateFill()
     }
 
@@ -206,16 +238,15 @@ class ChromeTextButton: NSButton {
         return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: BrowserMetrics.controlHeight)
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -224,6 +255,7 @@ class ChromeTextButton: NSButton {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hover?.refresh()
         updateFill()
     }
 

@@ -20,6 +20,8 @@ port for every paired machine. Same network only: no relay yet.
                                     running|started|restarted
   stop                              stop the link of this state directory (its registered pid)
   status                            print whether the link runs, and its pid, socket and build
+  archive                           after a sign-out: keep the install's key and peers under
+                                    its name and remove the config (the link must be stopped)
   dial --host ID [--service daemon|ssh|owner_session] [--socket ABSOLUTE_PATH]
                                     bridge stdin and stdout to a paired install or Cloud
                                     host; one JSON line on stderr, exit 0 ok, 2 unknown host,

@@ -79,10 +79,12 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     families: ["claude"],
     modelSource: "catalog",
     sources: [{ provider: "anthropic", include: ["claude-"], exclude: [DATED, "claude-3"] }],
-    defaultModel: "claude-sonnet-5",
+    // New Claude chats start on the latest Opus at medium effort (Lawrence 2026-10-13).
+    defaultModel: "claude-opus-5-5",
+    defaultEffort: "medium",
     shortNamePrefix: "Claude ",
     familyNames: { "claude-fable": "Fable", "claude-opus": "Opus", "claude-sonnet": "Sonnet", "claude-haiku": "Haiku" },
-    familyAliases: { "claude-opus": "opus", "claude-sonnet": "sonnet", "claude-haiku": "haiku" },
+    familyAliases: { "claude-fable": "fable", "claude-opus": "opus", "claude-sonnet": "sonnet", "claude-haiku": "haiku" },
   },
   {
     id: "codex", docsUrl: "https://developers.openai.com/codex/cli",
@@ -93,7 +95,8 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     sources: [
       { provider: "openai", include: ["gpt-"], exclude: ["gpt-oss", "gpt-realtime", "gpt-image", "gpt-audio", "*-latest", "*-nano", "*-pro"], minReleaseDate: "2026-04-01" },
     ],
-    defaultModel: "gpt-5.5",
+    // New Codex chats start on GPT-6.1 Sol at medium effort (Lawrence 2026-10-13).
+    defaultModel: "gpt-6.1-sol",
     defaultEffort: "medium",
     dropEfforts: ["none"],
     familyNames: {
@@ -124,5 +127,27 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     ],
     defaultModel: "anthropic/claude-sonnet-5",
     groupByProvider: true,
+  },
+  {
+    // Gemini CLI takes a Gemini API model id (`--model`). Last in the list so a database seeded
+    // before it keeps every other harness's position (cx-miuo, migration 20261013040000_model_catalog_gemini_fable).
+    id: "gemini", docsUrl: "https://github.com/google-gemini/gemini-cli",
+    name: "Gemini CLI",
+    brand: "gemini",
+    families: ["gemini"],
+    modelSource: "catalog",
+    sources: [
+      {
+        provider: "google",
+        include: ["gemini-"],
+        exclude: ["gemini-embedding", "gemini-omni", "gemini-2.5-computer-use", "*-latest", "*-customtools", "*-live-preview", "*-translate-preview", "*-tts", "*-tts-preview", "*-image", "*-image-preview"],
+        minReleaseDate: "2025-06-01",
+      },
+    ],
+    defaultModel: "gemini-3.1-pro-preview",
+    // Gemini CLI has no effort setting.
+    dropEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    shortNamePrefix: "Gemini ",
+    familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
   },
 ];

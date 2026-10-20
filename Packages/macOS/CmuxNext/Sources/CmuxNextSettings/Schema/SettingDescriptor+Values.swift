@@ -5,7 +5,7 @@ extension SettingDescriptor {
     /// key that is absent reads its old key, as the parser does, so Settings
     /// shows the value the app applies.
     public func storedValue(in root: JSONValue) -> JSONValue? {
-        root.value(at: path) ?? WorkspaceRowSetting.legacyValue(for: path, in: root)
+        root.value(at: path) ?? RenamedSettingKeys.legacyValue(for: path, in: root)
     }
 
     /// The stored value when it is valid, else the default (what the app
@@ -19,6 +19,7 @@ extension SettingDescriptor {
     /// outside the range are refused here, although the parser clamps them,
     /// so the window never writes a value that loads with a warning.
     public func accepts(_ value: JSONValue) -> Bool {
+        if path == CustomDensitiesSetting().configPath { return CustomDensitiesSetting.accepts(value) }
         if path == ChatSettings.rootsPath {
             guard let items = value.arrayValue else { return false }
             let validator = ChatRootValidator()
@@ -38,7 +39,7 @@ extension SettingDescriptor {
             return number.range.contains(double)
         case .color:
             return value.stringValue.map(Self.isHexColor) ?? false
-        case .sound:
+        case .sound, .text:
             return value.stringValue != nil
         case .url:
             if BrowserOmnibarSetting.templatePaths.contains(path) { return value.stringValue.map(BrowserOmnibarSetting.isSearchTemplate) ?? false }
@@ -67,7 +68,7 @@ extension SettingDescriptor {
         case .stringList:
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { $0.stringValue.map { !$0.isEmpty } ?? false }
-        case .orderedChoices(let choices):
+        case .orderedChoices(let choices), .choiceSet(let choices):
             guard case .array(let items) = value else { return false }
             return items.allSatisfy { item in item.stringValue.map { text in choices.contains { $0.value == text } } ?? false }
         }

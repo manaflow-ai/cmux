@@ -69,18 +69,24 @@ public final class RegistryPaletteProvider: PaletteProvider {
         for entry in registry.entries {
             let descriptor = entry.descriptor
             guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
-            let override = effectOverrides[descriptor.id]?()
+            // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
+            // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
+            // its page. Declining there (nothing to rename) falls back to the action itself.
+            let override = effectOverrides[descriptor.id]
             guard entry.isBound || override != nil || includeUnbound else { continue }
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
-            let effect = override ?? defaultEffect(for: descriptor)
+            let fallback = defaultEffect(for: descriptor)
+            let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
-                title: descriptor.title,
+                // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+                title: registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
                 subtitle: isEnabled ? nil : registry.unavailableReason(for: actionID),
                 accessory: entry.isBound || override != nil ? nil : unbound,
-                symbol: descriptor.symbol,
+                // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
+                symbol: registry.action(for: actionID)?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
                 keycaps: registry.shortcutKeycaps(for: actionID),
                 section: section(descriptor.category),
                 keywords: descriptor.keywords,

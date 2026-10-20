@@ -1,57 +1,83 @@
+import CmuxNextFocus
+
 /// Keys typed into a page surface before its document can take them (spec
 /// app-screens.md section 3, R59): one surface's printable text, in order,
-/// bounded to ``maxCharacters`` and ``maxAge``. Pure; the key router owns
-/// one and drops it on a chord or a focus move.
+/// at most 256 characters and 2 s old. The key router owns one and drops it
+/// on a chord or a focus move. The rules are `cmux-focus-core`'s
+/// `TypeAheadQueue`; this value mirrors its state and calls it synchronously.
 struct TypeAheadQueue: Equatable {
-    static let maxCharacters = 256
-    static let maxAge: Duration = .seconds(2)
+    private struct Wire: Codable, Equatable {
+        var surface: String?
+        var text = ""
+        var startedNs: Int64?
+    }
 
-    private(set) var surface: String?
-    private(set) var text = ""
-    private var started: ContinuousClock.Instant?
+    private var wire = Wire()
+    /// Times go to the rule as nanoseconds after this instant: a day before
+    /// its first use, so every instant this process passes is after it.
+    private static let origin = ContinuousClock.now - .seconds(86_400)
+
+    var surface: String? { wire.surface }
+    var text: String { wire.text }
 
     /// Whether text waits for `surface`.
     func pending(for surface: String) -> Bool {
-        self.surface == surface && !text.isEmpty
+        run(.pending(surface: surface))?.pending ?? false
     }
 
     /// Appends `characters` for `surface`; text for another surface, or text
-    /// older than ``maxAge``, is dropped first. Characters past
-    /// ``maxCharacters`` are dropped.
+    /// older than 2 s, is dropped first. Characters past 256 are dropped.
     mutating func append(_ characters: String, surface: String, now: ContinuousClock.Instant) {
-        if self.surface != surface || isExpired(now) { reset(surface: surface, now: now) }
-        text += characters.prefix(max(0, Self.maxCharacters - text.count))
+        apply(.append(characters: characters, surface: surface, nowNs: Self.nanoseconds(now)))
     }
 
     /// Delete while the page loads removes the last queued character.
     mutating func deleteBackward(surface: String) {
-        guard self.surface == surface, !text.isEmpty else { return }
-        text.removeLast()
+        apply(.deleteBackward(surface: surface))
     }
 
     /// The queued text for `surface`, once; nil when none waits or it is
-    /// older than ``maxAge`` (then it is dropped).
+    /// older than 2 s (then it is dropped).
     mutating func take(surface: String, now: ContinuousClock.Instant) -> String? {
-        guard self.surface == surface, !text.isEmpty else { return nil }
-        let expired = isExpired(now)
-        let taken = text
-        drop()
-        return expired ? nil : taken
+        apply(.take(surface: surface, nowNs: Self.nanoseconds(now)))?.text
     }
 
     mutating func drop() {
-        surface = nil
-        text = ""
-        started = nil
+        wire = Wire()
     }
 
-    private func isExpired(_ now: ContinuousClock.Instant) -> Bool {
-        started.map { now - $0 > Self.maxAge } ?? false
+    private enum Op: Encodable {
+        case append(characters: String, surface: String, nowNs: Int64)
+        case deleteBackward(surface: String)
+        case take(surface: String, nowNs: Int64)
+        case pending(surface: String)
     }
 
-    private mutating func reset(surface: String, now: ContinuousClock.Instant) {
-        self.surface = surface
-        text = ""
-        started = now
+    private struct Response: Decodable {
+        var queue: Wire
+        var text: String?
+        var pending: Bool
+    }
+
+    private func run(_ op: Op) -> Response? {
+        struct Request: Encodable {
+            var queue: Wire
+            var op: Op
+        }
+        let response = FocusReducer.call("focus_type_ahead", Request(queue: wire, op: op), as: Response.self)
+        assert(response != nil, "focus_type_ahead refused")
+        return response
+    }
+
+    @discardableResult
+    private mutating func apply(_ op: Op) -> Response? {
+        guard let response = run(op) else { return nil }
+        wire = response.queue
+        return response
+    }
+
+    private static func nanoseconds(_ instant: ContinuousClock.Instant) -> Int64 {
+        let elapsed = (instant - origin).components
+        return elapsed.seconds &* 1_000_000_000 &+ elapsed.attoseconds / 1_000_000_000
     }
 }

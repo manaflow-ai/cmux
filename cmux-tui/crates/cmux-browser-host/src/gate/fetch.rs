@@ -137,7 +137,9 @@ impl<'a> Fetching<'a> {
         let id = format!("fetch-{}", slots.next_id);
         slots.live.insert(id.clone(), cell);
         drop(slots);
-        gate.sync_request_filter();
+        // A fetch changes only whether the filter is there; the connection
+        // policy went to the engine (or failed) when the policy was set.
+        let _ = gate.sync_request_filter();
         Ok(Fetching { gate, id, cell })
     }
 }
@@ -151,7 +153,7 @@ impl Drop for Fetching<'_> {
             slots.forget_if_idle(self.cell);
         }
         self.gate.fetch_slot_free.notify_all();
-        self.gate.sync_request_filter();
+        let _ = self.gate.sync_request_filter();
     }
 }
 

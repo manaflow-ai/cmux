@@ -9,7 +9,7 @@ import AppKit
 extension ChatController {
     // MARK: Context menu
 
-    func menu(at p: CGPoint) -> NSMenu? {
+    @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
@@ -18,10 +18,20 @@ extension ChatController {
         // incoming 59 -> 98, outgoing (72,147,247) -> (45,89,192), in about 0.2 s from
         // the press; back when the menu closes).
         // The drawn balloon with its frame's corners (MessagesLab 2281879 RowDraw.balloon).
-        let hl = MenuHighlight(host: host, body: hit.outline, cornersOf: hit.body.size, outgoing: hit.row.outgoing, tail: hit.row.tail)
+        // MessagesLab 267d218: a 1-line text ends in half circles; 7924f00: my text balloon's soft edge (soft-copies).
+        let hl = MenuHighlight(host: host, shape: BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath,
+                               outgoing: hit.row.outgoing, soft: demo?.softMask(hit),
+                               scale: demo?.renderScale ?? Fixture.renderScale, softOwner: demo?.softMaskOwner(hit))
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
+        // cmux: a path link (an agent's `file:///…`) leads with the host's file menu (Open in Right
+        // Pane, Open With, Reveal, Copy Path, Quick Look, Share).
+        if let fileHost, let link = linkURL(at: p), link.isFileURL, link.path.hasPrefix("/") {
+            let file = URL(fileURLWithPath: link.path)
+            fileHost.menuItems(forFileNamed: file.lastPathComponent) { file }.forEach(menu.addItem)
+            menu.addItem(.separator())
+        }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
         let canReact = intents?.canReact == true
         if canReact {
@@ -34,6 +44,11 @@ extension ChatController {
         menu.addItem(MenuAction(title: Strings.menuTapbackDetails, symbol: "plus.magnifyingglass") { [weak self] in self?.showTapbackDetails(hit) })
         // cmux: Reply… only when the owner can take a reply (HomeOp has none yet, as SwipeReply).
         if intents?.canReply == true {
+            // cmux: Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): text selected in this
+            // message is the reply's quote; Reply… still answers the whole message.
+            if let quote = selectionQuote(at: hit) {
+                menu.addItem(MenuAction(title: CmuxStrings.replyToSelection, symbol: "text.quote") { [weak self] in self?.replyToSelection(quote) })
+            }
             menu.addItem(MenuAction(title: Strings.menuReplyEllipsis, symbol: "arrowshape.turn.up.left") { [weak self] in self?.dispatch(.reply(ref)); self?.focusCompose() })
         }
         // Attach Sticker…: opens the tapback picker with its emoji (no image stickers).
@@ -44,8 +59,16 @@ extension ChatController {
         // cmux: no Edit or Undo Send (HomeOp has no edit or unsend).
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
-            menu.addItem(.separator())
         }
+        // cmux: the message's permalink, the form the Channels page copies (conversation-link-resolve opens it).
+        if let link = intents?.messageLink(ref.messageId) {
+            menu.addItem(MenuAction(title: CmuxStrings.copyLink, symbol: "link") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(link, forType: .string) })
+        }
+        // cmux: Forward… (u5402): the text goes to another chat or agent the host asks for.
+        if case let .text(text, _) = hit.row.part, intents?.canForward == true {
+            menu.addItem(MenuAction(title: CmuxStrings.forward, symbol: "arrowshape.turn.up.right") { [weak self] in self?.intents?.forward(text) })
+        }
+        if menu.items.last.map({ !$0.isSeparatorItem }) == true { menu.addItem(.separator()) }
         // cmux: a video plays in place; opening it in an app is only here.
         if case let .attachment(a) = hit.row.part {
             if a.kind == "video", let intents {
@@ -53,13 +76,21 @@ extension ChatController {
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
             }
-            menu.addItem(MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app") { [weak self] in
+            // cmux: the host's file menu (Open in Right Pane, Open With, Reveal, Copy Path, Quick
+            // Look, Share); without a host, Open in Default App.
+            let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
+            HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
-            })
+            }.forEach(menu.addItem)
             menu.addItem(.separator())
         }
-        // cmux: lane 16's Cancel Upload, only while the send can be cancelled.
-        if intents?.canCancelSend(ref.messageId) == true {
+        // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's
+        // Cancel Upload, only while the send can be cancelled.
+        if intents?.canRetrySend(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
+            menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
+            menu.addItem(.separator())
+        } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
             menu.addItem(.separator())
         }
@@ -122,26 +153,12 @@ extension ChatController {
 
     // MARK: Picker chrome
 
-    /// The pressed bubble stays bright above the dim (real Messages lifts it).
-    func pickerLift(for hit: MessagesWindowView.Hit) -> NSView? {
-        guard let demo, let window,
-              let cell = demo.collection.visibleCells.compactMap({ $0 as? RowCell }).first(where: { $0.spec?.key == hit.key }) else { return nil }
-        // The row's content rests on the window's device pixels (RowCell.snapRow, MessagesLab c1457e5): the bitmap
-        // starts at the content's place, so the lifted bubble keeps whole pixels and is not resampled.
-        let d = cell.rowSnap
-        let f = cell.convert(cell.bounds, to: demo).offsetBy(dx: d.x, dy: d.y)
-        let scale = window.backingScaleFactor
-        guard let ctx = CGContext(data: nil, width: CrashGuard.int(f.width * scale, in: 1...16_384), height: CrashGuard.int(f.height * scale, in: 1...16_384), /* crash program: no trap on NaN */ bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: DisplayScale.colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue) else { return nil }
-        ctx.scaleBy(x: scale, y: scale)
-        ctx.translateBy(x: -d.x, y: -d.y)
-        cell.layer.render(in: ctx)
-        let lift = NSView(frame: f)
-        lift.wantsLayer = true
-        lift.layer?.contents = ctx.makeImage()
-        lift.layer?.contentsScale = scale
-        lift.layer?.isGeometryFlipped = true
-        return lift
+    /// The pressed bubble's outline in the host's coordinates: the picker's dim leaves it out, so the
+    /// real bubble stays bright (real Messages lifts it). The drawn balloon with its frame's corners, as
+    /// the menu highlight's shape. No bitmap copy of the row: a copy over the dim took its orientation
+    /// from the flips of the views above it and drew upside down in a cmux-next pane (Lawrence 2026-10-20).
+    func pickerHole(for hit: MessagesWindowView.Hit) -> CGPath {
+        BubblePath.balloon(drawn: hit.outline, frameSize: hit.body.size, row: hit.row).cgPath
     }
 
     /// The emoji button: a glass circle 34 pt under the strip (center 95 pt in, 12 pt
@@ -185,18 +202,38 @@ final class EmojiBubbleButton: NSView {
 /// The context menu's target highlight: a bubble-shaped layer over the row, white (incoming)
 /// or a multiply tint (outgoing), faded in when the menu opens and out when it closes.
 final class MenuHighlight: NSObject, NSMenuDelegate {
-    private let layer = CAShapeLayer()
+    private let layer: CALayer
     private weak var host: NSView?
-    init(host: NSView, body: CGRect, cornersOf frame: CGSize? = nil, outgoing: Bool, tail: Bool) {
+    /// The cell layer the same soft mask masks: the highlight's mask image is drawn the same way up (`start`).
+    private weak var softOwner: CALayer?
+    /// MessagesLab 7924f00 (cx-3cb soft-copies): `soft`, my text balloon's soft mask in the host's coordinates
+    /// (MessagesWindowView.softMask): the highlight has the balloon's soft edge, not the crisp shape over it.
+    /// `scale`: the view's renderScale.
+    /// `shape`: the bubble's shared outline (`BubblePath.balloon`) in the host's coordinates.
+    init(host: NSView, shape: CGPath, outgoing: Bool,
+         soft: SoftBalloon.Mask? = nil, scale: CGFloat = Fixture.renderScale, softOwner: CALayer? = nil) {
         self.host = host
-        super.init()
-        layer.path = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame).cgPath
-        if outgoing {
-            layer.fillColor = NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor
-            layer.compositingFilter = "multiplyBlendMode"
+        self.softOwner = softOwner
+        // MessagesLab ced183d: incoming 59 -> 98.
+        let tint = outgoing ? NSColor(srgbRed: 159 / 255, green: 154 / 255, blue: 198 / 255, alpha: 1).cgColor : NSColor(white: 1, alpha: 0.2).cgColor
+        if outgoing, let m = soft {
+            let l = CALayer(), mask = CALayer()
+            l.frame = m.frame
+            l.backgroundColor = tint
+            mask.contents = m.image
+            mask.contentsCenter = m.center
+            mask.contentsScale = scale
+            mask.frame = l.bounds
+            l.mask = mask
+            layer = l
         } else {
-            layer.fillColor = NSColor(white: 1, alpha: 0.2).cgColor // MessagesLab ced183d: 59 -> 98
+            let l = CAShapeLayer()
+            l.path = shape
+            l.fillColor = tint
+            layer = l
         }
+        if outgoing { layer.compositingFilter = "multiplyBlendMode" }
+        super.init()
         layer.opacity = 0
     }
     private var keys: Any?
@@ -209,6 +246,13 @@ final class MenuHighlight: NSObject, NSMenuDelegate {
         guard let root = host?.layer, layer.superlayer == nil else { return }
         root.addSublayer(layer)
         layer.zPosition = 10
+        // MessagesLab 7924f00: the mask image upright as in the cell (its tail at the bottom right): a layer under an
+        // odd number of flipped ancestors draws its contents the other way up than one under an even number.
+        if let owner = softOwner, let mask = layer.mask, layer.contentsAreFlipped() != owner.contentsAreFlipped() {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            mask.transform = CATransform3DMakeScale(1, -1, 1)
+            CATransaction.commit()
+        }
         fade(to: 1, at: CACurrentMediaTime(), duration: 0.2)
         CATransaction.flush()
     }

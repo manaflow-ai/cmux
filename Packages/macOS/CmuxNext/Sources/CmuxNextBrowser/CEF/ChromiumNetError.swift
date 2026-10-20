@@ -1,12 +1,15 @@
 import Darwin
 import Foundation
 
-/// A Chromium main-frame failure as cmux's error page shows it: a sentence
-/// a person can act on, then Chromium's error name (ERR_NAME_NOT_RESOLVED),
-/// as Chrome's own page does. Certificate errors (ERR_CERT_*) show cmux's
-/// certificate warning, with the sentence as its reason.
+/// A Chromium main-frame failure as a load error. Chromium's own page shows
+/// for it (`CEFTab.loadError`); cmux's page shows this text only for a
+/// failure whose Chromium page is empty, and its certificate warning in an
+/// agent-driven tab: a sentence a person can act on, then Chromium's error
+/// name (ERR_NAME_NOT_RESOLVED), as Chrome's page does.
 nonisolated struct ChromiumNetError {
     static let domain = "net"
+    /// ERR_BLOCKED_BY_ADMINISTRATOR: an organization's URLBlocklist policy refused the page.
+    static let blockedByAdministrator = -22
     /// ERR_CERT_* (net_error_list.h: -200 to -299).
     static let certificateCodes = -299 ... -200
     /// Certificate errors Chrome lets a person proceed past on any host
@@ -28,6 +31,7 @@ nonisolated struct ChromiumNetError {
         case -102: Strings.netErrorRefused
         case -7, -118: Strings.netErrorTimedOut
         case -106: Strings.netErrorOffline
+        case Self.blockedByAdministrator: Strings.netErrorBlockedByAdministrator
         case Self.certificateCodes: Strings.netErrorCertificate
         default: Strings.netErrorGeneric
         }
@@ -40,8 +44,9 @@ nonisolated struct ChromiumNetError {
         return error
     }
 
-    /// Proceed on cmux's certificate warning page. Chromium failed the load
-    /// (`OnCertificateError` cancels it) so cmux shows its own page; this
+    /// Proceed on cmux's certificate warning page (an agent-driven tab:
+    /// `OnCertificateError` cancels the load there, so cmux shows its own
+    /// page; other tabs show Chromium's interstitial). This
     /// answers the browser's next certificate error on `host` before the
     /// page loads again: continued for an overridable error on an IP
     /// address, which HSTS never covers (RFC 6797), otherwise left to

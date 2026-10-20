@@ -15,13 +15,16 @@ import {
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
   MARKDOWN_EDITED_OP,
+  MARKDOWN_LOAD_REMOTE_IMAGES_OP,
   MARKDOWN_SAVE_OP,
+  MARKDOWN_SET_PREFERENCE_OP,
   isMarkdownConfig,
   type MarkdownChange,
   type MarkdownConfig,
   type MarkdownFile,
   type MarkdownConflict,
   type MarkdownLook,
+  type MarkdownReadOnlyReason,
   type MarkdownSaveResult,
 } from "./host";
 
@@ -35,6 +38,8 @@ export interface MarkdownState {
   mode: MarkdownMode;
   status: SaveStatus;
   readOnly: boolean;
+  /** Why the file is read only (null while it is not). */
+  readOnlyReason: MarkdownReadOnlyReason | null;
   conflict: MarkdownConflict | null;
   /** The source mode's text. */
   source: string;
@@ -71,6 +76,29 @@ export interface DocumentEditor {
 
 export type Schedule = (run: () => void, delayMs: number) => () => void;
 
+/** How long a Reading Settings value waits for the next change before it is written (a slider drag). */
+export const PREFERENCE_WRITE_DELAY_MS = 250;
+
+/**
+ * `section` (the `markdown` settings object) with `path` (dotted, below `markdown.`) set to
+ * `value`; null removes the key, so the option goes back to its default. Never mutates `section`.
+ */
+export function withMarkdownSetting(section: unknown, path: string, value: unknown): Record<string, unknown> {
+  const plain = (entry: unknown): Record<string, unknown> =>
+    entry && typeof entry === "object" && !Array.isArray(entry) ? { ...(entry as Record<string, unknown>) } : {};
+  const root = plain(section);
+  const parts = path.split(".");
+  let node = root;
+  for (const part of parts.slice(0, -1)) {
+    node[part] = plain(node[part]);
+    node = node[part] as Record<string, unknown>;
+  }
+  const last = parts.at(-1)!;
+  if (value === null) delete node[last];
+  else node[last] = value;
+  return root;
+}
+
 const defaultSchedule: Schedule = (run, delayMs) => {
   const timer = setTimeout(run, delayMs);
   return () => clearTimeout(timer);
@@ -85,6 +113,7 @@ export class MarkdownStore {
     mode: "rich",
     status: "saved",
     readOnly: false,
+    readOnlyReason: null,
     conflict: null,
     source: "",
     revision: 0,
@@ -111,6 +140,8 @@ export class MarkdownStore {
   private pendingChange: MarkdownChange | null = null;
   private stopChanges: (() => void) | null = null;
   private stopLook: (() => void) | null = null;
+  /** Reading Settings values not yet written, by `markdown.*` key, and their pending writes. */
+  private readonly unsentPreferences = new Map<string, { value: unknown; cancel: () => void }>();
   private started = false;
   private readonly reporter;
 
@@ -210,6 +241,7 @@ export class MarkdownStore {
       phase: "ready",
       config,
       readOnly,
+      readOnlyReason: readOnly ? (config.readOnlyReason ?? "outside") : null,
       source: text,
       status: "saved",
       revision: this.state.revision + 1,
@@ -244,13 +276,63 @@ export class MarkdownStore {
   /** The host re-sent part of the look; the rest stays. Applied in place, never by reloading. */
   lookChanged(look: MarkdownLook): void {
     const current = this.state.look;
+    let settings = "settings" in look ? look.settings : current.settings;
+    // A value the person just chose and the page has not written yet stays on screen.
+    for (const [key, { value }] of this.unsentPreferences)
+      settings = withMarkdownSetting(settings, key.replace(/^markdown\./, ""), value);
     this.set({
       look: {
-        settings: "settings" in look ? look.settings : current.settings,
+        settings,
         themeCSS: "themeCSS" in look ? look.themeCSS : current.themeCSS,
         appearance: look.appearance ?? current.appearance,
       },
     });
+  }
+
+  /**
+   * A Reading Settings change: `key` is a `markdown.*` settings key, `value` null resets it. The
+   * page shows it at once; the write to the settings file (`cmux.markdown.setPreference`, the one
+   * settings write path) waits `PREFERENCE_WRITE_DELAY_MS` for the next change of the same key, so
+   * a slider drag writes once. The host's look event confirms it.
+   */
+  setPreference(key: string, value: unknown): void {
+    if (!key.startsWith("markdown.")) return;
+    this.set({
+      look: { ...this.state.look, settings: withMarkdownSetting(this.state.look.settings, key.slice(9), value) },
+    });
+    this.unsentPreferences.get(key)?.cancel();
+    const cancel = this.schedule(() => {
+      this.unsentPreferences.delete(key);
+      void this.client?.call(MARKDOWN_SET_PREFERENCE_OP, { key, value }).catch((error: unknown) => {
+        console.warn("cmux markdown setPreference failed", error);
+      });
+    }, PREFERENCE_WRITE_DELAY_MS);
+    this.unsentPreferences.set(key, { value, cancel });
+  }
+
+  /** Writes every Reading Settings value still waiting (the popover closed, the page hides). */
+  flushPreferences(): void {
+    for (const [key, { value, cancel }] of this.unsentPreferences) {
+      cancel();
+      this.unsentPreferences.delete(key);
+      void this.client?.call(MARKDOWN_SET_PREFERENCE_OP, { key, value }).catch((error: unknown) => {
+        console.warn("cmux markdown setPreference failed", error);
+      });
+    }
+  }
+
+  /** A real click asked the host to approve guarded web images for this document. */
+  async loadRemoteImages(): Promise<void> {
+    const client = this.client;
+    const config = this.state.config;
+    if (!client || !config || config.remoteImageBase) return;
+    const path = config.path;
+    const answer = await client.call<{ remoteImageBase?: unknown }>(MARKDOWN_LOAD_REMOTE_IMAGES_OP, { path });
+    if (typeof answer?.remoteImageBase !== "string" || !answer.remoteImageBase) {
+      throw new Error("markdown remote-image approval is malformed");
+    }
+    const current = this.state.config;
+    if (current?.path === path) this.set({ config: { ...current, remoteImageBase: answer.remoteImageBase } });
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
@@ -442,9 +524,11 @@ export class MarkdownStore {
         hash: file.hash,
         githubRepository: file.githubRepository,
         readOnly,
+        readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
       },
       readOnly,
+      readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,
       source: file.text,
       status: "saved",
       conflict: null,

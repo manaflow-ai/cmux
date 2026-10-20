@@ -38,7 +38,7 @@ impl Target {
         operation: &'static str,
     ) -> Result<Self, ResourceError> {
         let directory = super::target::directory(mux, request, operation).map_err(normalized)?;
-        let repository = Repository::open(&directory, operation).map_err(normalized)?;
+        let repository = super::open_repository(&directory, operation).map_err(normalized)?;
         let arguments = ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"];
         let output = repository
             .run(&arguments, MAX_SMALL_OUTPUT_BYTES)

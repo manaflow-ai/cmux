@@ -489,6 +489,20 @@ impl Policy {
         }
         self.base.refusal(url).or_else(|| self.agent.refusal(url))
     }
+
+    /// Whether a connection to `host` (a name or an IP literal) on `port`
+    /// may open (crate::policy_proxy: a WebSocket, or any connection, with
+    /// no scheme known): the policy allows the host over http or https.
+    pub fn allows_connection(&self, host: &str, port: u16) -> bool {
+        let host = match host.parse::<std::net::Ipv6Addr>() {
+            Ok(_) => format!("[{host}]"),
+            Err(_) => host.to_owned(),
+        };
+        ["http", "https"].iter().any(|scheme| {
+            Url::parse(&format!("{scheme}://{host}:{port}/"))
+                .is_ok_and(|url| self.subresource_refusal(&url).is_none())
+        })
+    }
 }
 
 mod cookies;

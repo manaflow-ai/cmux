@@ -194,9 +194,13 @@ class CheckBundleNoticesTest(unittest.TestCase):
     RUST_BINARIES = (
         "Contents/Resources/bin/cmux",
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
+        "Contents/Resources/bin/cmux-tui-host",
         "Contents/Resources/bin/cmux-app-host",
         "Contents/Resources/bin/cmux-cloud",
         "Contents/Resources/bin/cmux-diff-sidecar",
+        "Contents/Resources/bin/cnx-hostd",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host",
+        "Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper*.app/Contents/MacOS/*",
         # Release merges Iroh.framework's Rust code (rustc 1.91.0) into the
         # app binary; Iroh.framework/Iroh is then a stub without Rust code.
         "Contents/MacOS/cmux",
@@ -204,6 +208,7 @@ class CheckBundleNoticesTest(unittest.TestCase):
     ZIG_BINARIES = (
         "Contents/MacOS/cmux",  # GhosttyNextKit (static)
         "Contents/Resources/bin/cmux",  # libghostty-vt
+        "Contents/Resources/bin/cmux-tui-host",  # libghostty-vt
         "Contents/Resources/bin/cmux-tui-ssh/cmux-tui-*",
         "Contents/Resources/bin/ghostty",
     )

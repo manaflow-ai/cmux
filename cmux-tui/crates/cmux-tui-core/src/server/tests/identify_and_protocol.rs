@@ -18,12 +18,19 @@ fn stale_workspace_selectors_report_revision_conflicts_before_lookup() {
             key: Some(key.into()),
             end_terminals: false,
             reason: None,
+            if_empty: false,
+            report_closed_ids: false,
             mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
         },
         Command::RenameWorkspace {
-            workspace: None,
-            key: Some(key.into()),
-            name: "renamed".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: None,
+                key: Some(key.into()),
+                name: "renamed".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest { expected_revision: Some(1), ..Default::default() },
         },
         Command::MoveWorkspace {
@@ -66,6 +73,7 @@ fn receipted_workspace_create_keeps_legacy_workspace_cas_consistent() {
             None,
             &WorkspaceMutation::daemon("bootstrap-create", "chrome-gui").unwrap(),
             Default::default(),
+            true,
         )
         .unwrap();
     assert!(!created.replayed);
@@ -134,9 +142,14 @@ fn resource_rename_and_move_keep_legacy_workspace_cas_consistent() {
         &mux,
         client,
         Command::RenameWorkspace {
-            workspace: None,
-            key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
-            name: "legacy-rename".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: None,
+                key: Some("018f6e21-7b70-7e70-8000-0000000000b2".into()),
+                name: "legacy-rename".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest { expected_revision: Some(revision), ..Default::default() },
         },
         &writer,
@@ -184,9 +197,14 @@ fn provider_managed_mux_is_locked_before_authority_handshake() {
         &mux,
         ordinary,
         Command::RenameWorkspace {
-            workspace: Some(workspace.workspace),
-            key: Some(workspace.key),
-            name: "won the race".into(),
+            request: cmd_workspaces::WorkspaceRenameRequest {
+                workspace: Some(workspace.workspace),
+                key: Some(workspace.key),
+                name: "won the race".into(),
+                source: None,
+                expected_name_revision: None,
+                release: false,
+            },
             mutation: MutationRequest::default(),
         },
         &writer,
@@ -228,9 +246,14 @@ fn provider_managed_workspaces_reject_ordinary_server_mutations() {
     for (command, expected_error) in [
         (
             Command::RenameWorkspace {
-                workspace: Some(workspace.workspace),
-                key: Some(workspace.key.clone()),
-                name: "raw rename".into(),
+                request: cmd_workspaces::WorkspaceRenameRequest {
+                    workspace: Some(workspace.workspace),
+                    key: Some(workspace.key.clone()),
+                    name: "raw rename".into(),
+                    source: None,
+                    expected_name_revision: None,
+                    release: false,
+                },
                 mutation: MutationRequest::default(),
             },
             "cannot rename a provider-managed workspace directly; use the managed workspace lifecycle controls",
@@ -241,6 +264,8 @@ fn provider_managed_workspaces_reject_ordinary_server_mutations() {
                 key: Some(workspace.key.clone()),
                 end_terminals: false,
                 reason: None,
+                if_empty: false,
+                report_closed_ids: false,
                 mutation: MutationRequest::default(),
             },
             "cannot close a provider-managed workspace directly; use the managed workspace lifecycle controls",
@@ -350,8 +375,13 @@ fn ordinary_control_client_cannot_forge_provider_workspace_commits() {
 #[test]
 fn identify_advertises_additive_capabilities() {
     let mux = test_mux();
-    let identity =
-        handle_command(&mux, mux.local_test_client(0), Command::Identify, &test_writer()).unwrap();
+    let identity = handle_command(
+        &mux,
+        mux.local_test_client(0),
+        Command::Identify { machine_metadata: false, revisions: false },
+        &test_writer(),
+    )
+    .unwrap();
 
     let capabilities = identity["capabilities"].as_array().expect("capabilities");
     for expected in [
@@ -379,6 +409,7 @@ fn identify_advertises_additive_capabilities() {
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::BRANCHES_CAPABILITY,
     ] {
         assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
     }

@@ -27,8 +27,10 @@ import Testing
     /// Item move the selection of the focused list, which the palette
     /// replaces while it is open; the page menu's copy, save and Look Up
     /// rows act on the right-clicked element; Archive Chief and Open
-    /// Conversation act on a row of the Home page's list; Start Agent from
-    /// Any App is the system-wide key of Start Agent, whose row it is).
+    /// Conversation act on a row of the Home page's list; Send Message… and Send to (Chief)… act on
+    /// the right-clicked object or selection, and Send Message To… is their palette row; Start Agent from
+    /// Any App is the system-wide key of Start Agent, whose row it is; the sidebar's Compact
+    /// and Comfortable rows are the app density's "Density: Compact/Comfortable" rows).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -38,8 +40,10 @@ import Testing
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
             == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.openConversation", "list.next", "list.previous",
-                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp"]
+                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.messageAbout", "home.openConversation", "home.sendSelectionTo",
+                "home.sendSelectionToChief", "list.next", "list.previous",
+                "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
+                "sidebar.density.comfortable", "sidebar.density.compact"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
                "paletteKey.escape", "paletteKey.enterRow", "paletteKey.leaveLevel", "paletteKey.back",
@@ -105,8 +109,9 @@ import Testing
         let target = ActionTargetRef(kind: .tabGroup, id: "g1")
         let menu = registry.makeContextMenu(for: .tabGroup, target: target)
 
-        let titles = menu.items.map(\.title)
-        #expect(titles.contains(try #require(registry.title(for: "tabGroup.close"))))
+        // The group's own menu titles its rows without the noun (Close Group), so find them by action.
+        func item(_ id: ActionID) -> NSMenuItem? { menu.items.first { ActionRegistry.menuRun(of: $0)?.id == id } }
+        #expect(item("tabGroup.close") != nil)
         // Color sits in the Appearance submenu beside Set Icon, so find it at any depth.
         func submenuItems(_ items: [NSMenuItem]) -> [NSMenuItem] {
             items.flatMap { item in item.submenu.map { [item] + submenuItems($0.items) } ?? [] }
@@ -116,13 +121,13 @@ import Testing
         #expect(!(menu.items.first?.isSeparatorItem ?? true))
         #expect(!(menu.items.last?.isSeparatorItem ?? true))
 
-        let close = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.close") })
+        let close = try #require(item("tabGroup.close"))
         #expect((close.target as? any NSMenuItemValidation)?.validateMenuItem(close) == true)
-        let ungroup = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.ungroup") })
+        let ungroup = try #require(item("tabGroup.ungroup"))
         #expect((ungroup.target as? any NSMenuItemValidation)?.validateMenuItem(ungroup) == false)
 
         // Rename needs a name: with no collector the handler still gets the target.
-        let rename = try #require(menu.items.first { $0.title == registry.title(for: "tabGroup.rename") })
+        let rename = try #require(item("tabGroup.rename"))
         _ = (rename.target as? NSObject)?.perform(rename.action, with: rename)
         #expect(renamed.first?.target == target)
     }

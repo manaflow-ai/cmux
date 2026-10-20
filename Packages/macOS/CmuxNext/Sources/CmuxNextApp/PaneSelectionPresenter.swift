@@ -6,20 +6,21 @@
 ///   tab under the new highlight) and its surface is made on the next
 ///   frame within the one-new-surface budget, for whatever tab is
 ///   selected by then, so held Ctrl-Tab makes no surface for a tab it passed.
-@MainActor
-struct PaneSelectionPresenter {
-    let pane: PaneController
-
-    func present() {
-        guard !pane.selectedContentIsAlive else {
-            pane.services.presentation.showNow(pane)
+extension PaneController {
+    func presentSelection() {
+        guard !selectedContentIsAlive else {
+            services.presentation.showNow(self)
             return
         }
-        if let key = pane.currentTabKey {
-            pane.services.cache.withdraw(key, by: pane)
-            pane.surfaceWasDisplaced(key)
+        DebugTabSwitch.kind(self, "cold")
+        if let key = currentTabKey {
+            services.cache.withdraw(key, by: self)
+            letGo(key, parks: true) // what showed stays parked here
         }
-        if pane.view.stripView.window != nil { pane.view.stripView.sync(fromModel: true) }
-        pane.services.presentation.setNeedsShowSelected(pane)
+        if view.stripView.window != nil { view.stripView.syncFromModel() }
+        if isFocusedInWorkspace, showsLiveTerminal {  // keys typed meanwhile wait for its surface
+            services.keyRouter.creationInputCoordinator.holdUntilShown(in: view.window)
+        }
+        services.presentation.setNeedsShowSelected(self)
     }
 }

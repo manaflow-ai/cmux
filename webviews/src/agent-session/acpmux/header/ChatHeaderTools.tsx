@@ -1,9 +1,11 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
-// whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
-// folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
-// opens the last turn's changes; and the "..." chat menu. Before them, the chat branch's pull request
-// with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control renders from the first frame
-// at its final size; data fills in place.
+// whether each toggles or opens; by default Changes and Preview, each while it applies, then Terminal
+// and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
+// summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
+// which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
+// Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
+// checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
+// renders from the first frame at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -11,7 +13,7 @@ import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { useHeaderState } from "./headerState";
+import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { useWorktree, WorktreePill } from "./WorktreePill";
 import type { MergeResult } from "./PullRequestMerge";
@@ -102,6 +104,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
+  sessionRail,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -147,6 +150,8 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
+  sessionRail?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -161,7 +166,91 @@ export function ChatHeaderTools({
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
-  const buttons = tabTools && (
+  // The quick actions without a button, at the top of "...": each while it would show as a button.
+  // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
+  // render, and the lit splits as the App last pushed them.
+  const live = useRef({
+    actions,
+    tabTools,
+    sideTabs,
+    hasChanges,
+    previewUrl,
+    onChanges,
+    onPreview,
+    onSideTabs,
+    onFiles,
+    onSplitDown,
+  });
+  live.current = {
+    actions,
+    tabTools,
+    sideTabs,
+    hasChanges,
+    previewUrl,
+    onChanges,
+    onPreview,
+    onSideTabs,
+    onFiles,
+    onSplitDown,
+  };
+  const foldedRows = (): ChatMenuItem[] => {
+    const {
+      actions,
+      tabTools,
+      sideTabs,
+      hasChanges,
+      previewUrl,
+      onChanges,
+      onPreview,
+      onSideTabs,
+      onFiles,
+      onSplitDown,
+    } = live.current;
+    if (!tabTools) return [];
+    const { lit } = headerState();
+    const shownIds = new Set(actions.map((action) => action.id));
+    const folded: ChatMenuItem[] = [];
+    if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+      folded.push({
+        key: "quick-changes",
+        label: t("header.changes"),
+        icon: "diff.file",
+        shortcutAction: HEADER_ACTIONS.changes,
+        onSelect: () => onChanges("toggle"),
+      });
+    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+      folded.push({
+        key: "quick-preview",
+        label: t("header.preview"),
+        icon: "media.play",
+        onSelect: () => onPreview(previewUrl, "toggle"),
+      });
+    if (onSideTabs && !shownIds.has("newTab"))
+      folded.push({
+        key: "quick-newTab",
+        label: t(sideTabs ? "header.hideTabs" : "header.newTab"),
+        icon: sideTabs ? "tunable.sidebar" : "action.add",
+        onSelect: onSideTabs,
+      });
+    if (onFiles && !shownIds.has("files"))
+      folded.push({
+        key: "quick-files",
+        label: t("header.files"),
+        icon: "folder",
+        onSelect: () => onFiles("toggle"),
+      });
+    if (onSplitDown && !shownIds.has("splitDown"))
+      folded.push({
+        key: "quick-splitDown",
+        label: t("header.splitDown"),
+        icon: "pane.split.down",
+        shortcutAction: HEADER_ACTIONS.splitDown,
+        onSelect: () => onSplitDown("toggle"),
+      });
+    return folded;
+  };
+  const rows = () => menuGroups(foldedRows(), menu());
+  const buttons = tabTools && actions.length > 0 && (
     <>
       {actions.map(({ id, mode }) =>
         id === "newTab" ? (
@@ -276,35 +365,45 @@ export function ChatHeaderTools({
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
-      {onCustomize && buttons ? (
-        // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
-        // inside them reaches this host through React.
-        <ContextMenu
-          className="acpmux-header-customize"
-          items={customizeItems(actions, menuTarget, onCustomize, t)}
-          onOpen={() => setMenuTarget(target.current)}
-        >
-          <div
-            className="acpmux-header-customize"
-            onContextMenuCapture={(event) => {
-              const button = (event.target as Element).closest?.("[data-quick-action]");
-              target.current = (button?.getAttribute("data-quick-action") ?? undefined) as QuickActionId | undefined;
-            }}
-          >
-            {buttons}
-          </div>
-        </ContextMenu>
-      ) : (
-        buttons
-      )}
-      {summary}
-      <ChatMenu
-        items={menu}
-        disabled={menu().length === 0}
-        onOpen={onMenuOpen}
-        expand={expand}
-        onExpanded={onExpanded}
-      />
+      {buttons ? (
+        <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
+          {onCustomize ? (
+            // Only the buttons: the summary's and the menu's popups are portaled, and a right-click
+            // inside them reaches this host through React.
+            <ContextMenu
+              className="acpmux-header-customize"
+              items={customizeItems(actions, menuTarget, onCustomize, t)}
+              onOpen={() => setMenuTarget(target.current)}
+            >
+              <div
+                className="acpmux-header-customize"
+                onContextMenuCapture={(event) => {
+                  const button = (event.target as Element).closest?.("[data-quick-action]");
+                  target.current = (button?.getAttribute("data-quick-action") ?? undefined) as
+                    | QuickActionId
+                    | undefined;
+                }}
+              >
+                {buttons}
+              </div>
+            </ContextMenu>
+          ) : (
+            buttons
+          )}
+        </div>
+      ) : null}
+      {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
+      <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
+        {sessionRail}
+        {summary}
+        <ChatMenu
+          items={rows}
+          disabled={rows().length === 0}
+          onOpen={onMenuOpen}
+          expand={expand}
+          onExpanded={onExpanded}
+        />
+      </div>
     </div>
   );
 }
@@ -326,7 +425,7 @@ const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
 /// The header's right-click menu (cx-00n1, Claude Code desktop's toolbar customization): for the
 /// right-clicked button, Move Left/Right and whether a click toggles its panel or opens another
 /// ([+] New tab always toggles); then every quick action, checked while shown; then Reset. The last
-/// button always shown (Terminal, Browser, New tab) cannot be hidden: the menu opens on the buttons.
+/// button always shown (Terminal, Browser, Split Down, New tab) cannot be hidden: the menu opens on the buttons.
 function customizeItems(
   list: readonly QuickAction[],
   target: QuickActionId | undefined,

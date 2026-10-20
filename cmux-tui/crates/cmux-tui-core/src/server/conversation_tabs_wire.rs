@@ -71,10 +71,64 @@ pub(super) struct NewConversationTabParams {
     rows: Option<u16>,
     #[serde(default)]
     transaction: Option<String>,
+    /// With `pane`: the tab goes in a new pane split from it
+    /// (`conversation-tab-split-v1`).
+    #[serde(default)]
+    split: Option<ConversationTabSplitParams>,
 }
 
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
+
+/// `new-conversation-tab {pane, split}`: the tab is created in a new pane on
+/// one side of `pane`, in one `pane.split` commit whose one `pane-added`
+/// delta holds the pane with the tab (and carries `transaction`). The
+/// source pane never lists the tab.
+pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-split-v1";
+
+/// The new pane of a conversation tab's split: its side of the source pane
+/// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConversationTabSplitParams {
+    direction: String,
+    #[serde(default)]
+    pane_id: Option<String>,
+    /// `split-client-split-id-v1`: caller-minted public id of the new split.
+    #[serde(default)]
+    split_id: Option<String>,
+}
+
+impl ConversationTabSplitParams {
+    fn target(self, pane: Option<PaneId>) -> anyhow::Result<ConversationTabTarget> {
+        let pane = pane.ok_or_else(|| anyhow::anyhow!("bad request: split needs pane"))?;
+        let direction = match self.direction.as_str() {
+            "right" => "right",
+            "down" => "down",
+            "left" => "left",
+            "up" => "up",
+            other => anyhow::bail!(
+                "bad request: split direction {other:?} (want right, down, left or up)"
+            ),
+        };
+        if let Some(pane_id) = &self.pane_id {
+            crate::resource::PanePublicId::parse(pane_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: pane_id {pane_id:?} is not a pane id")
+            })?;
+        }
+        if let Some(split_id) = &self.split_id {
+            crate::resource::SplitPublicId::parse(split_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
+            })?;
+        }
+        Ok(ConversationTabTarget::Split {
+            pane,
+            direction,
+            pane_id: self.pane_id,
+            split_id: self.split_id,
+        })
+    }
+}
 
 /// The acpmux session an agent tab shows: the install that runs it, the
 /// session (absent for a new chat), the agent kind and the display name of
@@ -195,12 +249,15 @@ pub(super) fn create(
         cols,
         rows,
         transaction,
+        split,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
-    let target = match (pane, workspace) {
-        (_, None) => ConversationTabTarget::Pane(pane),
-        (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
-        (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
+    let target = match (pane, workspace, split) {
+        (_, None, Some(split)) => split.target(pane)?,
+        (_, None, None) => ConversationTabTarget::Pane(pane),
+        (None, Some(workspace), None) => ConversationTabTarget::Workspace(workspace),
+        (_, Some(_), Some(_)) => anyhow::bail!("bad request: split goes with pane, not workspace"),
+        (Some(_), Some(_), None) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
     let actor = super::origin_gate::connection_actor(mux, client);
     let mutation = match (origin, mutation_id) {
@@ -210,16 +267,19 @@ pub(super) fn create(
     };
     let size = paired_surface_size("new-conversation-tab", cols, rows)?;
     let record = record_of(mux, conversation, owner, agent_session, page, route)?;
-    let outcome =
-        mux.new_conversation_tab_as(&actor, target, record.clone(), mutation.as_ref(), size)?;
+    // The creation's own `tab-added` carries `transaction`: one delta per
+    // tab. A replay emits nothing and echoes it in the result only.
+    let outcome = mux.new_conversation_tab_as(
+        &actor,
+        target,
+        record.clone(),
+        mutation.as_ref(),
+        size,
+        transaction.as_deref(),
+    )?;
     let identity = outcome.surface.resource_identity();
     // A replay returns the tab's current record (a bound session included).
     let record = mux.conversation_tab_of(&outcome.surface).unwrap_or(record);
-    if let Some(transaction) = transaction.as_deref()
-        && !outcome.replayed
-    {
-        mux.emit_tab_added_for_transaction(outcome.surface.id, Arc::from(transaction));
-    }
     let mut result = json!({
         "surface": outcome.surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
@@ -234,7 +294,8 @@ pub(super) fn create(
 }
 
 /// `bind-conversation-tab-session`: set an agent tab's session to `session`
-/// when its current session is `expected_session` (null: unbound).
+/// when its current session is `expected_session` (null: unbound), and its
+/// harness to `harness` when given.
 #[derive(Deserialize)]
 pub(super) struct BindSessionParams {
     surface: SurfaceId,
@@ -242,6 +303,11 @@ pub(super) struct BindSessionParams {
     /// Required; JSON null names an unbound tab.
     #[serde(deserialize_with = "required_nullable")]
     expected_session: Option<String>,
+    /// The agent the session runs, as its machine's acpmux reports it; set
+    /// in the same commit (a bind of the tab's own session with another
+    /// harness updates the harness alone).
+    #[serde(default)]
+    harness: Option<String>,
 }
 
 /// A field that must be present and may be null (serde treats a missing
@@ -257,7 +323,7 @@ pub(super) fn bind(
     actor: &Actor,
     params: BindSessionParams,
 ) -> anyhow::Result<Value> {
-    let BindSessionParams { surface, session, expected_session } = params;
+    let BindSessionParams { surface, session, expected_session, harness } = params;
     // A machine's own tab binds only through agent-session-start (which
     // binds in the store directly, never through this command).
     let machine_tab = mux.surface(surface).and_then(|runtime| mux.conversation_tab_of(&runtime));
@@ -267,8 +333,13 @@ pub(super) fn bind(
         return Err(MachineMismatch.into());
     }
     let expected = expected_session.as_deref();
-    let (record, replayed) =
-        mux.bind_conversation_tab_session_as(actor, surface, &session, expected)?;
+    let (record, replayed) = mux.bind_conversation_tab_session_as(
+        actor,
+        surface,
+        &session,
+        expected,
+        harness.as_deref(),
+    )?;
     Ok(json!({"surface": surface, "conversation": record.wire(), "replayed": replayed}))
 }
 
@@ -408,3 +479,7 @@ mod conversation_tab_transaction_tests;
 #[cfg(test)]
 #[path = "page_tabs_tests.rs"]
 mod page_tabs_tests;
+
+#[cfg(test)]
+#[path = "conversation_tab_split_tests.rs"]
+mod conversation_tab_split_tests;

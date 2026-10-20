@@ -8,6 +8,7 @@ import type { AgentPaneVariant } from "../format";
 import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
+import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -27,13 +28,17 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
+  resetSummaryCards();
+  if (state.mockHarnesses)
+    (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   const deliver = () => {
     const bridge = window.cmuxAcpmuxBridge;
     if (!bridge) return;
-    bridge.applyTheme(context.agentTheme);
+    bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
+    bridge.applySessionStatus?.(state.sessionStatus === true);
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {

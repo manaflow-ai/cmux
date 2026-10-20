@@ -37,6 +37,11 @@ on:
         required: false
         default: false
         type: boolean
+      windows_acpmux:
+        description: "With include_windows: also build acpmux for Windows (artifact cmux-tui-acpmux-x86_64-pc-windows-gnu, its own optional job)"
+        required: false
+        default: false
+        type: boolean
       target_set:
         description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
         required: false
@@ -61,6 +66,11 @@ on:
         required: false
         default: ""
         type: string
+      linux_arm64_runner:
+        description: "Optional Linux ARM64 runner label override"
+        required: false
+        type: string
+        default: ""
       linux_runner:
         description: "Optional Linux x64 runner label override"
         required: false
@@ -132,7 +142,7 @@ jobs:
           LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
-          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm' }}
+          LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
         shell: bash
         run: |
@@ -266,7 +276,10 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        shell: bash
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -322,7 +335,13 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # macOS: line tables in a separate .dSYM per binary (the published binary
+          # gets no DWARF), kept as cmux-tui-dsyms-<target> and uploaded to Sentry by
+          # cmux-tui-artifacts.yml, so crashes in cmux-tui and acpmux symbolicate.
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
+          fi
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -348,7 +367,7 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
@@ -372,7 +391,13 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target ${{ matrix.build_target }}
+          # macOS: line tables in a separate .dSYM per binary (the published binary
+          # gets no DWARF), kept as cmux-tui-dsyms-<target> and uploaded to Sentry by
+          # cmux-tui-artifacts.yml, so crashes in cmux-tui and acpmux symbolicate.
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export CARGO_PROFILE_RELEASE_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed
+          fi
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
           # The app host runs each app's JS next to the daemon, which finds it
           # beside its own executable (cmux-tui-core::apps). Unix only.
           cargo build -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
@@ -443,7 +468,7 @@ jobs:
             --release --locked --target "$AGENT_PLUGIN_TARGET"
 
       - name: Build the macOS binaries on Linux (no Apple SDK)
-        # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook,
+        # Every binary the macOS legs below build (cmux-tui, cmux-tui-hook, cmux-tui-host,
         # cmux-app-host, cmux-relay, chatmux-relay, acpmux, cmux-cloud,
         # cmux-browser-host, cmux-agent-screen-detection), with the same stamps, into the same target
         # directory, so "Stage binary" is unchanged. scripts/ci/macos-cross.sh
@@ -524,6 +549,14 @@ jobs:
             browser_host_binary="dist/cmux-tui-browser-host-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$browser_host_binary"
           fi
+          # The slim terminal host rides the same way as cmux-tui-host-<target>
+          # and installs as cmux-tui-host beside cmux-tui, where a macOS daemon
+          # runs every terminal host from (host_exe.rs). macOS only for now.
+          terminal_host_binary=""
+          if [[ "$STAGE_TARGET" == *-apple-darwin ]]; then
+            terminal_host_binary="dist/cmux-tui-host-${{ matrix.target }}"
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-tui-host" "$terminal_host_binary"
+          fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. macOS only for now, and
@@ -555,6 +588,9 @@ jobs:
             fi
             if [[ -n "$browser_host_binary" ]]; then
               cp "$browser_host_binary" "dist/cmux-tui-browser-host-${{ matrix.compatibility_target }}"
+            fi
+            if [[ -n "$terminal_host_binary" ]]; then
+              cp "$terminal_host_binary" "dist/cmux-tui-host-${{ matrix.compatibility_target }}"
             fi
             if [[ -n "$agent_detector_binary" ]]; then
               cp "$agent_detector_binary" "dist/cmux-tui-agent-screen-detection-${{ matrix.compatibility_target }}"
@@ -592,6 +628,16 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         shell: bash
         run: cmux-tui/scripts/smoke-remote-release.sh "dist/cmux-tui-${{ matrix.target }}"
+
+      # Debug symbols only, never shipped: cmux-tui-artifacts.yml uploads them to Sentry.
+      - name: Upload macOS debug symbols artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          retention-days: ${{ inputs.retention_days }}
+          name: cmux-tui-dsyms-${{ matrix.target }}
+          path: cmux-tui/target/${{ matrix.target }}/release/*.dSYM
+          if-no-files-found: warn
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -653,7 +699,10 @@ jobs:
           persist-credentials: false
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+        shell: bash
+        run: |
+          bash scripts/ci/init-submodule.sh ghostty
+          bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
@@ -800,6 +849,72 @@ jobs:
             dist/cmux-tui-host-x86_64-pc-windows-gnu.exe
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
+          if-no-files-found: error
+
+  # acpmux for GPUI on Windows (cx-ephhf), published by cmux-tui-artifacts.yml
+  # in cmux-tui-windows/<sha>/ and as an optional Windows tree companion. Its
+  # own job, in parallel with build-windows, not a step in it: acpmux shares
+  # few crates with cmux-tui (codex, no libghostty-vt), and its fat-LTO build
+  # added to build-windows would lengthen the Windows leg, which ends every
+  # tree publication. Optional (continue-on-error): a failure leaves only this
+  # artifact out, never the Windows daemon; the package job does not need it.
+  build-windows-acpmux:
+    name: build acpmux x86_64-pc-windows-gnu
+    if: inputs.include_windows && inputs.windows_acpmux
+    continue-on-error: true
+    runs-on: ${{ inputs.windows_runner || github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || 'blacksmith-4vcpu-windows-2025' }}
+    timeout-minutes: 60
+    env:
+      CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS: -C link-arg=-fuse-ld=lld
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller or requested ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
+
+      - name: Verify LLVM GNU linker
+        shell: bash
+        run: ld.lld --version
+
+      # The same reviewed MinGW toolchain as cmux-tui.exe (build-windows).
+      - name: Verify the reviewed Windows runtime toolchain
+        shell: bash
+        run: python cmux-tui/dist/scripts/package_notices.py check-windows-toolchain
+
+      - name: Build acpmux (Windows GNU)
+        working-directory: cmux-tui
+        shell: bash
+        run: cargo build -p acpmux --bin acpmux --release --locked --target x86_64-pc-windows-gnu
+
+      - name: Verify acpmux starts
+        shell: bash
+        run: cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe --version
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/acpmux.exe" "dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe"
+          ls -la dist
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          retention-days: ${{ inputs.retention_days }}
+          name: cmux-tui-acpmux-x86_64-pc-windows-gnu
+          path: dist/cmux-tui-acpmux-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
 
   package:

@@ -2,7 +2,7 @@ public import AppKit
 
 /// The Cmd-J leader over a registry: Cmd-J arms it, the next single key
 /// runs an action, and a which-key overlay lists those keys while it waits
-/// (the App's `ChordTracker` and `WhichKeyController`). Its bindings are
+/// (the App's `ChordTracker`, CmuxNextFocusUI's `WhichKeyController`). Its bindings are
 /// ordinary chords whose first key is `prefix`, so cmux.json rebinds each
 /// one like any chord (`["cmd+j", "k"]`), and unbinding them all gives
 /// Cmd-J back to the focused view. Ghostty's own `super+j` is unbound for

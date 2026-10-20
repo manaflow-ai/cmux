@@ -8,6 +8,7 @@ Behaviour per prompt text:
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
@@ -15,11 +16,20 @@ Behaviour per prompt text:
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
+
+FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
+advertises steering; a prompt while a turn runs is read into that turn and
+answered at once with stopReason "steered"; the turn runs on and its own
+prompt is answered when it ends.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
+
+FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
+exits 1 without answering, as a harness wrapper that refuses to start does.
 
 FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
@@ -42,6 +52,10 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+# Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
+net_down = set()
+# Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
+net_flaky = set()
 next_id = 100
 pending = {}
 # Sessions this process created or finished loading.
@@ -49,12 +63,21 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# Whether the client asked for native subagent sessions the way codex-acp 1.10.0
+# reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
+# schema strips the draft `subagents` field, so that one does not count).
+NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
+    send_all([obj])
+
+
+def send_all(objs):
+    """Write `objs` as one write: a burst the agent sends at once."""
     with lock:
-        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.write("".join(json.dumps(o) + "\n" for o in objs))
         sys.stdout.flush()
 
 
@@ -150,6 +173,19 @@ def codex_prompt(rid, params):
             return
         codex_turns[sid] = [rid]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "turn: " + text}})
+    # "slow-stop": the turn runs until session/cancel (bounded), then takes 5 s
+    # to stop; a prompt in that time joins it and is answered for it.
+    if text == "slow-stop":
+        for _ in range(600):
+            if sid in cancelled:
+                break
+            time.sleep(0.05)
+        cancelled.discard(sid)
+        time.sleep(5)
+        with lock:
+            ids = codex_turns.pop(sid)
+        send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "cancelled"}})
+        return
     # The turn runs until a joined prompt arrives (bounded), then a moment.
     for _ in range(300):
         with lock:
@@ -162,6 +198,29 @@ def codex_prompt(rid, params):
         ids = codex_turns.pop(sid)
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"answered {len(ids)}"}})
     send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
+
+
+# FAKE_CLAUDE_STEER: sessions with a running turn.
+claude_turns = set()
+
+
+def claude_prompt(rid, params):
+    """Claude Code: a prompt during a turn is a steer, answered "steered" at once."""
+    sid = params["sessionId"]
+    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    with lock:
+        steer = sid in claude_turns
+        if not steer:
+            claude_turns.add(sid)
+    if steer:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
+        return
+    try:
+        handle_prompt(rid, params)
+    finally:
+        with lock:
+            claude_turns.discard(sid)
 
 
 def run_hostname(rid, sid):
@@ -191,6 +250,49 @@ def handle_prompt(rid, params):
     text = "".join(b.get("text", "") for b in blocks)
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
         return run_hostname(rid, sid)
+    # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
+    # with a transport error once per session; "net-down" fails it and every later prompt of
+    # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-fail-then-exit" fails with that transport error, then the agent exits.
+    if text == "net-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        time.sleep(0.05)
+        os._exit(0)
+    # "net-refused-later" waits a moment, then fails with a refused connection.
+    if text == "net-refused-later":
+        time.sleep(0.5)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
+    # an agent stopped mid-stream may.
+    if text == "net-fail-on-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-flaky: X" streams a moment, then fails with that transport error; the session's next
+    # prompt fails the same way, and later ones are answered as usual. The wait leaves a test
+    # time to queue a prompt behind it on a loaded machine.
+    if text.startswith("net-flaky:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "flaky "}})
+        time.sleep(3.0)
+        net_flaky.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if sid in net_flaky:
+        net_flaky.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if text.startswith("net-down"):
+        net_down.add(sid)
+    if sid in net_down or (text.startswith("net-fail-once:") and sid not in failed_once):
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
     links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
     if links:
         text += " " + " ".join(
@@ -207,6 +309,8 @@ def handle_prompt(rid, params):
         choices = []
         for wave in [fixture["items"], fixture.get("after", [])]:
             wave_ids = []
+            # One write for the wave: parallel tool calls asked at once (cx-nx5mb).
+            asks = []
             for item in wave:
                 global next_id
                 with lock:
@@ -216,7 +320,7 @@ def handle_prompt(rid, params):
                 pending[aid] = [ev, None]
                 wave_ids.append(aid)
                 allow_kind = item.get("allowKind", "allow_once")
-                send({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
+                asks.append({"jsonrpc":"2.0", "id":aid, "method":"session/request_permission", "params":{
                     "sessionId":sid,
                     "toolCall":{"toolCallId":str(aid), "title":item["title"], "kind":item["kind"],
                                 "rawInput":{"fixture":item["title"]},
@@ -225,6 +329,8 @@ def handle_prompt(rid, params):
                               ([{"optionId":f"no-{aid}", "kind":"reject_once", "name":"Deny"}]
                                if item.get("reject", True) else [])
                 }})
+            if asks:
+                send_all(asks)
             for aid in wave_ids:
                 pending[aid][0].wait()
                 reply = pending.pop(aid)[1] or {}
@@ -431,6 +537,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
     # "meta: X" sends a chunk whose notification carries the agent's own _meta.
+    # "harness-title: X" titles the session itself, as Codex does.
+    if text.startswith("harness-title:"):
+        update(sid, {"sessionUpdate": "session_info_update", "title": text[14:].strip()})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("meta:"):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
@@ -452,6 +563,44 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Reconnecting... 1", "willRetry": True, "additionalDetails": "stream disconnected"}}}})
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native
+    # subagent sessions, a subagent_spawned per child and each child's own
+    # updates under its session id; without, only "Start subagent" tool calls.
+    if text == "codex-subagents":
+        children = [("child-a", "/root/read_a", "Read a", "a.txt"), ("child-b", "/root/read_b", "Read b", "b.txt")]
+        for child, path, name, _ in children:
+            if NATIVE_SUBAGENTS:
+                update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": child, "name": name, "task": f"Delegated task for {name}", "capabilities": {}})
+            else:
+                update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"start-{child}", "title": f"Start subagent {path[6:]}", "kind": "other", "status": "completed",
+                             "_meta": {"codex": {"subagent": {"threadId": child, "path": path, "activity": "started"}}}})
+        if NATIVE_SUBAGENTS:
+            for child, _, _, file in children:
+                update(child, {"sessionUpdate": "tool_call", "toolCallId": f"read-{child}", "title": f"Read file '{file}'", "kind": "read", "status": "completed"})
+                update(child, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{file} says hello"}})
+                update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": child, "state": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both read"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "codex-late-subagent-ask": a native subagent that outlives its parent's turn and asks
+    # for permission after that turn ended (cx-jo8yo): the turn ends at once, then the child
+    # asks under its own session id and says what it was answered.
+    if text == "codex-late-subagent-ask" and NATIVE_SUBAGENTS:
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "late-child", "name": "Late", "task": "Late", "capabilities": {}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+        def late():
+            call = {"toolCallId": "late-1", "title": "touch late.txt", "kind": "edit", "status": "pending"}
+            res = request("session/request_permission", {"sessionId": "late-child", "toolCall": call, "options": [
+                {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+            ]})
+            outcome = (res or {}).get("outcome") or {}
+            update("late-child", {"sessionUpdate": "agent_message_chunk", "content": {"type": "text",
+                   "text": "late " + (outcome.get("optionId") or outcome.get("outcome") or "none")}})
+            update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "late-child", "state": "completed"})
+        threading.Thread(target=late, daemon=True).start()
         return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
     if text == "codex-fail":
@@ -486,6 +635,14 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
+    # that is idle as far as it knows while acpmux's turn is still open.
+    if text == "deaf-to-cancel":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        time.sleep(20)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "answer-then-exit" answers, then the agent exits between turns.
     if text == "answer-then-exit":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
@@ -505,6 +662,29 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "parallel-tools: PATH" starts two tool calls at once, titled with their
+    # input the way Claude Code's adapter titles them. The second ends first;
+    # the first ends once the test writes to the FIFO at PATH.
+    if text.startswith("parallel-tools:"):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "slow-1", "kind": "execute", "status": "pending",
+                     "title": "curl -H 'Authorization: Bearer fake-secret' https://example.invalid"})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "fast-1", "kind": "read", "status": "pending",
+                     "title": "Read /home/fake/secret-notes.txt"})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "fast-1", "status": "completed"})
+        with open(text[len("parallel-tools:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "slow-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "thoughts: N" streams N thought chunks in one burst, then a short answer.
+    if text.startswith("thoughts:"):
+        send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "."}}}}
+            for _ in range(int(text[len("thoughts:"):].strip()))])
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -516,8 +696,22 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "thinking"}})
+    # FAKE_TOOL_CALLS=N: N finished shell calls first, as a working agent's turn shows them.
+    for k in range(int(os.environ.get("FAKE_TOOL_CALLS", "0") or 0)):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"run-{k}", "kind": "execute",
+                     "status": "completed", "title": f"echo probe {k}"})
+    # FAKE_SHORT_ECHO=1: echo only the prompt's last line (a Chief envelope is 100+ KB).
+    if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
+        text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
+# FAKE_PICKER_MODES=claude: each session's model (session/set_model), and the models it offers.
+PICKER_MODELS = {}
+PICKER_EFFORTS = {}
+CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"),
+                 ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
 def main():
@@ -551,20 +745,76 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
+            sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
+            sys.stderr.flush()
+            sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
-        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
-        # start a child that leaves this process group (setsid), as a harness that
-        # daemonizes a helper does, and write its pid to that file.
+        # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
+        # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
+        # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
+        if os.environ.get("FAKE_PICKER") == "1" and m in ("session/new", "session/set_model", "session/set_config_option"):
+            if os.environ.get("FAKE_CALLS") and m != "session/new":
+                with open(os.environ["FAKE_CALLS"], "a") as calls:
+                    calls.write(json.dumps({"method": m, "params": params}) + "\n")
+            # =claude also reports the model it runs as Claude Code does, a "model" option, and
+            # tells the client when a set_model changes it; each session keeps its own effort.
+            claude_like = os.environ.get("FAKE_PICKER_MODES") == "claude"
+            sid = params.get("sessionId") or f"{SESSION_PREFIX}{sessions + 1}"
+            if m == "session/set_config_option" and params.get("configId") == "effort":
+                PICKER_EFFORTS[sid] = params.get("value")
+            effort = {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select",
+                      "currentValue": PICKER_EFFORTS.get(sid, "high") if claude_like else "high",
+                      "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
+            if m == "session/set_model" and params.get("modelId") != os.environ.get("FAKE_REFUSE_ID"):
+                PICKER_MODELS[sid] = params.get("modelId")
+            options = [effort] + ([{"id": "model", "name": "Model", "category": "model", "type": "select",
+                                    "currentValue": PICKER_MODELS.get(sid, "default"),
+                                    "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}] if claude_like else [])
+            if m == "session/new":
+                sessions += 1
+                result = {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": options}
+                # FAKE_PICKER_MODES=1: the picker harness reports the two session modes too;
+                # =claude: Claude Code's modes, so acpmux's full-access start mode applies.
+                if os.environ.get("FAKE_PICKER_MODES") == "1":
+                    result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
+                elif os.environ.get("FAKE_PICKER_MODES") == "claude":
+                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                        {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
+                        {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
+                send({"jsonrpc": "2.0", "id": rid, "result": result})
+            elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
+            elif m == "session/set_model":
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                if claude_like:
+                    update(sid, {"sessionUpdate": "config_option_update", "configOptions": options})
+            elif params.get("configId") == "model" and claude_like:
+                PICKER_MODELS[sid] = params.get("value")
+                options[-1]["currentValue"] = params.get("value")
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
+            else:
+                effort["currentValue"] = params.get("value")
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
+            continue
+        # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
+        # process group (setsid), as a harness that daemonizes a helper does, and
+        # write its pid to <path>.<this harness pid>. Every harness with the env
+        # does it (the daemon's model probe too), so one file per harness: a test
+        # reads the file of the exact harness it checks. session/new answers only
+        # once the helper has left the group: until then the group signal still
+        # reaches it (cx-n3uid).
         if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
             import subprocess
             helper = subprocess.Popen(
-                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
-            with open(tmp, "w") as f:
+                [sys.executable, "-c", "import os, sys, time; os.setsid(); sys.stdout.write('1'); sys.stdout.flush(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            helper.stdout.read(1)
+            out = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
                 f.write(str(helper.pid))
-            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
+            os.replace(f"{out}.tmp", out)
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
@@ -582,6 +832,9 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "Authentication required"}})
             continue
         if m == "initialize":
+            global NATIVE_SUBAGENTS
+            air = ((params.get("clientCapabilities") or {}).get("_meta") or {}).get("jetbrains", {}).get("air", {})
+            NATIVE_SUBAGENTS = air.get("version", 0) >= 1 and "nativeSubagentSessions" in air.get("capabilities", [])
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
             if os.environ.get("FAKE_INIT_DELAY_MS"):
@@ -589,7 +842,7 @@ def main():
                 pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
-                "_meta": {"steering": {"supported": os.environ.get("FAKE_CODEX_STEER") == "1"}},
+                "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": "fake", "version": "0"},
                 "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
@@ -614,6 +867,12 @@ def main():
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
+            if os.environ.get("FAKE_PLAN_MODE") == "1":
+                result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
+            # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
+            if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
+                result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
             # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
             if os.environ.get("FAKE_ASK_MODE") == "1":
                 result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
@@ -654,6 +913,10 @@ def main():
             sessions += 1
             send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
+            # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
@@ -663,6 +926,8 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
             target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            if os.environ.get("FAKE_CLAUDE_STEER") == "1":
+                target = claude_prompt
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()

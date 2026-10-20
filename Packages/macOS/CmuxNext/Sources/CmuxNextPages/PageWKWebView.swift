@@ -11,8 +11,12 @@ import WebKit
 /// Swipe navigation and link previews are off in ``PageWebView``. Third-party pages in browser tabs
 /// use their own views and are not affected.
 @MainActor
+// webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
 final class PageWKWebView: WKWebView {
     var onUserEvent: (() -> Void)?
+    /// Whether the page now shown accepts the first mouse (``PageDescriptor/acceptsFirstMouse``);
+    /// read per click, so a pooled view rebound to another page answers for that page.
+    var pageAcceptsFirstMouse: (() -> Bool)?
     /// The context menu items a page keeps: Copy (WebKit adds it only when there is a selection).
     static let keptMenuItems: Set<String> = ["WKMenuItemIdentifierCopy"]
 
@@ -62,8 +66,13 @@ final class PageWKWebView: WKWebView {
 
     /// Whether a key or mouse event reached the view within `seconds`.
     func hasRecentUserGesture(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
-        guard let last = lastUserEventUptime else { return false }
-        return now - last <= seconds
+        recentUserGestureEvent(within: seconds, now: now) != nil
+    }
+
+    /// The uptime of the key or mouse event that reached the view within `seconds`, else nil.
+    func recentUserGestureEvent(within seconds: TimeInterval = 1, now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> TimeInterval? {
+        guard let last = lastUserEventUptime, now - last <= seconds else { return nil }
+        return last
     }
 
     func noteUserEvent(_ event: NSEvent) {
@@ -96,6 +105,28 @@ final class PageWKWebView: WKWebView {
     /// Whether `id` is `menu` or one of its submenus (at any depth).
     private static func menu(_ menu: NSMenu, contains id: ObjectIdentifier) -> Bool {
         ObjectIdentifier(menu) == id || menu.items.contains { item in item.submenu.map { Self.menu($0, contains: id) } ?? false }
+    }
+
+    /// On a page that opts in (``PageDescriptor/acceptsFirstMouse``, off by default), a first click
+    /// in an inactive window reaches the page, as on the native controls (sidebar rows, dividers,
+    /// toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a person's
+    /// click on a page button only activated the window. Every other page, and a view with no
+    /// owner, keeps WebKit's answer.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        if pageAcceptsFirstMouse?() ?? false { return true }
+        // WebKit reads the event (its location); without one it has no first mouse to accept.
+        guard let event else { return false }
+        return super.acceptsFirstMouse(for: event)
+    }
+
+    /// Called each time this view becomes first responder (pane focus, a click, a restore); the
+    /// owning ``PageWebView`` tells the page (`focusContent`), which focuses its primary input.
+    var onBecameFirstResponder: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onBecameFirstResponder?() }
+        return became
     }
 
     override func keyDown(with event: NSEvent) { noteUserEvent(event); super.keyDown(with: event) }
@@ -148,16 +179,36 @@ final class PageWKWebView: WKWebView {
     /// every drag to WebKit.
     var fileDrop: PageFileDrop?
 
+    /// Reads the first file URL of a drag's pasteboard: a round trip to the pasteboard server.
+    var readDroppedFileURL: @MainActor (NSPasteboard) -> URL? = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
+    }
+
+    /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
+    /// waits for every `draggingUpdated`, so the file is read once per drag, not on every move.
+    private var dragAnswer: (sequence: Int, url: URL?)?
+
     private func droppedFile(_ info: any NSDraggingInfo) -> URL? {
-        guard let fileDrop,
-              let url = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
-              fileDrop.accepts(url) else { return nil }
+        guard let fileDrop else { return nil }
+        if let answer = dragAnswer, answer.sequence == info.draggingSequenceNumber { return answer.url }
+        let url = readDroppedFileURL(info.draggingPasteboard).flatMap { fileDrop.accepts($0) ? $0 : nil }
+        dragAnswer = (info.draggingSequenceNumber, url)
         return url
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+        dragAnswer = nil
+        return droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragAnswer = nil
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragAnswer = nil
+        super.draggingEnded(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -168,7 +219,9 @@ final class PageWKWebView: WKWebView {
     var onFilesDropped: (@MainActor () -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let url = droppedFile(sender), let fileDrop else {
+        let url = droppedFile(sender)
+        dragAnswer = nil
+        guard let url, let fileDrop else {
             if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
             return super.performDragOperation(sender)
         }

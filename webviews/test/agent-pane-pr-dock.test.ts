@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -132,6 +133,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
     // again if it stalls, so the test times only the bars.
@@ -177,6 +179,41 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     expect(await page.locator(".acpmux-pr-dock__bar").first().getAttribute("href")).toBe(
       "https://github.com/acme/uploader/pull/43",
     );
+    // Each one a chip as wide as its text, its dismiss button inside, and no tooltip (Leo, 2026-10-13).
+    const chip = await page.evaluate(() => {
+      const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
+      const chip = document.querySelector(".acpmux-pr-dock__chip")!;
+      const box = chip.getBoundingClientRect();
+      const x = chip.querySelector(".acpmux-pr-dock__dismiss")!.getBoundingClientRect();
+      return {
+        narrower: box.width < dock.width / 2,
+        inside: x.left >= box.left && x.right <= box.right && x.top >= box.top && x.bottom <= box.bottom,
+        titles: chip.querySelectorAll("[title], [data-tooltip]").length + (chip.hasAttribute("title") ? 1 : 0),
+      };
+    });
+    expect(chip).toEqual({ narrower: true, inside: true, titles: 0 });
+    // The dock takes its own space in the bottom stack (Leo, 2026-10-14: the PR chip sat over the chat):
+    // the transcript runs under the stack (bottomStack.css), and keeps its last line above the dock
+    // when scrolled to the end, at any height.
+    for (const height of [760, 360]) {
+      await page.setViewportSize({ width: 900, height });
+      const overlap = await page.evaluate(async () => {
+        const scroller = document.querySelector(".acpmux-scroll")!;
+        scroller.scrollTop = scroller.scrollHeight;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect());
+        const last = Math.max(...rows.map((row) => Math.min(row.bottom, scroller.getBoundingClientRect().bottom)));
+        const stack = document.querySelector(".acpmux-main > .acpmux-dock")!.getBoundingClientRect();
+        return {
+          // The stack holds the dock: nothing of the stack lies above it but the stack's own parts.
+          dockInStack: dock.top >= stack.top - 0.5,
+          lastLine: Math.max(0, Math.round(last - dock.top)),
+        };
+      });
+      expect(overlap).toEqual({ dockInStack: true, lastLine: 0 });
+    }
+    await page.setViewportSize({ width: 900, height: 760 });
 
     await page.getByRole("button", { name: "Show 1 more" }).click();
     expect((await bars(page)).at(-1)).toEqual(["#41", "uploader", "Add retry to the uploader", "merged"]);

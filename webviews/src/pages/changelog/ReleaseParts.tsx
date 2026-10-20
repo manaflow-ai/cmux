@@ -10,6 +10,8 @@ import type { ChangeItem, WhatsNewCategory } from "./types";
 export interface PartsContext {
   strings: Strings;
   onTry: (action: string) => void;
+  /** Each change with a picture shows it under its row (the Ledger: a visual per feature). */
+  rowMedia?: boolean;
 }
 
 export function categoryLabel(strings: Strings, category: WhatsNewCategory): string {
@@ -61,11 +63,26 @@ export function ItemActions({ item, ctx }: { item: ReleaseItem; ctx: PartsContex
 }
 
 /** The lead change: headline, one paragraph, media, its action. */
-export function Hero({ item, ctx, level = 2 }: { item: ReleaseItem; ctx: PartsContext; level?: 1 | 2 }) {
+export function Hero({
+  item,
+  ctx,
+  level = 2,
+  titled = true,
+}: {
+  item: ReleaseItem;
+  ctx: PartsContext;
+  level?: 1 | 2;
+  /** False when the release title above already says it (the Ledger). */
+  titled?: boolean;
+}) {
   const Heading = level === 1 ? "h1" : "h2";
   return (
     <>
-      <Heading className="cl-headline">{item.title}</Heading>
+      {titled ? (
+        <Heading className="cl-headline">{item.title}</Heading>
+      ) : (
+        <h3 className="cl-row-title cll-lead">{item.title}</h3>
+      )}
       {item.summary
         .split(/\n{2,}/)
         .filter(Boolean)
@@ -103,8 +120,11 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
       <ul>
         {shown.map((item, index) => (
           <li key={`${item.id}-${index}`}>
-            <span className="cl-row-title">{item.title}</span>
-            {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
+            <span className="cl-row-text">
+              <span className="cl-row-title">{item.title}</span>
+              {item.summary && <span className="cl-row-summary"> {item.summary.split(/\n{2,}/)[0]}</span>}
+              {ctx.rowMedia && item.media && <Media media={item.media} className="cl-row-media" />}
+            </span>
             {item.action && (
               <button type="button" className="cl-row-action" onClick={() => ctx.onTry(item.action!.id)}>
                 {item.action.title || ctx.strings.t("changelog.page.tryIt")}
@@ -122,8 +142,20 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
   );
 }
 
-/** Every change, folded: readable titles with their pull request linked, 20 at a time. */
-export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[]; strings: Strings; open?: boolean }) {
+/** Every change a person would notice, folded: readable titles with their pull request linked,
+    20 at a time, and under them one quiet line for the internal ones. A release of internal work
+    alone shows no fold: the page already says "Maintenance and fixes". */
+export function ChangesFold({
+  changes,
+  internal = 0,
+  strings,
+  open,
+}: {
+  changes: ChangeItem[];
+  internal?: number;
+  strings: Strings;
+  open?: boolean;
+}) {
   const [shown, setShown] = useState(CHANGES_PAGE);
   if (changes.length === 0) return null;
   return (
@@ -148,6 +180,13 @@ export function ChangesFold({ changes, strings, open }: { changes: ChangeItem[];
         <button type="button" className="cl-more" onClick={() => setShown((n) => n + CHANGES_PAGE * 2)}>
           {strings.t("changelog.page.showMore")}
         </button>
+      )}
+      {internal > 0 && (
+        <p className="cl-changes-internal">
+          {internal === 1
+            ? strings.t("changelog.page.internalChange")
+            : strings.format("changelog.page.internalChanges", String(internal))}
+        </p>
       )}
     </details>
   );

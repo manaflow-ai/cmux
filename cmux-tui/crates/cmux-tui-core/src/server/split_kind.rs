@@ -29,9 +29,17 @@ pub(super) struct SplitParams {
     cols: Option<u16>,
     #[serde(default)]
     rows: Option<u16>,
+    /// `split-client-split-id-v1`: caller-minted public id of the new split.
+    #[serde(default)]
+    split_id: Option<String>,
     #[serde(flatten)]
     content: PaneContentParams,
 }
+
+/// `split` takes a client-minted `split_id` for the split it makes, and every
+/// layout split node carries its public id as `split_id`, so a client that
+/// shows the split before the daemon has it keys both by one id.
+pub(super) const SPLIT_CLIENT_SPLIT_ID_CAPABILITY: &str = "split-client-split-id-v1";
 
 /// What the new pane holds: a terminal (fields of `terminal-env-v1`,
 /// `terminal-placement-env-v1`, `terminal-reap-v1`, `terminal-shell-args-v1`)
@@ -159,19 +167,35 @@ pub(super) fn new_pane_right(
 pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> anyhow::Result<Value> {
     let dir = parse_split_dir(&params.dir)?;
     let size = optional_surface_size(params.cols, params.rows);
+    if let Some(split_id) = &params.split_id {
+        crate::resource::SplitPublicId::parse(split_id.clone())
+            .map_err(|_| anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id"))?;
+    }
     if let Some(url) = params.content.browser_url("split")? {
-        let surface = mux.split_browser_pane_as(
+        let mut fields = serde_json::Map::from_iter([(
+            crate::mux::PANE_BROWSER_URL_FIELD.into(),
+            Value::String(url),
+        )]);
+        if let Some(split_id) = params.split_id {
+            fields.insert(crate::mux::CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
+        }
+        let direction = match dir {
+            SplitDir::Right => "right",
+            SplitDir::Down => "down",
+        };
+        let surface = mux.split_browser_pane_with_fields_as(
             &origin_gate::connection_actor(mux, client),
             params.pane,
-            dir,
+            direction,
             None,
-            url,
+            fields,
             size,
         )?;
         return Ok(json!({ "surface": surface.id }));
     }
     let keep = params.content.keep;
-    let spawn = params.content.spawn(mux, client)?;
+    let mut spawn = params.content.spawn(mux, client)?;
+    spawn.split_id = params.split_id;
     let created = mux.split_with_options_as(
         &origin_gate::connection_actor(mux, client),
         params.pane,
@@ -252,6 +276,11 @@ impl SplitParams {
     pub(super) fn set_terminal_id(&mut self, terminal_hex: String) {
         self.content.terminal_id = Some(terminal_hex);
     }
+
+    /// The caller-minted terminal host id, if the request names one.
+    pub(super) fn terminal_id(&self) -> Option<&str> {
+        self.content.terminal_id.as_deref()
+    }
 }
 
 impl NewPaneRightParams {
@@ -261,6 +290,10 @@ impl NewPaneRightParams {
 
     pub(super) fn set_terminal_id(&mut self, terminal_hex: String) {
         self.content.terminal_id = Some(terminal_hex);
+    }
+
+    pub(super) fn terminal_id(&self) -> Option<&str> {
+        self.content.terminal_id.as_deref()
     }
 }
 

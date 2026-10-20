@@ -92,6 +92,11 @@ pub struct BranchChangeRequest {
 #[ts(export_to = "protocol.ts")]
 pub struct BranchListResult {
     pub groups: Vec<BranchPickerGroup>,
+    /// Present and true when the repository has more branches than the
+    /// picker lists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub truncated: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

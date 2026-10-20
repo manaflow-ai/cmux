@@ -5,29 +5,9 @@ import CmuxNextSidebar
 import Observation
 
 // `sidebar.side` and `sidebar.spacesPosition` (R109): the root pins the
-// sidebar to the chosen edge, the content and title beside it, and passes
-// the spaces position to the sidebar.
+// sidebar to the chosen edge (`SidebarSide.pins`), the content and title
+// beside it, and passes the spaces position to the sidebar.
 extension WindowRootView {
-    static func sidePins(sidebar: NSView, content: NSView, title: NSView, in root: NSView) -> [SidebarSide: [NSLayoutConstraint]] {
-        // Below required, so the title yields to the traffic-light inset.
-        func follow(_ constraint: NSLayoutConstraint) -> NSLayoutConstraint {
-            constraint.priority = .required - 1
-            return constraint
-        }
-        return [
-            .left: [sidebar.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-                    content.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor),
-                    content.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-                    follow(title.leadingAnchor.constraint(equalTo: sidebar.trailingAnchor)),
-                    title.trailingAnchor.constraint(equalTo: root.trailingAnchor)],
-            .right: [sidebar.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-                     content.leadingAnchor.constraint(equalTo: root.leadingAnchor),
-                     content.trailingAnchor.constraint(equalTo: sidebar.leadingAnchor),
-                     follow(title.leadingAnchor.constraint(equalTo: root.leadingAnchor)),
-                     title.trailingAnchor.constraint(equalTo: sidebar.leadingAnchor)],
-        ]
-    }
-
     /// Swaps the pins to `sidebarSide` without animating. The layout may
     /// only move (same size), which runs no layout pass of its own, so it
     /// is laid out here: pane rings and overlay rects follow, and strips
@@ -36,6 +16,8 @@ extension WindowRootView {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         sidebar.side = sidebarSide
+        // The right sidebar's inset moves to the other edge with it.
+        applyMainPane()
         layoutSubtreeIfNeeded()
         content?.needsLayout = true
         content?.layoutSubtreeIfNeeded()
@@ -53,5 +35,18 @@ extension WindowRootView {
                 self?.sidebar.sidebarView.spacesVisibility = visibility
             }
         }
+    }
+
+    /// The right sidebar fills the window's height on the edge opposite the
+    /// sidebar; its bar starts under the top row (`rowHeight`).
+    func layoutRightPanel(rowHeight: CGFloat) {
+        guard let rightPanel else { return }
+        let width = rightPanelWidth
+        rightPanel.isHidden = width <= 0
+        guard width > 0 else { return }
+        let x = sidebarSide == .left ? bounds.width - width : 0
+        rightPanel.topInset = rowHeight
+        let frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
+        if rightPanel.frame != frame { rightPanel.frame = frame }
     }
 }

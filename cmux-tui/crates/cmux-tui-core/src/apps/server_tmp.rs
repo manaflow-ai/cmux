@@ -15,8 +15,14 @@
 //!   folder). Anything else refuses, and so does a folder over
 //!   [`MAX_SOCKET_DIR`] (with its length).
 //! - Other unix: the old path when it fits; else `$XDG_RUNTIME_DIR/cmux-apps/
-//!   <12 hex>` when that runtime dir is the user's own 0700 folder; else a
-//!   refusal.
+//!   <12 hex>` when `XDG_RUNTIME_DIR` is set (it must be the user's own 0700
+//!   folder, else a refusal); else, for a daemon with no login session (no
+//!   runtime dir: a container, cron, a service, an ssh session without
+//!   pam_systemd; cx-9mmyz), `/tmp/cmux-apps-<euid>/<12 hex>`, the per-user
+//!   folder tmux also uses. `/tmp` must be a real directory that root or this
+//!   user owns and that is sticky or not writable by others, so no other user
+//!   can rename the per-user folder away; the per-user folder gets the same
+//!   checks as every parent below (another user's folder there refuses).
 //!
 //! The 12 hex are the first 6 bytes of sha256(`<state base>\0<namespace>`):
 //! one folder per daemon instance and app.
@@ -111,16 +117,48 @@ pub(super) fn server_tmp_dir(base: &Path, namespace: &str) -> Result<PathBuf, St
         if fits(&old).is_ok() {
             return Ok(old);
         }
+        let name = short_name(base, namespace);
         let runtime =
             std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).filter(|p| p.is_absolute());
-        let Some(runtime) = runtime else {
-            return fits(&old).map(|()| old);
-        };
-        private_dir(&runtime, "the runtime dir")?;
-        let dir = runtime.join("cmux-apps").join(short_name(base, namespace));
+        if let Some(runtime) = runtime {
+            private_dir(&runtime, "the runtime dir")?;
+            let dir = runtime.join("cmux-apps").join(name);
+            fits(&dir)?;
+            return Ok(dir);
+        }
+        let tmp = Path::new("/tmp");
+        shared_tmp(tmp)?;
+        // SAFETY: geteuid has no preconditions.
+        let uid = unsafe { libc::geteuid() };
+        let dir = tmp.join(format!("cmux-apps-{uid}")).join(name);
         fits(&dir)?;
         Ok(dir)
     }
+}
+
+/// `/tmp` as the root of a per-user folder: a real directory (lstat) owned
+/// by root or this uid, and sticky or not writable by group or others, so
+/// another user cannot rename or delete the per-user folder in it.
+#[cfg(not(target_os = "macos"))]
+fn shared_tmp(path: &Path) -> Result<(), String> {
+    let meta = std::fs::symlink_metadata(path)
+        .map_err(|e| format!("no runtime dir, and {}: {e}", path.display()))?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(format!("no runtime dir, and {} is not a real directory", path.display()));
+    }
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    // S_ISVTX; mode_t is u16 on some BSDs, so the bit is spelled out.
+    let sticky = meta.mode() & 0o1000 != 0;
+    if (meta.uid() != 0 && meta.uid() != uid) || (meta.mode() & 0o022 != 0 && !sticky) {
+        return Err(format!(
+            "no runtime dir, and {} is not safe for a per-user folder (owner {}, mode {:o})",
+            path.display(),
+            meta.uid(),
+            meta.mode() & 0o7777
+        ));
+    }
+    Ok(())
 }
 
 /// `path` is a real directory (lstat: not a symlink) owned by this uid, with

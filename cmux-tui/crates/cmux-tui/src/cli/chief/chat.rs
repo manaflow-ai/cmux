@@ -19,6 +19,9 @@ pub(super) enum Style {
     Plain,
     Header,
     Dim,
+    /// A body line wrapped to the width with its terminal hyperlinks written in
+    /// (`hyperlink::mark`): printed as it is, since clipping would count the escapes.
+    Linked,
 }
 
 pub(super) type Line = (Style, String);
@@ -34,10 +37,9 @@ pub(super) struct Chat {
     /// The Chief is working (typing on).
     pub busy: bool,
     pub show_thoughts: bool,
-    /// Subagent links show as their labels and print as terminal hyperlinks (`hyperlink`).
+    /// Links (subagent, Markdown web links, bare web URLs) show as their labels and print as
+    /// terminal hyperlinks (`hyperlink`), each only in its own message's lines.
     pub hyperlinks: bool,
-    /// The subagent links seen so far: (label, url).
-    pub links: Vec<(String, String)>,
 }
 
 impl Default for Chat {
@@ -50,7 +52,6 @@ impl Default for Chat {
             busy: false,
             show_thoughts: false,
             hyperlinks: false,
-            links: Vec::new(),
         }
     }
 }
@@ -70,14 +71,20 @@ impl Chat {
         let header = if time.is_empty() { name } else { format!("{name}  {time}") };
         lines.push((Style::Header, header));
         let text = message_text(message);
-        let text = if self.hyperlinks {
-            let (shown, found) = super::hyperlink::split(&text);
-            self.links.extend(found);
-            shown
+        if !self.hyperlinks {
+            lines.extend(self.body(&text, Style::Plain));
+            return lines;
+        }
+        let (shown, links) = super::hyperlink::split(&text);
+        let body = self.body(&shown, Style::Plain);
+        if links.is_empty() {
+            lines.extend(body);
         } else {
-            text
-        };
-        lines.extend(self.body(&text, Style::Plain));
+            lines.extend(
+                body.into_iter()
+                    .map(|(_, line)| (Style::Linked, super::hyperlink::mark(&line, &links))),
+            );
+        }
         lines
     }
 

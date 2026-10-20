@@ -68,7 +68,7 @@ done
 
 export CARGO_TARGET_DIR="$out_root/cargo"
 # Match the packages' deployment targets so the linker does not warn per object.
-export MACOSX_DEPLOYMENT_TARGET=26.0
+export MACOSX_DEPLOYMENT_TARGET=14.0
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 
 build() {

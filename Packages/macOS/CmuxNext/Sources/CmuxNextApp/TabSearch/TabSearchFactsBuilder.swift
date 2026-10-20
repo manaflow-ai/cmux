@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDaemon
 import Foundation
 
 /// Builds the control snapshot's Search Tabs facts from the App's owners:
@@ -9,7 +10,8 @@ enum TabSearchFactsBuilder {
         ControlTabSearchFacts(lastActive: lastActive(services), closing: closing(services), closed: closed(services))
     }
 
-    private static func lastActive(_ services: AppServices) -> [String: Date] {
+    /// When the user last settled on each tab (the location trail), by tab id.
+    static func lastActive(_ services: AppServices) -> [String: Date] {
         var result: [String: Date] = [:]
         for entry in services.locationTrail.trail.entries {
             let tab = entry.location.key.tab
@@ -19,14 +21,9 @@ enum TabSearchFactsBuilder {
         return result
     }
 
-    private static func closing(_ services: AppServices) -> Set<String> {
-        var result = Set<String>()
-        for (workspace, _) in services.machines.allWorkspaces {
-            for pane in workspace.screens.flatMap(\.panes) {
-                if let pending = services.paneController(for: pane)?.pendingClosed { result.formUnion(pending) }
-            }
-        }
-        return result
+    /// Tabs whose close is in flight: the daemons' pending close intents (`DaemonStore.closingTabIDs`).
+    static func closing(_ services: AppServices) -> Set<String> {
+        services.machines.daemons.reduce(into: Set<String>()) { $0.formUnion($1.store.closingTabIDs) }
     }
 
     /// The closed tabs the daemons record (the only closed history), newest
@@ -35,8 +32,7 @@ enum TabSearchFactsBuilder {
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
         // Read inside the publisher's tracking: a close republishes.
         _ = services.closedTabs?.changes.revision
-        // Untouched New Tab pages are left out, as in Recently Closed (HistoryService.isWorthReopening).
-        return DaemonClosedHistory.entries([.tab], in: services).filter { HistoryService.isWorthReopening($0.item) }.map { entry in
+        return listed(DaemonClosedHistory.entries([.tab], in: services)) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
             let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
             let local = daemon.machineID == MachineRegistry.localID
@@ -51,5 +47,19 @@ enum TabSearchFactsBuilder {
                 machine: local ? nil : services.machines.machineName(daemon.machineID) ?? daemon.machineID,
                 closedAt: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), isAvailable: daemon.connection != nil)
         }
+    }
+
+    /// The closed tab items Search Tabs lists, of `closed` (newest first, each as its item and
+    /// machine), as Recently Closed lists them: untouched New Tab pages left out
+    /// (HistoryService.isWorthReopening), a page closed again once, at its newest close
+    /// (``DaemonClosedHistory/newestOnce(_:_:)``).
+    static func listed<T>(_ closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        DaemonClosedHistory.newestOnce(closed.filter { HistoryService.isWorthReopening(item($0).item) }, item)
+    }
+
+    /// The closed items Forget deletes for the row of `target`, among `closed`: for a page every
+    /// close of it, so no older one takes its row (``DaemonClosedHistory/closes(of:among:_:)``).
+    static func forgotten<T>(_ target: T, among closed: [T], _ item: (T) -> (item: ClosedItem, machine: String)) -> [T] {
+        DaemonClosedHistory.closes(of: target, among: closed, item)
     }
 }

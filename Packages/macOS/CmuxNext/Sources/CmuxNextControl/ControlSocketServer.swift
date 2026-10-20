@@ -38,6 +38,9 @@ public final class ControlSocketServer: Sendable {
         public var maxQueuedLinesPerConnection: Int
         /// Unsent response bytes per connection before the client is dropped.
         public var maxOutboxBytesPerConnection: Int
+        /// A symlink to `path` kept at the socket's old name, for tools that
+        /// still use it; made only where nothing is, removed on stop.
+        public var compatibilityLink: String?
 
         public init(
             path: String,
@@ -47,7 +50,8 @@ public final class ControlSocketServer: Sendable {
             trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
             maxQueuedLinesPerConnection: Int = 64,
-            maxOutboxBytesPerConnection: Int = 8 << 20
+            maxOutboxBytesPerConnection: Int = 8 << 20,
+            compatibilityLink: String? = nil
         ) {
             self.path = path
             self.accessMode = accessMode
@@ -57,6 +61,7 @@ public final class ControlSocketServer: Sendable {
             self.maxLineBytes = maxLineBytes
             self.maxQueuedLinesPerConnection = maxQueuedLinesPerConnection
             self.maxOutboxBytesPerConnection = maxOutboxBytesPerConnection
+            self.compatibilityLink = compatibilityLink
         }
     }
 
@@ -100,8 +105,10 @@ public final class ControlSocketServer: Sendable {
     /// `bind(2)`; tests wrap it to act while the socket file is created.
     typealias BindCall = @Sendable (Int32, UnsafePointer<sockaddr>, socklen_t) -> Int32
     private let acceptCall: AcceptCall
-    private let bindCall: BindCall
+    let bindCall: BindCall
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
+    /// Puts the socket file back when something deletes it (``ControlSocketPathWatch``).
+    private let pathWatch = Mutex<[ControlSocketPathWatch]>([])
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
@@ -129,8 +136,28 @@ public final class ControlSocketServer: Sendable {
         guard configuration.accessMode != .off else { throw StartError.disabled }
         guard !isRunning else { return }
         let path = configuration.path
+        Self.makeStateDirectory(for: path)
         try Self.reclaimStalePath(path)
+        let (source, identity) = try makeListener()
+        state.withLock {
+            $0.listener = source
+            $0.socketIdentity = identity
+        }
+        router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
+        source.resume()
+        var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
+        if let link = configuration.compatibilityLink {
+            Self.makeLink(link, to: path)
+            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue) { Self.makeLink(link, to: path) })
+        }
+        pathWatch.withLock { $0 = watches }
+        watches.forEach { $0.start() }
+    }
 
+    /// A listening socket bound at the configured path, its read source not yet resumed, and the
+    /// socket file's identity.
+    private func makeListener() throws -> (any DispatchSourceRead, (dev: dev_t, ino: ino_t)?) {
+        let path = configuration.path
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw StartError.system(call: "socket", errno: errno) }
         var shouldClose = true
@@ -148,89 +175,64 @@ public final class ControlSocketServer: Sendable {
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
 
         var info = stat()
-        let identity = lstat(path, &info) == 0 ? (info.st_dev, info.st_ino) : nil
+        let identity = lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: acceptQueue)
         source.setEventHandler { [weak self] in self?.acceptPending(listener: descriptor) }
         source.setCancelHandler { close(descriptor) }
         shouldClose = false
-        state.withLock {
-            $0.listener = source
-            $0.socketIdentity = identity.map { (dev: $0.0, ino: $0.1) }
-        }
-        router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
-        source.resume()
+        return (source, identity)
     }
 
-    /// Creates the socket file at `path` with `mode`, without touching the
-    /// process-wide umask (another thread's files would get that mask).
-    /// Binds inside a private 0700 directory next to `path`, sets the mode
-    /// there, then renames the socket into place (`RENAME_EXCL`: a socket
-    /// another process created meanwhile is never replaced). When the
-    /// private path does not fit `sun_path`, binds at `path` and sets the
-    /// mode at once: the file briefly has the umask's mode, which with the
-    /// usual umask grants no one else the write access a connect needs.
-    private func bindSocket(_ descriptor: Int32, at path: String, mode: mode_t, capacity: Int) throws {
-        let parent = (path as NSString).deletingLastPathComponent
-        var template = Array((parent.isEmpty ? "." : parent).utf8CString.dropLast()) + Array("/.cmuxsock.XXXXXX".utf8CString)
-        let staging: String? = template.withUnsafeMutableBufferPointer { buffer in
-            buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
+    /// Binds a new listener at the path ``ControlSocketPathWatch`` found
+    /// missing and returns whether the socket is back. The bind's
+    /// `RENAME_EXCL` loses to anyone who created the path meanwhile, so another
+    /// server's socket or a file is never replaced. Runs on `acceptQueue`, the
+    /// queue of the old listener's accept handler, so the swap never races an
+    /// accept pausing on descriptor exhaustion.
+    private func restoreSocket() -> Bool {
+        guard isRunning else { return true }
+        guard let made = try? makeListener() else { return false }
+        let (source, identity) = made
+        let old: (any DispatchSourceRead)? = state.withLock { state in
+            guard let old = state.listener else { return nil }  // stopped meanwhile
+            if state.acceptSuspended { old.resume() }  // a suspended source never runs its cancel handler
+            state.acceptSuspended = false
+            state.acceptBackoff.reset()
+            // Resumed before it is published: stop() may cancel it from another
+            // thread, and an inactive source must never be cancelled or released.
+            source.resume()
+            state.listener = source
+            state.socketIdentity = identity
+            return old
         }
-        if let staging {
-            defer { rmdir(staging) }
-            let staged = staging + "/s"
-            if staged.utf8.count < capacity {
-                try bindAddress(descriptor, staged)
-                guard chmod(staged, mode) == 0 else {
-                    let code = errno
-                    unlink(staged)
-                    throw StartError.system(call: "chmod", errno: code)
-                }
-                guard renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
-                    let code = errno
-                    unlink(staged)
-                    throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
-                }
-                return try verifyMode(path, mode)
-            }
+        guard let old else {
+            source.resume()  // never resumed above; cancel needs an active source to close the fd
+            source.cancel()
+            Self.unlinkIfOwn(configuration.path, identity)
+            return true
         }
-        try bindAddress(descriptor, path)
-        chmod(path, mode)
-        try verifyMode(path, mode)
+        acceptRetry.cancel()
+        WakeupLedger.shared.record("ControlSocketServer.restore", reason: "socket file restored")
+        old.cancel()
+        return true
     }
 
-    private func bindAddress(_ descriptor: Int32, _ path: String) throws {
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bindCall(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard bound == 0 else {
-            let code = errno
-            throw code == EADDRINUSE ? StartError.addressInUse(path) : StartError.system(call: "bind", errno: code)
-        }
-    }
-
-    /// The socket at `path` must have exactly `mode`; otherwise it is removed.
-    private func verifyMode(_ path: String, _ mode: mode_t) throws {
-        var info = stat()
-        guard lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
-        guard info.st_mode & 0o777 == mode else {
-            unlink(path)
-            throw StartError.system(call: "chmod", errno: EPERM)
-        }
+    /// Closes the listener and every connection, then binds the socket again
+    /// at the same path and mode (Restart CLI Listener). Throws what
+    /// ``start()`` throws, leaving the server stopped.
+    public func restart() throws {
+        stop()
+        try start()
     }
 
     /// Stops accepting, closes every connection, and removes the socket file
     /// if it is still the one this server created.
     public func stop() {
         acceptRetry.cancel()
+        pathWatch.withLock { watches in
+            watches.forEach { $0.stop() }
+            watches = []
+        }
         let (listener, identity, connections) = state.withLock { state in
             let result = (state.listener, state.socketIdentity, Array(state.connections.values))
             // A suspended source never runs its cancel handler (the listener fd would leak).
@@ -244,55 +246,8 @@ public final class ControlSocketServer: Sendable {
         guard listener != nil || !connections.isEmpty else { return }
         listener?.cancel()
         connections.forEach { $0.close() }
-        var info = stat()
-        if let identity, lstat(configuration.path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
-            unlink(configuration.path)
-        }
-    }
-
-    /// Removes a leftover socket from a crashed run. Unlinks only when a
-    /// connect is refused (nothing listens). Refuses when a process accepts
-    /// on it or the probe is inconclusive (a busy listener, a permission
-    /// error), when it is not a socket, or when another user owns it.
-    static func reclaimStalePath(_ path: String) throws {
-        var info = stat()
-        guard lstat(path, &info) == 0 else { return }
-        guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
-        guard probe(path) == .refused else { throw StartError.addressInUse(path) }
-        unlink(path)
-    }
-
-    enum ProbeResult: Equatable {
-        case accepted
-        /// `ECONNREFUSED`: no process listens; the file is stale.
-        case refused
-        case inconclusive(Int32)
-    }
-
-    static func probe(_ path: String) -> ProbeResult {
-        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return .inconclusive(errno) }
-        defer { close(descriptor) }
-        // Never block the caller (the App starts the server on the main
-        // actor): a listener with a full backlog answers EAGAIN, not a wait.
-        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: address.sun_path) else { return .inconclusive(ENAMETOOLONG) }
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var buffer = sunPath  // the same memory; `modify` is mutating on the view
-            buffer.copyBytes(from: path.utf8)
-            buffer.modify(checked: path.utf8.count) { $0 = 0 }
-        }
-        let result = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        if result == 0 { return .accepted }
-        let code = errno
-        // EAGAIN (full backlog) is inconclusive: a live listener is busy.
-        return code == ECONNREFUSED ? .refused : .inconclusive(code)
+        Self.unlinkIfOwn(configuration.path, identity)
+        if let link = configuration.compatibilityLink { Self.unlinkLink(link, to: configuration.path) }
     }
 
     // MARK: - Accepting

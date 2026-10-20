@@ -15,6 +15,9 @@ extension TerminalAttachMachine {
         /// Failed re-attaches before this attempt when it is a re-attach of
         /// a disconnected view; nil for the first attach and overflow.
         public var reconnects: Int?
+        /// The open waits out a backoff first (`openAfterBackoff`): an event
+        /// may cut it short.
+        public var waitsBackoff = false
 
         public init(attempt: Int, failures: Int, size: CellSize, link: Link?, reconnects: Int? = nil) {
             self.attempt = attempt
@@ -61,6 +64,10 @@ extension TerminalAttachMachine {
         case visibility(Bool)
         /// The surface gained keyboard focus.
         case focused
+        /// Take over (the "Sized for" chip): this view claims the grid even when it believes it
+        /// already holds it (a claim that did not win leaves `claimed` set). `setLatest`: the
+        /// policy picks by size, so the terminal's policy becomes last active first.
+        case takeOver(setLatest: Bool)
         /// `link`'s stream announced the PTY grid (a daemon `resized`).
         case gridAnnounced(Link, CellSize)
         /// `link`'s stream ended.
@@ -90,7 +97,13 @@ extension TerminalAttachMachine {
         case send(Link, Data)
         /// Report `size` on `link`, then claim canonical geometry.
         case claim(Link, CellSize)
-        case release(Link)
+        /// Take over on `link`: optionally set the terminal's policy to last active, then report
+        /// `size` and claim.
+        case takeOver(Link, CellSize, setLatest: Bool)
+        /// The view hid: it keeps its lease, viewport and claim and stops counting toward the grid.
+        case hide(Link)
+        /// The view hid on `link` shows again: it counts toward the grid again.
+        case unhide(Link)
         case detach(Link)
         /// Show `LinkStatus` in the view.
         case status(LinkStatus)

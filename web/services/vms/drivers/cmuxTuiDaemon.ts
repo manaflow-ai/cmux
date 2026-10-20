@@ -127,10 +127,18 @@ export type CmuxTuiSource = {
   builtAt: string | null;
   hookUrl: string;
   hookSha256: string;
+  /**
+   * acpmux from the same commit (cloud-subagents-DESIGN.md B9), or null for a manifest
+   * published before the artifacts workflow built it. Optional for fixtures; the bake
+   * requires it (requireCmuxTuiAcpmux).
+   */
+  acpmuxUrl?: string | null;
+  acpmuxSha256?: string | null;
 };
 
 export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
 export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
+export const CMUX_TUI_ACPMUX_LINUX_TARGET = "cmux-tui-acpmux-x86_64-unknown-linux-musl";
 /** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
 export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
 /** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
@@ -139,10 +147,12 @@ export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/la
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
 /**
- * CMUX_VM_CMUX_TUI_MANIFEST_URL pins a deployment to one commit's manifest
+ * CMUX_VM_CMUX_TUI_MANIFEST_URL pins the image scripts (bake, verify, reachability,
+ * BusyBox probe) to one commit's manifest
  * (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`) instead of the rolling
- * `latest`. Nothing else is configured by hand: the build and its sha256 come from
- * the manifest the artifacts workflow publishes.
+ * `latest`; the server never installs cmux-tui, so a deployment ignores it. Nothing
+ * else is configured by hand: the build and its sha256 come from the manifest the
+ * artifacts workflow publishes.
  */
 export function cmuxTuiManifestUrl(provider: ProviderId = "freestyle"): string {
   const url = process.env.CMUX_VM_CMUX_TUI_MANIFEST_URL?.trim() || CMUX_TUI_DEFAULT_MANIFEST_URL;
@@ -164,6 +174,7 @@ export function parseCmuxTuiManifest(
   const digest = (target: string): string => (typeof binaries[target] === "string" ? (binaries[target] as string).toLowerCase() : "");
   const sha256 = digest(CMUX_TUI_LINUX_TARGET);
   const hookSha256 = digest(CMUX_TUI_HOOK_LINUX_TARGET);
+  const acpmuxSha256 = digest(CMUX_TUI_ACPMUX_LINUX_TARGET);
   if (!/^[0-9a-f]{40}$/.test(commit)) {
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no commit`);
   }
@@ -194,7 +205,16 @@ export function parseCmuxTuiManifest(
     builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
     hookUrl: artifactUrl(CMUX_TUI_HOOK_LINUX_TARGET),
     hookSha256,
+    acpmuxUrl: /^[0-9a-f]{64}$/.test(acpmuxSha256) ? artifactUrl(CMUX_TUI_ACPMUX_LINUX_TARGET) : null,
+    acpmuxSha256: /^[0-9a-f]{64}$/.test(acpmuxSha256) ? acpmuxSha256 : null,
   };
+}
+
+/** The image bake refuses a cmux-tui build without acpmux: every Cloud machine ships it (B9). */
+export function requireCmuxTuiAcpmux(source: CmuxTuiSource, manifestUrl: string, provider: ProviderId = "freestyle"): void {
+  if (!source.acpmuxUrl || !source.acpmuxSha256) {
+    throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_ACPMUX_LINUX_TARGET });
+  }
 }
 
 /** The manifest of one published commit, a sibling of the rolling `latest` pointer. */
@@ -276,8 +296,9 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
     ...hookHelperInstallSteps(source),
+    ...acpmuxInstallSteps(source),
     // Only the nodes this install created, never the daemon's state tree.
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN}${source.acpmuxSha256 ? ` ${ACPMUX_BIN}` : ""} 2>/dev/null || true; fi`,
     `${bin} --version`,
     ...agentHooksInstallSteps(),
   ].join(" && ");
@@ -310,6 +331,24 @@ function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
     `CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"`,
     `CMUX_TUI_HOOK_TMP="$CMUX_TUI_HOOK_BIN.tmp"`,
     `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${fetchTo(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
+  ];
+}
+
+const ACPMUX_BIN = '"$CMUX_TUI_ACPMUX_BIN"';
+const ACPMUX_TMP = '"$CMUX_TUI_ACPMUX_TMP"';
+/**
+ * acpmux (cloud-subagents-DESIGN.md B9) beside the daemon, from the same manifest commit, with
+ * the same pin discipline, and on everyone's PATH through /usr/local/bin (a login shell does not
+ * always have the work user's own bin directories). None for a manifest without it.
+ */
+function acpmuxInstallSteps(source: CmuxTuiSource): string[] {
+  if (!source.acpmuxUrl || !source.acpmuxSha256) return [];
+  return [
+    `CMUX_TUI_ACPMUX_BIN="$(dirname "$CMUX_TUI_BIN")/acpmux"`,
+    `CMUX_TUI_ACPMUX_TMP="$CMUX_TUI_ACPMUX_BIN.tmp"`,
+    `if [ -x ${ACPMUX_BIN} ] && ${pinnedFile(source.acpmuxSha256, ACPMUX_BIN)}; then :; else ${fetchTo(ACPMUX_TMP, source.acpmuxUrl)} && ${pinnedFile(source.acpmuxSha256, ACPMUX_TMP)} && chmod 755 ${ACPMUX_TMP} && mv -f ${ACPMUX_TMP} ${ACPMUX_BIN}; fi`,
+    `ln -sfn ${ACPMUX_BIN} /usr/local/bin/acpmux`,
+    `${ACPMUX_BIN} --version`,
   ];
 }
 

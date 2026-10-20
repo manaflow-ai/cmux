@@ -72,11 +72,11 @@ const views: View[] = [
   ),
 ];
 
-test("Backdrop Art says what it is in one short line, with the line as its hover title", async () => {
+test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
   page = await renderPage({ path: "/settings/appearance" });
-  const line = rowElement(page.container, "appearance.backdropArt").querySelector<HTMLElement>(".row-help");
-  expect(line?.textContent).toBe("Painting behind the window");
-  expect(line?.title).toBe("Painting behind the window");
+  const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
+  expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");
+  expect(line?.title).toBe("");
 });
 
 test("no description line on any Settings page is over 60 characters, in any language", async () => {

@@ -46,6 +46,12 @@ pub(crate) struct ProgramStatusRecord {
     pub(crate) message: Option<String>,
     pub(crate) updated_seq: u64,
     pub(crate) updated_at_ms: u64,
+    /// When the record entered its current state and kind (Unix ms): a
+    /// report that keeps both (a progress or message update) keeps it, so a
+    /// client can say how long a program has worked or waited. Not in the
+    /// terminal-host snapshot codec: a restored record starts at its
+    /// `updated_at_ms`.
+    pub(crate) since_ms: u64,
 }
 
 impl ProgramStatusRecord {
@@ -69,6 +75,7 @@ impl ProgramStatusRecord {
             "msg": self.message,
             "updated_seq": self.updated_seq.to_string(),
             "updated_at_ms": self.updated_at_ms.to_string(),
+            "since_ms": self.since_ms.to_string(),
         })
     }
 }
@@ -144,15 +151,22 @@ impl ProgramStatusRecords {
         self.next_seq += 1;
         let blocked = state == ProgramStatusState::Blocked;
         let shows_progress = blocked || state == ProgramStatusState::Working;
+        let kind = kind.filter(|_| blocked);
+        let since_ms = self
+            .records
+            .get(&id)
+            .filter(|previous| previous.state == state && previous.kind == kind)
+            .map_or(now_ms, |previous| previous.since_ms);
         let record = ProgramStatusRecord {
             state,
-            kind: kind.filter(|_| blocked),
+            kind,
             progress: progress.filter(|value| shows_progress && *value <= 100),
             app: non_empty(shown_text(&app, MAX_TITLE_CHARS)),
             title: non_empty(shown_text(&title, MAX_TITLE_CHARS)),
             message: non_empty(shown_text(&message, MAX_MESSAGE_CHARS)),
             updated_seq: self.next_seq,
             updated_at_ms: now_ms,
+            since_ms,
         };
         let previous = self.records.insert(id.clone(), record);
         self.revision += 1;
@@ -316,7 +330,19 @@ impl ProgramStatusRecords {
             let bounded = |text: Option<String>, limit| {
                 text.and_then(|text| non_empty(shown_text(&text, limit)))
             };
+            // A host this daemon seeded (a replacement) hands back the same report: keep when
+            // its state began, which the snapshot codec does not carry.
+            let since_ms = self
+                .records
+                .get(&id)
+                .filter(|kept| {
+                    kept.updated_seq == record.updated_seq
+                        && kept.state == record.state
+                        && kept.kind == record.kind
+                })
+                .map_or(record.since_ms, |kept| kept.since_ms);
             let record = ProgramStatusRecord {
+                since_ms,
                 kind: record.kind.filter(|_| blocked),
                 progress: record.progress.filter(|value| shows_progress && *value <= 100),
                 app: bounded(record.app, MAX_TITLE_CHARS),

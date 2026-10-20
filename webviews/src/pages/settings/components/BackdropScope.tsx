@@ -1,8 +1,7 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
 import { useEffect, useRef, useState } from "react";
-import { useSettingsState, useStore } from "../context";
-import { Switch } from "../editors/ToggleEditor";
+import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
 
@@ -163,42 +162,6 @@ export function WorkspaceOpacity({
               )}
             </span>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** `appearance.backgroundBlur`: the window material Window Glass sets. */
-export const BLUR_KEY = "appearance.backgroundBlur";
-/** Clear Glass: the material under which the art turns translucent over the desktop. */
-const CLEAR_GLASS = "glass-clear";
-
-/**
- * Window Glass (cx-t2x.6): the window turns glass over the desktop and the windows behind it, which
- * read through the art. On sets the Clear Glass material; off returns the material to its default.
- */
-export function WindowGlass() {
-  const store = useStore();
-  const material = useSettingsState().rows.get(BLUR_KEY);
-  if (!material) return null;
-  const on = material.value === CLEAR_GLASS;
-  return (
-    <div className="row" data-window-glass="">
-      <div className="row-main">
-        <div className="row-label">
-          <div className="row-title" id="window-glass-label">
-            {t("settingsWindow.backdropPicker.windowGlass")}
-          </div>
-          <div className="row-help">{t("settingsWindow.backdropPicker.windowGlassHelp")}</div>
-        </div>
-        <div className="row-control">
-          <Switch
-            checked={on}
-            disabled={false}
-            labelId="window-glass-label"
-            onToggle={(next) => void (next ? store.set(BLUR_KEY, CLEAR_GLASS) : store.reset(BLUR_KEY))}
-          />
         </div>
       </div>
     </div>

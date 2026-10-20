@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextActions
 import Testing
 
-/// The workspace, tab and pane menus show the few rows people use, then one More submenu with
-/// everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
+/// The workspace, tab and pane menus show the few rows people use, their group rows, then one
+/// More submenu with everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
 @MainActor
 struct ContextMenuEssentialsTests {
     /// Each top-level row as the action it runs (a choices row: its submenu's action), "More"
@@ -36,8 +36,11 @@ struct ContextMenuEssentialsTests {
 
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
+        // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
-                               "moveWorkspaceToGroup", "More", "—", "closeWorkspace"])
+                               "home.messageAbout", "palette.moveWorkspaceToTop", "—",
+                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
@@ -58,12 +61,27 @@ struct ContextMenuEssentialsTests {
     @Test func theTabAndPaneMenusEndWithMoreAndClose() {
         let registry = registry()
         let tab = rows(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t")))
-        #expect(tab.suffix(3) == ["More", "—", "closeTab"])
-        #expect(tab.filter { $0 != "—" }.count <= 7)
-        #expect(tab.contains("renameTab") && tab.contains("palette.toggleTabPin"))
+        #expect(tab.suffix(5) == ["More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+        #expect(["tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"].allSatisfy(tab.contains))
+        #expect(allActions(registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))).contains("renameTab") && tab.contains("palette.toggleTabPin"))
         let pane = rows(registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: "p")))
         #expect(pane.suffix(3) == ["More", "—", "closePane"])
         #expect(pane.filter { $0 != "—" }.count <= 7)
         #expect(pane.contains("splitRight") && pane.contains("splitDown"))
+    }
+
+    /// The tab menu is Chrome's, in its order (`TabMenuModel::Build`; Leo 2026-10-19): New Tab to
+    /// the Right and the group rows; Reload, Duplicate, Pin, Mute; then Close Tab, Close Other Tabs
+    /// and Close Tabs to the Right at the top level, not in More.
+    @Test func theTabMenuFollowsChromesOrder() {
+        let menu = registry().makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: "t"))
+        let tab = rows(menu)
+        #expect(tab == ["newTab.toRight", "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "—",
+                        "reloadTab", "duplicateTab", "palette.toggleTabPin", "toggleTabAudioMute",
+                        "More", "—", "closeTab", "closeOtherTabsInPane", "closeTabsToRight"])
+        // The rest moved into More, not gone: Close Tabs to the Left (not in Chrome) and Move Tab to New Window.
+        for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
+            #expect(allActions(menu).contains(id), "\(id)")
+        }
     }
 }

@@ -51,6 +51,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var arguments: [String: ActionValue]
     /// In-app runs are the user's; the control socket sets its caller's.
     public var origin: ActionOrigin
+    /// The calling app preserved by the native provider, even during its user gesture.
+    /// Nil for direct native/CLI/page calls; attribution never grants execution authority.
+    public var callerApp: String?
     /// The run asked to change this client's view (`action.run` `focus: true`).
     public var focusRequested: Bool
     /// The context of the window whose key-down runs this (the key
@@ -63,13 +66,23 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// No column is right of the chat: the target is the chat, and the new
     /// tab moves into a new column right of it.
     public var newColumnBeside = false
+    /// `action.run` `background: true`: a tab this run opens stays unselected in
+    /// its pane, so the pane keeps showing what the person chose
+    /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+    public var opensInBackground = false
     /// `caller.agent_session`: the agent chat whose CLI or cmux MCP server sent the run, nil for any
     /// other run. Its claim, like ``origin``: an action an agent may only ask a person for (Move to
     /// Cloud) asks in that chat instead of running.
     public var callerAgentSession: String?
+    /// `caller.terminal_id`: the terminal whose cmux CLI sent the run (an agent running in a
+    /// terminal), nil for any other run. Like ``callerAgentSession``, the caller's own claim.
+    public var callerTerminal: String?
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
+    /// A close the sidebar sends for its rows (a row's close button, a middle-click, Delete on the
+    /// selection): each row by itself, never widened to the selection. In-app only.
+    public var closesRowOnly = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {
@@ -91,6 +104,12 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
 
     /// Whether a destructive action was confirmed (`confirm: true`).
     public var isConfirmed: Bool { arguments[ActionArgument.confirmName]?.boolValue == true }
+
+    /// The sidebar's own close of workspace row `id` (`closesRowOnly`).
+    public init(closingRow id: String) {
+        self.init(target: ActionTargetRef(kind: .workspace, id: id))
+        closesRowOnly = true
+    }
 
     /// This invocation with `confirm: true`.
     public func confirmed() -> ActionInvocation {

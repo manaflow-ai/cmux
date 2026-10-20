@@ -5,8 +5,9 @@ import CmuxNextDesign
 /// browser page: the New Tab page shows it on top (cx-e2aa), so Cmd-L there types an address in
 /// the same omnibar a browser tab has (one implementation: `AddressBarView`, its suggestions and
 /// its state machine). The bar sits at the toolbar's height, top padding and side insets; its
-/// suggestion card opens flush under it, clipped to `cardClip`.
-public final class OmnibarToolbarView: NSView {
+/// suggestion card opens flush under it, clipped to `cardClip`. The cursor follows the browser
+/// toolbar's rules (`ArrowCursorView`, `OmnibarPointer`).
+public final class OmnibarToolbarView: ArrowCursorView {
     public let addressBar: AddressBarView
     /// The surface the suggestion card is clipped to (the page under the row); the window when nil.
     public weak var cardClip: NSView?
@@ -20,7 +21,9 @@ public final class OmnibarToolbarView: NSView {
         NSLayoutConstraint.activate([
             density.bind(addressBar.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset },
             density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
-            addressBar.topAnchor.constraint(equalTo: topAnchor, constant: OmnibarStyle.toolbarTopPadding),
+            density.bind(addressBar.topAnchor.constraint(equalTo: topAnchor)) { [weak self] in
+                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: false)
+            },
             density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
         ])
     }
@@ -33,10 +36,16 @@ public final class OmnibarToolbarView: NSView {
 
     /// The browser toolbar row's height on this window's pixel grid (else the main screen's).
     public var preferredHeight: CGFloat {
-        OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+        OmnibarStyle.toolbarHeight(scale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: false)
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
+
+    /// A move to a screen with another scale snaps the omnibar's top again.
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
 
     public override func layout() {
         super.layout()

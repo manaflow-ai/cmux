@@ -17,13 +17,15 @@ export type SettingKind =
   | "time_range"
   | "theme"
   | "font_family"
+  // Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+  | "text"
   // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
   | "number_list"
   | "string_map"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
-export type NumberUnit = "points" | "seconds" | "minutes" | "days" | "count" | "fraction";
+export type NumberUnit = "points" | "milliseconds" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
 export type NumberRange = { min: number; max: number; step: number; unit: NumberUnit; placeholder: number };
 
@@ -41,7 +43,7 @@ export type SchemaRow = {
   summary: LocalizedText | null;
   kind: SettingKind;
   choices?: Choice[];
-  /** A string_list of `choices` in an order the user picks. */
+  /** A string_list of `choices`: true in an order the user picks, false any subset in choice order. */
   ordered?: boolean;
   range?: NumberRange;
   default: unknown;
@@ -87,7 +89,6 @@ type Schema = {
   rows: SchemaRow[];
   sections: SchemaSection[];
   page: PageLayout;
-  schema_hash: string;
   version: number;
 };
 

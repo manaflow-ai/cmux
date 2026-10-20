@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextSettings
 
 /// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
 /// Every press runs a catalog action, so the palette, `cmux action run`,
@@ -47,7 +48,7 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.media.show", run: { invocation in
             let entry = try context.page(invocation)
-            entry.chrome.toolbarButtons.present(BrowserMediaMenu.menu(context.services), from: .media)
+            entry.chrome.toolbarButtons.present(BrowserMediaMenu.menu(context.services, rows: entry.chrome.toolbarButtons.mediaRows), from: .media)
         })
         registry.bind("browser.downloads.show", run: { invocation in
             let entry = try context.page(invocation)
@@ -56,13 +57,13 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)
-            entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry), from: .overflow)
+            entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
         })
     }
 
     /// Wires a new browser page's buttons (`TabContentCache.onBrowserEntryCreated`).
     static func install(on entry: BrowserEntry, services: AppServices) {
-        let key = entry.tab.id.rawValue
+        let key = tabKey(entry)
         let buttons = entry.chrome.toolbarButtons
         buttons.onPress = { [weak services, weak entry] button in
             guard let services, let entry else { return }
@@ -73,8 +74,16 @@ enum BrowserToolbarHandlers {
             return services?.registry.shortcutDisplay(for: actionID(for: button))
         }
         buttons.profileName = profileName(forTab: key, services: services)
-        buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
+        buttons.downloads = { [weak services] in
+            services?.cache.pageRequests.downloads.toolbarSummary(forTab: key) ?? BrowserToolbarDownloads()
+        }
         buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
+        buttons.pins = { [weak services] in (services?.settings.map(BrowserToolbarButtonsSetting.current) ?? .fallback).pinned }
+        // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).
+        entry.chrome.onFocusModeBadgePress = { [weak services, weak entry] in
+            guard let services, let entry else { return }
+            services.registry.perform("toggleBrowserFocusMode", invocation: ActionInvocation(target: tabTarget(entry), origin: .user))
+        }
     }
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
@@ -90,7 +99,14 @@ enum BrowserToolbarHandlers {
     }
 
     private static func tabTarget(_ entry: BrowserEntry) -> ActionTargetRef {
-        ActionTargetRef(kind: .tab, id: entry.tab.id.rawValue)
+        ActionTargetRef(kind: .tab, id: tabKey(entry))
+    }
+
+    /// The tab id the App keys `entry` by (`TabContentCache`): the address
+    /// bar's, which an adopted page (a popup or link opened into a new tab)
+    /// keeps although its own page id differs.
+    private static func tabKey(_ entry: BrowserEntry) -> String {
+        entry.chrome.addressBar.tabKey ?? entry.tab.id.rawValue
     }
 
     /// System, Light and Dark, each running `browserTheme`; the
@@ -141,16 +157,13 @@ enum BrowserToolbarHandlers {
         }
     }
 
-    /// The More menu, Edge's three-dot menu (cx-6qwm): the collapsed
-    /// buttons' actions first, then new tab and windows, zoom and full
-    /// screen, the browser's own pages (bookmarks, history, tab groups,
-    /// the Downloads menu, extensions, passwords, clearing data), page tools (split,
-    /// screenshot, find), more tools, then Settings and Help. Every row is a
-    /// catalog action; one the tab cannot run drops out. No print row: no
-    /// engine exposes printing yet.
-    static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry) -> NSMenu {
+    /// The More menu (cx-6qwm): buttons not in the toolbar (and Extensions while none is pinned), new
+    /// tab and windows, zoom, the browser's own pages, page tools, more tools, Settings, Help, then
+    /// Show in Toolbar (cx-d0d.81). Catalog rows the tab cannot run drop out; no engine prints yet.
+    static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
-        for button in entry.chrome.toolbarButtons.collapsedButtons {
+        if entry.chrome.offersExtensionsMenuInMore { entries.append(.action("browser.extensions.menu")) }
+        for button in entry.chrome.toolbarButtons.menuButtons {
             switch button {
             case .designMode: entries.append(.action("toggleBrowserDesignMode"))
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
@@ -177,6 +190,7 @@ enum BrowserToolbarHandlers {
             ]), .separator,
             .action("openSettings"), .action("help.documentation"),
         ]
-        return registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+        let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+        return entry.chrome.toolbarButtons.addingShowInToolbar(to: menu, BrowserToolbarButtonsSetting.menuToggle(settings))
     }
 }

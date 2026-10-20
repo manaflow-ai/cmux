@@ -1,8 +1,9 @@
 public import AppKit
 
-/// A toast: the message, the action button and a close button on a solid
-/// theme surface (never translucent glass) with the popups' small radius
-/// and shadow. VoiceOver reads the message; the buttons are reachable with
+/// A toast: the message, the action button and a close button on the shared
+/// neutral Liquid Glass (``FloatingGlassStyle/toast``: gray glass, a top-lit
+/// rim, 9 pt continuous corners; user 2026-10-20, after Rex), opaque under
+/// Reduce Transparency, with the popups' shadow. VoiceOver reads the message; the buttons are reachable with
 /// VoiceOver and by click. The pointer on it holds it (`onHover`).
 @MainActor
 public final class CmuxToastView: NSView {
@@ -18,8 +19,12 @@ public final class CmuxToastView: NSView {
     /// Whether the pointer is on the toast now (as of the last refresh).
     public var isHovered: Bool { pointerHover?.isHovering ?? false }
 
-    public init(toast: CmuxToast) {
+    private let reduceTransparency: ReduceTransparency
+
+    /// `reduceTransparency` decides glass or the opaque surface (tests pass their own).
+    public init(toast: CmuxToast, reduceTransparency: ReduceTransparency = .shared) {
         self.toast = toast
+        self.reduceTransparency = reduceTransparency
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
@@ -34,7 +39,7 @@ public final class CmuxToastView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     private func build() {
-        let label = NSTextField(wrappingLabelWithString: toast.message)
+        let label = ChromeLabel(wrappingLabelWithString: toast.message)
         label.font = Typography.body
         label.maximumNumberOfLines = 3
         label.preferredMaxLayoutWidth = 360
@@ -64,9 +69,9 @@ public final class CmuxToastView: NSView {
 
         let content = NSView()
         content.addSubview(row)
-        // A solid fill: the Reduce Transparency overlay fill (`ThemeTokens.opaqueOverlayFill`)
-        // pinned on every Mac. Swap to `Palette.popupSurface` once it lands on base.
-        let surface = OverlaySurfaceView(material: .opaque, interactive: true, cornerRadius: Self.cornerRadius)
+        // The shared neutral glass; the material follows this Mac (opaque under Reduce Transparency).
+        let surface = OverlaySurfaceView(interactive: true, cornerRadius: Self.cornerRadius,
+                                         reduceTransparency: reduceTransparency, tone: .neutralGlass(.toast))
         surface.translatesAutoresizingMaskIntoConstraints = false
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]
@@ -88,26 +93,26 @@ public final class CmuxToastView: NSView {
         ])
     }
 
-    /// The popups' small radius, never a capsule.
-    static let cornerRadius = PopupStyle.standard.cornerRadius
+    /// The shared toast glass radius, never a capsule.
+    static let cornerRadius = FloatingGlassStyle.toast.cornerRadius
 
     /// The popups' one subtle shadow, on this view's layer behind the surface
     /// (the surface clips to its corners, so it cannot cast its own).
     private func castShadow() {
         wantsLayer = true
-        let style = PopupStyle.standard
+        let elevation = PopupStyle.elevation2
         layer?.masksToBounds = false
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = Float(style.shadowAlpha)
-        // Core Animation's radius is about half a CSS blur.
-        layer?.shadowRadius = style.shadowBlur / 2
-        layer?.shadowOffset = CGSize(width: 0, height: -style.shadowOffset)
+        layer?.shadowOpacity = Float(elevation.alpha)
+        layer?.shadowRadius = elevation.layerRadius
+        layer?.shadowOffset = elevation.layerOffset()
     }
 
     public override func layout() {
         super.layout()
-        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: Self.cornerRadius,
-                                   cornerHeight: Self.cornerRadius, transform: nil)
+        // CoreGraphics refuses a corner wider than half the rect.
+        let radius = min(Self.cornerRadius, min(bounds.width, bounds.height) / 2)
+        layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
     @objc private func runAction() { onAction?() }

@@ -10,10 +10,18 @@ extension InternalPageTabStore {
     /// the page so the tab shows (SIDEBAR-SELECTION-ONE-MODEL); automation
     /// (`ActionInvocation.allowsViewChange` false) opens it without changing
     /// the selection, focus or page (under a page, in the parked workspace).
-    /// Returns the tab's view, or nil when `window` has no pane to hold it.
+    /// A user run where a tab would not be seen (Home stands for the hidden
+    /// home workspace, or the workspace has no pane) shows the page as the
+    /// window's top page instead, and a page already shown on top shows
+    /// again (cx-cmge7: What's New on Home opened a tab in the hidden home
+    /// workspace and nothing showed).
+    /// Returns the tab's (or top page's) view, or nil when nothing can hold it.
     @discardableResult
     func show(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
         guard let window else { return nil }
+        if focus, window.shownTopPage == .page(page) || !window.holdsVisiblePageTab {
+            return showTopPage(page, in: window)
+        }
         if focus { window.leaveTopPage() }
         guard let content = window.workspaceContent else { return nil }
         let panes = content.panes.values
@@ -38,12 +46,21 @@ extension InternalPageTabStore {
     func openNew(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
         guard let window else { return nil }
         if focus { window.leaveTopPage() }
-        guard let content = window.workspaceContent, let pane = content.focusedPane ?? content.panes.values.first else { return nil }
+        // Never in a dock (the docked Home, a chat dock): beside it (pageTabPane).
+        guard let content = window.workspaceContent, let pane = content.pageTabPane ?? content.panes.values.first else { return nil }
         if let view = openStoreTab(page, in: pane, window: window, focus: focus) { return view }
         let key = open(page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue, window: window)
         pane.apply(pane.snapshot())
         if focus { reveal(key, in: pane) }
         return view(for: key)
+    }
+
+    /// `page` as `window`'s top page (one view per window, shown again on a
+    /// repeat); nil when the run may not change the view.
+    private func showTopPage(_ page: InternalPageID, in window: WindowController) -> InternalPageView? {
+        let route = TopPageRoute.page(page)
+        guard TopPages.show(route, services: window.services, in: window.state) != nil else { return nil }
+        return window.topPages.views[route] as? InternalPageView
     }
 
     func reveal(_ key: String, in pane: PaneController) {
@@ -62,6 +79,13 @@ extension InternalPageTabStore {
 }
 
 extension AppServices {
+    /// Whether `page` shows anywhere: a tab, or a window's top page (a
+    /// focused show on Home opens it on top). A provider keeps a shared
+    /// model while this is true.
+    func pageIsOpen(_ page: InternalPageID) -> Bool {
+        !pages.keys(of: page).isEmpty || windows.controllers.contains { $0.topPages.key(for: .page(page)) != nil }
+    }
+
     /// The pane controller whose strip lists the page tab `key` (its
     /// provider key, or a store page tab's id).
     func paneController(showingTab key: String) -> PaneController? {

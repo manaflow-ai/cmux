@@ -41,6 +41,9 @@ public final class StatusIndicatorLayer {
                    accent: Palette.textPrimary.cgColor)
         }
 
+        /// The unread dot: ``Palette/notificationBlue``.
+        static var unread: CGColor { Palette.notificationBlue.cgColor }
+
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
             switch tint {
@@ -49,6 +52,8 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
+            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .unread: Self.unread
             }
         }
     }
@@ -59,9 +64,9 @@ public final class StatusIndicatorLayer {
         didSet { if colors != oldValue { applyColors() } }
     }
 
-    private var glyphLayer: CAShapeLayer?
+    private(set) var glyphLayer: CAShapeLayer?
     private var trackLayer: CAShapeLayer?
-    private var nativeLayer: CALayer?
+    private(set) var nativeLayer: CALayer?
     /// The pixel side the native mask was rendered for.
     private var nativeSide: CGFloat = 0
     /// Braille spinner frames (masks) for the current size and font.
@@ -74,7 +79,12 @@ public final class StatusIndicatorLayer {
     var markLayer: CALayer?
     var markKey: StatusMarkKey?
 
-    public init() {
+    /// The time base every loop counts its phase from (``SpinnerClock``); tests pass fixed times.
+    public let clock: SpinnerClock
+
+    /// - Parameter clock: The shared phase clock; the default reads the system clocks.
+    public init(clock: SpinnerClock = SpinnerClock()) {
+        self.clock = clock
         layer.actions = Self.noActions
         layer.isHidden = true
     }
@@ -354,21 +364,28 @@ public final class StatusIndicatorLayer {
         removeAllAnimations()
         guard let wanted, let target = animationTarget(for: wanted) else { return }
         let animation: CAAnimation? = switch wanted {
-        case .spin: Motion.spinAnimation()
-        case .spinBackward: Motion.spinAnimation(backward: true)
-        case .step: Motion.stepAnimation(steps: config.nativeSteps)
-        case .pulse: Motion.pulseAnimation(low: Float(config.pulseLow))
-        case .frames: Motion.framesAnimation(brailleFrames)
+        case .spin: Motion.indicators.spinAnimation()
+        case .step: Motion.indicators.stepAnimation(steps: config.nativeSteps)
+        case .pulse: Motion.indicators.pulseAnimation(low: Float(config.pulseLow))
+        case .frames: Motion.indicators.framesAnimation(brailleFrames)
         case .wave: waveAnimation()
         }
-        if let animation { target.add(animation, forKey: wanted.key) }
+        guard let animation else { return }
+        // Every indicator loop runs on one clock (Lawrence 2026-10-14: "all spinners need to be
+        // synced", cx-qtgj2; 2026-10-20 "synced and spinning in the same direction"): its phase
+        // is Unix time mod its cycle (`SpinnerClock`), so a spinner that shows later, or resumes
+        // after its window was hidden, joins in step with the rest (sidebar rows, tabs, hover
+        // cards, chrome spinners) and with the web pages' spinners, which read the same clock.
+        let cycle = animation.duration * (animation.autoreverses ? 2 : 1)
+        animation.beginTime = target.convertTime(clock.beginTime(cycle: cycle), from: nil)
+        target.add(animation, forKey: wanted.key)
     }
 
     private func animationTarget(for animation: StatusIndicatorPlan.Animation?) -> CALayer? {
         switch animation {
         case .step?: nativeLayer
         case .frames?: brailleLayer?.mask
-        case .spin?, .spinBackward?, .pulse?: markLayer ?? glyphLayer
+        case .spin?, .pulse?: markLayer ?? glyphLayer
         case .wave?: dotsLayer?.sublayers?.first
         case nil: nil
         }

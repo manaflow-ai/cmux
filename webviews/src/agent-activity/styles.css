@@ -42,40 +42,74 @@ button {
 nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--activity-line);
 }
 
 nav strong {
-  font-size: 14px;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
 }
 
 nav input {
+  appearance: none;
   flex: 1;
-  max-width: 280px;
-  border: 1px solid var(--activity-control-line);
+  max-width: 260px;
+  height: 24px;
+  border: 1px solid var(--activity-line);
   border-radius: 6px;
-  padding: 5px 8px;
-  background: transparent;
+  padding: 0 8px;
+  background: var(--activity-well);
+  font-size: var(--text-control);
+  outline: none;
 }
 
-.layouts {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
+nav input:focus {
+  border-color: var(--activity-control-line);
 }
 
-.layouts button {
-  border: 0;
+/* The layout picker: native radios drawn as segments, as Settings draws them. */
+.segmented {
+  display: inline-flex;
+  gap: 1px;
+  margin: 0 0 0 auto;
+  padding: 1px;
+  min-width: 0;
+  border: 1px solid var(--activity-line);
+  border-radius: 7px;
+}
+
+.segment {
+  position: relative;
+  padding: 1px 10px;
   border-radius: 5px;
-  padding: 4px 7px;
-  background: transparent;
-  cursor: pointer;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  cursor: default;
 }
 
-.layouts .active {
+.segment input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.segment:hover {
+  background: var(--activity-well);
+}
+
+.segment[data-checked] {
   background: var(--activity-selected);
+  font-weight: 500;
+}
+
+.segment:focus-within {
+  outline: 2px solid var(--activity-control-line);
+  outline-offset: -1px;
 }
 
 .split {
@@ -91,17 +125,18 @@ aside {
 }
 
 section h3 {
-  display: flex;
-  justify-content: space-between;
-  margin: 12px 12px 5px;
-  font-size: 11px;
+  margin: 10px 12px 2px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
   color: var(--activity-text-2);
-  text-transform: uppercase;
 }
 
-section h3 small {
-  font-weight: normal;
-  text-transform: none;
+.connection {
+  margin: 0 12px 6px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--activity-text-2);
 }
 
 .session {
@@ -112,8 +147,8 @@ section h3 small {
   align-items: center;
   gap: 8px;
   text-align: left;
-  padding: 8px 12px;
-  cursor: pointer;
+  padding: 4px 12px;
+  cursor: default;
 }
 
 .session.selected {
@@ -140,16 +175,19 @@ section h3 small {
 }
 
 .session-text b {
-  font-size: 12px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 500;
 }
 
 .session-text small {
-  font-size: 10px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
 }
 
 .status {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--activity-text-2);
 }
 
@@ -178,11 +216,13 @@ section h3 small {
 }
 
 .actions button {
+  height: 22px;
   border: 1px solid var(--activity-control-line);
   border-radius: 5px;
-  padding: 3px 7px;
+  padding: 0 8px;
   background: transparent;
-  cursor: pointer;
+  font-size: var(--text-control);
+  cursor: default;
 }
 
 .preview {
@@ -196,7 +236,7 @@ section h3 small {
 .frame {
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   padding: 4px;
   min-width: 24px;
   min-height: 24px;
@@ -224,7 +264,7 @@ section h3 small {
 .scrub button {
   border:0;
   background:transparent;
-  cursor:pointer;
+  cursor: default;
   padding:3px 8px;
 }
 
@@ -237,8 +277,9 @@ section h3 small {
 .event {
   display: flex;
   justify-content: space-between;
-  padding: 6px 14px;
-  font-size: 11px;
+  padding: 4px 14px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 
 .event.bad {
@@ -295,7 +336,7 @@ section h3 small {
   border-radius: 8px;
   background: transparent;
   padding: 8px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .tile .frame {
@@ -313,16 +354,163 @@ section h3 small {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 8px;
+  gap: 4px;
   flex: 1;
+  padding: 24px;
+  text-align: center;
   color: var(--activity-text-2);
 }
 
 .empty b {
-  color: inherit;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  color: var(--cmux-text, CanvasText);
+}
+
+.empty span {
+  max-width: 320px;
 }
 
 .error {
   padding: 14px;
   color: var(--activity-error);
+}
+
+/* The lanes view (cx-v9k2f): every acpmux session by machine and coordinator. A first draft
+   behind Labs preview features until it is styled. */
+.lanes {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 12px 16px;
+}
+
+.lanes-attention {
+  margin: 4px 0 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--activity-error);
+}
+
+.lanes section + section {
+  margin-top: 12px;
+}
+
+.lanes h2 {
+  margin: 0 0 4px;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.lanes h3 {
+  margin: 8px 0 2px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--activity-text-2);
+}
+
+.lanes ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  /* The second line (current step or error) sits under its own title, not the page's button gap. */
+  row-gap: 1px;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-body);
+  text-align: start;
+  cursor: default;
+}
+
+.lane:hover {
+  background: var(--activity-well);
+}
+
+/* Hook updates move a row between priority buckets. Keep the motion short and
+   transform-only so a burst of session_changed events never reflows the list. */
+@media (prefers-reduced-motion: no-preference) {
+  .lane[data-priority-revision] {
+    animation: priority-lane-bounce 180ms cubic-bezier(.2,.8,.2,1);
+  }
+}
+
+@keyframes priority-lane-bounce {
+  0% { transform: translateY(-3px); }
+  65% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+
+.lane-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--activity-text-2);
+  opacity: 0.5;
+}
+
+.lane[data-state="working"] .lane-dot {
+  background: var(--activity-live);
+  opacity: 1;
+}
+
+.lane[data-state="input"] .lane-dot,
+.lane[data-state="failed"] .lane-dot,
+.lane[data-state="lost"] .lane-dot {
+  background: var(--activity-error);
+  opacity: 1;
+}
+
+.lane-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lane-status {
+  font-size: var(--text-caption);
+  color: var(--activity-text-2);
+  white-space: nowrap;
+}
+
+/* The second line: who runs it and what it is doing now (hq#2509), muted like the Claude and
+   Codex session rows. */
+.lane-detail {
+  grid-column: 2 / -1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-caption);
+  color: var(--activity-text-2);
+  white-space: nowrap;
+}
+
+.lane-harness {
+  flex: none;
+}
+
+.lane-step {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lane-error {
+  grid-column: 2 / -1;
+  font-size: var(--text-caption);
+  color: var(--activity-error);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

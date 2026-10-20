@@ -23,10 +23,16 @@
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef
+         location = "group:CmuxAppAttest">
+      </FileRef>
+      <FileRef
          location = "group:CMUXAuthCore">
       </FileRef>
       <FileRef
          location = "group:CmuxAuthRuntime">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxChiefVoiceCore">
       </FileRef>
       <FileRef
          location = "group:CmuxFeedPushCore">

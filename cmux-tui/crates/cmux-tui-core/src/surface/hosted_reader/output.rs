@@ -21,6 +21,9 @@ impl HostedReader {
             HostedTransition::OutputWithColors { output, colors } => (output, Some(colors)),
             _ => unreachable!(),
         };
+        if crate::debug_spans::following() {
+            follow_marks(pty, &output);
+        }
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -88,9 +91,14 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                let title = term.title().unwrap_or_default();
-                *pty.title.lock().unwrap() = title.clone();
-                title_update = Some(title);
+                // A program that rewrites the same title (a spinner's
+                // resting frame, a prompt redraw) announces nothing.
+                let title = crate::terminal_title::read(&term);
+                let mut stored = pty.title.lock().unwrap();
+                if *stored != title {
+                    *stored = title.clone();
+                    title_update = Some(title);
+                }
             }
             pty.record_directory(term.pwd());
             if before != after {
@@ -138,4 +146,66 @@ impl HostedReader {
         }
         Flow::Continue
     }
+}
+
+/// OSC 133;A, the shell's prompt start (`ShellMark::PromptStart`).
+const PROMPT_START: &[u8] = b"\x1b]133;A";
+
+/// The first host output, first printable output and first prompt mark of
+/// a terminal its create follows (`CMUX_TUI_DEBUG_SPANS`). A mark split
+/// across two chunks is missed.
+fn follow_marks(pty: &PtySurface, output: &[u8]) {
+    let Some(identity) = pty.host_identity.as_ref() else { return };
+    crate::debug_spans::terminal_mark(&identity.terminal_id, "host.first_output");
+    if crate::debug_spans::owes(&identity.terminal_id, "first_printable_output")
+        && has_printable_text(output)
+    {
+        crate::debug_spans::terminal_mark(&identity.terminal_id, "first_printable_output");
+    }
+    if crate::debug_spans::owes(&identity.terminal_id, "first_prompt_mark")
+        && output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START)
+    {
+        crate::debug_spans::terminal_mark(&identity.terminal_id, "first_prompt_mark");
+    }
+}
+
+/// Whether `output` has a printable byte outside escape sequences (CSI, OSC,
+/// DCS/SOS/PM/APC strings, and escapes with intermediates such as `ESC ( B`).
+/// Printable is ASCII graphic or a UTF-8 lead byte; C1 controls are not. A
+/// sequence split across two chunks may be misread; this only times a debug
+/// mark.
+fn has_printable_text(output: &[u8]) -> bool {
+    let mut bytes = output.iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            0x1b => match bytes.next() {
+                Some(b'[') => {
+                    for byte in bytes.by_ref() {
+                        if (0x40..=0x7e).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                Some(b']' | b'P' | b'X' | b'^' | b'_') => {
+                    while let Some(byte) = bytes.next() {
+                        if byte == 0x07 || (byte == 0x1b && bytes.next_if_eq(&b'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                // Intermediates, then one final byte.
+                Some(0x20..=0x2f) => {
+                    for byte in bytes.by_ref() {
+                        if !(0x20..=0x2f).contains(&byte) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            },
+            0x21..=0x7e | 0xc2..=0xf4 => return true,
+            _ => {}
+        }
+    }
+    false
 }

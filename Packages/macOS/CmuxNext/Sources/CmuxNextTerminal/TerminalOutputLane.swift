@@ -61,6 +61,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
             TypingLatencyProbe.shared.mark(.outputParsed)
+            #if DEBUG
+            if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), data) }
+            #endif
         }
     }
 
@@ -81,6 +84,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 return ghostty_surface_restore_snapshot(surface, base, buffer.count, phase)
             }
             if ready { readyRestored.store(restored, ordering: .releasing) }
+            #if DEBUG
+            if NewTerminalTrace.shared.isArmed, restored { NewTerminalTrace.shared.parsed(lane: ObjectIdentifier(self), nil) }
+            #endif
             if !restored {
                 Self.logger.error("snapshot restore failed (phase \(phase.rawValue), \(data.count) bytes)")
             }

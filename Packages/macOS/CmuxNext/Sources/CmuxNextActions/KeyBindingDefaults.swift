@@ -5,12 +5,13 @@ public import AppKit
 ///
 /// The Chrome tab keys (`tabSwitching`, Leo 2026-10-12: "chrome/chatgpt/claude has them all
 /// the same") select sidebar items, what Chrome calls tabs, from any focus:
-/// - Cmd-Shift-], Cmd-Opt-Right, Ctrl-PageDown: the next item;
-/// - Cmd-Shift-[, Cmd-Opt-Left, Ctrl-PageUp: the previous item;
+/// - Ctrl-PageDown, Ctrl-Cmd-]: the next item;
+/// - Ctrl-PageUp, Ctrl-Cmd-[: the previous item;
 /// - Cmd-1 to Cmd-8 the nth item, Cmd-9 the last (`sidebar.cmd9`).
-/// Ctrl-Tab / Ctrl-Shift-Tab cycle the focused pane's tabs instead (`nextSurface` /
-/// `prevSurface`, their catalog keys; Leo 2026-10-12: as a workspace switch they got
-/// inconsistent once more was open). They are here too, so a terminal's Ghostty keybind
+/// Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ cycle the focused pane's tabs instead
+/// (`nextSurface` / `prevSurface`; Leo 2026-10-12: as a workspace switch they got
+/// inconsistent once more was open; Lawrence 2026-10-15: Cmd-Shift-] / [ switching
+/// workspaces is "extremely bad"). They are here too, so a terminal's Ghostty keybind
 /// does not take them either.
 /// They go after the Ghostty config's keybinds and claims, so a terminal, its Ghostty
 /// keybinds (`ctrl+tab=next_tab`, `super+[`), a web page and the agent composer never take
@@ -18,10 +19,13 @@ public import AppKit
 ///
 /// - Ctrl-Cmd arrows are aliases for the pane-resize actions (Ghostty's
 ///   `resize_split` defaults); their catalog keys are Ctrl-Shift H/J/K/L.
-/// - Ctrl-Cmd J/K are aliases for focus down/up, whose catalog keys are
-///   Cmd-Opt Down/Up (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS); focus
-///   left/right have Ctrl-Cmd H/L as their catalog keys, since Cmd-Opt
-///   Left/Right are Chrome tab keys.
+/// - Ctrl-Cmd H/J/K/L are aliases for pane focus, whose catalog keys are
+///   the Cmd-Opt arrows (Ghostty's `goto_split`). Cmd-Opt-Left / Right are not
+///   Chrome tab keys here (Lawrence 2026-10-20: "Command+Option+Arrow key needs
+///   to be the original shortcut, which is the ghostty one"; 2f3e1f95983 had
+///   made them sidebar keys). Ghostty's default split keys are reserved
+///   (schemas/keybindings/ghostty-reserved-keys.json, GhosttyReservedKeysTests):
+///   change one only with the user's explicit OK.
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
@@ -36,17 +40,16 @@ public nonisolated struct KeyBindingDefaults {
     public static let notTerminal = WhenClause.notEquals(KeyContext.surfaceKind, .string("terminal"))
 
     /// The Chrome tab keys, without the registry's unbinding applied. The
-    /// catalog keys of `nextSidebarTab` / `prevSidebarTab` (Cmd-Shift-] / [)
+    /// catalog keys of `nextSidebarTab` / `prevSidebarTab` (Ctrl-Cmd-] / [)
     /// and `selectWorkspaceByNumber` (Cmd-1…9) are here too, so they also win
-    /// over a Ghostty keybind; Ctrl-Cmd-] / [ stay as before.
+    /// over a Ghostty keybind.
     public static let tabSwitching: [KeyBinding] = {
         func bind(_ key: String, _ modifiers: NSEvent.ModifierFlags, _ id: ActionID, _ argument: String? = nil) -> KeyBinding {
             KeyBinding(keys: [Shortcut(key, modifiers: modifiers)], command: id, argument: argument)
         }
         return [
             bind("\t", [.control], "nextSurface"), bind("\t", [.control, .shift], "prevSurface"),
-            bind("]", [.command, .shift], "nextSidebarTab"), bind("[", [.command, .shift], "prevSidebarTab"),
-            bind(right, [.command, .option], "nextSidebarTab"), bind(left, [.command, .option], "prevSidebarTab"),
+            bind("]", [.command, .shift], "nextSurface"), bind("[", [.command, .shift], "prevSurface"),
             bind(pageDown, [.control], "nextSidebarTab"), bind(pageUp, [.control], "prevSidebarTab"),
             bind("]", [.control, .command], "nextSidebarTab"), bind("[", [.control, .command], "prevSidebarTab"),
         ] + (1...9).map { bind(String($0), [.command], "selectWorkspaceByNumber", String($0)) }
@@ -67,6 +70,9 @@ public nonisolated struct KeyBindingDefaults {
     /// `when` that names it. (Home's Cmd-Shift-[ / ] went to the Chrome tab
     /// keys, Leo 2026-10-12: Home is a sidebar item too.)
     ///
+    /// Cmd-N is New Workspace everywhere, Home too (Lawrence 2026-10-20: "Command + N needs to
+    /// always make a new workspace"); New Message keeps its compose button, palette and menu.
+    ///
     /// Cmd-K searches the agent chats everywhere but a terminal, as in ChatGPT and Claude
     /// desktop (Leo 2026-10-12, keyboard parity); a focused terminal keeps Clear (decision K1)
     /// and the code editor keeps its Cmd-K key sequences.
@@ -81,7 +87,16 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+        // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
+        KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
     ]
+
+    /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
+    public static let onHome = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
@@ -97,6 +112,8 @@ public nonisolated struct KeyBindingDefaults {
     /// catalog Cmd-Opt arrow; they disappear when a user overrides or
     /// unbinds that action.
     public static let paneFocusAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("h", modifiers: [.control, .command])], command: "focusLeft"),
+        KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
         KeyBinding(keys: [Shortcut("j", modifiers: [.control, .command])], command: "focusDown"),
         KeyBinding(keys: [Shortcut("k", modifiers: [.control, .command])], command: "focusUp"),
     ]
@@ -112,6 +129,13 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command])], command: "focusHistoryBack", when: notWebPage),
         KeyBinding(keys: [Shortcut("]", modifiers: [.command])], command: "focusHistoryForward", when: notWebPage),
     ]
+    /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
+    /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
+    /// browser page never loses the key to it.
+    public static let zoomAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "markdownZoomIn"),
+    ]
+
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
     static let notWebPage = WhenClause.and([
         .notEquals(KeyContext.surfaceKind, .string("page")), .not(.has(KeyContext.codeEditorFocusedKey)),
@@ -119,7 +143,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
-    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases }
+    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -131,6 +155,9 @@ public nonisolated struct KeyBindingDefaults {
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
+        // "all common vscode shortcuts").
+        "toggleChecklistItemComplete", "toggleSplitZoom",
     ]
 
     /// Actions whose default key a terminal program also uses (Ctrl-_ is
@@ -178,7 +205,9 @@ public nonisolated struct KeyBindingDefaults {
             bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
             bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
             bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            // Decision K1: no Cmd-K in the palette; Tab opens the Actions menu.
+            // Tab opens the Actions menu; Cmd-K shows or hides it too (Copy Session ID on a
+            // Go to Workspace row), and on an action row edits its shortcut.
+            bind("k", [.command], "paletteKey.toggleActions", open),
             bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
             bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
             bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),

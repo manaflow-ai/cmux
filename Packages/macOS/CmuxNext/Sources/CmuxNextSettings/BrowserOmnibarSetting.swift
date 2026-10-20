@@ -10,7 +10,15 @@ import Foundation
 ///     "search": "https://example.com/search?q=%s",
 ///     "suggest": "https://example.com/suggest?q=%s"   // optional, OpenSearch JSON
 ///   },
-///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true }
+///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true,
+///                "showFullURLs": false,         // the whole address, scheme and www. included
+///                // the bar's look (cx-gkz5):
+///                "glass": "off",                // transparent, regular, clear
+///                "glassTint": "background",     // accent, none
+///                "glassTintStrength": 0.35,     // 0 to 1
+///                "cornerRadius": "theme",       // capsule, or points 0 to 16
+///                "shadow": false,
+///                "backgroundOpacity": 0 }       // 0 to 1, over a see-through window
 /// }
 /// ```
 ///
@@ -24,6 +32,16 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let inlineAutocompletePath = ["browser", "omnibar", "inlineAutocomplete"]
     public static let maxRowsPath = ["browser", "omnibar", "maxRows"]
     public static let calculatorPath = ["browser", "omnibar", "calculator"]
+    /// Chrome's "Always show full URLs" (the address bar's right-click menu).
+    public static let showFullURLsPath = ["browser", "omnibar", "showFullURLs"]
+    public static let glassPath = ["browser", "omnibar", "glass"]
+    public static let glassTintPath = ["browser", "omnibar", "glassTint"]
+    public static let glassTintStrengthPath = ["browser", "omnibar", "glassTintStrength"]
+    public static let cornerRadiusPath = ["browser", "omnibar", "cornerRadius"]
+    public static let shadowPath = ["browser", "omnibar", "shadow"]
+    public static let backgroundOpacityPath = ["browser", "omnibar", "backgroundOpacity"]
+    /// `cornerRadius` points; the words are `theme` and `capsule`.
+    public static let cornerRadiusRange: ClosedRange<Double> = 0...16
     /// The built-in engines, then `custom`.
     public static let engines = ["google", "duckduckgo", "bing", "brave", "kagi", "custom"]
     public static let maxRowsRange: ClosedRange<Double> = 3...15
@@ -49,6 +67,17 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var inlineAutocomplete = true
     public var maxRows = 8
     public var calculator = true
+    /// The bar shows the whole address at rest (no elided `https://` or `www.`).
+    public var showFullURLs = false
+    public var glass = "off"
+    public var glassTint = "background"
+    public var glassTintStrength = 0.35
+    /// nil: the theme's radius; `.infinity`: a capsule; else points.
+    public var cornerRadius: Double?
+    public var shadow = false
+    /// How much the flat bar covers a see-through window, 0 to 1; 0 keeps
+    /// the window's transparency down to the text's legibility floor.
+    public var backgroundOpacity = 0.0
 
     public init() {}
 
@@ -72,6 +101,18 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? true
             case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 8)
             case calculatorPath: setting.calculator = value.boolValue ?? true
+            case showFullURLsPath: setting.showFullURLs = value.boolValue ?? false
+            case glassPath: setting.glass = value.stringValue ?? setting.glass
+            case glassTintPath: setting.glassTint = value.stringValue ?? setting.glassTint
+            case glassTintStrengthPath: setting.glassTintStrength = value.doubleValue ?? setting.glassTintStrength
+            case cornerRadiusPath:
+                switch value.stringValue {
+                case "theme": setting.cornerRadius = nil
+                case "capsule": setting.cornerRadius = .infinity
+                default: setting.cornerRadius = value.doubleValue
+                }
+            case shadowPath: setting.shadow = value.boolValue ?? false
+            case backgroundOpacityPath: setting.backgroundOpacity = value.doubleValue ?? setting.backgroundOpacity
             default: break
             }
         }

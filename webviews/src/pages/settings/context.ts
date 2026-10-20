@@ -1,16 +1,7 @@
-import { createContext, useContext, useSyncExternalStore } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { createContext, useContext, useRef, useSyncExternalStore } from "react";
 import type { AnyRouter } from "@tanstack/react-router";
-import {
-  settingsKeys,
-  type AccountsData,
-  type DevicesData,
-  type HarnessesData,
-  type HostData,
-  type ScopeData,
-  type ThemeColorsData,
-} from "./queries";
-import { composeState, type SettingsState, type SettingsStore } from "./store";
+import type { ManagedInfo } from "./ops";
+import { managedOf, valueOf, type RowError, type SettingsState, type SettingsStore } from "./store";
 
 export type SettingsContextValue = { store: SettingsStore; router: AnyRouter };
 
@@ -30,27 +21,66 @@ export function useSettingsRouter(): AnyRouter {
   return useSettingsContext().router;
 }
 
-// The cache's observers only read: the store decides when to fetch (start, the owner's change
-// events, a section that needs its part), so a mount never starts a second read.
-const reader = { enabled: false } as const;
-
-/** The page's state: the settings cache (TanStack Query) and the page's UI state, composed. */
+/**
+ * The page's state: the settings cache (TanStack Query) and the page's UI state, composed by the
+ * store. One subscription; the component renders when any part changes. The store decides when to
+ * fetch (start, the owner's change events, a section that needs its part), so a mount never reads.
+ */
 export function useSettingsState(): SettingsState {
   const store = useStore();
-  const ui = useSyncExternalStore(store.subscribe, store.getUi, store.getUi);
-  const scope = useQuery<ScopeData>({ queryKey: settingsKeys.scope("user"), ...reader });
-  const host = useQuery<HostData>({ queryKey: settingsKeys.host, ...reader });
-  const accounts = useQuery<AccountsData>({ queryKey: settingsKeys.accounts, ...reader });
-  const harnesses = useQuery<HarnessesData>({ queryKey: settingsKeys.harnesses, ...reader });
-  const devices = useQuery<DevicesData>({ queryKey: settingsKeys.devices, ...reader });
-  const themeColors = useQuery<ThemeColorsData>({ queryKey: settingsKeys.themeColors, ...reader });
-  return composeState(ui, {
-    scope: scope.data,
-    scopeSettled: scope.status !== "pending",
-    host: host.data,
-    accounts: accounts.data,
-    harnesses: harnesses.data,
-    devices: devices.data,
-    themeColors: themeColors.data,
-  });
+  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+}
+
+/**
+ * The part of the page's state `select` picks; the component renders only when `equal` says that
+ * part changed (a write to one key renders that key's row, not every row on the page).
+ */
+export function useSettingsSelector<T>(
+  select: (state: SettingsState) => T,
+  equal: (a: T, b: T) => boolean = Object.is,
+): T {
+  const store = useStore();
+  const last = useRef<{ state: SettingsState; select: (state: SettingsState) => T; value: T } | null>(null);
+  const read = () => {
+    const state = store.getSnapshot();
+    const previous = last.current;
+    if (previous && previous.state === state && previous.select === select) return previous.value;
+    const picked = select(state);
+    const value = previous && equal(previous.value, picked) ? previous.value : picked;
+    last.current = { state, select, value };
+    return value;
+  };
+  return useSyncExternalStore(store.subscribe, read, read);
+}
+
+/** What one setting's row shows. */
+export type RowState = {
+  value: unknown;
+  customized: boolean;
+  managed: ManagedInfo | null;
+  diagnostics: string[] | undefined;
+  error: RowError | undefined;
+  connected: boolean;
+  readable: boolean;
+};
+
+/** One row's state; the row renders only when one of these parts changes. */
+export function useRowState(key: string): RowState {
+  return useSettingsSelector(
+    (state): RowState => ({
+      value: valueOf(state, key),
+      customized: state.rows.get(key)?.customized ?? false,
+      managed: managedOf(state, key),
+      diagnostics: state.diagnostics.get(key),
+      error: state.errors.get(key),
+      connected: state.connected,
+      readable: state.readable,
+    }),
+    shallowEqual,
+  );
+}
+
+function shallowEqual<T extends object>(a: T, b: T): boolean {
+  for (const key in a) if (!Object.is(a[key], b[key])) return false;
+  return true;
 }

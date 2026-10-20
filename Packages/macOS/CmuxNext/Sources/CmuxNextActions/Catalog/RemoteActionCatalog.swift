@@ -4,7 +4,19 @@
 
 nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        // Whose localhost a workspace's browser tabs reach: the person's own
+        // choice, kept in personal state (plans/cmux-next/remote-localhost.md
+        // 9). From a terminal it applies only after the person approves it in
+        // the app, so the CLI waits for that answer; MCP never offers it.
+        var setRemoteLocalhost = ActionDescriptor(
+            id: "workspace.setRemoteLocalhost",
+            title: String(localized: "action.workspace.setRemoteLocalhost", defaultValue: "Set Workspace Localhost…", table: "RemoteActions", bundle: .module),
+            keywords: ["remote", "localhost", "loopback", "ssh", "cloud", "machine", "browser", "dev server"], category: .remote,
+            symbol: "network", surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.remoteLocalhostChoice],
+            targets: [.workspace], cliName: "workspace set-remote-localhost"
+        )
+        setRemoteLocalhost.waitsForResult = true
+        return [
             ActionDescriptor(
                 id: "remote.connect",
                 title: String(localized: "action.remote.connect", defaultValue: "Connect to Machine…", table: "RemoteActions", bundle: .module),
@@ -13,6 +25,25 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.destinationString, CatalogArgument.sessionString, CatalogArgument.binaryString,
                             CatalogArgument.stateDirString],
                 cliName: "remote connect", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "remote.newGroup",
+                title: String(localized: "action.remote.newGroup", defaultValue: "New Remote Group…", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "host", "server", "group", "mac mini", "linux", "vm"], category: .remote, symbol: "rectangle.stack.badge.plus",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.destinationString],
+                cliName: "remote new-group"
+            ),
+            ActionDescriptor(
+                id: "remote.removeGroup",
+                title: String(localized: "action.remote.removeGroup", defaultValue: "Remove Remote Group", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "host", "group", "header", "list"], category: .remote, symbol: "rectangle.stack.badge.minus",
+                surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote remove-group"
+            ),
+            ActionDescriptor(
+                id: "machine.reconnect",
+                title: String(localized: "action.machine.reconnect", defaultValue: "Reconnect", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "host", "server", "cloud", "connect", "retry", "offline"], category: .remote, symbol: "arrow.clockwise",
+                surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "machine reconnect"
             ),
             ActionDescriptor(
                 id: "remote.newWorkspace",
@@ -45,6 +76,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 keywords: ["ssh", "remote", "update", "upgrade", "cmux-tui"], category: .remote, symbol: "arrow.down.circle",
                 surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote install", destructive: true
             ),
+            setRemoteLocalhost,
             // The machine's raw SSH or install error (the sidebar header's
             // tooltip says it in a sentence), for a bug report or a search.
             ActionDescriptor(
@@ -99,5 +131,21 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+}
+
+nonisolated extension CatalogArgument {
+    /// `machine` (the workspace's machine), `thisMac`, or `setting`
+    /// (follow `browser.remoteLocalhost`).
+    static var remoteLocalhostChoice: ActionArgument {
+        func choice(_ value: String, _ title: String) -> ActionEnumCase { ActionEnumCase(value: value, title: title) }
+        return ActionArgument(
+            name: "localhost",
+            title: String(localized: "argument.remoteLocalhost", defaultValue: "Localhost Target", table: "RemoteActions", bundle: .module),
+            kind: .enumeration([
+                choice("machine", String(localized: "argument.value.remoteLocalhost.machine", defaultValue: "The Workspace's Machine", table: "RemoteActions", bundle: .module)),
+                choice("thisMac", String(localized: "argument.value.remoteLocalhost.thisMac", defaultValue: "This Mac", table: "RemoteActions", bundle: .module)),
+                choice("setting", String(localized: "argument.value.remoteLocalhost.setting", defaultValue: "Follow Settings", table: "RemoteActions", bundle: .module)),
+            ]))
     }
 }

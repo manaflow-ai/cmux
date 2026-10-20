@@ -2,6 +2,11 @@
 //! and each chat's brand, and a watcher gets one numbered delta per change,
 //! never the list again. Every store is a synthetic fixture in a temp home.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -168,4 +173,72 @@ async fn five_thousand_chats_one_change_is_one_numbered_delta() {
             head,
         ]
     );
+}
+
+/// All Chats pages the list as the reader scrolls, while chats keep changing under it: a chat that
+/// moves to the top or leaves must not make the next page repeat a chat or skip one. The cursor
+/// names the last chat a page held, not how many came before it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_page_cursor_holds_its_place_while_chats_move() {
+    const N: usize = 30;
+    let base = PathBuf::from("/tmp").join(format!("acpmux-keyset-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&base).unwrap();
+    let home = Home(std::fs::canonicalize(&base).unwrap());
+    let projects = home.0.join(".claude/projects");
+    for i in 0..N {
+        let file = session_file(&projects, i);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, format!("{}\n", record(i, i, &format!("chat {i}")))).unwrap();
+        // A Claude chat's time is its file's: one second apart, a day ago, so the order is known
+        // and a later write puts its chat on top.
+        let day_ago = std::time::SystemTime::now() - Duration::from_secs(86_400);
+        let at = day_ago + Duration::from_secs(i as u64);
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(at).unwrap();
+    }
+    let hub = hub();
+    hub.start_chats(ChatSources {
+        home: home.0.clone(),
+        acpmux_home: home.0.join(".acpmux"),
+        env: Arc::new(|_: &str| None),
+        launch_roots: Vec::new(),
+        user_roots: Vec::new(),
+    })
+    .await
+    .unwrap();
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+    let mut c = Client(in_tx, out_rx, 0);
+    let key = |i: usize| format!("claude-code:{}", session_id(i));
+    let keys = |page: &Value| -> Vec<String> {
+        page["chats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["key"].as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    // Newest first: chats 29 to 20.
+    let first = c.ok("_acpmux/chats_watch", json!({"limit": 10})).await;
+    assert_eq!(keys(&first), (20..N).rev().map(key).collect::<Vec<_>>());
+    let cursor = first["nextCursor"].as_str().expect("more chats").to_owned();
+    assert!(cursor.len() <= 32, "the host passes a cursor of at most 32 characters: {cursor}");
+
+    // Chat 5 moves to the top, and chats 25 and 24 (on the page the reader holds) leave: the chats
+    // after the page shift up by one, so an offset would skip chat 19.
+    append(&session_file(&projects, 5), &record(5, N + 1, "a new prompt"));
+    assert_eq!(c.next_change().await["key"], key(5));
+    for gone in [25, 24] {
+        std::fs::remove_file(session_file(&projects, gone)).unwrap();
+        assert_eq!(c.next_change().await["key"], key(gone));
+    }
+
+    // The next page is still the ten chats after 20, and the one after it the rest but chat 5.
+    let second = c.ok("_acpmux/chats", json!({"limit": 10, "cursor": cursor})).await;
+    assert_eq!(keys(&second), (10..20).rev().map(key).collect::<Vec<_>>());
+    let cursor = second["nextCursor"].as_str().expect("more chats").to_owned();
+    let third = c.ok("_acpmux/chats", json!({"limit": 10, "cursor": cursor})).await;
+    assert_eq!(keys(&third), (0..10).rev().filter(|&i| i != 5).map(key).collect::<Vec<_>>());
+    assert!(third["nextCursor"].is_null(), "{third}");
 }

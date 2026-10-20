@@ -51,6 +51,11 @@ impl ResourceOperation {
                 | Self::PairingRequestList
                 | Self::FrontendProjectionGet
                 | Self::ChiefEngineGet
+                | Self::ChiefProfileList
+                | Self::ChiefProfileGet
+                | Self::ChiefProfileAvatarGet
+                | Self::ChiefProfileHistory
+                | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
                 | Self::ConversationList
@@ -60,6 +65,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
+                | Self::GitBranches
                 | Self::GitDiff
                 | Self::GitFilesList
                 | Self::GitFilesSearch
@@ -99,9 +105,13 @@ impl ResourceOperation {
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
                 | Self::KeybindingsGet
+                | Self::BrowserDevicesList
+                | Self::BrowserProfileList
                 | Self::SidebarLayoutGet
+                | Self::SidebarGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet
+                | Self::StashList
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -112,6 +122,7 @@ impl ResourceOperation {
                 | Self::WorkspaceGroupList
                 | Self::WorkspaceLogList
                 | Self::WorkspaceStatusList
+                | Self::WorkspaceChecklistList
                 | Self::WorkspaceAgentStartGet
         ) {
             OperationClass::Read

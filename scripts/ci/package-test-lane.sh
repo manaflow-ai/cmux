@@ -113,6 +113,10 @@ sanitize_link_flags=(-Xlinker -no_compact_unwind)
 # builds and the test runs below share it (scripts/ci/swift-test-debug-info.sh).
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$(dirname "${BASH_SOURCE[0]}")/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers
+# change (CCmuxAppFFI or GhosttyNextKit pin): scripts/ci/swiftpm-binary-module-guard.sh.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/swiftpm-binary-module-guard.sh" || exit 2
 
 lane_script="${BASH_SOURCE[0]}"
 work="${RUNNER_TEMP:-}"
@@ -134,7 +138,11 @@ ensure_parent() {
   fi
   local remote
   remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
-  git fetch --no-tags --no-write-fetch-head --depth=2 "$remote" "$(git rev-parse HEAD)" || true
+  # Depth 2 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  local depth=()
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=2)
+  git fetch --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$remote" "$(git rev-parse HEAD)" || true
 }
 
 # A package whose manifest names GhosttyKit.xcframework has a binaryTarget on
@@ -144,6 +152,48 @@ references_ghosttykit() {
   local dir
   dir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$1" -print -quit)"
   [ -n "$dir" ] && grep -q 'GhosttyKit\.xcframework' "$dir/Package.swift" 2>/dev/null
+}
+
+# A same-repository pull request run (the workflow sets CMUX_PACKAGE_REUSE=1)
+# keys each selected package's test inputs (scripts/ci/package_input_key.py)
+# and, unless it is the full suite, drops the packages whose key passed on an
+# earlier run of this branch (scripts/ci/reuse_package_results.py). The select
+# step looks once; the run step selects again and drops the same packages.
+# record_passed publishes the keys that pass for the next run to reuse.
+package_keys="$work/package-input-keys.json"
+reused_packages="$work/reused-packages.txt"
+reuse_package_results() {
+  [ "${CMUX_PACKAGE_REUSE:-0}" = 1 ] && [ -s "$selected" ] || return 0
+  if [ ! -f "$package_keys" ] && ! python3 scripts/ci/package_input_key.py --packages-file "$selected" \
+      --extra "xcode=${CMUX_CI_XCODE_APP:-}" --extra "macos=$(sw_vers -productVersion 2>/dev/null || true)" \
+      --output "$package_keys"; then
+    rm -f "$package_keys"
+    return 0
+  fi
+  if [ "${CMUX_PACKAGE_REUSE:-0}" = 1 ] && [ "$full_suite" != "true" ] && [ "$event" = "pull_request" ]; then
+    if [ ! -f "$reused_packages" ]; then
+      python3 scripts/ci/reuse_package_results.py --repository "${GITHUB_REPOSITORY:-}" \
+        --branch "${CMUX_PACKAGE_REUSE_BRANCH:-}" --current-run-id "${GITHUB_RUN_ID:-0}" \
+        --selected "$selected" --keys "$package_keys" --reused "$reused_packages" || : > "$reused_packages"
+    fi
+    grep -vxF -f "$reused_packages" "$selected" > "$selected.remaining" || true
+    mv "$selected.remaining" "$selected"
+  fi
+}
+
+# record_passed PACKAGE...: write the input keys of these packages (each passed
+# here or was reused) as passed-packages.json for the workflow to publish.
+record_passed() {
+  [ -f "$package_keys" ] && [ "$#" -gt 0 ] || return 0
+  local directory="$work/passed-packages"
+  mkdir -p "$directory"
+  python3 - "$package_keys" "$directory/passed-packages.json" "$@" <<'PY'
+import json, sys
+keys = json.load(open(sys.argv[1], encoding="utf-8"))
+passed = {package: keys[package] for package in sys.argv[3:] if package in keys}
+json.dump(passed, open(sys.argv[2], "w", encoding="utf-8"), sort_keys=True)
+PY
+  output "passed_packages=$directory"
 }
 
 select_packages() {
@@ -176,6 +226,7 @@ select_packages() {
     echo "Diff unavailable; running every package."
     printf '%s\n' "${PACKAGES[@]}" > "$selected"
   fi
+  reuse_package_results
   count="$(wc -l < "$selected" | tr -d ' ')"
   output "selected_packages=$selected"
   output "selected_count=$count"
@@ -191,10 +242,19 @@ select_packages() {
   echo "Selected $count of ${#PACKAGES[@]} Swift packages."
 }
 
+# The receipt is the {package: key} map reuse_package_results computed (the same
+# keys record_passed publishes); when reuse is off it is computed into its own
+# file, so record_passed still publishes nothing.
 write_package_input_keys() {
   [ -f "${selected:-}" ] || return 0
-  local receipt_file="$work/package-input-keys.json" receipt
-  python3 scripts/ci/package_input_key.py --root . --packages-file "$selected" --output "$receipt_file"
+  local receipt_file="$package_keys" receipt
+  [ -f "$receipt_file" ] || receipt_file="$work/package-input-receipt.json"
+  if [ ! -f "$receipt_file" ] && ! python3 scripts/ci/package_input_key.py --root . --packages-file "$selected" \
+      --extra "xcode=${CMUX_CI_XCODE_APP:-}" --extra "macos=$(sw_vers -productVersion 2>/dev/null || true)" \
+      --output "$receipt_file"; then
+    rm -f "$receipt_file"
+    return 0
+  fi
   receipt="$(tr -d "\n" < "$receipt_file")"
   output "package_input_keys=$receipt"
   # Fleet steps do not receive GITHUB_OUTPUT; this marker is copied back by the
@@ -310,6 +370,7 @@ package_args() {
     swift_test_args+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$pkgdir/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
+  swiftpm_binary_module_guard "$pkgdir" "$pkgdir/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
 }
 
 # record_built_ref PKGDIR: after a complete build of PKGDIR, name the commit in
@@ -509,6 +570,12 @@ run_package_tests() {
   }
 
   summary=()
+  passed=()
+  if [ -f "$reused_packages" ]; then
+    while IFS= read -r pkg; do
+      [ -n "$pkg" ] && passed+=("$pkg")
+    done < "$reused_packages"
+  fi
   failed=0
   first_failure_status=0
   while IFS= read -r pkg; do
@@ -521,6 +588,7 @@ run_package_tests() {
     seconds=$((SECONDS - started))
     if [ "$package_status" -eq 0 ]; then
       result=passed
+      passed+=("$pkg")
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$package_status"
@@ -541,6 +609,7 @@ run_package_tests() {
     printf '%s\n' ${summary[@]+"${summary[@]}"}
   )"
   printf 'Swift package test results:\n%s\n' "$table"
+  record_passed ${passed[@]+"${passed[@]}"}
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Swift package tests\n\n```\n%s\n```\n' "$table" >> "$GITHUB_STEP_SUMMARY"
   fi
@@ -555,6 +624,33 @@ run_package_tests() {
 ensure_web_bundles() {
   echo "::group::cmux-next web bundles"
   bash scripts/ci/ensure-web-bundles.sh
+  echo "::endgroup::"
+}
+
+# The live-daemon suites (FirstLaunchTests, ClassicImportTests,
+# ClassicMigrationTests, ...) start this tree's hosted cmux-tui; without it
+# they skip. Fetch it once, as run-swift-testing-suites.sh does: this head's
+# tree, else the newest published tree when the head changes no cmux-tui input.
+# Never waits for an unpublished tree, and a failed fetch only means those
+# suites skip. CMUX_NEXT_TUI_TREE_PATH names the binary for the tests.
+ensure_cmux_tui_tree() {
+  [ -z "${CMUX_NEXT_TUI_TREE_PATH:-}" ] || return 0
+  local pin=scripts/cmux-next/pin-cmux-tui.sh tree_path key
+  [ -f "$pin" ] || return 0
+  echo "::group::cmux-tui for the live-daemon suites"
+  export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
+  if tree_path="$(bash "$pin" path 2>/dev/null)" && [ -n "$tree_path" ]; then
+    if [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+      tree_path=""
+      if key="$(bash "$pin" fallback-key 2>/dev/null)" && [ -n "$key" ] && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+        tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || tree_path=""
+        echo "This head's cmux-tui tree is not published; the live-daemon suites use the newest published tree $key."
+      else
+        echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip."
+      fi
+    fi
+    [ -z "$tree_path" ] || [ ! -x "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  fi
   echo "::endgroup::"
 }
 
@@ -581,9 +677,26 @@ run_suite() {
   fi
   if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
     ensure_web_bundles
+    ensure_cmux_tui_tree
   fi
+  local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  swiftpm_binary_module_guard "$suite_package" "$scratch"
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
-  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
+  local build_log build_status=0
+  build_log="$(mktemp -t swift-suite-build.XXXXXX)"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null 2>&1 \
+    | tee "$build_log" || build_status=$?
+  # Backstop for a stale module the guard did not see (a header outside a
+  # binary target): one build from clean outputs, as a cold slot would do.
+  if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
+    echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
+    swiftpm_purge_build_outputs "$scratch"
+    swiftpm_binary_module_guard "$suite_package" "$scratch"
+    build_status=0
+    swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
+  fi
+  rm -f "$build_log"
+  [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the

@@ -4,7 +4,8 @@ import CmuxNextTerminal
 
 /// Feeds the Ghostty config's colors into `ThemeStore`, at launch and after
 /// every config change (reload keybind, Reload Configuration action,
-/// light/dark conditional themes), so all chrome follows the terminal theme.
+/// light/dark conditional themes), so all chrome follows the terminal theme,
+/// and its unfocused-split dim into `DesignSettings`, so panes dim as in Ghostty.
 /// cmux.json's window background (`GhosttyRuntime.backgroundOverride`) is
 /// already in that config; resolving it again here is a no-op that keeps
 /// the tokens right for colors read any other way.
@@ -41,9 +42,16 @@ enum ThemeBridge {
     }
 
     private static func apply(_ runtime: GhosttyRuntime) {
+        let dim = unfocusedPaneDim(runtime.unfocusedSplit)
+        if DesignSettings.shared.unfocusedPaneDim != dim { DesignSettings.shared.unfocusedPaneDim = dim }
         guard let colors = runtime.themeColors else { return }
         ThemeStore.shared.apply(input(colors, background: GhosttyRuntime.backgroundOverride,
                                       accent: GhosttyRuntime.themeName.flatMap(accent)))
+    }
+
+    /// The pane dim for the config's `unfocused-split-opacity` and `unfocused-split-fill`.
+    static func unfocusedPaneDim(_ split: GhosttyUnfocusedSplit) -> UnfocusedPaneDim {
+        UnfocusedPaneDim(unfocusedSplitOpacity: split.opacity, fill: split.fill.map { ThemeRGB(r: $0.r, g: $0.g, b: $0.b) })
     }
 
     /// The theme input for `colors`, with `background` (cmux.json's

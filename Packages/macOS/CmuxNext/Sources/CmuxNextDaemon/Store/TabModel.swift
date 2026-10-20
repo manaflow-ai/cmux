@@ -21,13 +21,23 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalResourceID: ResourceID?
     public internal(set) var kind: TabKind
     public internal(set) var name: String?
+    /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
+    /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
     public internal(set) var title: String
+    /// The title's text without a terminal's leading status glyphs (``TerminalTitle``);
+    /// a browser's title as is. Assigned only when the words change.
+    public internal(set) var titleText: String
+    /// What a terminal title's leading glyph said (a spinner: working); nil for none.
+    public internal(set) var titleActivity: TerminalTitle.Activity?
     public internal(set) var size: CellSize?
     public internal(set) var dead: Bool
     /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
     public internal(set) var terminalState: TerminalTabState?
     /// How a dead terminal ended (R41): the banner names this reason.
     public internal(set) var end: TerminalTabEnd?
+    /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
+    /// Quit's End Sessions, Keep Layout and this launch restarts it.
+    public internal(set) var relaunch: TabRelaunch?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -40,6 +50,8 @@ public final class TabModel: Identifiable {
     public internal(set) var gitBranch: String?
     public internal(set) var gitDetached: Bool
     public internal(set) var browserEngine: String?
+    /// A frontend browser tab's browser profile (`frontend-browser-tab-profile-v1` moves it in place).
+    public internal(set) var browserProfileID: String?
     public internal(set) var faviconURL: String?
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
@@ -52,6 +64,41 @@ public final class TabModel: Identifiable {
     /// The icon the user set on the tab record (`tab.update {icon}`; the shared icon
     /// wire string: one emoji or an SF Symbol name). Nil shows the tab kind's icon.
     public internal(set) var userIcon: String?
+    /// The device a browser tab emulates, as the daemon resolved it
+    /// (`extra.emulation`, browser-devices-v1); the engine applies it as is.
+    public internal(set) var emulation: JSONValue?
+    /// Marked unread by hand (Mark Tab Unread, `tab-mark-unread-v1`): a flag on the tab record
+    /// in the daemon, apart from ``notification``. Every client shows it; a client clears it
+    /// when the person views the tab. This client's own write shows at once
+    /// (``expectMarkedUnread(_:)``) and the record's echo confirms it.
+    public private(set) var markedUnread = false
+    /// The mark as the daemon's tab record says it.
+    @ObservationIgnored private var recordMarkedUnread = false
+    /// A mark or clear this client sent that the record has not echoed yet.
+    @ObservationIgnored private var pendingMarkedUnread: Bool?
+
+    /// Shows `marked` now, before the daemon's `tab.update` answers: the
+    /// round trip (hundreds of ms on a busy daemon) is never on the visible
+    /// path of Toggle Tab Unread. The record's echo of `marked` settles it.
+    public func expectMarkedUnread(_ marked: Bool) {
+        pendingMarkedUnread = marked
+        publishMarkedUnread()
+    }
+
+    /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
+    /// failed. A newer pending value (a second toggle) stays.
+    public func dropExpectedMarkedUnread(_ marked: Bool) {
+        guard pendingMarkedUnread == marked else { return }
+        pendingMarkedUnread = nil
+        publishMarkedUnread()
+    }
+
+    private func publishMarkedUnread() {
+        let shown = pendingMarkedUnread ?? recordMarkedUnread
+        if markedUnread != shown { markedUnread = shown }
+    }
+    /// The tab's fit as given (`extra.emulation.fit.value`: "16:9" or "1280", browser-fit-v1), nil for none.
+    public var fitValue: String? { emulation?["mode"]?.stringValue == "fit" ? emulation?["fit"]?["value"]?.stringValue ?? "16:9" : nil }
     /// A browser tab's saved back URLs (oldest first) and forward URLs
     /// (nearest first).
     public internal(set) var backURLs: [String] = []
@@ -71,17 +118,54 @@ public final class TabModel: Identifiable {
     @ObservationIgnored private var commandTimer: DemandTimer?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
+    /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
+    /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
+    public internal(set) var conversation: ConversationTabRef?
+    /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
+    public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
     @ObservationIgnored private var observedCwd: String?
-
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
-        return title
+        return titleText
     }
 
-    public var hasUnread: Bool { notification?.unread == true }
+    /// Whether the tab holds an unread notification. A notification this
+    /// client read (``expectNotificationRead()``) shows read before the
+    /// daemon's echo.
+    public var hasUnread: Bool {
+        guard let notification, notification.unread else { return false }
+        return notification.notification != readingNotification
+    }
+
+    /// The notification this client acknowledged that the tree still shows
+    /// unread (the ack's round trip). A newer notification is not covered.
+    public private(set) var readingNotification: NotificationID?
+
+    /// Shows the tab's unread notification read now, before the daemon's
+    /// `ack-tab-notifications` answers. The tree's echo settles it.
+    public func expectNotificationRead() {
+        guard let notification, notification.unread else { return }
+        readingNotification = notification.notification
+    }
+
+    /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
+    public func dropExpectedNotificationRead() {
+        if readingNotification != nil { readingNotification = nil }
+    }
+
+    /// The tree's notification marker arrived: a read or replaced
+    /// notification settles a pending read.
+    private func settleReadingNotification() {
+        guard let reading = readingNotification else { return }
+        if notification?.notification != reading || notification?.unread != true { readingNotification = nil }
+    }
+
+    /// Whether the tab shows as unread: an unread notification or the manual mark.
+    /// Acknowledging reads only ``hasUnread``; this is for dots and badges.
+    public var showsUnread: Bool { hasUnread || markedUnread }
 
     /// Public tab id (`tab_…`) on registry daemons. Stored and observed: a
     /// tab can get its id in a later snapshot of the same surface, and an
@@ -91,23 +175,23 @@ public final class TabModel: Identifiable {
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? snapshot.conversation?.agentSession : nil
+        kind == .conversation ? conversation?.agentSession : nil
     }
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
-        kind == .browser ? snapshot.app : nil
+        kind == .browser ? app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
     /// App Store, Settings); nil for every other tab.
     public var page: String? {
-        kind == .conversation ? snapshot.conversation?.page : nil
+        kind == .conversation ? conversation?.page : nil
     }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
-        kind == .conversation ? snapshot.conversation?.route : nil
+        kind == .conversation ? conversation?.route : nil
     }
 
     init(_ s: TabSnapshot) {
@@ -121,10 +205,14 @@ public final class TabModel: Identifiable {
         kind = s.kind
         name = s.name
         title = s.title
+        let parsed = Self.parsedTitle(s.title, kind: s.kind)
+        titleText = parsed.text
+        titleActivity = parsed.activity
         size = s.size
         dead = s.dead
         terminalState = s.terminalState
         end = s.end
+        relaunch = s.relaunch
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -133,10 +221,19 @@ public final class TabModel: Identifiable {
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
         browserEngine = s.browserEngine
+        browserProfileID = s.browserProfileID
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
         remote = s.remote
+        conversation = s.conversation
+        app = s.app
+        #if DEBUG
+        // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
+        if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
+            NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)
+        }
+        #endif
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -153,12 +250,14 @@ public final class TabModel: Identifiable {
         if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
         if kind != s.kind { kind = s.kind }
         if name != s.name { name = s.name }
-        if title != s.title { title = s.title }
+        applyTitle(s.title)
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
+        if relaunch != s.relaunch { relaunch = s.relaunch }
         if notification != s.notification { notification = s.notification }
+        settleReadingNotification()
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
         if pinnedURL != s.pinnedURL { pinnedURL = s.pinnedURL }
@@ -166,10 +265,13 @@ public final class TabModel: Identifiable {
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
         if browserEngine != s.browserEngine { browserEngine = s.browserEngine }
+        if browserProfileID != s.browserProfileID { browserProfileID = s.browserProfileID }
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
         if remote != s.remote { remote = s.remote }
+        if conversation != s.conversation { conversation = s.conversation }
+        if app != s.app { app = s.app }
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
@@ -178,6 +280,10 @@ public final class TabModel: Identifiable {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
+        if emulation != record.emulation { emulation = record.emulation }
+        recordMarkedUnread = record.markedUnread
+        if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
+        publishMarkedUnread()
         if backURLs != record.back { backURLs = record.back }
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
@@ -200,8 +306,25 @@ public final class TabModel: Identifiable {
 
     /// Point updates from surface events (no full snapshot).
     func setTitle(_ value: String) {
-        if title != value { title = value }
+        applyTitle(value)
         snapshot.title = value
+    }
+
+    /// Assigns the raw title, and its text and activity only when they changed, so a
+    /// spinner frame invalidates no view that reads ``displayTitle``.
+    private func applyTitle(_ value: String) {
+        if title != value { title = value }
+        let parsed = Self.parsedTitle(value, kind: kind)
+        if titleText != parsed.text { titleText = parsed.text }
+        if titleActivity != parsed.activity { titleActivity = parsed.activity }
+    }
+
+    /// A terminal's title loses its leading status glyphs; a page's stays as the page wrote it.
+    static func parsedTitle(_ raw: String, kind: TabKind) -> TerminalTitle {
+        switch kind {
+        case .pty, .remoteTerminal: TerminalTitle(raw: raw)
+        default: TerminalTitle(text: raw)
+        }
     }
 
     func setSize(_ value: CellSize) {

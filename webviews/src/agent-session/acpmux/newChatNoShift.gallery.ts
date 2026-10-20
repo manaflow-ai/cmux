@@ -3,7 +3,8 @@
 // 2026-10-11: "so much layout shift"). The pane runs its real client against the in-page mock
 // daemon (`transport: "mock"`, mock.ts), so the play goes through the app's own states: the empty
 // new chat, the sent prompt waiting for its session, Thinking, then the streamed reply. Each step
-// measures the composer, its controls and the turn's status line: none may move or resize.
+// measures the composer, its controls and the turn's status line: none may move or resize. The
+// location strip is no anchor: it leaves on the send by design (locationRow.ts), and the card stays.
 import { agentPaneEntry } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 
@@ -16,7 +17,6 @@ export default agentPaneEntry({
   anchors: [
     { selector: ".acpmux-composer-box" },
     { selector: ".acpmux-composer-bar" },
-    { selector: ".acpmux-composer-context" },
     { selector: ".acpmux-model" },
     { selector: ".acpmux-context" },
     { selector: ".acpmux-send" },
@@ -33,7 +33,7 @@ export default agentPaneEntry({
         "The mock daemon's first session, the hero's removal and the first transcript mount share one frame on the CPU-only gallery VM (89-105 ms before and after the fix); this entry gates layout shift, the composer entries gate frame time.",
     },
   },
-  covers: ["agent-session/acpmux/conversation/Thinking.tsx", "agent-session/acpmux/conversation/turns.ts"],
+  covers: ["agent-session/acpmux/conversation/Thinking.tsx"],
   variants: {
     "send-to-streaming": {
       note: "Play: type a prompt in a new chat, send it, wait for Thinking, then for the streamed reply. Nothing in the composer moves.",

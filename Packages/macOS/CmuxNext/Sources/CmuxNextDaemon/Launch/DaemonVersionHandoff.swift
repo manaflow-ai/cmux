@@ -114,17 +114,77 @@ extension DaemonLauncher {
         }
         let logger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
         logger.info("daemon \(identity.pid) runs build \(running, privacy: .public); handing off to \(target, privacy: .public)")
-        do {
-            let reply = try await connection.request(
-                ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
-            guard reply.accepted != false else {
+        // Quiet (DaemonConnection.quietHandoff): no request of this connection is cut.
+        let handoff = handoff
+        return await connection.quietHandoff({ () async -> DaemonVersionDecision in
+            do {
+                let reply = try await connection.request(
+                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+                guard reply.accepted != false else {
+                    handoff.cancel(pid: identity.pid)
+                    return .keep("the daemon refused the handoff")
+                }
+            } catch {
                 handoff.cancel(pid: identity.pid)
-                return .keep("the daemon refused the handoff")
+                return .keep("handoff request failed: \(error)")
             }
-        } catch {
-            handoff.cancel(pid: identity.pid)
-            return .keep("handoff request failed: \(error)")
+            return decision
+        }, accepted: { $0 == decision })
+    }
+
+    /// The running owner lacks `capability`, which the bundled build serves (an older build, or a
+    /// dev daemon whose build is unknown, so `handOffIfStale` kept it): hand it off to the bundled
+    /// build the same way, once per daemon. Terminals keep running and the next `ensure` starts
+    /// the bundled build with this launcher's arguments. False for an external binary (it would
+    /// start as itself again) and when the daemon refused. True while that daemon is still
+    /// exiting for this handoff (a page retry during the exit), so the caller keeps waiting.
+    public func handOffForCapability(_ capability: String, identity: DaemonIdentity,
+                                     using connection: DaemonConnection) async -> Bool {
+        guard configuration.binaryIsBundled, !identity.supports(capability) else { return false }
+        if handoff.exiting == identity.pid { return true }
+        // Once per launcher: the bundled build serves the capability, so a second owner without it
+        // is not ours to restart again (no loop).
+        guard handoff.begin(bundled: "capability:\(capability)", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
+    /// The running owner does not verify this app's install key (an older build or `cmux chief`
+    /// started it without one): hand it off once per launcher, the same way, so the next `ensure`
+    /// starts it with the key on stdin. Only a launcher that holds a key (an unsigned build); the
+    /// caller decides when a restart is safe. False when the daemon refused.
+    public func handOffForInstallKey(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard configuration.installKey != nil,
+              handoff.begin(bundled: "install-key", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
+    /// The person confirmed "Restart cmux-tui" (a server update, plans/cmux-next/server-updates-DESIGN.md):
+    /// hand the running daemon off so the next `ensure` starts the bundled build. Terminals keep
+    /// running, as in every handoff. Once per daemon process; false for an external binary (it
+    /// would start as itself again) and when the daemon refused.
+    public func handOffForUpdate(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard configuration.binaryIsBundled,
+              handoff.begin(bundled: "update:\(identity.pid)", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
+    /// Sent with no request of `connection` in flight; requests made meanwhile go to the next
+    /// daemon (`DaemonConnection.quietHandoff`), so a handoff never cuts a Home send.
+    private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        let handoff = handoff
+        return await connection.quietHandoff {
+            do {
+                let reply = try await connection.request(
+                    ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
+                guard reply.accepted != false else {
+                    handoff.cancel(pid: identity.pid)
+                    return false
+                }
+            } catch {
+                handoff.cancel(pid: identity.pid)
+                return false
+            }
+            return true
         }
-        return decision
     }
 }

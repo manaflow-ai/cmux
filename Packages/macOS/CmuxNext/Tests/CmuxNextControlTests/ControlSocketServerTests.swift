@@ -2,7 +2,7 @@
 import CmuxNextSettings
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {
@@ -216,5 +216,183 @@ import Testing
         #expect(lstat(server.configuration.path, &info) == 0)
         #expect(info.st_mode & 0o777 == mode.filePermissions, "the socket still gets its own mode")
         #expect(info.st_mode & S_IFMT == S_IFSOCK)
+    }
+}
+
+/// The socket file deleted under a running app (a host's /tmp sweeper removed
+/// `/tmp/cmux-debug-<tag>.sock` at the same hour two nights running on a soak
+/// mini): the app kept its listener, but nothing could connect again until a
+/// relaunch. The server puts its socket back, with its mode, and never takes a
+/// path another server holds.
+@Suite(.serialized) struct ControlSocketPathRestoreTests {
+    func makeServer(_ mode: ControlAccessMode, path: String) throws -> ControlSocketServer {
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        router.updateCatalog(sampleCatalog())
+        let server = ControlSocketServer(configuration: .init(path: path, accessMode: mode), router: router)
+        try server.start()
+        return server
+    }
+
+    /// Pings until a connect succeeds or `limit` passes.
+    func pingWithin(_ path: String, _ limit: Duration) async -> String? {
+        let deadline = ContinuousClock.now + limit
+        while ContinuousClock.now < deadline {
+            if let client = try? LineClient(path: path) { return client.send("ping") }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return nil
+    }
+
+    @Test func aDeletedSocketFileComesBackWithItsMode() async throws {
+        let path = temporarySocketPath()
+        let server = try makeServer(.allowAll, path: path)
+        defer { server.stop() }
+        let open = try LineClient(path: path)
+        #expect(open.send("ping") == "PONG")
+
+        #expect(unlink(path) == 0)
+        #expect(await pingWithin(path, .seconds(5)) == "PONG", "a new connect reaches the server again")
+        var info = stat()
+        #expect(lstat(path, &info) == 0)
+        #expect(info.st_mode & S_IFMT == S_IFSOCK)
+        #expect(info.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(open.send("ping") == "PONG", "a connection open across the delete keeps working")
+
+        // Deleted again: restored again.
+        #expect(unlink(path) == 0)
+        #expect(await pingWithin(path, .seconds(5)) == "PONG")
+        server.stop()
+        #expect(access(path, F_OK) != 0, "stop removes the restored socket")
+    }
+
+    /// Restart CLI Listener (`palette.restartSocketListener`): the listener is
+    /// closed and bound again at the same path with the same mode, so a new
+    /// connect reaches the server and the socket file is the server's own.
+    @Test func restartBindsTheListenerAgainAtItsPath() throws {
+        let path = temporarySocketPath()
+        let server = try makeServer(.allowAll, path: path)
+        defer { server.stop() }
+        #expect(try LineClient(path: path).send("ping") == "PONG")
+        var before = stat()
+        #expect(lstat(path, &before) == 0)
+
+        try server.restart()
+
+        #expect(server.isRunning)
+        var after = stat()
+        #expect(lstat(path, &after) == 0)
+        #expect(after.st_mode & S_IFMT == S_IFSOCK)
+        #expect(after.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(after.st_ino != before.st_ino, "the socket file was not bound again")
+        #expect(try LineClient(path: path).send("ping") == "PONG", "a new connect does not reach the restarted server")
+        server.stop()
+        #expect(access(path, F_OK) != 0, "stop after a restart leaves the socket file behind")
+    }
+
+    /// A listening socket at `path` that is not a ``ControlSocketServer`` (no watch of its own).
+    func plainListener(at path: String) throws -> Int32 {
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(descriptor >= 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { $0.copyBytes(from: Array(path.utf8) + [0]) }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        try #require(bound == 0 && listen(descriptor, 8) == 0)
+        return descriptor
+    }
+
+    func inode(_ path: String) -> ino_t? {
+        var info = stat()
+        return lstat(path, &info) == 0 ? info.st_ino : nil
+    }
+
+    @Test func aPathAnotherServerTookIsLeftAlone() async throws {
+        let path = temporarySocketPath()
+        let first = try makeServer(.allowAll, path: path)
+        defer { first.stop() }
+        // Another server's socket replaces the file in one rename, so there is
+        // no moment with nothing at the path for the first server to fill.
+        let other = temporarySocketPath()
+        let listener = try plainListener(at: other)
+        defer { close(listener) }
+        let taken = try #require(inode(other))
+        #expect(rename(other, path) == 0)
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(inode(path) == taken, "the first server leaves the path alone")
+        first.stop()
+        #expect(inode(path) == taken, "stopping the first never removes the other socket")
+        unlink(path)
+    }
+
+    /// A quit landing while a restore is binding: the restore's new listener
+    /// is closed and its file removed, without a crash.
+    @Test func aStopDuringARestoreClosesTheNewSocket() async throws {
+        let path = temporarySocketPath()
+        let binds = Mutex(0)
+        let box = Mutex<ControlSocketServer?>(nil)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let server = ControlSocketServer(
+            configuration: .init(path: path, accessMode: .allowAll),
+            router: router,
+            accept: { Darwin.accept($0, nil, nil) },
+            bind: { descriptor, address, length in
+                let result = Darwin.bind(descriptor, address, length)
+                let count = binds.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count == 2 { box.withLock { $0 }?.stop() }  // the restore's bind
+                return result
+            }
+        )
+        box.withLock { $0 = server }
+        defer { box.withLock { $0 = nil } }
+        try server.start()
+        #expect(unlink(path) == 0)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while binds.withLock({ $0 }) < 2, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(binds.withLock { $0 } == 2, "the delete started one restore")
+        #expect(!server.isRunning)
+        #expect(access(path, F_OK) != 0, "the restored socket of a stopped server is removed")
+    }
+
+    /// Restores that keep failing (descriptors exhausted while the file is
+    /// gone) back off instead of spinning, and the socket still comes back
+    /// once a bind works again.
+    @Test func restoresThatKeepFailingBackOffAndStillComeBack() async throws {
+        let path = temporarySocketPath()
+        let binds = Mutex(0)
+        let failing = Mutex(true)
+        let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
+        let server = ControlSocketServer(
+            configuration: .init(path: path, accessMode: .allowAll),
+            router: router,
+            accept: { Darwin.accept($0, nil, nil) },
+            bind: { descriptor, address, length in
+                let count = binds.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count > 1, failing.withLock({ $0 }) {
+                    errno = EACCES
+                    return -1
+                }
+                return Darwin.bind(descriptor, address, length)
+            }
+        )
+        try server.start()
+        defer { server.stop() }
+        #expect(unlink(path) == 0)
+        try await Task.sleep(for: .seconds(2))
+        let failed = binds.withLock { $0 } - 1
+        #expect(failed >= 3, "the delete started restores (\(failed))")
+        #expect(failed <= 12, "failed restores back off instead of spinning (\(failed) in 2 s)")
+        failing.withLock { $0 = false }
+        #expect(await pingWithin(path, .seconds(10)) == "PONG", "the socket comes back once a bind works")
     }
 }

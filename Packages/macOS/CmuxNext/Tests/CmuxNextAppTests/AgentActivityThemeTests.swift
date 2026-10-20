@@ -31,12 +31,14 @@ struct AgentActivityThemeTests {
         #expect(await pageText(view.webView, becomes: second) == second)
     }
 
-    /// The page's `--cmux-text` once it reads `expected`, else its last value after 10 s.
+    /// The `--cmux-text` of the theme the page last took (`cmuxTheme.current`, the payload as sent:
+    /// the computed value of a registered color property is serialized another way) once it reads
+    /// `expected`, else its last value after 10 s.
     private func pageText(_ webView: WKWebView, becomes expected: String) async -> String? {
         var value: String?
         for _ in 0..<200 {
             value = try? await webView.callAsyncJavaScript(
-                "return getComputedStyle(document.documentElement).getPropertyValue('--cmux-text').trim()",
+                "return (window.cmuxTheme && window.cmuxTheme.current && window.cmuxTheme.current.variables['--cmux-text']) || ''",
                 contentWorld: .page) as? String
             if value == expected { return value }
             try? await Task.sleep(for: .milliseconds(50))

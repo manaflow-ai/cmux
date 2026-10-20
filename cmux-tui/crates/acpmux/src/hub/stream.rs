@@ -18,6 +18,9 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "agent_thought_chunk",
     // A background shell's end is a note beside the message (cx-ncc.84).
     "background_task_update",
+    // A compaction is a note between messages; its summary is not shown.
+    "compaction",
+    "compaction_summary",
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",
@@ -136,7 +139,7 @@ impl Hub {
 
     /// Forget per-turn stream state when a turn starts.
     pub(super) fn reset_stream(&self, session: &Session) {
-        *session.stream.lock().unwrap() = StreamState::default();
+        *session.stream.lock().unwrap_or_else(|e| e.into_inner()) = StreamState::default();
     }
 
     /// Error fields for `turn_result`: the text and code of the failure, and

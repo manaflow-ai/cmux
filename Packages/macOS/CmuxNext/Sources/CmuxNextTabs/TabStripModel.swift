@@ -16,15 +16,28 @@ public enum TabStripStyle: Hashable, Sendable {
 public final class TabStripModel {
     /// Identifies this strip in cross-strip drags.
     public let stripID: UUID
-    public var tabs: [TabItem]
+    public var tabs: [TabItem] { didSet { followTabs() } }
     /// Groups of this strip. Members reference them through `TabItem.groupID`.
     public var groups: [TabGroupItem]
-    public var selectedID: TabID?
+    /// The active tab. One outside `multiSelection` ends that selection.
+    public var selectedID: TabID? { didSet { if selectedID != oldValue { followActive() } } }
+    /// Cmd- and Shift-click's selection (`TabMultiSelection`); empty while only `selectedID` is selected.
+    public var multiSelection = TabMultiSelection()
+    /// Cmd- and Shift-click select several tabs. Off for a strip whose App takes no multi-tab
+    /// actions (the screen bar).
+    public var allowsMultiSelection: Bool
     public var style: TabStripStyle
     public var showsNewTabButton: Bool
+    /// Full Width Tab mode: the strip shows only the selected tab, across its whole width
+    /// (``TabLayoutEngine/layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``).
+    public var showsSelectedFullWidth = false
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?
+    /// Tabs taking another tab's place, keyed by the new tab (what a New Tab page turns into): the
+    /// strip shows the new tab in that tab's cell, which leaves with no close, instead of growing
+    /// one in while the other shrinks away (Leo 2026-10-13).
+    @ObservationIgnored public var successors: [TabID: TabID] = [:]
 
     public init(
         stripID: UUID = UUID(),
@@ -32,7 +45,8 @@ public final class TabStripModel {
         groups: [TabGroupItem] = [],
         selectedID: TabID? = nil,
         style: TabStripStyle = .chrome,
-        showsNewTabButton: Bool = true
+        showsNewTabButton: Bool = true,
+        allowsMultiSelection: Bool = true
     ) {
         self.stripID = stripID
         self.tabs = tabs
@@ -40,6 +54,7 @@ public final class TabStripModel {
         self.selectedID = selectedID
         self.style = style
         self.showsNewTabButton = showsNewTabButton
+        self.allowsMultiSelection = allowsMultiSelection
     }
 
     /// Display order: pinned tabs first, then unpinned tabs in `tabs` order
@@ -47,6 +62,15 @@ public final class TabStripModel {
     /// cleared on pinned tabs and on tabs whose group is unknown.
     public var orderedTabs: [TabItem] {
         TabGroupOrdering.normalized(tabs, groups: Set(groups.map(\.id)))
+    }
+
+    /// The places a sync hands over, new tab to old: a tab with no cell yet (`shown`) taking the
+    /// place of one that has a cell and leaves in this sync (`next`). Stale entries go.
+    func takeSuccessions(shown: Set<TabID>, next: Set<TabID>) -> [TabID: TabID] {
+        let taken = successors.filter { !shown.contains($0.key) && next.contains($0.key) && shown.contains($0.value) && !next.contains($0.value) }
+        // Kept while the new tab has no cell and the old one still has.
+        successors = successors.filter { !shown.contains($0.key) && shown.contains($0.value) && !taken.keys.contains($0.key) }
+        return taken
     }
 
     public func tab(_ id: TabID) -> TabItem? {

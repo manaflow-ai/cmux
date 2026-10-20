@@ -44,6 +44,48 @@ SOFTWARE.
 
 ---
 
+## Chromium vector icons (browser chrome icons)
+
+- **License:** BSD 3-Clause License
+- **Copyright:** Copyright 2015 The Chromium Authors
+- **Source:** https://chromium.googlesource.com/chromium/src (revision ae65a7090c7185668498f7f323680c1065ce98e3)
+
+The browser toolbar, address bar, find bar, extension and media icons are Chromium's
+vector icons (`.icon` files from `components/vector_icons`, `chrome/app/vector_icons` and
+`components/omnibox/browser/vector_icons`). The files are vendored unchanged in
+`design/icons/chromium/src/`, listed in `design/icons/chromium/manifest.json`, and converted
+into the cmux icon pack by `scripts/icons/chromium_icons.py`.
+
+Copyright 2015 The Chromium Authors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+   * Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer
+in the documentation and/or other materials provided with the
+distribution.
+   * Neither the name of Google LLC nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
 ## Emoji data (icon picker)
 
 - **Unicode emoji-test.txt 17.0** and **CLDR annotations 48.2.0** (`en`, `ja`):
@@ -340,6 +382,43 @@ SOFTWARE.
 
 ---
 
+## mediaremote-adapter (Now Playing)
+
+- **License:** BSD 3-Clause License
+- **Copyright:** Copyright (c) 2025, Jonas van den Berg and contributors
+- **Source:** https://github.com/ungive/mediaremote-adapter (0e82bf1c44ec39554fbfc402ec88a48c6ae2a0fd)
+
+Vendored in `vendor/mediaremote-adapter`; bundled as
+`Contents/Frameworks/MediaRemoteAdapter.framework` and
+`Contents/Resources/MediaRemoteAdapter/mediaremote-adapter.pl`.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
 ## Sparkle
 
 - **License:** MIT License
@@ -444,10 +523,17 @@ viewer has no runtime CDN dependency.
 
 ### Mermaid
 
-- **Version:** 11.4.1
+- **Version:** 11.17.2
 - **License:** MIT License
-- **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
-- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
+- **Copyright:** Copyright (c) 2014-2026 Knut Sveidqvist and Mermaid contributors
+- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.17.2
+
+### Ondine
+
+- **Version:** 0.0.1 (`Resources/markdown-viewer/ondine.min.js`, built by `scripts/cmux-next/vendor-ondine.mjs`)
+- **License:** MIT License (`Resources/markdown-viewer/ondine.LICENSE`)
+- **Copyright:** Copyright (c) 2025-present wevm contributors
+- **Source:** https://github.com/wevm/ondine (npm `ondine@0.0.1`, built from commit f662aa795b91bf2dfc7162f48035be3884201193)
 
 ### Vega
 
@@ -873,6 +959,45 @@ playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; show
 
 ---
 
+## uBlock Origin (built-in content blocker)
+
+- **License:** GNU General Public License v3.0 or later (GPL-3.0-or-later)
+- **Copyright:** Copyright (C) Raymond Hill and the uBlock Origin contributors
+- **Source:** https://github.com/gorhill/uBlock (tag 1.75.0; corresponding source
+  https://github.com/gorhill/uBlock/archive/refs/tags/1.75.0.tar.gz, sha256
+  a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b)
+
+The cmux-next app bundles the unmodified uBlock Origin 1.75.0 release build for
+Chromium (uBlock0_1.75.0.chromium.zip, sha256
+393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582) in
+`Contents/Resources/Extensions/ublock-origin`; the only change is the manifest's
+`key` field (the Chrome Web Store extension id; the manifest is rewritten with
+two-space indentation). The folder carries the full
+GPL-3.0 text (`LICENSE.txt`) and `SOURCE.txt`. uBlock Origin is a separate
+program that cmux loads into Chromium; it is not linked into cmux.
+Its bundled libraries keep their own licenses (CodeMirror, csstree, hsluv and
+js-beautify: MIT; diff: BSD-3-Clause; lz4-wasm and other files under `lib/`: see
+the license files there), and so do its filter lists under `assets/thirdparties/`
+(EasyList and EasyPrivacy: GPL-3.0 or CC BY-SA 3.0; Peter Lowe's list and the
+URLhaus filter: their own terms, shipped beside them; publicsuffix.org: MPL-2.0).
+
+---
+
+## Public Suffix List (email verification AutoFill)
+
+- **License:** Mozilla Public License 2.0 (MPL-2.0)
+- **Copyright:** The Public Suffix List contributors (Mozilla Foundation)
+- **Source:** https://publicsuffix.org/list/public_suffix_list.dat (as of 2026-10-02)
+
+The cmux-next app bundles the list's rules, unmodified except that IDN rules
+are stored in punycode and comments are removed, as
+`PublicSuffixList.dat` in the CmuxNextBrowser resource bundle
+(`Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/PublicSuffixList.dat`).
+The file carries the MPL-2.0 notice. The full license text is at
+https://mozilla.org/MPL/2.0/; the source form is the file itself.
+
+---
+
 ## x264 (remote desktop host encoder)
 
 - **License:** GNU General Public License v2.0 or later (GPL-2.0-or-later)
@@ -930,7 +1055,8 @@ with each release as `COPYRIGHT-library.html`. This app ships that file,
 unchanged, for each rustc that built one of its binaries:
 
 - `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
-  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
+  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
+  `bin/cnx-hostd` and `Helpers/cmux-remote-browser-host.app`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:

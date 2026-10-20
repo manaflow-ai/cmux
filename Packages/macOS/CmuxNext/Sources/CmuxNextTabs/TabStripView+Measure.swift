@@ -10,4 +10,13 @@ extension TabStripView {
         let origin = tabsClip.convert(CGPoint(x: cell.frame.minX + pill.minX, y: cell.frame.minY + pill.minY), to: self)
         return CGRect(origin: origin, size: pill.size)
     }
+
+    /// Every laid-out tab's [x, width] in strip content points, in order
+    /// (members collapsed behind a group chip and the drop gap left out).
+    public var tabSlots: [[Double]] {
+        result.slots.filter { !$0.isCollapsed && $0.id != Self.placeholderID }.map { [Double($0.x), Double($0.width)] }
+    }
+
+    /// The width the tabs may fill.
+    public var tabAvailableWidth: Double { Double(result.availableWidth) }
 }

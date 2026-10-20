@@ -73,6 +73,17 @@ const entries: HistoryEntry[] = [
   },
 ];
 
+const closedTerminal: HistoryEntry = {
+  id: "closed:local:2",
+  kind: "closed",
+  at_ms: ago(3),
+  title: "atlas-web",
+  detail: "/Users/you/src/atlas-web",
+  cwd: "/Users/you/src/atlas-web",
+  closed_kind: "terminal_tab",
+  available: true,
+};
+
 const many = Array.from({ length: 48 }, (_, index): HistoryEntry => ({
   id: `command:build:${index + 1}`,
   kind: "command",
@@ -148,6 +159,27 @@ export default historyPageEntry({
             "history cannot be changed",
         );
         if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
+      },
+    },
+    "closed-remove-clear": {
+      note: "Remove on a Closed row deletes it; Clear History under Closed deletes the rest.",
+      entries: [...entries, closedTerminal],
+      query: { filter: "closed" },
+      play: async (ctx) => {
+        const rows = () => ctx.document.querySelectorAll(".history-row").length;
+        await ctx.waitFor(() => rows() === 2);
+        // The bottom row (the older one), so no row moves when it goes.
+        await ctx.contextMenu({ role: "option", name: /^atlas-web/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
+        await ctx.click({ selector: ".page-menu-item.destructive" });
+        await ctx.waitFor(() => rows() === 1);
+        await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
+        const clear = ctx.find({ role: "button", name: /^Clear History/ }) as HTMLButtonElement;
+        if (clear.disabled) throw new Error("Clear History is off under the Closed chip");
+        await ctx.click({ role: "button", name: /^Clear History/ });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".page-menu-item").length === 5);
+        await ctx.click({ role: "menuitem", name: "All Time" });
+        await ctx.waitFor(() => rows() === 0);
       },
     },
     "not-found-error": {

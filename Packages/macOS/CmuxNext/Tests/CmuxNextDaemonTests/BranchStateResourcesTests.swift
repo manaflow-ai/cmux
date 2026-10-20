@@ -56,11 +56,32 @@ struct BranchStateResourcesTests {
         }
     }
 
+    /// workspace-description-v1 and workspace-status-v1: `workspace.update` sets both, the store
+    /// mirrors them from the workspace's `extra`, and `.clear` takes each back alone.
+    @Test func descriptionAndTaskStatusReachTheWorkspace() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            let store = h.store
+            try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
+            #expect(await store.supports(DaemonCapabilities.shared.workspaceDescription))
+            #expect(await store.supports(DaemonCapabilities.shared.workspaceStatus))
+            let created = try await h.connection.state.createWorkspace(name: "notes", ephemeral: false, terminal: false, focus: true)
+            let id = created.workspaceID
+            try await h.connection.state.updateWorkspace(id, description: .set("Ship it\n- notes"), taskStatus: .set(.needsAttention))
+            try await store.waitUntil("the notes", timeout: .seconds(20)) { store.workspace(resourceID: id)?.taskStatus == .needsAttention }
+            #expect(await store.workspace(resourceID: id)?.workspaceDescription == "Ship it\n- notes")
+            try await h.connection.state.updateWorkspace(id, description: .clear)
+            try await store.waitUntil("the description cleared", timeout: .seconds(20)) { store.workspace(resourceID: id)?.workspaceDescription == nil }
+            #expect(await store.workspace(resourceID: id)?.taskStatus == .needsAttention, "clearing the description keeps the lane")
+            try await h.connection.state.updateWorkspace(id, taskStatus: .clear)
+            try await store.waitUntil("automatic again", timeout: .seconds(20)) { store.workspace(resourceID: id)?.taskStatus == nil }
+        }
+    }
+
     @Test func ephemeralStatusScreenAndTabStateReachTheRecords() async throws {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
             try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
-            let created = try await h.connection.state.createWorkspace(name: "eph", ephemeral: true, terminal: true)
+            let created = try await h.connection.state.createWorkspace(name: "eph", ephemeral: true, terminal: true, focus: true)
             try await store.waitUntil("the ephemeral workspace", timeout: .seconds(20)) { store.workspace(resourceID: created.workspaceID)?.ephemeral == true }
 
             try await h.connection.state.stateMutation("workspace_status.set", [
@@ -95,11 +116,39 @@ struct BranchStateResourcesTests {
         }
     }
 
+    /// tab-mark-unread-v1: Mark Tab Unread marks a tab with no notification;
+    /// the store mirrors the mark from `extra.marked_unread` (the tab shows
+    /// unread, its notification state untouched), and a clear removes it.
+    @Test func aTabMarkedUnreadShowsUnreadUntilCleared() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            let store = h.store
+            try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
+            #expect(h.identity.supports(DaemonCapabilities.shared.tabMarkUnread))
+            let created = try await h.connection.state.createWorkspace(name: "mark-unread", ephemeral: false, terminal: true, focus: true)
+            let tab = try #require(created.tabID)
+            @MainActor func model() -> TabModel? {
+                store.workspace(resourceID: created.workspaceID)?.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.resourceID == tab }
+            }
+            try await store.waitUntil("the tab", timeout: .seconds(20)) { model() != nil }
+            #expect(await model()?.showsUnread == false)
+            try await h.connection.state.updateTabRecord(tab, markedUnread: true)
+            try await store.waitUntil("the tab marked unread", timeout: .seconds(20)) { model()?.markedUnread == true }
+            #expect(await model()?.showsUnread == true)
+            #expect(await model()?.hasUnread == false, "the mark is not a notification")
+            try await h.connection.state.updateTabRecord(tab, zoom: .set(1.25))
+            try await store.waitUntil("the tab zoom", timeout: .seconds(20)) { model()?.zoom == 1.25 }
+            #expect(await model()?.markedUnread == true, "another field keeps the mark")
+            try await h.connection.state.updateTabRecord(tab, markedUnread: false)
+            try await store.waitUntil("the mark cleared", timeout: .seconds(20)) { model()?.markedUnread == false }
+            #expect(await model()?.zoom == 1.25)
+        }
+    }
+
     @Test func groupsMadeThroughV2ShowInTheTree() async throws {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
             try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
-            let created = try await h.connection.state.createWorkspace(name: "groups", ephemeral: false, terminal: true)
+            let created = try await h.connection.state.createWorkspace(name: "groups", ephemeral: false, terminal: true, focus: true)
             let tab = try #require(created.tabID)
             let group = try await h.connection.state.createTabGroup(tabs: [tab], name: "g", color: "blue")
             try await store.waitUntil("the tab group", timeout: .seconds(20)) {

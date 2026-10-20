@@ -11,6 +11,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The fork point of the message's turn (its summary's acpmux event); nil when acpmux does not
     /// serve forks or the turn has not ended.
     var forkSeq: Int?
+    /// The chat opens a side chat (a fork in a split beside it) through ``forkSeq``.
+    var sideChat: Bool
     /// A prompt that was not sent: its row, for Retry.
     var retryRowId: String?
     /// The message's web links and images, for Open Link.
@@ -20,11 +22,12 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, retryRowId: String? = nil, links: [URL] = [],
-         opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
+    init(text: String, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+         links: [URL] = [], opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
+        self.sideChat = sideChat
         self.retryRowId = retryRowId
         self.links = links
         self.opensImage = opensImage
@@ -45,6 +48,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
+        sideChat = (object["sideChat"] as? NSNumber)?.boolValue ?? false
         retryRowId = (object["retryRowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         links = (object["links"] as? [Any] ?? []).compactMap { ($0 as? String).flatMap(URL.init(string:)) }.filter(Self.isWebLink)
     }
@@ -81,6 +85,10 @@ enum AgentPaneContextMenu {
         var retry: (String) -> Void = { _ in }
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
+        /// A link part's rows (``LinkMenu``): Open in cmux Browser, ..., Copy Link; nil: Open Link and Copy Link.
+        var linkItems: ((URL) -> [NSMenuItem])? = nil
+        /// A path part's rows after Open (``LinkMenu``); nil (or a nil answer): Copy Path.
+        var pathItems: ((String) -> [NSMenuItem]?)? = nil
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
@@ -123,7 +131,8 @@ enum AgentPaneContextMenu {
             image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.page("chat.menu.openImage", [:]) })
         }
         if let copyImage { image.append(copyImage) }
-        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open) ?? []
+        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
+                                       linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -142,6 +151,12 @@ enum AgentPaneContextMenu {
             }
             if let seq = target.forkSeq {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) })
+                // The chat menu's New side chat, through this turn (the page's `chat.side`).
+                if target.sideChat {
+                    message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openInSideChat) {
+                        actions.page("chat.side", ["throughSeq": String(seq)])
+                    })
+                }
             }
             // On a link, the part's Open Link stands for the message's.
             links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
@@ -260,5 +275,9 @@ enum AgentPaneMenuStrings {
 
     static var forkFromHere: String {
         String(localized: "agentPane.menu.forkFromHere", defaultValue: "Fork from Here", bundle: .module)
+    }
+
+    static var openInSideChat: String {
+        String(localized: "agentPane.menu.openInSideChat", defaultValue: "Open in Side Chat", bundle: .module)
     }
 }

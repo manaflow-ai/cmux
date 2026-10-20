@@ -152,7 +152,11 @@ impl BrowserSurface {
         self.prepare_provider_session_replacement(|session| {
             !lease.is_some_and(|lease| {
                 session.target_id == lease.target_id
-                    && session.runtime.matches_provider(&lease.endpoint, &lease.authentication)
+                    && session.runtime.matches_provider(
+                        &lease.endpoint,
+                        &lease.authentication,
+                        lease.hosting,
+                    )
             })
         })
     }
@@ -192,6 +196,9 @@ impl BrowserSurface {
         state.accepted_frame_epoch = frame_epoch;
         state.page_viewport = None;
         state.status = BrowserStatus::Starting;
+        // The replacement session starts its own screencast (or none).
+        state.screencast_paused = false;
+        state.frame_demand_retry_at = None;
         state.failure_kind = None;
         state.source = None;
         state.title = state.url.clone();
@@ -342,6 +349,20 @@ impl BrowserSurface {
         if self.clear_error_locked(&mut state) {
             self.mark_state_dirty_locked(&mut state);
         }
+    }
+
+    /// A frontend (WebKit or CEF in the cmux app) renders this page, so it is
+    /// live as soon as it exists: it never attaches a CDP session or streams
+    /// frames, the two ways a daemon browser leaves `Starting` (cx-d0d.82).
+    /// `live_since` and `last_frame_at` stay unset, so frame-stall detection
+    /// stays off.
+    pub(crate) fn mark_frontend_rendered(&self) {
+        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !matches!(state.status, BrowserStatus::Starting) {
+            return;
+        }
+        state.status = BrowserStatus::Live;
+        self.mark_state_dirty_locked(&mut state);
     }
 
     /// Apply the location a frontend-rendered browser reports. Such a

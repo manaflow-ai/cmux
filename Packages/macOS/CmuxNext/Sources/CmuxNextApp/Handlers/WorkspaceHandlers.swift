@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextPages
 
 /// Workspace lifecycle, navigation, order, and bulk close (category
 /// `workspace`). Names, colors, and notifications are in
@@ -12,34 +13,39 @@ enum WorkspaceHandlers {
         registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
-        registry.bind("palette.closeOtherWorkspaces", run: { invocation in
-            let keep = try context.workspace(invocation).model
-            close(context.sidebarOrder.filter { $0 !== keep }, context)
-        })
-        registry.bind("palette.closeWorkspacesBelow", run: { invocation in
-            let (order, index) = try position(context, invocation)
-            close(Array(order[(index + 1)...]), context)
-        })
-        registry.bind("palette.closeWorkspacesAbove", run: { invocation in
-            let (order, index) = try position(context, invocation)
-            close(Array(order[..<index]), context)
-        })
+        WorkspaceBulkClose.bind(into: registry, context: context)
+        WorkspaceSetVerbs.bind(into: registry, context: context)
 
-        registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
-        registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
-        registry.bindUnavailable(["palette.findWork"], ActionFailure.needsAppCapability("github-integration"))
-        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        VSCodeInlineHandlers.bind(into: registry, context: context)
+        registry.bind("palette.openWorkspacePullRequests", run: { invocation in try openPullRequestLinks(context, invocation) })
+        // Find Work: the palette's current-work page (workspaces needing attention, then the
+        // user's GitHub review requests and assignments), from the palette, the CLI and the menu.
+        context.services.palette.sources.actionPages["palette.findWork"] = { [weak services = context.services] in
+            services.map { FindWorkPalettePage(services: $0).page() }
+        }
+        registry.bind("palette.findWork", run: { _ in
+            context.services.palette.show(page: FindWorkPalettePage(services: context.services).page(),
+                                          relativeTo: context.activeWindow?.window)
+        })
+        registry.bind("reopenPreviousSession", run: { _ in try PreviousLaunchRestorer(services: context.services).restore() })
         registry.bind("reopenClosedWorkspace", invoke: { _ in
             guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
-        for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
-        }
-        for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
-        }
+        LayoutTemplateHandlers.bind(into: registry, context: context)
+    }
+
+    /// Open All Workspace PR Links: each web link of the workspace's status
+    /// entries as a browser tab in the focused pane of a window showing it,
+    /// the first selected.
+    private static func openPullRequestLinks(_ context: AppActionContext, _ invocation: ActionInvocation) throws {
+        let (workspace, _) = try context.workspace(invocation)
+        let links = WorkspacePullRequestLinks(workspace.status?.entries ?? []).urls
+        guard !links.isEmpty else { throw ActionFailure(message: RefusalStrings.noWorkspacePullRequestLinks) }
+        let shown = context.services.windows.controllers.compactMap(\.content).first { $0.workspace.id == workspace.id }
+        guard let pane = shown?.focusedPane else { throw ActionFailure(message: RefusalStrings.noWindowShowsWorkspace) }
+        for (index, url) in links.enumerated() { pane.newBrowserTab(url: url, background: index > 0) }
     }
 
     // MARK: Creation
@@ -116,11 +122,28 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
-        let browserTabs = context.services.cache.browserTabs
+        newBrowserWorkspace(services: context.services, url: nil)
+    }
+
+    /// Opens `url` in a cmux browser tab of a new workspace when links open in the cmux browser
+    /// and the daemon serves browser tabs, else where the link rule sends it (Find Work's rows).
+    static func openInNewWorkspace(_ url: URL, services: AppServices) {
+        guard LinkRouter.shared.target(for: url) == .cmuxBrowser,
+              services.activeDaemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
+            LinkRouter.shared.open(url)
+            return
+        }
+        LinkRouter.shared.record("workspace:" + url.absoluteString)
+        newBrowserWorkspace(services: services, url: url.absoluteString)
+    }
+
+    /// A new workspace holding one browser tab at `url` (the new-tab page when nil).
+    private static func newBrowserWorkspace(services: AppServices, url: String?) {
+        let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-        let fallbacks = browserTabs.fallbacks, machine = context.services.activeDaemon.machineID
-        let address = context.services.newTabAddress(for: choice)
-        createAndShow(context) { connection, terminal in
+        let fallbacks = browserTabs.fallbacks, machine = services.activeDaemon.machineID
+        let address = url ?? services.newTabAddress(for: choice)
+        createAndShow(services: services) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).
             let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
@@ -139,22 +162,5 @@ enum WorkspaceHandlers {
         let peers = context.sidebarOrder.filter { $0.group == current.group }
         guard let index = peers.firstIndex(where: { $0 === current }), peers.count > 1 else { return }
         context.services.windows.show(workspaceID: peers[(index + offset + peers.count) % peers.count].id, in: state)
-    }
-
-    // MARK: Close
-
-    private static func position(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> ([WorkspaceModel], Int) {
-        let target = try context.workspace(invocation).model
-        let order = context.sidebarOrder
-        guard let index = order.firstIndex(where: { $0 === target }) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-        return (order, index)
-    }
-
-    static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
-        for workspace in workspaces {
-            guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.closing(workspace, on: context.services.activeDaemon)
-            context.services.activeDaemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
-        }
     }
 }

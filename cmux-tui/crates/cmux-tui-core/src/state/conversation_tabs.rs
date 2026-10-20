@@ -36,13 +36,24 @@ use crate::state::store::StateChanges;
 use crate::state::values::fresh_upserts;
 use crate::workspace_registry::FrontendBrowserRecord;
 
-/// Where a new conversation tab goes: a pane (or the focused pane), or a
+/// Where a new conversation tab goes: a pane (or the focused pane), a
 /// workspace, which gets its first screen and pane when it has none (the
-/// home workspace starts empty).
-#[derive(Debug, Clone, Copy)]
+/// home workspace starts empty), or a new pane split from a pane
+/// (`conversation-tab-split-v1`).
+#[derive(Debug, Clone)]
 pub(crate) enum ConversationTabTarget {
     Pane(Option<PaneId>),
     Workspace(WorkspaceId),
+    /// A new pane on the `direction` side of `pane` (`right`, `down`, `left`
+    /// or `up`) that holds only the tab: one `pane.split` commit and one
+    /// `pane-added` delta, under the caller-minted `pane_id` and `split_id`
+    /// when given.
+    Split {
+        pane: PaneId,
+        direction: &'static str,
+        pane_id: Option<String>,
+        split_id: Option<String>,
+    },
 }
 
 /// A created or replayed conversation tab.
@@ -59,6 +70,7 @@ impl Mux {
         record: ConversationTabRecord,
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
+        transaction: Option<&str>,
     ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
@@ -66,7 +78,7 @@ impl Mux {
         let _serial = key
             .is_some()
             .then(|| KEYED_CREATION.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        let target_ids = self.conversation_tab_target_ids(target)?;
+        let target_ids = self.conversation_tab_target_ids(&target)?;
         let recorded = match key {
             Some((origin, id)) => {
                 self.read_registry_state(|connection| browser_for_mutation(connection, origin, id))?
@@ -121,10 +133,18 @@ impl Mux {
             self.reload_presentation(&registry)?;
         }
         mark_conversation_tabs_present();
-        let fields = Map::from_iter([(
+        let mut fields = Map::from_iter([(
             "frontend_browser_id".to_string(),
             Value::String(browser_id.as_str().to_string()),
         )]);
+        // The created tab's one `tab-added` carries the client's transaction
+        // (`conversation-tab-transaction-v1`); a replay above emits nothing.
+        if let Some(transaction) = transaction {
+            fields.insert(
+                FRONTEND_BROWSER_TRANSACTION_FIELD.to_string(),
+                Value::String(transaction.to_string()),
+            );
+        }
         let created = match target {
             ConversationTabTarget::Pane(pane) => self.new_browser_tab_with_fields_as(
                 actor,
@@ -135,6 +155,21 @@ impl Mux {
             ),
             ConversationTabTarget::Workspace(workspace) => {
                 self.new_conversation_tab_in(actor, workspace, fields)
+            }
+            ConversationTabTarget::Split { pane, direction, pane_id, split_id } => {
+                fields.insert(PANE_BROWSER_URL_FIELD.into(), CONVERSATION_TAB_URL.into());
+                if let Some(pane_id) = pane_id {
+                    fields.insert(CLIENT_PANE_ID_FIELD.into(), Value::String(pane_id));
+                }
+                if let Some(split_id) = split_id {
+                    fields.insert(CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
+                }
+                // `pinned-dock-alone-v1`: a split right of Home's dock alone is a new column
+                // beside it, as wide as a link Home opens there (`workspace.open_url`).
+                let beside_lone_dock = direction == "right"
+                    && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
+                let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
+                self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
             }
         };
         match created {
@@ -176,18 +211,27 @@ impl Mux {
 
     /// The public ids a creation's target names (a key's fingerprint):
     /// numeric ids do not survive a daemon restart.
-    fn conversation_tab_target_ids(&self, target: ConversationTabTarget) -> anyhow::Result<Value> {
+    fn conversation_tab_target_ids(&self, target: &ConversationTabTarget) -> anyhow::Result<Value> {
         self.with_state(|state| match target {
             ConversationTabTarget::Pane(None) => Ok(serde_json::json!({"pane": null})),
             ConversationTabTarget::Pane(Some(pane)) => {
-                let id = state.resource_indexes.pane_ids.get(&pane).context("unknown pane")?;
+                let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
+            }
+            ConversationTabTarget::Split { pane, direction, pane_id, split_id } => {
+                let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
+                let mut ids =
+                    serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
+                if let Some(split_id) = split_id {
+                    ids["split_id"] = Value::String(split_id.clone());
+                }
+                Ok(ids)
             }
             ConversationTabTarget::Workspace(workspace) => {
                 let id = state
                     .workspaces
                     .iter()
-                    .find(|item| item.id == workspace)
+                    .find(|item| item.id == *workspace)
                     .map(|item| item.public_id.to_string())
                     .with_context(|| format!("unknown workspace {workspace}"))?;
                 Ok(serde_json::json!({"workspace": id}))
@@ -196,15 +240,17 @@ impl Mux {
     }
 
     /// `bind-conversation-tab-session`: set an agent tab's acpmux session
-    /// to `session` when its current session is `expected` (None: unbound).
+    /// to `session` when its current session is `expected` (None: unbound),
+    /// and its harness to `harness` when given ([`swap_agent_session`]).
     /// Returns the record and whether the call was a replay (the tab already
-    /// had `session`).
+    /// had `session` and that harness).
     pub(crate) fn bind_conversation_tab_session_as(
         &self,
         actor: &Actor,
         surface: SurfaceId,
         session: &str,
         expected: Option<&str>,
+        harness: Option<&str>,
     ) -> anyhow::Result<(ConversationTabRecord, bool)> {
         let runtime =
             self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
@@ -218,6 +264,7 @@ impl Mux {
         let operation = "tab.conversation.bind_session";
         let fingerprint = serde_json::json!({
             "operation": operation, "browser": browser_id, "session": session, "expected": expected,
+            "harness": harness,
         });
         let committed = self.commit_state(
             &WorkspaceMutation::local("cmux-tui-conversation-tab", actor.clone()),
@@ -226,7 +273,7 @@ impl Mux {
             None,
             StateEffects { presentation: true, tree: false },
             |transaction, _| {
-                swap_agent_session(transaction, &browser_id, session, expected)?;
+                swap_agent_session(transaction, &browser_id, session, expected, harness)?;
                 let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab_id))?;
                 Ok(StateChanges::new(serde_json::json!({}), changes))
             },
@@ -323,6 +370,6 @@ impl Mux {
         mutation: Option<&WorkspaceMutation>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<ConversationTabOutcome> {
-        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size)
+        self.new_conversation_tab_as(&Actor::Daemon, target, record, mutation, size, None)
     }
 }

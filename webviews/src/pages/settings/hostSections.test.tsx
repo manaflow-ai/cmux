@@ -36,6 +36,26 @@ test("Machines lists the saved machines; a host change updates the list without 
   page.unmount();
 });
 
+test("a machine row draws its icon in the row's mark: an emoji, a stored image, else the name's initial", async () => {
+  // cx-qno.11.4: a machine's icon (the home session registry's) shows on its Settings row as a
+  // space's does; an SF Symbol is not drawable here, so a plain machine shows its initial.
+  const asset = `svg:sha256-${"a".repeat(64)}`;
+  const page = await renderPage({ path: "/settings/machines" });
+  const mark = () => page.container.querySelector('[data-card="machines"] [data-host-row] .host-avatar');
+  expect(mark()?.textContent).toBe("B");
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [{ ...page.provider.host.machines[0]!, icon: "🚀" }] });
+  });
+  await settle();
+  expect(mark()?.textContent).toBe("🚀");
+  await act(async () => {
+    page.provider.setHost({ ...page.provider.host, machines: [{ ...page.provider.host.machines[0]!, icon: asset }] });
+  });
+  await settle();
+  expect(mark()?.querySelector("img")?.getAttribute("src")).toBe(`icon/${encodeURIComponent(asset)}`);
+  page.unmount();
+});
+
 test("browser profile edits run the profile's actions with its target", async () => {
   const page = await renderPage({ path: "/settings/browser" });
   const row = page.container.querySelector<HTMLElement>('[data-profile="p-work"]')!;
@@ -107,4 +127,17 @@ test("Development shows only when the host is a DEV build, however it is reached
     expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
     page.unmount();
   }
+});
+
+test("Machines offers Add Server…, which opens the Add Server card through the palette's action", async () => {
+  // u3849: pairing left the menu bar; Settings is one of the ways to add a server by hand. The page
+  // passes no code, so it only opens the card and never approves a server itself.
+  const page = await renderPage({ path: "/settings/machines" });
+  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-server]');
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  await settle();
+  const run = page.provider.log.filter((entry) => entry.op === "cmux.app.action.run").at(-1)!;
+  expect(run.params).toEqual({ action: "server.addServer", args: {} });
+  page.unmount();
 });

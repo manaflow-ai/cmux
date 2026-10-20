@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample models), not shipped UI.
 import { componentEntry } from "../../gallery/format";
+import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
@@ -63,6 +64,54 @@ const curated: ModelPickerProps = {
     })),
 };
 
+/// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
+/// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
+/// the subrouter and CodeRouter Claude routes).
+const manyHarnesses: ModelPickerProps["catalog"] = [
+  ...catalog.filter((entry) => entry.pickable !== false),
+  ...[
+    ["claude-acp", "Claude Agent"],
+    ["claude-sr", "Claude (subrouter)"],
+    ["claude-cr", "Claude (CodeRouter)"],
+    ["cmux-codex", "cmux Codex"],
+    ["gemini", "Gemini CLI"],
+    ["opencode", "OpenCode"],
+    ["pi", "Pi"],
+    ["cursor", "Cursor"],
+    ["kimi", "Kimi CLI"],
+    ["amp-acp", "Amp"],
+    ["goose", "goose"],
+    ["qwen-code", "Qwen Code"],
+    ["github-copilot-cli", "Copilot"],
+    ["cline", "Cline"],
+    ["auggie", "Auggie CLI"],
+    ["junie", "Junie"],
+    ["kilo", "Kilo"],
+    ["mistral-vibe", "Mistral Vibe"],
+    ["factory-droid", "Factory Droid"],
+    ["devin", "Devin"],
+    ["grok-build", "Grok Build"],
+    ["deepagents", "DeepAgents"],
+    ["poolside", "Poolside"],
+    ["qoder", "Qoder CLI"],
+  ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
+];
+
+/// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and its content
+/// scrolls inside it (the harness rail) instead of stretching the menu.
+const cappedHeight: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    if (!menu || menu.style.visibility !== "visible") return false;
+    const height = menu.getBoundingClientRect().height;
+    const scrolls = [menu, ...menu.querySelectorAll<HTMLElement>("*")].some(
+      (node) => node.scrollHeight > node.clientHeight + 100,
+    );
+    return height > 300 && height <= 481 && scrolls;
+  });
+};
+
 const openModels: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-older") !== null);
@@ -80,6 +129,42 @@ const numericSearch: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
 };
 
+/// The compact model menu (Debug Settings `agent.modelMenu`, compact by default): numbered top
+/// models, then Effort and Account beside their rows, then More models.
+const accounts: ChatAccounts = {
+  list: async () => ({
+    accounts: [
+      { id: "max", name: "Claude Max", kind: "subscription" },
+      { id: "api", name: "Anthropic API key", kind: "api-key" },
+      { id: "subrouter", name: "subrouter", kind: "subrouter" },
+    ],
+    active: "max",
+    scope: "chat",
+  }),
+  set: async () => undefined,
+};
+
+const quick: ModelPickerProps = {
+  ...curated,
+  quick: {
+    effort: {
+      levels: [
+        { id: "low", name: "Low" },
+        { id: "medium", name: "Medium" },
+        { id: "high", name: "High" },
+      ],
+      current: "medium",
+      onPick: () => undefined,
+    },
+    account: { sessionId: "gallery-chat", accounts },
+  },
+};
+
+const openQuick: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
+};
+
 export default componentEntry<ModelPickerProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
@@ -87,7 +172,11 @@ export default componentEntry<ModelPickerProps>({
   height: 390,
   widths: { narrow: 200, normal: 420, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
-  covers: ["agent-session/acpmux/ModelPicker.tsx#ModelPicker", "ui/ScrollArea.tsx#ScrollArea"],
+  covers: [
+    "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
+    "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
+    "ui/ScrollArea.tsx#ScrollArea",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
   load: () => import("./ModelPicker").then((module) => module.ModelPicker),
   variants: {
@@ -110,11 +199,64 @@ export default componentEntry<ModelPickerProps>({
         label: "Claude Code",
         catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z"),
       },
+      // An empty list never collapses the menu to its search field (Lawrence 2026-10-13).
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+          return !!menu && menu.style.visibility === "visible" && menu.getBoundingClientRect().height >= 219;
+        });
       },
     },
     curated: { props: curated, play: openModels },
+    // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
+    // Codex's models and More models, with no harness rail and no Add harness….
+    "started-chat": {
+      props: {
+        ...curated,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openModels,
+    },
+    // The same chat on the compact menu: Codex's numbered models with no rail.
+    "started-chat-quick-menu": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openQuick,
+    },
+    "quick-menu": { props: quick, play: openQuick },
+    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
+    "quick-menu-rail": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await ctx.waitFor(
+          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
+        );
+      },
+    },
+    // Typing filters every harness's models in place, with no search field.
+    "quick-menu-filter": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        for (const letter of "son") await ctx.press(letter);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+        );
+      },
+    },
     "more-models": {
       props: curated,
       play: async (ctx) => {
@@ -122,9 +264,25 @@ export default componentEntry<ModelPickerProps>({
         await ctx.click({ selector: ".acpmux-mp-older" });
       },
     },
+    // Many installed agents on a tall stage: the menu is capped and the harness rail scrolls.
+    "many-harnesses": {
+      props: { ...base, catalog: manyHarnesses },
+      height: 1000,
+      play: cappedHeight,
+    },
     "numeric-search": {
       props: { ...base },
       play: numericSearch,
+    },
+    // Codex is signed out on this Mac (cx-ae9eb): its rail tab dims, and its list offers Log In in
+    // place of models, so a pick never starts a chat that fails its first turn.
+    "signed-out": {
+      props: { ...base, signedOut: { codex: "codex login" }, onLogIn: () => undefined },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Model" });
+        await ctx.click({ selector: ".acpmux-mp-harness[data-signed-out]" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
+      },
     },
     // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
     // square), and its rail tab its initial.

@@ -14,10 +14,24 @@ use std::collections::{BTreeMap, BTreeSet};
 /// 2026-10-06): neither has a mode that asks before every edit and every
 /// command. codex-acp 1.10.0 runs every mode with `on-request` approval,
 /// where the model decides when to ask, and a workspace-write sandbox (or
-/// none); opencode 1.18.33 starts every agent from `"*": "allow"` and merges
-/// the user's rules last, which acpmux cannot see. No config entry, preset or
-/// default adds them back; a harness that gains a verifiable mode that asks
-/// before each change goes back into `ASKING_MODES` after a review
+/// none). opencode starts every agent from `"*": "allow"` and merges the
+/// user's rules last, which acpmux cannot see. Re-checked against opencode
+/// v1.19.0 (2026-10-15, cnx-ios parity round 3): acpmux cannot force asking
+/// from outside either. `packages/opencode/src/config/config.ts`
+/// (`loadInstanceState`) merges, later winning, the global config, then
+/// `OPENCODE_CONFIG`, project files, every config directory (with its agent
+/// files, plugins and custom tools), `OPENCODE_CONFIG_CONTENT`, the account's
+/// org config, the managed directory and the macOS MDM plist (which "overrides
+/// everything"), and `OPENCODE_PERMISSION` only into the top-level list;
+/// `src/agent/agent.ts` appends each agent's own `permission` after that, and
+/// `src/permission/index.ts` `evaluate` takes the last matching rule. So an
+/// agent file or a later key such as `"b*": "allow"` beats anything a
+/// launcher sets, and custom tools, plugins, MCP tools (default allow) and
+/// `!` command templates run without the edit/bash/webfetch asks.
+/// `OPENCODE_DISABLE_PROJECT_CONFIG` and `--pure` leave the global config,
+/// org config, managed config and custom tools in place. No config entry,
+/// preset or default adds them back; a harness that gains a verifiable mode
+/// that asks before each change goes back into `ASKING_MODES` after a review
 /// (plans/cmux-next/acp-remote-guard.md).
 pub(crate) const REFUSED_FAMILIES: &[&str] = &["codex", "opencode"];
 
@@ -33,6 +47,56 @@ pub(crate) const ASKING_MODES: &[(&str, &[&str])] = &[
     ("claude", &["default", "plan"]),
     // Codex and opencode have no row: `REFUSED_FAMILIES`.
 ];
+
+/// The Codex bridge's (`codex app-server` through cmux-codex-acp, profile
+/// `codex`) modes that ask before every change, the start mode first.
+/// cmux-codex-acp c30e6489 `config.rs` `MODES`: "ask" runs Codex with
+/// approval policy `untrusted` and a workspace-write sandbox, so Codex asks
+/// before every command that is not a known-safe read and before every file
+/// change (and MCP tool call), and acpmux's `ask` policy hands each question
+/// to the person. "read-only", "agent" and "agent-full-access" use
+/// `on-request` or `never`, where Codex decides when to ask. A remote (Web)
+/// connection may later pick any bridge mode (`any_mode_for_web`), but a
+/// session it STARTS begins here (`remote_guard::settle_web_session_mode`).
+pub(crate) const BRIDGE_ASKING_MODES: &[&str] = &["ask"];
+
+/// Why a refused family cannot start from a remote device (shown on the phone).
+pub(crate) const NO_ASKING_MODE: &str = "this agent has no mode that asks before each change";
+/// opencode can ask, but its own config on the Mac (an agent file, a global or
+/// managed config) can turn the asks off after anything acpmux sets
+/// (`REFUSED_FAMILIES`).
+pub(crate) const OPENCODE_REFUSAL: &str =
+    "opencode's own settings on this Mac can let it edit and run commands without asking";
+
+/// What a remote (Web) connection may start with `profile` (the
+/// `_acpmux/harnesses` row's `remote`): the modes a session it starts runs
+/// in (the start mode first), or why it may not start one. The same rules as
+/// `remote_guard`: the Codex bridge starts in `BRIDGE_ASKING_MODES`; a
+/// refused family never starts; another family starts in its reviewed asking
+/// modes, and one with none is refused.
+pub fn remote_start(
+    table: &WebModeTable,
+    name: &str,
+    profile: &HarnessProfile,
+) -> Result<Vec<String>, String> {
+    if crate::codex_app_server::is_profile_launch(&profile.argv) {
+        return Ok(BRIDGE_ASKING_MODES.iter().map(|m| m.to_string()).collect());
+    }
+    let family = crate::config::derive_family(name, profile);
+    let unnamed = HarnessProfile { family: None, ..profile.clone() };
+    let runs_refused =
+        REFUSED_FAMILIES.contains(&crate::config::derive_family(name, &unnamed).as_str());
+    if table.refused().contains(&family) || runs_refused {
+        let runs_opencode =
+            family == "opencode" || crate::config::derive_family(name, &unnamed) == "opencode";
+        return Err(if runs_opencode { OPENCODE_REFUSAL } else { NO_ASKING_MODE }.into());
+    }
+    let modes = table.modes(&family);
+    if modes.is_empty() {
+        return Err("this agent has no reviewed mode that asks before each change".into());
+    }
+    Ok(modes.to_vec())
+}
 
 /// Modes the reviewed sources name as NOT asking. A config.json
 /// (`webAskingModes`) entry naming one is ignored with a warning, so a local
@@ -226,6 +290,26 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
+/// Whether a Web connection may run a session in ANY mode: Codex through
+/// `codex app-server`, bridged in process (`codex_app_server.rs`), both as
+/// recorded at its creation (`harness_argv`) and as its harness name runs
+/// now (`now`: the profile the next spawn uses; a failover or a changed PATH
+/// that points the name elsewhere ends it).
+/// Lawrence, 2026-10-13: "remote connection must be authed, and should be
+/// able to pretty much use yolo mode". A Web control request reaches the
+/// mode checks only from an authenticated connection (`server/conn_auth.rs`:
+/// `ConnAuth::None` is refused at its first request, and the remote guard
+/// refuses it again), so these sessions take every mode of the bridge,
+/// agent-full-access included. The codex-acp adapter stays refused
+/// (`REFUSED_FAMILIES`): it is being replaced.
+pub(crate) fn any_mode_for_web(
+    m: &SessionMeta,
+    now: Option<&crate::config::HarnessProfile>,
+) -> bool {
+    crate::codex_app_server::is_profile_launch(&m.harness_argv)
+        && now.is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
+}
+
 /// A session's current mode: its ACP mode, else its `mode` config option.
 pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
     let from_modes = m.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
@@ -238,4 +322,36 @@ pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
         })
     };
     from_modes.or_else(from_option).map(str::to_owned)
+}
+
+#[cfg(test)]
+mod remote_start_tests {
+    use super::*;
+
+    fn profile(value: serde_json::Value) -> HarnessProfile {
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// opencode stays refused from a remote device, and the reason says why
+    /// precisely (its own config can turn the asks off); the codex-acp adapter
+    /// keeps the general reason, and Claude starts in its asking modes.
+    #[test]
+    fn opencode_is_refused_with_its_own_reason() {
+        let table = WebModeTable::default();
+        let opencode =
+            profile(serde_json::json!({"argv": ["opencode", "acp"], "family": "opencode"}));
+        assert_eq!(remote_start(&table, "opencode", &opencode), Err(OPENCODE_REFUSAL.to_string()));
+        // opencode under another family name is still opencode.
+        let renamed = profile(
+            serde_json::json!({"argv": ["/opt/homebrew/bin/opencode", "acp"], "family": "claude"}),
+        );
+        assert_eq!(remote_start(&table, "mine", &renamed), Err(OPENCODE_REFUSAL.to_string()));
+        let adapter = profile(serde_json::json!({"argv": ["codex-acp"], "family": "codex"}));
+        assert_eq!(remote_start(&table, "codex-acp", &adapter), Err(NO_ASKING_MODE.to_string()));
+        let claude = profile(serde_json::json!({"argv": ["claude"], "family": "claude"}));
+        assert_eq!(
+            remote_start(&table, "claude", &claude),
+            Ok(vec!["default".to_string(), "plan".to_string()])
+        );
+    }
 }

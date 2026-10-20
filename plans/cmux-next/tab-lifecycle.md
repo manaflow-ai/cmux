@@ -86,18 +86,42 @@ cmux.json:
 "browser": {
   "hibernation": "moderate",          // "off" | "moderate" (60 min) | "aggressive" (10 min) | minutes
   "hibernationExclusions": ["mail.google.com", "*.example.com"],
-  "hibernatePinnedTabs": false
+  "hibernatePinnedTabs": false,
+  "freezeHiddenTabs": 30,             // "off" | seconds: hidden Chromium pages freeze (power, msg 2654)
+  "keepNeighborTabsAwake": 1          // 0-3 tabs on each side of a shown tab never freeze or hibernate
 }
 ```
+
+- Freeze (before hibernation, independent of its mode): a hidden Chromium
+  page past `freezeHiddenTabs` seconds gets `Page.setWebLifecycleState
+  frozen` (timers, tasks, rendering stop; memory and state stay). It thaws
+  when shown, when an agent drives it (before the call goes out) and before
+  the hibernation probe. Pinned tabs (unless `hibernatePinnedTabs`), excluded
+  hosts, open DevTools, capture, playing media and Web Audio stay awake; a
+  page kept for media is asked again after `freezeHiddenTabs`.
+
+- Neighbors (plans/cmux-next/neighbor-tabs-DESIGN.md): the tabs beside each
+  pane's shown tab (`keepNeighborTabsAwake`, wrapping) never freeze or
+  hibernate and wake as soon as they become neighbors; a hovered tab wakes
+  too. Memory pressure and Low Power Mode turn this off.
 
 - Triggers: time since last visible (one one-shot deadline for the earliest
   page), the memory pressure dispatch source (warning: 10 min, or every
   eligible page when aggressive; critical: every eligible page), and the
   Hibernate Tab action. No polling. "off" disables every trigger.
 - Never: pinned tabs (unless `hibernatePinnedTabs`), excluded hosts, open
-  DevTools, camera or microphone in use, unmuted media playing, edited form
-  fields (probe script with a 2 s deadline; no answer counts as busy), pages
-  whose engine cannot restore their history.
+  DevTools, camera, microphone or screen capture in use, unmuted media
+  elements playing, edited form fields (probe script with a 2 s deadline; no
+  answer counts as busy), pages whose engine cannot restore their history.
+  A running Web Audio context (`web_audio`) also keeps a page, except under
+  critical memory pressure: it can be silent (a chat app's notification
+  sounds, a game), and Chrome exempts audible tabs only. Web Audio and
+  capture streams have no element, so a page-world recorder
+  (`BrowserPageBusy`, installed at document start next to the media hub's
+  actions script) wraps `AudioContext`, `getUserMedia` and `getDisplayMedia`;
+  it is also the only capture signal for Chromium tabs, whose engine reports
+  none. `scripts/cmux-next/hibernation-busy-live.py` checks Web Audio (top
+  document and iframe) on a live build.
 - A hibernated tab keeps URL, title, favicon, back/forward history with page
   state (scroll, form data) and a snapshot for the hover preview; its icon
   and title are dimmed in the strip. Selecting it restores the page; a
@@ -121,5 +145,10 @@ cmux.json:
 - A terminal surface shown after a pause can draw its last frame before the
   current one (no Ghostty "presented" signal yet); cold workspaces still
   attach at most one new surface per frame.
-- Screen capture (getDisplayMedia) and WebAudio are not detected by the
-  hibernation probe.
+- Camera, microphone and screen capture exemptions are not checked live
+  (they need a permission prompt and a device on the test host).
+- The recorder misses: Chromium cross-origin iframes (out-of-process frames
+  get no `Page.addScriptToEvaluateOnNewDocument` script without
+  `Target.setAutoAttach`), legacy `navigator.webkitGetUserMedia`, a cloned
+  track that outlives its stopped original, and contexts or streams a page
+  made before the recorder was installed.

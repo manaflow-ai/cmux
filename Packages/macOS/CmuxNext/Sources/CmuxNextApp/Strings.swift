@@ -5,7 +5,6 @@ import Foundation
 enum Strings {
     static var appName: String { String(localized: "app.name", defaultValue: "cmux", bundle: .module) }
 
-    static var menuAbout: String { String(localized: "menu.app.about", defaultValue: "About cmux", bundle: .module) }
     static var menuHide: String { String(localized: "menu.app.hide", defaultValue: "Hide cmux", bundle: .module) }
     static var menuHideOthers: String { String(localized: "menu.app.hideOthers", defaultValue: "Hide Others", bundle: .module) }
     static var menuShowAll: String { String(localized: "menu.app.showAll", defaultValue: "Show All", bundle: .module) }
@@ -16,9 +15,13 @@ enum Strings {
     static var menuCut: String { String(localized: "menu.edit.cut", defaultValue: "Cut", bundle: .module) }
     static var menuCopy: String { String(localized: "menu.edit.copy", defaultValue: "Copy", bundle: .module) }
     static var menuPaste: String { String(localized: "menu.edit.paste", defaultValue: "Paste", bundle: .module) }
+    static var menuPasteAndMatchStyle: String {
+        String(localized: "menu.edit.pasteAndMatchStyle", defaultValue: "Paste and Match Style", bundle: .module)
+    }
     static var menuSelectAll: String { String(localized: "menu.edit.selectAll", defaultValue: "Select All", bundle: .module) }
     static var menuView: String { String(localized: "menu.view", defaultValue: "View", bundle: .module) }
     static var menuWindow: String { String(localized: "menu.window", defaultValue: "Window", bundle: .module) }
+    static var menuHelp: String { String(localized: "menu.help", defaultValue: "Help", bundle: .module) }
     static var menuDebug: String { String(localized: "menu.debug", defaultValue: "Debug", bundle: .module) }
     static var menuSidebarToggleIcon: String {
         String(localized: "menu.debug.sidebarToggleIcon", defaultValue: "Sidebar Toggle Icon", bundle: .module)
@@ -36,14 +39,4 @@ enum Strings {
     static var renameTabTitle: String { String(localized: "rename.tab.title", defaultValue: "Rename Tab", bundle: .module) }
     static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
     static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
-}
-
-extension Strings {
-    static var daemonConnecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
-    static var daemonServiceUnavailable: String {
-        String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
-    }
-    static var daemonReinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .module) }
-    static var daemonCopyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
-    static var daemonRetrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
 }

@@ -7,18 +7,28 @@
 # missing, take the fleet host lock exclusively, clone, boot headless
 # (--no-graphics), copy the build in, run guest-probe.py over SSH (launch with
 # CMUX_NEXT_NO_ACTIVATE=1 and CMUX_NEXT_SOCKET_MODE=automation, wait for the
-# first window and the control socket, open one terminal and one browser tab,
-# debug.window_snapshot, quit), copy the artifacts out, stop and delete the
+# first window and the control socket, open terminal, browser, Settings and
+# agent chat tabs, snapshot each, check it lives 60 s, quit, dyld-load every
+# bundled Mach-O), then the terminal-spam lag guard (stress-probe.py: a DEV build's 20x Cmd-T
+# burst must keep its main-thread stalls under budget; the stress column says STRESS-FAIL), then UI-fuzz the app in the same VM (scripts/fuzz/macos-matrix/
+# fuzz.py over VZ VNC; OS_SMOKE_FUZZ_STEPS, default 150; a crash or death marks
+# the fuzz column FUZZ-FAIL but leaves the launch verdict alone), copy the artifacts out, stop and delete the
 # clone, release the lock. Base images stay. Majors run one at a time (the
 # Apple license allows at most two macOS VMs per host).
 #
 # Usage: run.sh [--majors 14,15,26] [--work DIR] [--keep-vm] BUILD
-#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact).
+#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact, or
+#            the app copied out of a shipped DMG: a release build has no debug.*
+#            methods, so the probe drives it through the public socket methods
+#            and takes screenshots with screencapture).
 #   --work   state root (default /Volumes/ephemeral0/cmux-agent-work/mfloor).
 #   --keep-vm  leave the clone stopped but not deleted (debugging only).
 # Env: TART_BIN (default: tart on PATH, else <work>/tools/tart-*/tart.app),
 #   TART_HOME (default <work>/tart-home), OS_SMOKE_HOST_LOCK (default
 #   /Users/Shared/cmux-build-fleet/host.lock when present; "none" disables),
+#   OS_SMOKE_PROBE (guest-probe.py, stress-probe.py for the terminal-spam
+#   stress with STRESS_ROUNDS/STRESS_BURST/STRESS_IDLE, or omnibar-probe.py for the
+#   omnibar selection captures; set OS_SMOKE_FUZZ_STEPS=0 with either),
 #   OS_SMOKE_BOOT_DEADLINE (s, default 300), OS_SMOKE_LAUNCH_DEADLINE and
 #   OS_SMOKE_TAB_DEADLINE (s, passed to the guest), OS_SMOKE_KEYCHAIN_PASSWORD_FILE
 #   (0600 file with the host user's login password: unlocks the login
@@ -42,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --work) WORK=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
     --vm-cycle) CYCLE=$2; shift 2 ;;  # internal: one major, already under the host lock
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
@@ -70,8 +80,9 @@ elapsed() { python3 -I -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.a
 # ---- one major, inside the host lock ---------------------------------------
 if [[ -n "$CYCLE" ]]; then
   : "${RUN_DIR:?}" "${BUILD_ZIP:?}"
-  major=$CYCLE
-  out="$RUN_DIR/$major"
+  slot=$CYCLE          # a major, or major-N for a repeated major
+  major=${slot%%-*}
+  out="$RUN_DIR/$slot"
   mkdir -p "$out"
   source_ref="$(image_field "$major" ref)@$(image_field "$major" digest)"
   vm="os-smoke-$major-$$"
@@ -108,7 +119,8 @@ if [[ -n "$CYCLE" ]]; then
   t0=$(now)
   "$TART_BIN" clone "$source_ref" "$vm"
   t_clone=$(now); record clone_s "$(elapsed "$t0" "$t_clone")"
-  "$TART_BIN" run --no-graphics "$vm" >"$out/tart-run.log" 2>&1 &
+  # --vnc-experimental: the fuzz phase sends keys and clicks through Virtualization.framework's VNC server.
+  "$TART_BIN" run --no-graphics --vnc-experimental "$vm" >"$out/tart-run.log" 2>&1 &
   tart_pid=$!
   ip=$("$TART_BIN" ip "$vm" --wait "${OS_SMOKE_BOOT_DEADLINE:-300}") || { record failure "no guest IP"; exit 1; }
   # sshd starts after DHCP: bounded poll with a deadline, stops if tart exits.
@@ -119,15 +131,64 @@ if [[ -n "$CYCLE" ]]; then
     sleep 2
   done
   t_boot=$(now); record boot_s "$(elapsed "$t_clone" "$t_boot")"
-  scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "admin@$ip:/Users/admin/" </dev/null
+  scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "$HERE/stress-probe.py" "$HERE/omnibar-probe.py" "admin@$ip:/Users/admin/" </dev/null
   gssh 'set -e; rm -rf ~/smoke && mkdir -p ~/smoke/app && ditto -x -k ~/build.zip ~/smoke/app && test -x /usr/bin/python3 && /usr/bin/python3 -c 1'
+  # The base images restore windows of their own setup (System Settings on 14, Terminal on
+  # 26) that would cover the app in the release-build screenshots; quit them in the clone.
+  gssh 'pkill -x "System Settings"; pkill -x Terminal; true'
   t_copy=$(now); record copy_s "$(elapsed "$t_boot" "$t_copy")"
   probe_rc=0
-  gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} /usr/bin/python3 -I ~/guest-probe.py \"\$app\" ~/smoke/out" \
+  # OS_SMOKE_PROBE=stress-probe.py runs the terminal-spam stress instead (plans/cmux-next/sequoia-lag.md).
+  probe=${OS_SMOKE_PROBE:-guest-probe.py}
+  gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} STRESS_ROUNDS=${STRESS_ROUNDS:-10} STRESS_BURST=${STRESS_BURST:-20} STRESS_IDLE=${STRESS_IDLE:-15} STRESS_GHOSTTY=$(printf %q "${STRESS_GHOSTTY:-}") /usr/bin/python3 -I ~/$probe \"\$app\" ~/smoke/out" \
     >"$out/probe.log" 2>&1 || probe_rc=$?
   record probe_exit "$probe_rc"
   scp "${SSH_OPTS[@]}" -q -r "admin@$ip:/Users/admin/smoke/out/." "$out/" </dev/null || record failure "artifact copy failed"
   t_probe=$(now); record probe_s "$(elapsed "$t_copy" "$t_probe")"
+  # A focused probe (omnibar-probe.py): its lines in the step log, its output as the
+  # step artifact os-smoke-<slot>.tgz in the checkout (cmux-ci run --artifact).
+  if [[ "$probe" == omnibar-probe.py ]]; then
+    grep -E "^OMNIBAR " "$out/probe.log" | cut -c1-1200 || true
+    tar -czf "$HERE/../../../os-smoke-$slot.tgz" -C "$out" . || true
+  fi
+  # The lag guard (plans/cmux-next/sequoia-lag.md): after the launch probe quit the app, the
+  # terminal-spam stress launches it again in the same VM and checks the 20x Cmd-T burst's
+  # main-thread stalls against stress-probe.py's budget. A DEV build only (it needs debug.*);
+  # a release build skips it. OS_SMOKE_STRESS=0 turns it off.
+  if [[ "$probe" == guest-probe.py && "${OS_SMOKE_STRESS:-1}" != 0 ]]; then
+    stress_rc=0
+    t_stress=$(now)
+    gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); STRESS_PHASE=1 STRESS_ROUNDS=${STRESS_ROUNDS:-4} STRESS_IDLE=${STRESS_IDLE:-5} /usr/bin/python3 -I ~/stress-probe.py \"\$app\" ~/smoke/stress" \
+      >"$out/stress.log" 2>&1 || stress_rc=$?
+    record stress_exit "$stress_rc"
+    mkdir -p "$out/stress"
+    scp "${SSH_OPTS[@]}" -q -r "admin@$ip:/Users/admin/smoke/stress/." "$out/stress/" </dev/null || true
+    grep -E "^STRESS (budget|burst|create|skip|FAIL)" "$out/stress.log" | cut -c1-400 || true
+    t_probe=$(now); record stress_s "$(elapsed "$t_stress" "$t_probe")"
+  fi
+  # UI fuzz in the same VM (scripts/fuzz/macos-matrix/fuzz.py): a feature tour, then seeded random
+  # actions, palette commands, shortcuts, clicks and drags; crashes, hangs over 1 s and deaths are
+  # recorded per step. The seed is the build's sha256, so a rerun of the same build repeats the steps
+  # (replay: fuzz.py --replay <out>/fuzz/steps.jsonl). OS_SMOKE_FUZZ_STEPS=0 turns it off.
+  fuzz_steps=${OS_SMOKE_FUZZ_STEPS:-150}
+  if (( fuzz_steps > 0 )); then
+    vnc=$(grep -Eo 'vnc://[^ ]+' "$out/tart-run.log" | head -1 || true)
+    vncarg=$(python3 -I -c 'import sys,urllib.parse as u;p=u.urlparse(sys.argv[1]);print("%s:%s:%s"%(p.hostname,p.port,u.unquote(p.password or "")))' "$vnc" 2>/dev/null || true)
+    fapp=$(gssh 'ls -d ~/smoke/app/*.app | head -1')
+    seed=$(python3 -I -c 'import sys;print(int(open(sys.argv[1]).read()[:8],16))' "$RUN_DIR/build.sha256")
+    record fuzz_seed "$seed"
+    fuzz_rc=0
+    if [[ -n "$vncarg" && -n "$fapp" ]]; then
+      python3 -I "$HERE/../../fuzz/macos-matrix/fuzz.py" --ssh "admin@$ip" --vnc "$vncarg" --app "$fapp" \
+        --seed "$seed" --steps "$fuzz_steps" --out "$out/fuzz" --ssh-opt=-oPubkeyAuthentication=no \
+        --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
+        >"$out/fuzz.log" 2>&1 </dev/null || fuzz_rc=$?
+    else
+      record failure "fuzz: no VNC URL or no app in the guest"
+    fi
+    record fuzz_exit "$fuzz_rc"
+    record fuzz_s "$(elapsed "$t_probe" "$(now)")"
+  fi
   exit 0
 fi
 
@@ -150,8 +211,13 @@ shasum -a 256 -b "$(readlink "$BUILD_ZIP" || echo "$BUILD_ZIP")" | cut -d' ' -f1
 "$TART_BIN" --version >"$RUN_DIR/tart.version"
 
 IFS=, read -r -a majors <<<"$MAJORS"
+slots=()
 for major in "${majors[@]}"; do
-  out="$RUN_DIR/$major"; mkdir -p "$out"
+  # A repeated major (--majors 14,14,14) gets its own directory: 14, 14-2, 14-3.
+  slot=$major; n=1
+  while [[ -e "$RUN_DIR/$slot" ]]; do n=$((n + 1)); slot="$major-$n"; done
+  slots+=("$slot")
+  out="$RUN_DIR/$slot"; mkdir -p "$out"
   ref=$(image_field "$major" ref); digest=$(image_field "$major" digest)
   t0=$(now)
   if ! "$TART_BIN" list --source oci --format json | python3 -I -c 'import json,sys
@@ -163,7 +229,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   oci_dir="$TART_HOME/cache/OCIs/${ref}/${digest}"
   echo "image_disk_kb=$(du -sk "$(readlink "$oci_dir" || echo "$oci_dir")" 2>/dev/null | cut -f1)" >>"$out/host.env"
   echo "== macOS $major: waiting for the host lock" >&2
-  cycle=("$0" --vm-cycle "$major" --work "$WORK")
+  cycle=("$0" --vm-cycle "$slot" --work "$WORK")
   [[ "$KEEP_VM" == 1 ]] && cycle+=(--keep-vm)
   rc=0
   if [[ "$LOCK" == none ]]; then
@@ -178,7 +244,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   echo "total_s=$(elapsed "$t0" "$(now)")" >>"$out/host.env"
 done
 
-python3 -I - "$RUN_DIR" "$MAJORS" <<'PY'
+python3 -I - "$RUN_DIR" "$(IFS=,; echo "${slots[*]}")" <<'PY'
 import json, os, sys
 run, majors = sys.argv[1], sys.argv[2].split(",")
 rows, failed = [], False
@@ -187,17 +253,27 @@ for m in majors:
     env = dict(l.rstrip("\n").split("=", 1) for l in open(os.path.join(d, "host.env")) if "=" in l) if os.path.exists(os.path.join(d, "host.env")) else {}
     res = json.load(open(os.path.join(d, "result.json"))) if os.path.exists(os.path.join(d, "result.json")) else {}
     ok = bool(res.get("ok")) and env.get("cycle_exit") == "0"
+    fz_path = os.path.join(d, "fuzz", "summary.json")
+    fz = json.load(open(fz_path)) if os.path.exists(fz_path) else {}
+    # Fuzz findings do not change PASS (the launch smoke stays the release gate); the fuzz column
+    # says FUZZ-FAIL, and the nightly macos-matrix-fuzz workflow fails on it.
+    fuzz_bad = bool(fz) and (env.get("fuzz_exit", "0") != "0" or fz.get("crashes", 0) or fz.get("relaunches", 0)
+                             or fz.get("guest_lost_at") is not None)
     failed |= not ok
     why = env.get("failure") or ",".join(res.get("failed_steps", [])) or ("" if res else "no result.json")
     launch = (res.get("steps", {}).get("launch") or {}).get("detail") or {}
     if isinstance(launch, dict) and launch.get("dyld"):
         why += ": " + launch["dyld"][0].strip()[:160]
     ls = res.get("launchservices")
+    # The lag guard: stress_exit 2 is over budget, 1 a dead app; 3 (release build) and no phase are "-".
+    stress_cell = {"0": "ok", "1": "STRESS-FAIL", "2": "STRESS-FAIL"}.get(env.get("stress_exit", ""), "-")
+    fuzz_cell = ("%s/%s/%s/%s" % (fz.get("steps", "-"), fz.get("crashes", "-"), fz.get("hangs", "-"), fz.get("relaunches", "-"))
+                 + (" FUZZ-FAIL" if fuzz_bad else "")) if fz else "-"
     rows.append((m, res.get("guest_os", "?"), "PASS" if ok else "FAIL", env.get("boot_s", "-"), str(res.get("launch_seconds", "-")),
-                 env.get("total_s", "-"), env.get("image_disk_kb", "-"), why + (" | open exit %s" % ls["exit"] if ls else "")))
-print("\n%-5s %-8s %-5s %7s %8s %7s %12s  %s" % ("major", "guest", "res", "boot_s", "launch_s", "total_s", "image_kb", "failure"))
+                 env.get("total_s", "-"), fuzz_cell, stress_cell, why + (" | open exit %s" % ls["exit"] if ls else "")))
+print("\n%-5s %-8s %-5s %7s %8s %7s %12s %11s  %s" % ("major", "guest", "res", "boot_s", "launch_s", "total_s", "fuzz s/c/h/d", "stress", "failure"))
 for r in rows:
-    print("%-5s %-8s %-5s %7s %8s %7s %12s  %s" % r)
+    print("%-5s %-8s %-5s %7s %8s %7s %12s %11s  %s" % r)
 print("artifacts: %s" % run)
 sys.exit(1 if failed else 0)
 PY

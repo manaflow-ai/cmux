@@ -25,6 +25,8 @@ use serde_json::{Value, json};
 pub(super) const OUTDATED: &str = "machine_outdated";
 /// How long the whole `identify` may take, however the daemon trickles it.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(5);
+/// How long the whole answer to any other request may take.
+const REQUEST_BUDGET: Duration = Duration::from_secs(15);
 /// Most bytes of one answer line.
 const MAX_ANSWER_BYTES: u64 = 1 << 20;
 /// Most lines for other requests (events) skipped before giving up.
@@ -58,9 +60,12 @@ impl Outdated {
 /// another build than this client; None when it serves them all, is this
 /// build, or does not answer `identify`.
 pub(super) fn outdated(socket: &Path, needed: &[&str]) -> Option<Outdated> {
-    let identity = identify(socket)?;
-    let served: Vec<&str> =
-        identity["capabilities"].as_array()?.iter().filter_map(Value::as_str).collect();
+    outdated_identity(&identify(socket)?, needed)
+}
+
+/// [`outdated`] for an `identify` answer already read.
+pub(super) fn outdated_identity(identity: &Value, needed: &[&str]) -> Option<Outdated> {
+    let served = served(identity)?;
     let missing: Vec<String> = needed
         .iter()
         .filter(|capability| !served.contains(capability))
@@ -69,29 +74,57 @@ pub(super) fn outdated(socket: &Path, needed: &[&str]) -> Option<Outdated> {
     if missing.is_empty() {
         return None;
     }
-    let build = identity["build_id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned);
-    if build.as_deref() == Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY) {
+    let build = build_id(identity).map(str::to_owned);
+    if build.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY) {
         return None;
     }
     Some(Outdated { missing, build })
 }
 
+/// The capabilities an `identify` answer lists; None when it lists none.
+pub(super) fn served(identity: &Value) -> Option<Vec<&str>> {
+    Some(identity["capabilities"].as_array()?.iter().filter_map(Value::as_str).collect())
+}
+
+/// An `identify` answer's `build_id`; None for a build before `daemon-build-v1`.
+pub(super) fn build_id(identity: &Value) -> Option<&str> {
+    identity["build_id"].as_str().filter(|id| !id.is_empty())
+}
+
 /// `identify`'s `data`, or None when the daemon does not answer it.
-fn identify(socket: &Path) -> Option<Value> {
-    let deadline = Instant::now() + IDENTIFY_BUDGET;
-    let stream = UnixStream::connect(socket).ok()?;
-    stream.set_write_timeout(Some(IDENTIFY_BUDGET)).ok()?;
+pub(super) fn identify(socket: &Path) -> Option<Value> {
+    call_within(socket, json!({"cmd": "identify"}), IDENTIFY_BUDGET).ok()
+}
+
+/// One request on the daemon's socket: its `data`, or why not (the daemon's
+/// `error_code: error`, or what went wrong reading it).
+pub(super) fn call(socket: &Path, request: Value) -> Result<Value, String> {
+    call_within(socket, request, REQUEST_BUDGET)
+}
+
+fn call_within(socket: &Path, mut request: Value, budget: Duration) -> Result<Value, String> {
+    let deadline = Instant::now() + budget;
+    let stream = UnixStream::connect(socket).map_err(|e| format!("cannot connect: {e}"))?;
+    stream.set_write_timeout(Some(budget)).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream);
-    reader.get_mut().write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").ok()?;
+    request["id"] = json!(1);
+    let mut line = request.to_string();
+    line.push('\n');
+    reader.get_mut().write_all(line.as_bytes()).map_err(|e| e.to_string())?;
     for _ in 0..=MAX_OTHER_ANSWERS {
-        let line = read_line(&mut reader, deadline)?;
-        let answer: Value = serde_json::from_slice(&line).ok()?;
+        let line = read_line(&mut reader, deadline)
+            .ok_or("the daemon did not answer in time, closed, or answered too much")?;
+        let answer: Value = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
         if answer["id"] != json!(1) {
             continue;
         }
-        return (answer["ok"] == json!(true)).then(|| answer["data"].clone());
+        if answer["ok"] == json!(true) {
+            return Ok(answer["data"].clone());
+        }
+        let code = answer["error_code"].as_str().unwrap_or("refused");
+        return Err(format!("{code}: {}", answer["error"].as_str().unwrap_or_default()));
     }
-    None
+    Err("the daemon kept answering other requests".into())
 }
 
 /// One answer line, newline included; None past `deadline`, at EOF or past

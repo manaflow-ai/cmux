@@ -601,14 +601,20 @@ fn an_operation_gets_one_answer_whatever_its_spelling() {
     let mux = mux("operation-spelling");
     let conn = connect(&mux);
     let relay = relay(&mux, "token:10.1");
-    // apps.* is not a catalog operation: every spelling gets the envelope
-    // validation error (coordinator decision), never a gate-only answer.
-    for operation in ["apps.install", "apps.uninstall", "apps.enable"] {
+    // apps.* is not a catalog operation: every spelling gets one answer.
+    // A routed one (page-router-v1) reaches its origin gate (an agent and a
+    // relay without a page are refused); any other gets the envelope
+    // validation error (coordinator decision).
+    for (operation, code) in [
+        ("apps.install", "origin.forbidden"),
+        ("apps.uninstall", "origin.forbidden"),
+        ("apps.enable", "validation.invalid"),
+    ] {
         let request = v2(operation, install_params(), Some("k1"), None);
         for on in [&conn, &relay] {
             let literal = send(&mux, on, &request);
             assert_eq!(literal["ok"], false, "{literal}");
-            assert_eq!(literal["error"]["code"], "validation.invalid", "{literal}");
+            assert_eq!(literal["error"]["code"], code, "{literal}");
             let escaped = send_raw(&mux, on, &with_escaped_key(&request, "operation"));
             assert_eq!(escaped, literal, "an escaped operation key changed the answer");
         }

@@ -3,8 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextUpdater
 
-/// `app.shareCmux` (palette, Help menu, the "cmux Updated!" card's Share
-/// cmux row; cx-7py7): the Share cmux modal, centered over the active
+/// `app.shareCmux` (palette, Help menu; cx-7py7): the Share cmux modal, centered over the active
 /// window with a scrim (the app host without a window). One at a time;
 /// the x and Escape close it.
 @MainActor

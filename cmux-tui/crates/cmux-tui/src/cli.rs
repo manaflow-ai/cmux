@@ -10,11 +10,14 @@ mod agent_message;
 #[cfg(unix)]
 mod agents;
 #[cfg(unix)]
+mod agents_doctor;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
@@ -34,8 +37,17 @@ mod host_mount;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
+pub(crate) use chief::home_for_adopt as chief_home_for_adopt;
+#[cfg(unix)]
 #[cfg(unix)]
 pub(crate) use host_mount::early_unix_scope;
+
+/// `cmux host enable|disable|status|serve|allow|deny|list|dial` (remote
+/// hosting, every platform), on the `cmux` surface only, like the other
+/// `host` verbs.
+pub(crate) fn remote_host_requested(raw_args: &[String]) -> bool {
+    Surface::current() == Surface::Cmux && crate::remote_host::handles(raw_args)
+}
 mod machine_server;
 #[cfg(test)]
 use machine_server::ServerRoute;
@@ -56,6 +68,7 @@ mod status;
 mod surface;
 mod topology_help;
 mod wire;
+use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
@@ -93,17 +106,8 @@ const PUBLIC_SCOPES: &[&str] = &[
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
 /// (`raw command`, `session current snapshot`), the app's daemon launcher and
 /// SSH remotes run the binary as `cmux-tui`, so these keep working there.
-const CMUX_TUI_ONLY_SCOPES: &[&str] = &[
-    "machine",
-    "session",
-    "client",
-    "sidebar",
-    "pairing",
-    "projection",
-    "provider",
-    "raw",
-    "conversation",
-];
+const CMUX_TUI_ONLY_SCOPES: &[&str] =
+    &["session", "client", "sidebar", "pairing", "projection", "provider", "raw", "conversation"];
 
 const REMOTE_COMMANDS: &[&str] = &[
     "remote",
@@ -118,6 +122,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "remote-link",
     "remote-sidecar",
     "remote-stop",
+    "remote-update-need",
     "install-self",
     "wg",
 ];
@@ -135,6 +140,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "enroll" => Some("enroll"),
         "known-daemons" => Some("known-daemons"),
         "stop" => Some("remote-stop"),
+        "update-need" => Some("remote-update-need"),
         _ => None,
     }
 }
@@ -237,6 +243,27 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
     }
 }
 
+/// The agent-caller refusal of a plan that writes a Chief by the raw or
+/// typed protocol path (`cmux raw operation chief.profile.update`, a
+/// `cmux raw command` frame naming one): the same refusal as
+/// `cmux chief new|edit|delete` (chief/registry.rs).
+#[cfg(unix)]
+fn chief_write_refusal(plan: &CommandPlan) -> Option<serde_json::Value> {
+    let operation = match plan {
+        CommandPlan::Protocol(request) => request.operation.name().ok()?,
+        CommandPlan::RawCommand(command) => {
+            command.request.get("operation").and_then(serde_json::Value::as_str)?.to_owned()
+        }
+        _ => return None,
+    };
+    chief::registry::agent_operation_refusal(&operation)
+}
+
+#[cfg(not(unix))]
+fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
+    None
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     let lifecycle_args;
@@ -252,6 +279,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = mcp::run_if_requested(args)
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
+        .or_else(|| chief::run_avatar_if_requested(args))
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
@@ -263,7 +291,13 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = run_app_scope(args) {
         return code;
     }
-    match parse(args, surface) {
+    let parsed = parse(args, surface);
+    if let Ok(ParsedCommand::Command { global, plan }) = &parsed
+        && let Some(refusal) = chief_write_refusal(plan)
+    {
+        return wire::print_operation_error(&refusal, global.output);
+    }
+    match parsed {
         Ok(ParsedCommand::Help(scope)) => {
             if scope.as_deref() == Some("start") {
                 let mut stdout = io::stdout().lock();
@@ -371,8 +405,10 @@ fn run_app_action_fallback(args: &[String]) -> Option<i32> {
         return None;
     }
     let name = command_args[..words].join(" ");
-    app::run_cli_action(&global, &name, &command_args[words..])
-        .or_else(|| action_hint::report(&name, global.output))
+    // `<noun> move-to-window --new` is `<noun> move-to-new-window`.
+    let (name, rest) = app::new_window_spelling(&name, &command_args[words..])
+        .unwrap_or_else(|| (name, command_args[words..].to_vec()));
+    app::run_cli_action(&global, &name, &rest).or_else(|| action_hint::report(&name, global.output))
 }
 
 fn parse(args: &[String], surface: Surface) -> Result<ParsedCommand, ParseFailure> {
@@ -524,6 +560,19 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
         }
         if value == "--" {
             after_separator = true;
+            command.push(value.clone());
+            index += 1;
+            continue;
+        }
+        // After `action run <id>`, `--session` and `--machine` are the
+        // action's arguments (`agent.openSessionWorkspace --session`): they
+        // name a daemon, which an app action never reaches.
+        if command.len() >= 3
+            && command[..2] == ["action", "run"]
+            && ["--session", "--machine"].iter().any(|flag| {
+                value == flag || value.strip_prefix(flag).is_some_and(|rest| rest.starts_with('='))
+            })
+        {
             command.push(value.clone());
             index += 1;
             continue;
@@ -697,6 +746,7 @@ fn set_output_mode(
 fn print_scope_help(scope: Option<&str>, surface: Surface) {
     let catalog = crate::localization::catalog();
     let text = match (scope, surface) {
+        (Some("machine"), Surface::Cmux) => Cow::Borrowed(MACHINE_CATALOG_HELP),
         (Some(scope), _) => scope_help(scope),
         (None, Surface::Cmux) => Cow::Borrowed(catalog.local_server.cmux_root_help),
         (None, Surface::CmuxTui) => Cow::Owned(root_help(&catalog.local_server)),
@@ -805,6 +855,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   room          Organize workspaces into rooms
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
+  status        Show loading indicators for scripts and agents
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections
@@ -888,8 +939,12 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent message <agent> [--from <name>] [--thread <id>] [--] <text...|->
   cmux agent message --reply-to <message-id> [--from <name>] [--] <text...|->
-  cmux agent inbox [<agent>] [--state queued|delivered|acknowledged|failed] [--limit <n>] [--ack]
-  cmux agent list [OPTIONS]
+  cmux agent message release <message-id> --recipient <agent> --approve|--decline
+  cmux agent message unsend <message-id> [--recipient <agent>]
+  cmux agent inbox [<agent>] [--state <state>] [--limit <n>] [--ack]
+  cmux agent list [--needs-me] [--state <state>] [--terminal <id>]
+                  [--sort needs-me|recent|none] [--limit <n>] [--counts]
+  cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
@@ -908,6 +963,8 @@ USAGE
   cmux sidebar plugin use <name-or-id>
   cmux sidebar plugin use --builtin
   cmux sidebar plugin update|remove <name-or-id>
+  cmux sidebar section-scroll <section> fixed|flow
+  cmux sidebar section-max-rows <section> <1-50>|none
 ";
 
 const PAIRING_HELP: &str = "\

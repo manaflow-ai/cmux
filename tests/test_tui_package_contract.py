@@ -199,7 +199,7 @@ def write_ssh_manifests(root: Path) -> None:
         path.write_text(json.dumps(manifest) + "\n")
 
 
-def make_npm_packages(root: Path) -> None:
+def make_npm_packages(root: Path, tui_version_output: str | None = None) -> None:
     root.mkdir()
     for name, (os_name, cpu) in NPM_TARGETS.items():
         package = root / name
@@ -217,7 +217,11 @@ def make_npm_packages(root: Path) -> None:
             + "\n"
         )
         (package / NOTICE).write_text(notice_text("cmux-tui", package_rust_target(name)))
-        write_executable(package / "bin/cmux-tui", f"cmux-tui 1.2.3 {name}")
+        # What the real binary prints for `--version`: the distribution release.
+        write_executable(
+            package / "bin/cmux-tui",
+            tui_version_output or f"cmux {VERSION} ({BUILD_COMMIT}; {name})",
+        )
         write_executable(package / "bin/cmux-tui-hook", "cmux-tui-hook 1.2.3")
     write_ssh_manifests(root)
 
@@ -256,10 +260,10 @@ def make_npm_packages(root: Path) -> None:
         )
         + "\n"
     )
-    write_executable(
-        launcher / "bin/cmux.js",
-        "cmux launcher 1.2.3",
-    )
+    # The shipped launcher: it forwards `--version` to the platform binary, whose release line
+    # the contract checks.
+    (launcher / "bin").mkdir()
+    shutil.copy2(ROOT / "cmux-tui/dist/npm/cmux/bin/cmux.js", launcher / "bin/cmux.js")
 
     relay_launcher = root / "cmux-relay"
     relay_launcher.mkdir()
@@ -385,6 +389,28 @@ def test_host_npm_target_rejects_unknown_architecture() -> None:
                 assert str(error) == f"unsupported test host: {system.lower()}-riscv64"
             else:
                 raise AssertionError("unknown host architecture must raise RuntimeError")
+
+
+def test_npm_contract_rejects_a_binary_that_reports_another_release(tmp_path: Path) -> None:
+    """Tester rollout: the published 0.13.4 binary printed `cmux 0.1.0 (...)`.
+
+    A tester's bug report must name the release they installed, so the
+    contract refuses a package whose binary reports a different version.
+    """
+    packages = tmp_path / "npm-packages"
+    make_npm_packages(packages, tui_version_output=f"cmux 0.1.0 ({BUILD_COMMIT})")
+
+    result = run_validator(
+        "--npm-packages",
+        str(packages),
+        "--version",
+        VERSION,
+        "--install-npm-package",
+        host_npm_target(),
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "--version" in result.stderr and VERSION in result.stderr, result.stderr
 
 
 def test_npm_contract_rejects_missing_hook(tmp_path: Path) -> None:
@@ -663,6 +689,7 @@ def main() -> None:
         test_npm_contract_packs_and_installs_matching_platform,
         test_npm_relay_contract_installs_and_runs_isolated_smoke,
         lambda _directory: test_host_npm_target_rejects_unknown_architecture(),
+        test_npm_contract_rejects_a_binary_that_reports_another_release,
         test_npm_contract_rejects_missing_hook,
         test_npm_contract_rejects_extra_file,
         test_npm_contract_rejects_ssh_digest_that_differs_from_the_packaged_binary,

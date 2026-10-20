@@ -24,6 +24,7 @@ import {
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  vmCreateCreditsCheckoutExtra,
   reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
@@ -72,6 +73,7 @@ export async function runBaseRoute(input: {
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
       memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      callerUserId: user.id,
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
@@ -182,6 +184,7 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId,
         retryAction: operation === "reset"
           ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."
@@ -194,9 +197,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         status: 402,
         message: "This team has no Cloud VM create credits left.",
         action: operation === "reset"
-          ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
-          : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl} before resetting Base. The current Base is unchanged.`
+          : `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, planId).upgradeUrl}, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount, planId),
         details: { amount: error.amount },
         phase: "billing",
       }),

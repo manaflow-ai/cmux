@@ -138,6 +138,57 @@ pub struct TurnStart {
     /// A turn with no harness event for this long ends ([`idle_error`]),
     /// unless a tool call runs (a long tool sends nothing until it ends).
     pub idle_limit: Option<Duration>,
+    /// The session the last turn kept, to prompt again with only this turn's
+    /// new messages (`Settings::keep_turn_session`). Taken once: a retry of
+    /// this turn starts a fresh session with `blocks`.
+    pub reuse: Option<Reuse>,
+    /// Keep this turn's session when it ends well ([`TurnOutcome::kept`]).
+    pub keep: bool,
+    /// A kept session this turn does not reuse: ended before it starts.
+    pub retire: Option<String>,
+}
+
+/// A turn session kept after its turn (`Settings::keep_turn_session`): the
+/// next turn may prompt it again instead of starting a Claude Code process.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Kept {
+    /// The acpmux session id.
+    pub session: String,
+    /// The last event seq the kept turn folded: the next turn folds after it.
+    pub after: u64,
+}
+
+/// A kept session and the blocks that prompt it again: this turn's new
+/// messages only (the session's history holds the rest), with no cache
+/// marks (Claude Code places its own).
+#[derive(Clone, Debug, Default)]
+pub struct Reuse {
+    pub kept: Kept,
+    pub blocks: Vec<Value>,
+    /// Set once a run took the reuse: a retry of the turn (which clones its
+    /// start) runs fresh.
+    spent: std::sync::Arc<AtomicBool>,
+}
+
+impl Reuse {
+    pub fn new(kept: Kept, blocks: Vec<Value>) -> Reuse {
+        Reuse {
+            kept,
+            blocks,
+            spent: Default::default(),
+        }
+    }
+
+    /// The reuse, the first time it is asked for.
+    fn take(&self) -> Option<&Reuse> {
+        (!self.spent.swap(true, Ordering::SeqCst)).then_some(self)
+    }
+}
+
+impl PartialEq for Reuse {
+    fn eq(&self, other: &Reuse) -> bool {
+        self.kept == other.kept && self.blocks == other.blocks
+    }
 }
 
 /// A turn session that kept running after its acpmux connection was lost:
@@ -186,6 +237,84 @@ pub struct TurnOutcome {
     pub refused: bool,
     /// The turn's last draft (`done`), published after its reply is posted.
     pub done_draft: Option<crate::draft::Draft>,
+    /// The session this turn left running for the next turn (`TurnStart::keep`
+    /// and a clean end); None: the session was ended.
+    pub kept: Option<Kept>,
+}
+
+/// The error of a turn whose acpmux connection was lost while it ran.
+pub const CONNECTION_LOST: &str = "the acpmux connection was lost during the turn";
+
+/// The waits before each new try of a turn's `session/new` that failed for
+/// a passing reason: about 7 s in all, inside the turn's limit.
+const NEW_SESSION_BACKOFF: [Duration; 3] = [
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+
+/// Errors of a turn's `session/new` that a new try can cure: the harness
+/// process closed as it started (`sr2 claude` exits while the sr2 gateway
+/// answers 502 or refuses), the agent host missed its hello, the acpmux link
+/// was between daemons (an update relaunch hands the daemon off), or the
+/// upstream answered a passing error. A setup error (a refused env key, a
+/// login) fails at once.
+const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
+    "agent process closed",
+    "agent host did not answer hello",
+    "agent host exited before it was ready",
+    "connection closed",
+    "not connected",
+    "is shutting down",
+    "Connection refused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "502",
+    "503",
+    "504",
+    "the CLI exited",
+];
+
+/// Whether a turn's `session/new` error is worth a new try.
+pub fn is_transient_session_failure(error: &str) -> bool {
+    TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
+}
+
+/// `session/new`, tried again after each [`NEW_SESSION_BACKOFF`] wait while
+/// it fails for a passing reason. A stop request, the turn's deadline or a
+/// setup error ends the tries with the last error.
+fn new_session_with_retry(
+    agents: &dyn AgentPort,
+    spec: &SessionSpec,
+    interrupt: &Interrupt,
+    deadline: Option<Instant>,
+    note: &dyn Fn(&str, Duration),
+) -> Result<String, String> {
+    let mut waits = NEW_SESSION_BACKOFF.iter();
+    loop {
+        let error = match agents.new_session(spec) {
+            Ok(id) => return Ok(id),
+            Err(e) => e,
+        };
+        let Some(&wait) = waits.next() else {
+            return Err(error);
+        };
+        if !is_transient_session_failure(&error)
+            || interrupt.is_set()
+            || deadline.is_some_and(|d| Instant::now() + wait >= d)
+        {
+            return Err(error);
+        }
+        note(&error, wait);
+        // A bounded wait that a stop request ends early (never a poll).
+        if interrupt.wait(wait) {
+            return Err(error);
+        }
+        // A start that failed halfway can leave its name taken.
+        if let Ok(Some(old)) = agents.find(&spec.name) {
+            let _ = agents.end_session(&old);
+        }
+    }
 }
 
 /// A turn the harness gate refused: traced, and posted as its error.
@@ -219,10 +348,12 @@ pub fn run(
         progress,
         trace,
         &|_| {},
+        &|_| {},
     )
 }
 
-/// `run`, publishing drafts of the reply as it streams (`draft.rs`).
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`) and the
+/// turn's run record as it changes (`run.rs`).
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_drafts(
     agents: &dyn AgentPort,
@@ -233,13 +364,13 @@ pub fn run_with_drafts(
     progress: &dyn Fn(&str, u64),
     trace: &Trace,
     draft: &dyn Fn(crate::draft::Draft),
+    run: &dyn Fn(crate::run::RunUpdate),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
     // The limit covers the session's start too: a harness that never
     // initializes must not hold the turn (and every later message) forever.
     let deadline = start.limit.map(|limit| Instant::now() + limit);
-    let mut fold = TurnFold::new();
     // Set once the session exists: entries folded from it carry its fold
     // position in their transaction.
     let folding: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
@@ -260,35 +391,68 @@ pub fn run_with_drafts(
         harness: admitted.profile.clone(),
         ..start.session.clone()
     };
-    // A session of this name is left from a host that stopped mid-turn.
-    if let Ok(Some(old)) = agents.find(&start.session.name) {
-        let _ = agents.end_session(&old);
+    if let Some(old) = &start.retire {
+        let _ = agents.end_session(old);
     }
-    // The cached layout: the stable prefix (system text and view head) is
-    // the preset's system prompt, which acpmux writes into its own preset
-    // directory and checks by sha256 when the session starts.
-    if let Some(text) = &start.system_prompt {
-        let set = match &start.session.preset {
-            Some(preset) => agents.set_system_prompt(preset, text),
-            None => Err("the cached layout needs the turn preset".to_owned()),
-        };
-        if let Err(e) = set {
-            return TurnOutcome {
-                error: Some(format!("setting the turn's system prompt: {e}")),
-                ..TurnOutcome::default()
-            };
+    // The kept session, while acpmux still has it and nothing waits in it.
+    let reused = start.reuse.as_ref().and_then(Reuse::take).and_then(|r| {
+        use cmux_chief::acp::SessionStatus as S;
+        let alive = matches!(
+            agents.session(&r.kept.session),
+            Ok(Some(s)) if !matches!(s.status, S::Closed | S::Disconnected | S::Waiting)
+        );
+        if !alive {
+            log(&format!(
+                "turn {}: the kept session {} is gone; starting a new one",
+                start.key, r.kept.session
+            ));
+            let _ = agents.end_session(&r.kept.session);
         }
-    }
-    let session = match agents.new_session(&spec) {
-        Ok(id) => id,
-        Err(e) => {
-            return TurnOutcome {
-                error: Some(e),
-                harness: Some(Box::new(admitted)),
-                ..TurnOutcome::default()
-            };
+        alive.then_some(r)
+    });
+    let session = match reused {
+        Some(r) => r.kept.session.clone(),
+        None => {
+            // A session of this name is left from a host that stopped mid-turn.
+            if let Ok(Some(old)) = agents.find(&start.session.name) {
+                let _ = agents.end_session(&old);
+            }
+            // The cached layout: the stable prefix (system text and view head) is
+            // the preset's system prompt, which acpmux writes into its own preset
+            // directory and checks by sha256 when the session starts.
+            if let Some(text) = &start.system_prompt {
+                let set = match &start.session.preset {
+                    Some(preset) => agents.set_system_prompt(preset, text),
+                    None => Err("the cached layout needs the turn preset".to_owned()),
+                };
+                if let Err(e) = set {
+                    return TurnOutcome {
+                        error: Some(format!("setting the turn's system prompt: {e}")),
+                        ..TurnOutcome::default()
+                    };
+                }
+            }
+            match new_session_with_retry(agents, &spec, interrupt, deadline, &|e, wait| {
+                log(&format!(
+                    "turn {}: {e}; the session starts again in {} ms",
+                    start.key,
+                    wait.as_millis()
+                ))
+            }) {
+                Ok(id) => id,
+                Err(e) => {
+                    return TurnOutcome {
+                        error: Some(e),
+                        harness: Some(Box::new(admitted)),
+                        ..TurnOutcome::default()
+                    };
+                }
+            }
         }
     };
+    // A kept session's earlier turns are in the log already.
+    let after = reused.map_or(0, |r| r.kept.after);
+    let mut fold = TurnFold::after(after);
     // acpmux resolves a name that is also a family through its preference
     // list: the session's own harness is what answers.
     let admitted = match crate::harness_gate::session_harness(agents, &session, &admitted) {
@@ -314,22 +478,85 @@ pub fn run_with_drafts(
         &start.key,
         Some(admitted.profile.clone()),
     ));
+    // Steps in appends the owner takes, then the summary on its own: a refused step append
+    // never loses the run's start or end.
+    let send_run = |summary: serde_json::Map<String, Value>,
+                    steps: Vec<Value>,
+                    images: Vec<crate::run::RunImage>| {
+        let mut images = Some(images);
+        for chunk in crate::run::chunks(steps) {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: chunk,
+                images: images.take().unwrap_or_default(),
+                live: Vec::new(),
+            });
+        }
+        if !summary.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: summary,
+                steps: Vec::new(),
+                images: Vec::new(),
+                live: Vec::new(),
+            });
+        }
+    };
     let publish = |fold: &mut TurnFold| {
         let (closed, open) = fold.take_segments();
         for d in drafter.borrow_mut().update(closed, open, Instant::now()) {
             draft(d);
         }
+        // The live frames first: a step's last delta before its row.
+        let live = fold.take_run_live();
+        if !live.is_empty() {
+            run(crate::run::RunUpdate {
+                turn: start.key.clone(),
+                run: serde_json::Map::new(),
+                steps: Vec::new(),
+                images: Vec::new(),
+                live,
+            });
+        }
+        let steps = fold.take_run_steps(Instant::now(), false);
+        if !steps.is_empty() {
+            let images = fold.take_run_images();
+            send_run(serde_json::Map::new(), steps, images);
+        }
     };
+    // The run is on the conversation before the harness acts.
+    send_run(
+        crate::run::started(
+            &session,
+            &admitted.profile,
+            spec.model.as_deref(),
+            crate::run::epoch_ms(),
+        ),
+        Vec::new(),
+        Vec::new(),
+    );
     // The session is on record before it can act: a host that stops from
     // here on folds what it did at the next start, even if the brain never
     // saved the id (it hears of it through `progress`, later).
-    append_folded(chat, Some(&session), &[], 0, log);
-    progress(&session, 0);
+    append_folded(chat, Some(&session), &[], after, log);
+    progress(&session, after);
     let (tx, rx) = channel();
     interrupt.wake_with(Some(tx.clone()));
-    if let Err(e) = agents.start_prompt(&session, start.blocks.clone(), &start.prompt_id, tx) {
+    let blocks = reused.map_or_else(|| start.blocks.clone(), |r| r.blocks.clone());
+    if let Err(e) = agents.start_prompt(&session, blocks, &start.prompt_id, tx) {
         interrupt.wake_with(None);
         let _ = agents.end_session(&session);
+        if reused.is_some() {
+            // The kept session refused the prompt: a fresh one takes the turn.
+            log(&format!(
+                "turn {}: the kept session {session} refused the prompt ({e}); starting a new one",
+                start.key
+            ));
+            return run_with_drafts(
+                agents, chat, start, interrupt, log, progress, trace, draft, run,
+            );
+        }
         return TurnOutcome {
             error: Some(e),
             ..TurnOutcome::default()
@@ -360,6 +587,9 @@ pub fn run_with_drafts(
     // The prompt's answer arrived (or never will: lost, past the limit).
     let mut answered = false;
     let mut last_cancel: Option<Instant> = None;
+    // The prompt's answer was an error (even one after the fold ended on
+    // `turn_end`): the session is not kept.
+    let mut answer_failed = false;
     let mut last_event = Instant::now();
     loop {
         // A newer human message: stop the model at once, but let a running
@@ -487,6 +717,7 @@ pub fn run_with_drafts(
             }
             TurnSignal::Done(answer) => {
                 answered = true;
+                answer_failed = answer.is_err();
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
                 let stopped = answer
@@ -513,18 +744,16 @@ pub fn run_with_drafts(
                     after: fold.seq(),
                 });
                 let seq = fold.seq();
-                append_at(
-                    fold.finish(Some(
-                        "the acpmux connection was lost during the turn".into(),
-                    )),
-                    seq,
-                );
+                append_at(fold.finish(Some(CONNECTION_LOST.into())), seq);
                 break;
             }
         }
     }
-    // What the turn's end closed, then the last draft (the brain publishes
-    // it once the reply is posted).
+    // What the turn's end closed (every streaming step's last live frame,
+    // before the run's end and the reply: the reply replaces the streaming
+    // text with no jump), then the last draft (the brain publishes it once
+    // the reply is posted).
+    fold.close_run_steps();
     publish(&mut fold);
     let done_draft = Some(drafter.borrow_mut().done());
     // The fold ended on `turn_end`: the answer with the token use follows.
@@ -535,9 +764,13 @@ pub fn run_with_drafts(
             Ok(TurnSignal::Done(answer)) => {
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
+                answer_failed = answer.is_err();
                 answered = true;
             }
-            Ok(TurnSignal::Lost) | Err(_) => answered = true,
+            Ok(TurnSignal::Lost) | Err(_) => {
+                answer_failed = true;
+                answered = true;
+            }
         }
     }
     interrupt.wake_with(None);
@@ -570,13 +803,45 @@ pub fn run_with_drafts(
             }
         },
     };
+    let error = fold.ended().and_then(|e| e.error.clone());
+    let cancelled = is_cancelled(error.as_deref());
+    // Only a clean end keeps the session: a failed, stopped or moved one may
+    // hold a half-done step, and the next turn starts from the view again.
+    let kept = (start.keep
+        && orphan.is_none()
+        && moved.is_none()
+        && error.is_none()
+        && !answer_failed
+        && !cancelled
+        && fold.ended().is_some())
+    .then(|| Kept {
+        session: session.clone(),
+        after: fold.seq(),
+    });
     if orphan.is_none()
+        && kept.is_none()
         && let Err(e) = agents.end_session(&session)
     {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
-    let error = fold.ended().and_then(|e| e.error.clone());
-    let cancelled = is_cancelled(error.as_deref());
+    // The run's end: what is left of its steps, its use and cost.
+    send_run(
+        // A turn cut by a lost acpmux link (an update relaunch) runs again
+        // on the resume note: its run ends stopped, never "failed" with the
+        // link's error (user 2026-10-20 "every time i update cmux").
+        crate::run::ended(
+            error
+                .as_deref()
+                .filter(|_| orphan.is_none())
+                .or(moved.as_deref()),
+            cancelled || orphan.is_some(),
+            totals.map(|(u, _)| u),
+            cost,
+            requests.last().and_then(|r| r.model.as_deref()),
+        ),
+        fold.take_run_steps(Instant::now(), true),
+        fold.take_run_images(),
+    );
     let refused = moved.is_some();
     let error = match (error, moved) {
         (Some(e), Some(m)) => Some(format!("{e}; {m}")),
@@ -590,6 +855,7 @@ pub fn run_with_drafts(
         orphan,
         harness: Some(Box::new(admitted)),
         refused,
+        kept,
         stats: TurnStats {
             first: fold.first_usage(),
             totals,

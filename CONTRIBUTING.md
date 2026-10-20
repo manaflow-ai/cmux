@@ -130,9 +130,6 @@ for CI:
 - The broad macOS suite is label-gated. A maintainer adds `full-ci` when a change
   needs it ([PR CI coverage](skills/cmux-testing/references/pr-ci-coverage.md)).
   It is not a merge requirement.
-- No pull request job runs `cmuxUITests/` in full. If you touch that directory, the
-  `suite-coverage` check stays red until a maintainer runs the affected classes and
-  records it with `no-full-ci`.
 - On your first pull request, checks wait for a maintainer to approve the workflow
   run. That's a GitHub default for new contributors, not a judgement on the patch.
 

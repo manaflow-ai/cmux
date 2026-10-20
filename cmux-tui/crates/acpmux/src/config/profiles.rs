@@ -32,7 +32,7 @@ mod env_refs;
 #[path = "profile_sessions.rs"]
 mod sessions;
 use env_refs::is_reference;
-pub use env_refs::{has_env_refs, keychain_lookup, resolve_env_refs};
+pub use env_refs::{file_secret, has_env_refs, keychain_lookup, resolve_env_refs};
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
     SessionsSpec, check_sessions,
@@ -44,7 +44,7 @@ pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 pub const MAX_ICON_BYTES: u64 = 256 * 1024;
 /// Built-in icon names a profile may use instead of a file.
 pub const BUILTIN_ICONS: &[&str] =
-    &["claude", "openai", "codex", "opencode", "pi", "gemini", "terminal", "generic"];
+    &["claude", "openai", "codex", "opencode", "pi", "gemini", "meta", "terminal", "generic"];
 /// Effort ids a profile may declare (the catalog's protocol ids).
 pub const EFFORT_IDS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -60,10 +60,12 @@ pub struct ProfileSources {
 }
 
 impl ProfileSources {
-    /// The folders of this user and machine.
+    /// The folders of this user and machine. A DEV build keeps its user
+    /// folder in its own acpmux home ([`build_harness_dir`]).
     pub fn current() -> Self {
-        let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
+        let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let explicit_config = xdg.is_some();
+        let config_dir = xdg
             .map(|v| PathBuf::from(v).join("cmux"))
             .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
         let managed = if std::env::consts::OS == "macos" {
@@ -71,9 +73,13 @@ impl ProfileSources {
         } else {
             PathBuf::from("/etc/cmux/harnesses")
         };
+        // A run that names its config root (a test, a capture script) gets it.
+        let build_dir = (!explicit_config)
+            .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
+            .flatten();
         Self {
             managed: vec![managed],
-            user_dir: config_dir.as_ref().map(|d| d.join("harnesses")),
+            user_dir: build_dir.or_else(|| config_dir.as_ref().map(|d| d.join("harnesses"))),
             cmux_json: config_dir.map(|d| d.join("cmux.json")),
         }
     }
@@ -82,6 +88,37 @@ impl ProfileSources {
     pub fn none() -> Self {
         Self::default()
     }
+}
+
+/// The user harness folder of a DEV build: `<home>/harnesses` when the acpmux
+/// home `home` is a DEV or staging build's own (`<root>/builds/<key>`, see
+/// `BuildIdentity::acpmux_home`) or an old tag home (`<root>/tags/<tag>`);
+/// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
+/// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
+///
+/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// build, so a profile a DEV build or a dogfood script wrote there showed in
+/// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
+/// with models m1 and m2 in cmux NEXT). A DEV build neither reads nor writes
+/// it.
+pub fn build_harness_dir(home: &Path, root: &Path) -> Option<PathBuf> {
+    use cmux_agent_pane_policy::build_identity::{BuildIdentity, BuildKind};
+    let parent = home.parent()?;
+    let key = home.file_name()?.to_str()?;
+    let dev = if parent == root.join("tags") {
+        true
+    } else if parent == root.join("builds") {
+        // A key is the bundle id, plus `--<hash>` and/or `--<tag>` (a bundle
+        // that ships a tag its id does not end in, `com.cmuxterm.app.rc--lab`).
+        // `component` and `tag_slug` collapse runs of `-`, so `--` is only
+        // ever a separator and the part before it is the id whose kind decides.
+        let bundle_id = key.split("--").next().unwrap_or(key);
+        let kind = BuildIdentity::new(Some(bundle_id), None).kind();
+        !matches!(kind, BuildKind::Nightly | BuildKind::Release | BuildKind::Rc)
+    } else {
+        false
+    };
+    dev.then(|| home.join("harnesses"))
 }
 
 /// Where a loaded profile came from.
@@ -382,17 +419,47 @@ fn read_profile_file(path: &Path, source: ProfileSource) -> Result<String, Diagn
     std::fs::read_to_string(path)
         .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))
 }
-/// Windows port: the owner check reads the file's ACL there (a later
-/// landing); until then no profile file is read (fail closed).
-#[cfg(not(unix))]
+/// Windows: the owner and access list say whether another user can change
+/// the file (`owner_only.rs`; SYSTEM and Administrators count as root does).
+#[cfg(windows)]
 fn read_profile_file(path: &Path, _source: ProfileSource) -> Result<String, Diagnostic> {
     let shown = path.to_string_lossy().into_owned();
-    Err(Diagnostic::error(
-        &shown,
-        None,
-        crate::platform::unsupported("harness profile files").to_string(),
-        None,
-    ))
+    let meta = std::fs::metadata(path)
+        .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))?;
+    if !meta.is_file() {
+        return Err(Diagnostic::error(&shown, None, "not a regular file".into(), None));
+    }
+    if meta.len() > MAX_PROFILE_BYTES {
+        return Err(Diagnostic::error(
+            &shown,
+            None,
+            format!("the file is larger than {MAX_PROFILE_BYTES} bytes"),
+            None,
+        ));
+    }
+    match crate::owner_only::changer_other_than_us(path) {
+        Ok(None) => {}
+        Ok(Some(sid)) => {
+            return Err(Diagnostic::error(
+                &shown,
+                None,
+                format!(
+                    "another user ({sid}) can change this file, and a profile runs a program with your rights"
+                ),
+                Some(format!("icacls \"{shown}\" /inheritance:r /grant:r \"%USERNAME%:F\"")),
+            ));
+        }
+        Err(e) => {
+            return Err(Diagnostic::error(
+                &shown,
+                None,
+                format!("cannot read the file's access list: {e}"),
+                None,
+            ));
+        }
+    }
+    std::fs::read_to_string(path)
+        .map_err(|e| Diagnostic::error(&shown, None, format!("cannot read the file: {e}"), None))
 }
 
 fn load_cmux_json(path: &Path, out: &mut LoadedProfiles) {

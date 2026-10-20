@@ -2,7 +2,7 @@
 //! supervisor's prompt texts and status mapping, and reply keys. Port of
 //! `mux/host/src/wake.ts` and `supervisor.ts`; the texts are the same bytes.
 
-use cmux_conversation::{Message, Part, ParticipantKind, Summary, WorkStatus};
+use cmux_conversation::{AgentClass, Message, Part, ParticipantKind, Summary, WorkStatus};
 
 use crate::acp::{SessionStatus, SessionSummary, js_trim, utf16_prefix};
 
@@ -37,14 +37,83 @@ const EXCERPT: usize = 600;
 /// The participant id prefix of a paired install (the relay's remote participant).
 pub const REMOTE_PREFIX: &str = "remote_";
 
+/// Which messages of a group conversation wake a Chief.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GroupWake {
+    /// Only a mention of the Chief or a reply to one of its messages (the
+    /// default, home.md section 5).
+    #[default]
+    Mention,
+    /// Every person's message: the Chief reads the whole conversation and
+    /// decides itself whether to act (a Chief that acts on its own).
+    Every,
+}
+
 /// Whether a message wakes the Chief: it participates and either the
 /// conversation has one human and one agent, or it is a DM with the Chief,
 /// or the message mentions the Chief or replies to one of its messages.
 pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str) -> bool) -> bool {
+    let rule = WakeRule { chief: AGENT_MUX, group: GroupWake::Mention, chiefs: false };
+    wakes_as(&rule, summary, message, is_mux_message)
+}
+
+/// Which messages wake one Chief.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WakeRule<'a> {
+    /// The Chief's participant id (one of several Chiefs on one owner).
+    pub chief: &'a str,
+    /// The group rule.
+    pub group: GroupWake,
+    /// Whether another Chief's message (an agent with `agent_class` mux)
+    /// wakes it as a person's does. The owner's per-thread budget
+    /// (`cmux_conversation::MAX_AGENT_TURNS`) bounds Chief-to-Chief talk; the
+    /// caller may pre-check it with `cmux_conversation::thread_agent_streak`.
+    pub chiefs: bool,
+}
+
+/// Whether `id` is a Chief of `summary` (an agent of class mux).
+pub fn is_chief(summary: &Summary, id: &str) -> bool {
+    summary.participants.iter().any(|p| {
+        p.id == id && p.kind == ParticipantKind::Agent && p.agent_class == Some(AgentClass::Mux)
+    })
+}
+
+/// Whether `message` was written by this Chief owner's own local identity or
+/// one of that person's paired devices. Other human participants may wake a
+/// Chief, but they cannot authorize effects on the owner's machine.
+pub fn is_owner_message(summary: &Summary, message: &Message) -> bool {
+    is_owner_message_as(summary, message, USER_LOCAL)
+}
+
+/// [`is_owner_message`] for an explicit owner participant id (a placed Cloud
+/// brain uses its `user_...` owner rather than the local `user_local`).
+pub fn is_owner_message_as(summary: &Summary, message: &Message, owner: &str) -> bool {
+    summary.participants.iter().any(|p| {
+        p.id == message.author
+            && p.kind == ParticipantKind::Human
+            && (p.id == owner || p.person.as_deref() == Some(owner))
+    })
+}
+
+/// [`wakes`] for the Chief `rule.chief` with the group rule `rule.group`. A
+/// Chief never wakes on its own message. Other agents never wake it; other
+/// Chiefs do only with `rule.chiefs`.
+pub fn wakes_as(
+    rule: &WakeRule<'_>,
+    summary: &Summary,
+    message: &Message,
+    is_mux_message: impl Fn(&str) -> bool,
+) -> bool {
+    let chief = rule.chief;
+    let group = rule.group;
     let Some(author) = summary.participants.iter().find(|p| p.id == message.author) else {
         return false;
     };
-    if author.kind != ParticipantKind::Human || message.author == AGENT_MUX {
+    if message.author == chief {
+        return false;
+    }
+    let by_chief = rule.chiefs && is_chief(summary, &message.author);
+    if author.kind != ParticipantKind::Human && !by_chief {
         return false;
     }
     // The remote-origin gate (server-remote-conversations.md section 6; the
@@ -67,8 +136,11 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
         }
     }
     let retracted = message.retracted_at.as_deref().is_some_and(|at| !at.is_empty());
-    if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || retracted {
+    if !summary.participants.iter().any(|p| p.id == chief) || retracted {
         return false;
+    }
+    if group == GroupWake::Every {
+        return true;
     }
     // Count persons, not participant ids: a paired device (`person`) is the
     // same human as its person, so pairing does not change the rule
@@ -90,7 +162,7 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     }
     let mentioned = message.parts.iter().any(|part| match part {
         Part::Text { runs: Some(runs), .. } => {
-            runs.iter().any(|run| run.mention.as_deref() == Some(AGENT_MUX))
+            runs.iter().any(|run| run.mention.as_deref() == Some(chief))
         }
         _ => false,
     });

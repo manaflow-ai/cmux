@@ -22,7 +22,7 @@ final class SidebarDropOutlineView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -31,7 +31,7 @@ final class SidebarDropOutlineView: NSView {
     }
 }
 
-extension SidebarView {
+extension SidebarViewComponents {
     /// Outlines `windowRect` (window coordinates) over the sidebar.
     func showDropOutline(_ windowRect: CGRect, refused: Bool) {
         let overlay = dropOutlineView ?? {
@@ -42,12 +42,12 @@ extension SidebarView {
         if overlay !== subviews.last { addSubview(overlay, positioned: .above, relativeTo: nil) }
         let rect = overlay.convert(windowRect, from: nil)
         overlay.performWithTheme {
-            overlay.ring.show(rect, cornerRadius: min(Metrics.space2, rect.height / 2), refused: refused, animated: Motion.animatesMovement)
+            overlay.ring.show(rect, cornerRadius: min(Metrics.space2, rect.height / 2), refused: refused, animated: Motion.sidebar.animatesMovement)
         }
     }
 
     func hideDropOutline() {
-        dropOutlineView?.ring.hide(animated: Motion.animatesFades)
+        dropOutlineView?.ring.hide(animated: Motion.sidebar.animatesFades)
     }
 
     /// The outline overlay, once a drag has used it (tests read its ring).

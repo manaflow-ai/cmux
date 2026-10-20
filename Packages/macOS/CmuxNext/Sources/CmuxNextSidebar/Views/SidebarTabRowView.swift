@@ -1,15 +1,18 @@
 import AppKit
-import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
 
 /// A compact tab row shown below a workspace when tab listing is enabled. It
-/// reads as the workspace's child by indent and icon alone, no bars: a
-/// grouped workspace's line is the only bar in a hierarchy (cx-ai79).
+/// reads as the workspace's child by indent alone, no bars: a grouped
+/// workspace's line is the only bar in a hierarchy (cx-ai79). It draws no
+/// kind or agent glyph; only a browser tab's page favicon (Lawrence
+/// 2026-10-14, cx-im75u). An unread tab shows a small muted unread dot
+/// at its trailing edge; its title keeps the primary color and regular weight.
 final class SidebarTabRowView: SidebarRowView {
-    private let icon = NSImageView()
+    private let icon = DecorativeImageView() // the row's label names the tab
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private var unread = false
+    /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
+    private let unreadDot = UnreadBadgeView()
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
@@ -21,26 +24,28 @@ final class SidebarTabRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        [icon, title].forEach(addSubview)
+        [icon, title, unreadDot].forEach(addSubview)
+        unreadDot.fixedLook = .quiet
     }
+
+    override var debugIcon: String? { icon.isHidden ? nil : "favicon" }
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
-        unread = false
         onSelect = nil
     }
 
     func configure(_ tab: SidebarTab, row: SidebarRow) {
         let content = Content(tab: tab, group: row.group, groupColor: row.groupColor)
         guard needsConfigure(content) else { return }
-        title.stringValue = tab.title
-        title.font = tab.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.subtitleFont
-        unread = tab.isUnread
-        // A page's favicon draws as is (not a template, so the unread tint leaves it alone).
+        title.setString(tab.title)
+        // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14).
+        title.setFont(SidebarStyle.subtitleFont)
+        // Only a page's favicon draws, as is; no kind or agent glyph.
         let side = SidebarStyle.tabIconSize
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
-            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
-            ?? NSImage.icon(tab.kind.icon, size: side)
+        icon.isHidden = icon.image == nil
+        unreadDot.configure(tab.isUnread ? .dot : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
@@ -59,8 +64,7 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            icon.contentTintColor = unread ? Palette.textPrimary : Palette.textTertiary
-            title.textColor = unread ? Palette.textPrimary : Palette.textSecondary
+            title.setColor(Palette.textPrimary)
             paintFill(isHovered ? Palette.hoverFill : nil)
         }
     }
@@ -72,8 +76,16 @@ final class SidebarTabRowView: SidebarRowView {
         let iconSide = SidebarStyle.tabIconSize
         let iconX = SidebarStyle.titleLeading + Metrics.space3
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
-        let textX = icon.frame.maxX + Metrics.space2
+        // Without a favicon the title takes the icon's place.
+        let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
+        // The dot sits where a workspace row's dot does: its slot at the row's trailing inset.
+        var trailing = b.width - SidebarStyle.horizontalInset
+        if unreadDot.state.isUnread {
+            let side = SidebarStyle.dotSize
+            unreadDot.frame = NSRect(x: trailing - side - Metrics.space2, y: (b.height - side) / 2, width: side, height: side)
+            trailing = unreadDot.frame.minX - Metrics.space2
+        }
         title.frame = NSRect(x: textX, y: (b.height - title.intrinsicContentSize.height) / 2,
-                             width: max(0, b.width - textX - Metrics.space3), height: title.intrinsicContentSize.height)
+                             width: max(0, trailing - textX), height: title.intrinsicContentSize.height)
     }
 }

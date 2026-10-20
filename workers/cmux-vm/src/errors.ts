@@ -5,8 +5,10 @@
  */
 import { HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Scope } from "./domain/scopes.ts";
-import { SnapshotId } from "./lib/ids.ts";
+import { ReportedScope, type Scope } from "./domain/scopes.ts";
+import { SnapshotId, VmCreationKey } from "./lib/ids.ts";
+
+const CreationRecovery = { creationKey: Schema.optional(VmCreationKey), pendingSnapshotId: Schema.optional(SnapshotId) };
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
@@ -16,19 +18,19 @@ export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
 
 export class Forbidden extends Schema.TaggedError<Forbidden>()(
   "Forbidden",
-  { message: Schema.String, missingScope: Schema.optional(Scope) },
+  { message: Schema.String, missingScope: Schema.optional(ReportedScope) },
   HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
 export class NotFound extends Schema.TaggedError<NotFound>()(
   "NotFound",
-  { message: Schema.String },
+  { message: Schema.String, ...CreationRecovery },
   HttpApiSchema.annotations({ status: 404 }),
 ) {}
 
 export class ServiceUnavailable extends Schema.TaggedError<ServiceUnavailable>()(
   "ServiceUnavailable",
-  { message: Schema.String },
+  { message: Schema.String, ...CreationRecovery },
   HttpApiSchema.annotations({ status: 503 }),
 ) {}
 
@@ -40,7 +42,7 @@ export const unavailable = () => new ServiceUnavailable({ message: "The cmux VM 
 /** The request conflicts with the resource's current state (for example, starting a VM that is being deleted). */
 export class Conflict extends Schema.TaggedError<Conflict>()(
   "Conflict",
-  { message: Schema.String },
+  { message: Schema.String, ...CreationRecovery },
   HttpApiSchema.annotations({ status: 409 }),
 ) {}
 
@@ -56,6 +58,7 @@ export class QuotaExceeded extends Schema.TaggedError<QuotaExceeded>()(
   "QuotaExceeded",
   {
     message: Schema.String,
+    ...CreationRecovery,
     retryAfterSeconds: Schema.optional(Schema.Int),
     /**
      * Which budget ran out: the team's live snapshots or live VMs, its
@@ -98,7 +101,7 @@ export const notImplemented = (operation: string) =>
 /** The request is well formed but not allowed as asked (for example, a dev/test idle timeout over 300 seconds). */
 export class BadRequest extends Schema.TaggedError<BadRequest>()(
   "BadRequest",
-  { message: Schema.String },
+  { message: Schema.String, ...CreationRecovery },
   HttpApiSchema.annotations({ status: 400 }),
 ) {}
 
@@ -116,11 +119,11 @@ export class PayloadTooLarge extends Schema.TaggedError<PayloadTooLarge>()(
  */
 export class ForkIncomplete extends Schema.TaggedError<ForkIncomplete>()(
   "ForkIncomplete",
-  { message: Schema.String, snapshotId: SnapshotId },
+  { message: Schema.String, snapshotId: SnapshotId, ...CreationRecovery },
   HttpApiSchema.annotations({
     status: 503,
     description:
-      "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot.",
+      "The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist.",
   }),
 ) {}
 

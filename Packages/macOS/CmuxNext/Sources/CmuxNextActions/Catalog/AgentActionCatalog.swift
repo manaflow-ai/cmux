@@ -79,6 +79,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // scripts run that guide (and `cmux harness add|doctor`) directly.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Agent Stats (webviews/src/pages/stats, hq#1920): this computer's agent work from its
+            // local session logs. A preview feature until styled (StatsHandlers), so it stays out of
+            // the main menu, where an unavailable action shows greyed out to everyone.
+            ActionDescriptor(
+                id: "stats.show",
+                title: String(localized: "action.stats.show", defaultValue: "Show Agent Stats", bundle: .module),
+                keywords: ["stats", "statistics", "usage", "agent", "activity", "streak", "insights", "dashboard"],
+                category: .agents, symbol: "chart.bar.xaxis", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),
@@ -121,14 +131,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // This action opens its GUI approval checklist, without writing.
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
-            // Search Files… (Cmd-P, as in the Codex app, cx-ncc.69): the chat folder's files, and a
-            // pick mentions one in the prompt. Only while an agent chat has the keyboard; elsewhere
-            // Cmd-P stays Go to Workspace. Scripts call `file.search` on the page's host instead.
+            // Search Files… (cx-ncc.69): the chat folder's files, and a pick mentions one in the
+            // prompt. Only while an agent chat has the keyboard. It has no default key: Cmd-P is the
+            // native Go to Workspace palette in every view, web views included (Lawrence 2026-10-19:
+            // "All the web views should not have a built-in Cmd-P or Cmd-Shift-P"); the user can
+            // still bind one. Scripts call `file.search` on the page's host instead.
             ActionDescriptor(
                 id: "agentPane.searchFiles",
                 title: String(localized: "action.agentPane.searchFiles", defaultValue: "Search Files…", bundle: .module),
                 keywords: ["agent", "chat", "file", "files", "search", "find", "mention", "open", "quick"],
-                defaultShortcut: Shortcut("p", modifiers: [.command]),
                 category: .agents, symbol: "doc.text.magnifyingglass", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
@@ -151,8 +162,10 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "chat", "archive", "hide", "close", "done"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .control]),
                 category: .agents, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                // A script names the chat's pane (`--target pane:…`); the target brings its own
+                // agentPaneFocused fact (`ActionRegistry.targetContext`).
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent archive-chat",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "agentPane.git.commit",
@@ -188,27 +201,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // decision K1 keeps Cmd-K as Clear in a terminal, so the catalog key stays
                 // unset. The command palette's chats page lists every chat.
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard]
-            ),
-            // Previous Turn and Next Turn step the agent chat's transcript from prompt to prompt, as the
-            // thread minimap's ticks do (cx-f7c). The page handles them; a script reads the transcript instead.
-            // Ctrl-Opt arrows: Ctrl-Cmd arrows are the pane-resize aliases (KeyBindingDefaults).
-            ActionDescriptor(
-                id: "agentPane.previousTurn",
-                title: String(localized: "action.agentPane.previousTurn", defaultValue: "Previous Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "previous", "up", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.up", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
-            ActionDescriptor(
-                id: "agentPane.nextTurn",
-                title: String(localized: "action.agentPane.nextTurn", defaultValue: "Next Turn", bundle: .module),
-                keywords: ["agent", "chat", "turn", "prompt", "message", "next", "down", "minimap"],
-                defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.control, .option]),
-                category: .agents, symbol: "chevron.down", surfaces: [.palette, .keyboard],
-                requires: [.agentPaneFocused], targets: [.pane],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             permissionAction("allowOnce", title: String(localized: "action.agentPane.permission.allowOnce", defaultValue: "Allow Once", bundle: .module), symbol: "checkmark", shortcut: Shortcut("1", modifiers: [.command, .option])),
             permissionAction("allowChat", title: String(localized: "action.agentPane.permission.allowChat", defaultValue: "Allow for This Chat", bundle: .module), symbol: "checkmark.circle", shortcut: Shortcut("2", modifiers: [.command, .option])),
@@ -295,8 +287,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "permissions", "tcc"], category: .agents, symbol: "record.circle",
                 surfaces: [.palette], cliName: "agent grant-screen-recording-access"
             ),
-            // The Home Chief's subagents (optchat-chief spawn): a workspace
-            // whose tab is an existing acpmux session's chat. Automation only.
+            // The Home Chief's subagents (optchat-chief spawn) and scripts
+            // (`cmux agent open SESSION`): a workspace whose tab is an existing
+            // acpmux session's chat.
             ActionDescriptor(
                 id: "agent.openSessionWorkspace",
                 title: String(localized: "action.agent.openSessionWorkspace", defaultValue: "Open Agent Session in New Workspace", bundle: .module),
@@ -314,11 +307,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
+                cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
                 // terminal start deadline, not 2 s, so the caller's run ends
                 // once the workspace exists (it renames it later by key).
                 startsTerminal: true,
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(
@@ -337,15 +331,39 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
-            // The local Chief's memory inspector (optchat-inspector.md): what the
-            // model saw each turn and the memory tree, in a browser tab in a new
-            // column. Debug builds only (DEV and nightly).
+            // The built-in Memory Inspector (memory-inspector-native-DESIGN.md): a
+            // Chief's memory tree, search, and the owner's edits, deletes and undo,
+            // in a native pane tab in the Home right column. Every build.
             ActionDescriptor(
                 id: "chief.openMemoryInspector",
                 title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
-                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
-                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "edit", "delete", "forget", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
+            // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
+            // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.
+            // Move Chief to… (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac, a
+            // remote group or cmux Cloud; a dry run's report first, then the move and `move reach`.
+            // `cmux action run chief.moveTo --arg target=…` reaches it by id.
+            ActionDescriptor(
+                id: "chief.moveTo",
+                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief to…", bundle: .module),
+                keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
+                category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
+                arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),
+                                           kind: .string, isRequired: false)],
+                destructive: true,
+                // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "chief.openUsage",
+                title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
+                keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
+                category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

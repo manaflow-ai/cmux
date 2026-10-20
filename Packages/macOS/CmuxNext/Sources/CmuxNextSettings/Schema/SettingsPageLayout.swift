@@ -12,7 +12,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops, devices
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, devices
+        /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
+        case density
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -93,7 +95,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
-                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.updates"),
+                group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
+                // The Screenshots pane's folders sit beside the other file-viewer groups.
+                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
@@ -106,14 +110,15 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "appearance", title: section(.appearance), symbol: "paintbrush",
             groups: [
-                group("settings.group.terminalFont"), group("settings.group.densityMotion"),
+                group("settings.group.terminalFont"), group("settings.group.densityMotion"), group("settings.group.colorTransition"),
                 group("settings.group.windowBackground"), group("settings.group.panes"), group("settings.group.focusRing"),
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
             // Change Background… lands here: the art picker draws appearance.background and
             // appearance.backgroundOpacity (search still shows them as rows).
-            lead: [.backdrops], actions: [.appearance], aliases: [.appearance]),
+            // The density card draws appearance.density, .customDensity and .customDensities.
+            lead: [.backdrops, .density], actions: [.appearance], aliases: [.appearance]),
         CategorySpec(
             id: "terminal", title: section(.terminal), symbol: "terminal",
             groups: [
@@ -121,15 +126,35 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
             ],
             lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]),
+        // The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text
+        // size too) lives in General beside Diff Viewer; a row has one home.
+        CategorySpec(
+            id: "editor", title: section(.editor), symbol: "chevron.left.forwardslash.chevron.right",
+            groups: [
+                group("settings.group.editorDefaults"), group("settings.group.editorFont"), group("settings.group.editorText"),
+                group("settings.group.editorDisplay"), group("settings.group.editorCursor"), group("settings.group.editorEditing"),
+                group("settings.group.editorSaving"),
+            ],
+            actions: [.editor], aliases: [.editor]),
         CategorySpec(
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
+                // The free AI model while signed out (cx-ds09i).
+                group("settings.group.freeModel"),
+                // What this Mac does while agents work (keep awake).
+                group("settings.group.sessions"),
+                // Whether agent sessions may start sub-sessions, how many and how deep.
+                group("settings.group.subsessions"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added.
-            trail: [.harnesses, .agentHarnesses, .computerUse]),
+            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
+            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
@@ -142,8 +167,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
-                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.bookmarks"),
-                group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
+                group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
+                group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
+                group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
@@ -167,8 +193,14 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
-            id: "accounts", title: section(.accounts), symbol: "person.crop.circle", groups: [],
+            id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
+            // Phone access sits beside the account it signs in with and the machines list.
+            groups: [group("settings.group.phone")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+        // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
+        CategorySpec(
+            id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
+            groups: [group("settings.group.mobile")], trail: [.mobile]),
         // This Mac and the person's other devices on the device hub: names, fingerprints, Mac
         // Screen access, relays and the access history (docs/device-hub). DEV builds only for now.
         CategorySpec(

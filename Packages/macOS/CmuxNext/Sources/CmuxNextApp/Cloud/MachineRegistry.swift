@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextRemote
+import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
 
@@ -79,6 +81,14 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
+    /// The machine name on the tabs of `machineID`'s tree: nil for a tree that runs on this
+    /// Mac (2026-10-20: every Chief subagent tab wore "Chief"). The Chief owner daemon and a
+    /// server that is this Mac are reached at a Unix socket here; their tabs run on this Mac.
+    func tabBadge(_ machineID: String) -> String? {
+        if let server = server(machineID), case .unix = server.reach.route { return nil }
+        return machineBadge(machineID)
+    }
+
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
@@ -110,15 +120,12 @@ final class MachineRegistry {
     }
 
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
-    func daemon(forWorkspace id: String) -> DaemonService? {
-        daemons.first { daemon in daemon.store.workspaces.contains { $0.id == id } }
-    }
+    func daemon(forWorkspace id: String) -> DaemonService? { workspace(id: id)?.1 }
 
+    /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
-        for daemon in daemons {
-            if let workspace = daemon.store.workspaces.first(where: { $0.id == id }) { return (workspace, daemon) }
-        }
-        return nil
+        if let workspace = local.store.workspace(id: id) { return (workspace, local) } // no daemon list for the common case
+        return remoteDaemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
     }
 
     /// The daemon holding pane `pane` (by object identity).

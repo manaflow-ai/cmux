@@ -10,9 +10,11 @@
 //!
 //! - `subagent`: the subagent whose session the update belongs to.
 //! - `subagents`: subagents this update starts or changes, each
-//!   `{id, parent, name?, task?, prompt?, state, toolCallId?}`, with `parent`
+//!   `{id, parent, name?, task?, prompt?, kind?, state, toolCallId?}`, with `parent`
 //!   null for the session's own subagents and `state` one of `running`,
-//!   `completed`, `failed`, `cancelled` or `disconnected`.
+//!   `completed`, `failed`, `cancelled` or `disconnected`. A running one's
+//!   progress adds `tokens`, `toolUses`, `elapsedMs`, `action` and, for a
+//!   Claude workflow (`kind: "workflow"`), `agents: {done, started}`.
 
 use crate::hub::merge_mux_meta;
 use serde_json::{Map, Value, json};
@@ -70,6 +72,13 @@ impl SubagentTree {
                 if let Some(call) = update.pointer("/_meta/claude/toolUseId") {
                     event.insert("toolCallId".into(), call.clone());
                 }
+                // The kind of agent it is (Claude's subagent_type: Explore,
+                // general-purpose, a user agent), drawn beside its name.
+                if let Some(kind) =
+                    update.pointer("/_meta/claude/subagentType").and_then(Value::as_str)
+                {
+                    event.insert("kind".into(), json!(kind));
+                }
                 event.insert("state".into(), json!("running"));
                 vec![Value::Object(event)]
             }
@@ -78,6 +87,18 @@ impl SubagentTree {
                 let state = s(update, "state").unwrap_or_else(|| "completed".into());
                 let mut event = self.spawn(&id, owner);
                 event.insert("state".into(), json!(state));
+                vec![Value::Object(event)]
+            }
+            // A running subagent's or workflow's live numbers (claude_stdio/workflows.rs).
+            Some("subagent_progress") => {
+                let Some(id) = s(update, "subagentSessionId") else { return vec![] };
+                let mut event = self.spawn(&id, owner);
+                event.insert("state".into(), json!("running"));
+                for key in ["name", "task", "tokens", "toolUses", "elapsedMs", "action", "agents"] {
+                    if let Some(v) = update.get(key).filter(|v| !v.is_null()) {
+                        event.insert(key.into(), v.clone());
+                    }
+                }
                 vec![Value::Object(event)]
             }
             Some("tool_call" | "tool_call_update") => self.codex_legacy(update, owner),

@@ -64,7 +64,7 @@ class PageInfoWindow: NSWindow {
         self.title = title
         isReleasedWhenClosed = false
         minSize = NSSize(width: size.width * 0.8, height: size.height * 0.6)
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
     }
 
     /// Sets the window's content through the window kit (kind
@@ -76,11 +76,11 @@ class PageInfoWindow: NSWindow {
     /// Escape closes.
     override func cancelOperation(_ sender: Any?) { close() }
 
-    static func sectionTitle(_ text: String) -> NSTextField {
+    static func sectionTitle(_ text: String) -> ThemedLabel {
         PageInfoStyle.label(text, font: PageInfoStyle.headerFont, color: PageInfoStyle.text)
     }
 
-    static func valueLabel(_ text: String, selectable: Bool = true) -> NSTextField {
+    static func valueLabel(_ text: String, selectable: Bool = true) -> ThemedLabel {
         let label = PageInfoStyle.label(text, font: PageInfoStyle.bodyFont, color: PageInfoStyle.text, wraps: true)
         label.isSelectable = selectable
         return label

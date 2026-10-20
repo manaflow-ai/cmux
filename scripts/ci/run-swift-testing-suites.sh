@@ -8,11 +8,24 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_path="$1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
-  set -x
-  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path "$package_path" --filter ManagedPreferencesManifestTests
-  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path "$package_path" --filter SettingsSchemaExportTests
-  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
+  source "$script_dir/swift-test-debug-info.sh"
+  source "$script_dir/swiftpm-binary-module-guard.sh"
+  swiftpm_binary_module_guard "$package_path"
+  # SwiftPM copies raw catalogs but can retain old compiled tables on warm
+  # slots. Refresh them after building and before either exporter reads them.
+  swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --build-tests
+  bin_path="$(swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --show-bin-path)"
+  compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
+  (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
+  CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
+  CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
+  # Every file the two exporters write, and the source stamp of the schema
+  # (defaults_guard.py check-fresh compares it with the CmuxNextSettings sources).
+  for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/com.manaflow.cmux.intune.plist \
+    docs/mdm/cmux-example.mobileconfig docs/mdm/managed-preferences.md \
+    schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo
@@ -79,14 +92,29 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   fi
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh
 source "$script_dir/swift-test-debug-info.sh" || exit 2
+# A reused .build drops its build outputs when a binary target's headers change.
+# shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
+source "$script_dir/swiftpm-binary-module-guard.sh" || exit 2
 debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fleet ci-steps check the ref out with every submodule deinitialized: populate
+# the ones this package reaches through local dependencies (vendor/bonsplit),
+# never the rest (ghostty).
+if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; then
+  empty_submodules=()
+  while IFS= read -r submodule; do
+    [ -n "$(ls -A "$repo_root/$submodule" 2>/dev/null)" ] || empty_submodules+=("$submodule")
+  done < <(python3 "$script_dir/swift_package_submodules.py" "$repo_root" "$package_path")
+  if [ "${#empty_submodules[@]}" -gt 0 ]; then
+    echo "Populating submodules this package reaches: ${empty_submodules[*]}" >&2
+    git -C "$repo_root" submodule update --init --depth 1 -- "${empty_submodules[@]}" >&2
+  fi
+fi
 # Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
 # prints "ci-phase <name> <seconds>s" for the one it ended; `phase` with no
 # name ends the last one. phase_table prints them all (the step log is the
@@ -155,6 +183,7 @@ else
   echo "ci-phase .build has no earlier build of this script (cold or first use)"
 fi
 phase build-and-list
+swiftpm_binary_module_guard "$package_path"
 swift test list ${debug_info_args[@]+"${debug_info_args[@]}"} --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 [ ! -d "$package_path/.build" ] || git rev-parse HEAD > "$built_ref_file" 2>/dev/null || true
 phase filters

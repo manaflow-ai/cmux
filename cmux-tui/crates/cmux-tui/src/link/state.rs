@@ -26,6 +26,9 @@ pub(super) struct LinkConfig {
     pub install: String,
     /// The UDP port the link binds on every interface.
     pub port: u16,
+    /// An explicitly selected private server enrollment; the key stays there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_identity: Option<PathBuf>,
 }
 
 pub(super) struct LinkState {
@@ -97,7 +100,19 @@ impl LinkState {
         if !cmux_link::stamp::valid_id(&config.install) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid install id"));
         }
-        if !self.key_path().exists() {
+        if config.server_identity.is_some() {
+            let _ = enrolled(config)?;
+            if self.key_path().symlink_metadata().is_ok()
+                || (self.has_config() && {
+                    let old = self.config()?;
+                    old.server_identity != config.server_identity || old.install != config.install
+                })
+            {
+                return Err(io::Error::other("server_link.identity_conflict"));
+            }
+        } else if self.has_config() && self.config()?.server_identity.is_some() {
+            return Err(io::Error::other("server_link.identity_conflict"));
+        } else if !self.key_path().exists() {
             let mut private = Zeroizing::new([0u8; 32]);
             getrandom::fill(&mut *private).map_err(io::Error::other)?;
             let secret = x25519_dalek::StaticSecret::from(*private);
@@ -113,51 +128,76 @@ impl LinkState {
     /// `old`'s name (`private.key.<old>`, `peers.<old>.json`) and puts back
     /// `new`'s archived pair when it has one. Nothing is deleted; a new
     /// install without an archive gets a new key (`init`) and no peers.
-    /// Both ids must be valid; an existing archive of `old` is never
-    /// replaced; an archive of `new` is restored only when it is a regular
-    /// file of this user that no one else may open. A failed step undoes
-    /// the steps before it.
     pub(super) fn switch_install(&self, old: &str, new: &str) -> io::Result<()> {
+        self.move_install(Some(old), Some(new))
+    }
+
+    /// Archives the current key and peers under `install` (`link archive`,
+    /// after a sign-out) and removes the config, so no `ensure` without
+    /// `--install` can start this link as that install again.
+    pub(super) fn archive_install(&self, install: &str) -> io::Result<()> {
+        self.move_install(Some(install), None)?;
+        match std::fs::remove_file(self.config_path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        }
+    }
+
+    /// Puts back `install`'s archived key and peers, if it has them (an
+    /// install that signs in again on a state directory with no config).
+    pub(super) fn restore_install(&self, install: &str) -> io::Result<()> {
+        self.move_install(None, Some(install))
+    }
+
+    /// The moves of [`Self::switch_install`]: archive the current pair under
+    /// `old`, then restore `new`'s. Both ids must be valid; an existing
+    /// archive of `old` is never replaced; an archive of `new` is restored
+    /// only when it is a regular file of this user that no one else may
+    /// open. Everything is checked first; a failed move undoes the earlier
+    /// ones.
+    fn move_install(&self, old: Option<&str>, new: Option<&str>) -> io::Result<()> {
         let invalid = |why: &str| io::Error::new(io::ErrorKind::InvalidInput, why.to_owned());
-        if !cmux_link::stamp::valid_id(old) || !cmux_link::stamp::valid_id(new) {
+        if old.into_iter().chain(new).any(|id| !cmux_link::stamp::valid_id(id)) {
             return Err(invalid("invalid install id"));
         }
-        let pairs = [
-            (
-                self.key_path(),
-                self.dir.join(format!("private.key.{old}")),
-                self.dir.join(format!("private.key.{new}")),
-            ),
-            (
-                self.peers_path(),
-                self.dir.join(format!("peers.{old}.json")),
-                self.dir.join(format!("peers.{new}.json")),
-            ),
-        ];
-        // Check everything first, then move.
-        for (_, archive_old, archive_new) in &pairs {
-            if std::fs::symlink_metadata(archive_old).is_ok() {
-                return Err(invalid(&format!("{} already exists", archive_old.display())));
+        let archive = |stem: &str, ext: &str, id: &str| self.dir.join(format!("{stem}{id}{ext}"));
+        let currents =
+            [(self.key_path(), "private.key.", ""), (self.peers_path(), "peers.", ".json")];
+        let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
+        for (current, stem, ext) in &currents {
+            if let Some(old) = old {
+                let to = archive(stem, ext, old);
+                if std::fs::symlink_metadata(&to).is_ok() {
+                    return Err(invalid(&format!("{} already exists", to.display())));
+                }
+                moves.push((current.clone(), to));
             }
-            if std::fs::symlink_metadata(archive_new).is_ok() {
-                check_private_file(archive_new)?;
+            if let Some(new) = new {
+                let from = archive(stem, ext, new);
+                if std::fs::symlink_metadata(&from).is_ok() {
+                    check_private_file(&from)?;
+                    // A restore never overwrites a current file that was not
+                    // archived first (no `old` moves it away here).
+                    if old.is_none() && std::fs::symlink_metadata(current).is_ok() {
+                        return Err(invalid(&format!(
+                            "unarchived_key: {} exists and is not archived",
+                            current.display()
+                        )));
+                    }
+                    moves.push((from, current.clone()));
+                }
             }
         }
         let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
-        let undo = |done: &mut Vec<(PathBuf, PathBuf)>| {
-            while let Some((from, to)) = done.pop() {
-                let _ = std::fs::rename(&to, &from);
-            }
-        };
-        for (current, archive_old, archive_new) in &pairs {
-            for (from, to) in [(current, archive_old), (archive_new, current)] {
-                match std::fs::rename(from, to) {
-                    Ok(()) => done.push((from.clone(), to.clone())),
-                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                    Err(error) => {
-                        undo(&mut done);
-                        return Err(error);
+        for (from, to) in moves {
+            match std::fs::rename(&from, &to) {
+                Ok(()) => done.push((from, to)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    while let Some((back_to, back_from)) = done.pop() {
+                        let _ = std::fs::rename(&back_from, &back_to);
                     }
+                    return Err(error);
                 }
             }
         }
@@ -165,6 +205,10 @@ impl LinkState {
     }
 
     pub(super) fn private_key(&self) -> io::Result<Zeroizing<[u8; 32]>> {
+        let config = self.config()?;
+        if config.server_identity.is_some() {
+            return Ok(enrolled(&config)?.wireguard_key());
+        }
         let text = Zeroizing::new(std::fs::read_to_string(self.key_path())?);
         let bytes = Zeroizing::new(
             STANDARD
@@ -177,6 +221,18 @@ impl LinkState {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "key is not 32 bytes"))?;
         Ok(Zeroizing::new(key))
     }
+}
+
+fn enrolled(config: &LinkConfig) -> io::Result<cmux_server::pairing::EnrolledIdentity> {
+    let path = config
+        .server_identity
+        .as_ref()
+        .ok_or_else(|| io::Error::other("server_link.not_enrolled"))?;
+    let identity = cmux_server::pairing::EnrolledIdentity::load(path).map_err(io::Error::other)?;
+    if identity.paired().install != config.install {
+        return Err(io::Error::other("server_link.identity_conflict"));
+    }
+    Ok(identity)
 }
 
 /// The WireGuard public key of `private`.

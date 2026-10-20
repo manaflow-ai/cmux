@@ -8,6 +8,21 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in CLIs (shell scripts) for the version, sign-in
+// and update checks, which launch-deny would skip.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
+#[path = "harness_health/update_outcomes.rs"]
+mod update_outcomes;
+
+#[path = "harness_health/inventory_refresh.rs"]
+mod inventory_refresh;
+
+#[path = "harness_health/update_plan.rs"]
+mod update_plan;
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::harness_health::{Settings, latest::Sources};
 use acpmux::hub::Hub;
@@ -144,6 +159,105 @@ fn row<'a>(reply: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no {id} row in {reply}"))
 }
 
+/// Inventory consumers must never receive the diagnostic command/path fields,
+/// and reading an empty cache must not run the first health check.
+#[tokio::test]
+async fn cmux_next_harness_inventory_is_cached_and_omits_private_diagnostics() {
+    let root = scratch("inventory-cache");
+    let home = root.join("home");
+    let user = root.join("profiles");
+    let hub = hub_for(&root, &user, &home);
+    let cache = root.join("inventory-health.json");
+    let private = "private@example.test secret-token";
+    let mut cached = json!([{
+        "id": "codex", "program": private, "path": private, "channel": "npm",
+        "package": private, "version": "1.2.3", "latest": "1.2.4",
+        "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn",
+        "authDetail": private, "login": private,
+        "update": {"argv": [private], "command": private, "elevated": false},
+        "problem": private, "checkedAt": 1235,
+        "lastAutoUpdate": {"at": 1235, "ok": false, "detail": private}
+    }]);
+    let mut invalid_id = cached[0].clone();
+    invalid_id["id"] = json!(private);
+    let mut invalid_version = cached[0].clone();
+    invalid_version["id"] = json!("broken");
+    invalid_version["version"] = json!(format!("1.2.3 {private}"));
+    invalid_version["latest"] = json!(private);
+    cached.as_array_mut().unwrap().extend([invalid_id, invalid_version]);
+    std::fs::write(&cache, cached.to_string()).unwrap();
+    hub.health.attach(Settings { cache: Some(cache), home: home.clone(), ..Settings::default() });
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
+        let mut client = Client::open(&hub, origin);
+        let hello = client.call(method::INITIALIZE, json!({})).await.unwrap();
+        assert!(
+            hello
+                .pointer("/_meta/acpmux/features")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .contains(&json!("harnessInventory"))
+        );
+        let reply =
+            client.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.unwrap();
+        assert_eq!(
+            reply,
+            json!({"view": "inventory", "cached": true, "harnesses": [{
+                "id": "codex", "family": null, "channel": "npm", "version": "1.2.3", "latest": "1.2.4",
+                "latestCheckedAt": 1234, "outdated": true, "auth": "signedIn", "checkedAt": 1235
+            }, {
+                "id": "broken", "family": null, "channel": "npm", "version": null, "latest": null,
+                "latestCheckedAt": 1234, "outdated": false, "auth": "signedIn", "checkedAt": 1235
+            }]})
+        );
+        assert!(!reply.to_string().contains(private));
+    }
+    let mut peer = Client::open(&hub, Origin::Peer);
+    assert!(peer.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.is_err());
+
+    let empty_root = scratch("inventory-empty");
+    let marker = empty_root.join("version-ran");
+    let binary = empty_root.join("bin/agent");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(&binary, format!("#!/bin/sh\ntouch '{}'\necho 1.2.3\n", marker.display()))
+        .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let profiles = empty_root.join("profiles");
+    profile(&profiles, "test", &format!("command = \"{}\"\n", binary.display()));
+    let empty = hub_for(&empty_root, &profiles, &empty_root.join("home"));
+    let mut local = Client::open(&empty, Origin::Local);
+    let reply = local.call(method::MUX_HARNESS_HEALTH, json!({"view": "inventory"})).await.unwrap();
+    assert_eq!(reply, json!({"view": "inventory", "cached": true, "harnesses": []}));
+    assert!(!marker.exists(), "an inventory read ran the CLI");
+    assert!(empty.health.rows().is_empty());
+}
+
+#[tokio::test]
+async fn cmux_next_harness_inventory_refuses_controls_and_unknown_views() {
+    let root = scratch("inventory-controls");
+    let hub = hub_for(&root, &root.join("profiles"), &root.join("home"));
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web] {
+        let mut client = Client::open(&hub, origin);
+        for params in [
+            json!({"view": "inventory", "refresh": true}),
+            json!({"view": "inventory", "rescan": true}),
+            json!({"view": "inventory", "checkLatest": true}),
+            json!({"view": "inventory", "autoUpdate": {"id": "codex", "on": true}}),
+            json!({"view": "inventory", "machine": "other-host"}),
+            json!({"view": "inventory", "command": "echo bad"}),
+            json!({"view": "inventroy"}),
+            json!({"view": null}),
+        ] {
+            let error = client
+                .call(method::MUX_HARNESS_HEALTH, params)
+                .await
+                .expect_err("inventory accepted a control");
+            assert_eq!(error["code"], -32602);
+        }
+    }
+    assert!(hub.health.rows().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     let root = scratch("installs");
@@ -155,7 +269,12 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     let codex_file = npm.join("lib/node_modules/@zed-industries/codex-acp/bin/codex-acp.js");
     let codex = npm.join("bin/codex-acp");
     program(&codex_file, &codex, "codex-acp 0.3.1");
-    profile(&user, "codex", &format!("command = \"{}\"\n", codex.display()));
+    // No `codex` on its PATH: its sign-in is the model probe's answer below.
+    profile(
+        &user,
+        "codex",
+        &format!("command = \"{}\"\n[env]\nPATH = \"/usr/bin:/bin\"\n", codex.display()),
+    );
     // npm, a prefix this user cannot write: the update needs sudo, shown, never run.
     let npm_ro = root.join("npm-ro");
     let opencode = npm_ro.join("bin/opencode");
@@ -247,7 +366,7 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     );
     assert_eq!(
         r["update"]["argv"],
-        json!(["npm", "install", "-g", "@zed-industries/codex-acp@latest"]),
+        json!(["npm", "install", "-g", "--prefix", npm, "@zed-industries/codex-acp@latest"]),
         "{r}"
     );
     assert_eq!(r["update"]["elevated"], false, "{r}");
@@ -266,7 +385,14 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     // SAFETY: geteuid has no preconditions. Root writes any folder.
     if unsafe { libc::geteuid() } != 0 {
         assert_eq!(r["update"]["elevated"], true, "{r}");
-        assert_eq!(r["update"]["command"], "sudo npm install -g opencode-ai@latest", "{r}");
+        assert_eq!(
+            r["update"]["command"],
+            format!(
+                "sudo npm install -g --prefix {} opencode-ai@latest",
+                acpmux::harness_health::channel::quote(npm_ro.to_str().unwrap())
+            ),
+            "{r}"
+        );
     }
 
     let r = row(&reply, "gemini");
@@ -337,9 +463,23 @@ async fn health_reads_version_channel_newest_signin_and_update_per_install() {
     );
     assert_eq!(asked.lock().unwrap().len(), 5, "asked again: {:?}", asked.lock().unwrap());
 
-    // A remote WebSocket connection never gets it.
+    // A plain browser page (Web) reads the rows as last checked, the same rows
+    // the app just read, and runs nothing: no refresh, latest check or
+    // auto-update choice (the agent pane's dev host, cx-jlzsf). A peer gets none.
     let mut web = Client::open(&hub, Origin::Web);
-    web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("web origin");
+    let read = web.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("web reads");
+    assert_eq!(row(&read, "codex")["version"].as_str(), Some("0.4.0"), "{read}");
+    for params in [
+        json!({"refresh": true}),
+        json!({"rescan": true}),
+        json!({"checkLatest": true}),
+        json!({"autoUpdate": {"id": "codex", "on": true}}),
+    ] {
+        web.call(method::MUX_HARNESS_HEALTH, params.clone()).await.expect_err("web ran a check");
+    }
+    assert_eq!(asked.lock().unwrap().len(), 5, "web asked a source: {:?}", asked.lock().unwrap());
+    let mut peer = Client::open(&hub, Origin::Peer);
+    peer.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect_err("peer origin");
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
     let _ = std::fs::remove_dir_all(&root);
@@ -599,5 +739,300 @@ async fn auto_update_runs_each_opted_in_harnesses_own_updater_then_checks_again(
     assert!(!std::fs::read_to_string(&chosen).unwrap().contains("claude"));
 
     let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Update Everything (cx-1mbnu): `_acpmux/harness/update {ids}` runs now the updater of each named
+/// outdated harness, whatever its auto-update choice, waits for it and checks again; a harness
+/// whose update needs sudo is never run (its answer names the command), one already current is ok
+/// without a run, and an unknown id is refused. Only the unix socket may ask, for the update and
+/// for `_acpmux/sessions/restart_harness` alike: the local app, a WebSocket page and a peer may not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn harness_update_runs_named_updaters_now_and_never_one_that_needs_sudo() {
+    let root = scratch("update");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+
+    // Claude's native installer: `claude update` installs 2.0.9; each run is logged to `runs`.
+    let claude_file = home.join(".local/share/claude/versions/current");
+    let claude = home.join(".local/bin/claude");
+    let runs = root.join("claude-update-runs");
+    std::fs::create_dir_all(claude_file.parent().unwrap()).unwrap();
+    std::fs::write(
+        &claude_file,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = update ]; then echo run >> '{1}'; printf '#!/bin/sh\\necho \"2.0.9 (Claude Code)\"\\n' > '{0}.new' && chmod +x '{0}.new' && mv '{0}.new' '{0}'; echo updated; exit 0; fi\necho '2.0.5 (Claude Code)'\n",
+            claude_file.display(),
+            runs.display(),
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&claude_file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+    symlink(&claude_file, &claude).unwrap();
+    profile(
+        &user,
+        "claude",
+        &format!("protocol = \"claude-stdio\"\ncommand = \"{}\"\n", claude.display()),
+    );
+    // npm, a prefix this user cannot write: its update needs sudo.
+    let npm_ro = root.join("npm-ro");
+    let opencode = npm_ro.join("bin/opencode");
+    program(&npm_ro.join("lib/node_modules/opencode-ai/bin/opencode"), &opencode, "0.15.0");
+    std::fs::set_permissions(
+        npm_ro.join("lib/node_modules"),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    profile(&user, "opencode", &format!("command = \"{}\"\n", opencode.display()));
+
+    let (port, _asked) = latest_server(vec![
+        ("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version": "2.0.9"})),
+        ("/npm/opencode-ai/latest", json!({"version": "0.16.0"})),
+    ]);
+    let hub = hub_for(&root, &user, &home);
+    hub.health.attach(Settings {
+        sources: Some(Sources {
+            npm: format!("http://127.0.0.1:{port}/npm"),
+            brew: format!("http://127.0.0.1:{port}/brew"),
+        }),
+        cache: None,
+        home: home.clone(),
+        // Auto-update is off for every harness: the request runs anyway.
+        auto_update: Some(root.join("acpmux/harness-auto-update.json")),
+    });
+    let mut local = Client::open(&hub, Origin::Local);
+    let first = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    assert_eq!(
+        (
+            row(&first, "claude")["outdated"].as_bool(),
+            row(&first, "claude")["autoUpdate"].as_bool()
+        ),
+        (Some(true), Some(false)),
+        "{first}"
+    );
+
+    // Nobody but the unix socket may run an update or restart chats.
+    for origin in [Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut other = Client::open(&hub, origin);
+        other
+            .call(method::MUX_HARNESS_UPDATE, json!({"ids": ["claude"]}))
+            .await
+            .expect_err("only the unix socket updates a harness");
+        other
+            .call(method::MUX_SESSIONS_RESTART_HARNESS, json!({}))
+            .await
+            .expect_err("only the unix socket restarts chats");
+    }
+    assert!(!runs.exists(), "an update ran for another origin");
+
+    // SAFETY: geteuid has no preconditions. Root writes any folder, so the sudo case is not one.
+    let rooted = unsafe { libc::geteuid() } == 0;
+    let ids =
+        if rooted { json!(["claude", "nope"]) } else { json!(["claude", "opencode", "nope"]) };
+    let reply = local.call(method::MUX_HARNESS_UPDATE, json!({"ids": ids})).await.expect("update");
+    let result = |id: &str| {
+        reply["results"]
+            .as_array()
+            .and_then(|all| all.iter().find(|r| r["id"] == id))
+            .cloned()
+            .unwrap_or_else(|| panic!("no {id} result in {reply}"))
+    };
+    let r = result("claude");
+    assert_eq!((r["ok"].as_bool(), r["version"].as_str()), (Some(true), Some("2.0.9")), "{r}");
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "one run");
+    if !rooted {
+        let r = result("opencode");
+        assert_eq!(
+            (r["ok"].as_bool(), r["version"].as_str()),
+            (Some(false), Some("0.15.0")),
+            "{r}"
+        );
+        assert!(
+            r["error"].as_str().is_some_and(|e| e.contains(&format!(
+                "sudo npm install -g --prefix {} opencode-ai@latest",
+                acpmux::harness_health::channel::quote(npm_ro.to_str().unwrap())
+            ))),
+            "the sudo command is named, never run: {r}"
+        );
+    }
+    let r = result("nope");
+    assert_eq!(r["ok"], false, "{r}");
+    // The health rows the answer came from are the new check's.
+    let after = local.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+    assert_eq!(row(&after, "claude")["outdated"], false, "{after}");
+    if !rooted {
+        assert_eq!(row(&after, "opencode")["version"], "0.15.0", "{after}");
+    }
+
+    // Already current: ok, nothing runs again.
+    let again = local
+        .call(method::MUX_HARNESS_UPDATE, json!({"ids": ["claude"]}))
+        .await
+        .expect("update again");
+    assert_eq!(again["results"], json!([{"id": "claude", "ok": true, "version": "2.0.9"}]));
+    assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 1, "ran again");
+    // Never a command from the caller.
+    local
+        .call(method::MUX_HARNESS_UPDATE, json!({"ids": "claude"}))
+        .await
+        .expect_err("ids must be a list of ids");
+    // No chat runs here: nothing restarts.
+    let moved = local
+        .call(method::MUX_SESSIONS_RESTART_HARNESS, json!({"harnesses": ["claude"]}))
+        .await
+        .expect("restart");
+    assert_eq!(moved, json!({"restarted": 0, "after_turn": 0, "failed": 0, "errors": []}));
+
+    let _ = std::process::Command::new("chmod").arg("-R").arg("u+w").arg(&root).status();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A fake `codex` at `dir/codex`: `codex login status` prints `says` and exits
+/// `code`, as Codex does (0 "Logged in using ChatGPT", 1 "Not logged in", and 1
+/// for a check it could not make).
+fn codex_login(dir: &Path, code: i32, says: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    let file = dir.join("codex");
+    std::fs::write(
+        &file,
+        format!(
+            "#!/bin/sh\n[ \"$1 $2\" = \"login status\" ] || exit 9\necho '{says}'\nexit {code}\n"
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+// cx-ae9eb: a harness found on PATH has no profile check, so its sign-in read
+// unknown and the model rail could not tell a signed-out Codex from a working
+// one. Codex answers `codex login status`; Claude's own sign-in sources only
+// ever prove a sign-in (none found stays unknown, never a guess).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn health_reads_codex_login_status_and_claude_credentials_without_a_check() {
+    let root = scratch("builtin-signin");
+    let home = root.join("home");
+    let user = root.join("config").join("harnesses");
+    let adapter = root.join("npm/bin/codex-acp");
+    program(&root.join("npm/lib/codex-acp.js"), &adapter, "codex-acp 0.3.1");
+    // hq#2569 #2: Codex through a model provider of its own (sr's layout on
+    // the capture minis: a bearer token in config.toml), where `codex login
+    // status` says "Not logged in" while Codex works; and one whose `env_key`
+    // is unset here.
+    let codex_home = |name: &str, provider: &str| {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("model_provider = \"sr\"\n[model_providers.sr]\nbase_url = \"http://127.0.0.1:31415/v1\"\n{provider}"),
+        )
+        .unwrap();
+        format!("CODEX_HOME = \"{}\"\n", dir.display())
+    };
+    let sr_home = codex_home("codex-sr-home", "experimental_bearer_token = \"sr-token\"\n");
+    let keyless_home =
+        codex_home("codex-keyless-home", "env_key = \"ACPMUX_HEALTH_NO_SUCH_KEY\"\n");
+    // Each Codex harness runs the adapter with its own `codex` first on PATH.
+    for (id, code, says, extra) in [
+        ("codex-sr", 1, "Not logged in", sr_home.as_str()),
+        ("codex-keyless", 1, "Not logged in", keyless_home.as_str()),
+        ("codex-out", 1, "Not logged in", ""),
+        ("codex-in", 0, "Logged in using ChatGPT", ""),
+        // A check Codex could not make (a custom provider, a bad config) is no sign-out.
+        ("codex-unsure", 1, "Error checking login status: bad config", ""),
+        // Signed in since its model probe failed to sign in: the fresh answer wins.
+        ("codex-back", 0, "Logged in using ChatGPT", ""),
+        // A CODEX_HOME acpmux cannot resolve here: the default home says nothing about it.
+        (
+            "codex-elsewhere",
+            1,
+            "Not logged in",
+            "CODEX_HOME = \"${env:ACPMUX_HEALTH_NO_SUCH_HOME}\"\n",
+        ),
+    ] {
+        let bin = root.join(format!("bin-{id}"));
+        codex_login(&bin, code, says);
+        profile(
+            &user,
+            id,
+            &format!(
+                "command = \"{}\"\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n{extra}",
+                adapter.display(),
+                bin.display()
+            ),
+        );
+    }
+    // A wrapper that runs Codex somewhere else: this Mac's sign-in says nothing about it.
+    let bin = root.join("bin-codex-remote");
+    codex_login(&bin, 1, "Not logged in");
+    profile(
+        &user,
+        "codex-remote",
+        &format!(
+            "command = \"/usr/bin/env\"\nargs = [\"codex-acp\"]\n[env]\nPATH = \"{}:/usr/bin:/bin\"\n",
+            bin.display()
+        ),
+    );
+    let claude = home.join(".local/bin/claude");
+    program(&home.join(".local/share/claude/versions/2.0.5"), &claude, "2.0.5 (Claude Code)");
+    let signed = root.join("claude-signed");
+    std::fs::create_dir_all(&signed).unwrap();
+    std::fs::write(signed.join(".credentials.json"), "{}").unwrap();
+    let empty = root.join("claude-empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    // A gateway token in the Claude home's settings env (sr's layout).
+    let gateway = root.join("claude-gateway");
+    std::fs::create_dir_all(&gateway).unwrap();
+    std::fs::write(
+        gateway.join("settings.json"),
+        r#"{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:31415","ANTHROPIC_AUTH_TOKEN":"t"}}"#,
+    )
+    .unwrap();
+    for (id, dir) in [("claude-in", &signed), ("claude-none", &empty), ("claude-gateway", &gateway)]
+    {
+        profile(
+            &user,
+            id,
+            &format!(
+                "protocol = \"claude-stdio\"\ncommand = \"{}\"\n[env]\nCLAUDE_CONFIG_DIR = \"{}\"\n",
+                claude.display(),
+                dir.display()
+            ),
+        );
+    }
+
+    let hub = hub_for(&root, &user, &home);
+    hub.probe_errors
+        .lock()
+        .unwrap()
+        .insert("codex-back".into(), "Not signed in: run `codex login`".into());
+    for id in ["codex-sr", "codex-keyless"] {
+        hub.probe_errors
+            .lock()
+            .unwrap()
+            .insert(id.into(), "Not signed in: run `codex login`".into());
+    }
+    let mut app = Client::open(&hub, Origin::LocalApp);
+    let reply = app.call(method::MUX_HARNESS_HEALTH, json!({})).await.expect("health");
+
+    let auth = |id: &str| row(&reply, id)["auth"].as_str().map(str::to_owned);
+    assert_eq!(auth("codex-out").as_deref(), Some("signedOut"), "{reply}");
+    assert_eq!(row(&reply, "codex-out")["login"], "codex login", "{reply}");
+    assert_eq!(auth("codex-in").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("codex-unsure").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("codex-back").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("codex-elsewhere").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("codex-remote").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("claude-in").as_deref(), Some("signedIn"), "{reply}");
+    assert_eq!(auth("claude-none").as_deref(), Some("unknown"), "{reply}");
+    // A provider of its own decides, over `codex login status` and an older
+    // probe error: signed in with its token, unknown (never signed out, which
+    // `codex login` could not fix) without its key.
+    assert_eq!(auth("codex-sr").as_deref(), Some("signedIn"), "{reply}");
+    let detail = row(&reply, "codex-sr")["authDetail"].as_str().unwrap_or_default().to_owned();
+    assert!(detail.contains("`sr` provider") && !detail.contains("sr-token"), "{reply}");
+    assert_eq!(auth("codex-keyless").as_deref(), Some("unknown"), "{reply}");
+    assert_eq!(auth("claude-gateway").as_deref(), Some("signedIn"), "{reply}");
+
     let _ = std::fs::remove_dir_all(&root);
 }

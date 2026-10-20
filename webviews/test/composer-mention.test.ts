@@ -1,4 +1,5 @@
-// Typing @ in the agent chat composer offers the chat's files (cx-ncc.68, Codex desktop app parity).
+// Typing @ in the agent chat composer offers other chats and the chat's folders and files (cx-ncc.68,
+// Codex and Claude desktop app parity).
 // The composer gallery's plays type into the real prompt in Chromium against the gallery host's
 // `file.search` answer; this checks each play passed and what the page asked the host.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -6,6 +7,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-mention.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -32,6 +34,7 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once before the test pages. The first load can trigger Vite's
     // dependency optimizer and reload its context while the real fixture is compiling; doing it
@@ -56,10 +59,15 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
   const play = async (variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
     await page.goto(stageURL(variant));
-    await page.waitForFunction(() => {
-      const ready = document.documentElement.dataset.galleryReady;
-      return ready === "1" || ready === "error";
-    });
+    // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
+    await page.waitForFunction(
+      () => {
+        const ready = document.documentElement.dataset.galleryReady;
+        return ready === "1" || ready === "error";
+      },
+      undefined,
+      { timeout: 90_000 },
+    );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
       play: document.documentElement.dataset.galleryPlay,
@@ -84,6 +92,28 @@ await requireBrowserLane("composer-mention.test.ts", async () => {
     const result = await play("mention-escaped-path");
     expect(playFailures(result.report)).toEqual([]);
     expect(result.searches).toEqual(["ini"]);
+  });
+
+  test("@proje lists other chats, then folders, then the chat folder's files", async () => {
+    const result = await play("mention-mixed");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("proje");
+  });
+
+  test("picking another chat writes its title and full id", async () => {
+    const result = await play("mention-session-pick");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("a chat named for a long prompt does not take @app from the file", async () => {
+    const result = await play("mention-file-over-prompt-chat");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.searches).toContain("app");
+  });
+
+  test("a bare @ lists the most recent other chats", async () => {
+    const result = await play("mention-recent-chats");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("an @ inside a word opens nothing and asks the host for nothing", async () => {

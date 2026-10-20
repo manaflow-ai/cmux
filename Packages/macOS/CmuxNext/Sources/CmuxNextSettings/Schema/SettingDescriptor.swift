@@ -82,6 +82,13 @@ extension SettingDescriptor {
         return row
     }
 
+    /// This row, kept off the palette for `reason` (a card on the Settings page draws it).
+    public func hiddenFromPalette(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.palette = .hidden(reason)
+        return row
+    }
+
     /// This row, kept off the Settings page and the palette for `reason`.
     public func hiddenFromSettingsPage(_ reason: String) -> SettingDescriptor {
         var row = self

@@ -9,7 +9,7 @@ import QuartzCore
 /// horizontally (trackpad or wheel) when the chips overflow. Click reopens a
 /// group; right-click asks `contextMenuProvider` with `.savedGroup(id)`.
 public final class SavedGroupsBarView: NSView {
-    public static var preferredHeight: CGFloat { Metrics.tabHeight }
+    public static var preferredHeight: CGFloat { Metrics.controlHeight }
 
     public let model: SavedGroupsBarModel
     public var contextMenuProvider: TabContextMenuProvider?
@@ -48,7 +48,7 @@ public final class SavedGroupsBarView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: Self.preferredHeight) }
 
     public override func accessibilityChildren() -> [Any]? {

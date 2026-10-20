@@ -7,9 +7,11 @@ import {
   conversationErrors,
   ConversationSettings,
   ConversationSummary,
+  GrantableRole,
   InviteId,
   Message,
   MessageId,
+  Participant,
   ParticipantId,
   ParticipantInput,
   PartIndex,
@@ -17,6 +19,7 @@ import {
   Parts,
   ReactionKind,
   Seq,
+  ThreadStatus,
   ThreadSummary
 } from "./ops-home-schemas.ts"
 
@@ -181,6 +184,28 @@ export const TitleSet = def({
   mcp: { expose: "opt_in", group: "home" }
 })
 
+export const ThreadUpdate = def({
+  name: "thread.update",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "message",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    root: MessageId,
+    title: Schema.optionalKey(Title),
+    status: Schema.optionalKey(ThreadStatus),
+    // A participant id, or "" to clear the owner (the owner checks it is a current participant).
+    owner: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128)))
+  }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_message", "invalid_thread_root", "invalid_thread_update", "invalid_thread_owner", "invalid_title"],
+  docs: "Set the title, status (open or resolved) or owner of the thread of a top-level message; any participant, a chief too. An empty title or owner clears it; the owner is a current participant. A new reply reopens a resolved thread.",
+  cli: cli("thread update"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
 export const ParticipantsAdd = def({
   name: "participants.add",
   owner: "cloud:ConversationDO",
@@ -188,10 +213,10 @@ export const ParticipantsAdd = def({
   risk: "mutate-shared",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, participant: ParticipantInput }),
+  params: Schema.Struct({ ...conv, participant: ParticipantInput, role: Schema.optionalKey(GrantableRole) }),
   result: commit,
-  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable", "home.rate_limited", "home.user_not_ready"],
-  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
+  errors: [...conversationErrors, "duplicate_participant", "invalid_participant", "not_reachable", "read_only", "banned", "invalid_role", "home.rate_limited", "home.user_not_ready"],
+  docs: "Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once.",
   cli: cli("add"),
   mcp: { expose: "opt_in", group: "home" }
 })
@@ -203,12 +228,99 @@ export const ParticipantsRemove = def({
   risk: "destructive",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  params: Schema.Struct({ ...conv, participant: ParticipantId, ban: Schema.optionalKey(Schema.Boolean) }),
   result: commit,
   errors: [...conversationErrors, "unknown_participant"],
-  docs: "Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation.",
+  docs: "Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation.",
   cli: cli("remove"),
   mcp: { expose: "never", group: "home" }
+})
+
+export const ParticipantsSetRole = def({
+  name: "participants.set_role",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId, role: GrantableRole }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_participant", "invalid_participant", "invalid_role", "read_only"],
+  docs: "Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes.",
+  cli: cli("role"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
+export const OwnershipTransfer = def({
+  name: "ownership.transfer",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "conversation",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_participant", "invalid_participant"],
+  docs: "Hand a group to another current person (the owner only). You stay as an admin.",
+  cli: cli("transfer"),
+  mcp: { expose: "never", group: "home" }
+})
+
+export const ParticipantsUnban = def({
+  name: "participants.unban",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, participant: ParticipantId }),
+  result: commit,
+  errors: [...conversationErrors],
+  docs: "Lift a ban (admins and the owner), so the person may be added or invited again.",
+  cli: cli("unban"),
+  mcp: { expose: "opt_in", group: "home" }
+})
+
+export const GrantCreate = def({
+  name: "grant.create",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    role: Schema.optionalKey(GrantableRole),
+    expires_in_hours: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(720))),
+    max_uses: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(1000)))
+  }),
+  result: Schema.Struct({
+    rev: Seq,
+    change: Schema.Unknown,
+    grant_id: Schema.String,
+    code: Schema.String,
+    secret: Schema.String,
+    link: Schema.optionalKey(Schema.String)
+  }),
+  errors: [...conversationErrors, "read_only", "invalid_role", "invite_limit", "invalid_invite", "kind_forbids", "home.not_configured"],
+  docs: "Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.",
+  cli: cli("link"),
+  mcp: { expose: "never", group: "home" }
+})
+
+export const GrantRevoke = def({
+  name: "grant.revoke",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(Schema.isPattern(/^grt_[0-9A-Z]{26}$/)) }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_invite"],
+  docs: "Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.",
+  cli: cli("link revoke"),
+  mcp: { expose: "opt_in", group: "home" }
 })
 
 export const InviteCreate = def({
@@ -262,9 +374,65 @@ export const InviteAccept = def({
     secret: Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
   }),
   result: commit,
-  errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired"],
-  docs: "Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.",
+  errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired", "banned", "duplicate_participant"],
+  docs: "Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role.",
   cli: { path: "chat accept", visible: false },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const InviteAcceptVerified = def({
+  name: "invite.accept_verified",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv }),
+  result: commit,
+  errors: [...conversationErrors, "unknown_invite", "invite_expired", "accept_locked"],
+  docs: "Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite.",
+  cli: { path: "chat requests accept", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+export const RequestDismiss = def({
+  name: "request.dismiss",
+  owner: "cloud:ConversationDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({ ...conv, block: Schema.optionalKey(Schema.Boolean) }),
+  result: Schema.Struct({ dismissed: Schema.Boolean, blocked: Schema.Boolean }),
+  errors: [...conversationErrors, "unknown_invite"],
+  docs: "Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told.",
+  cli: { path: "chat requests dismiss", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
+const HomeRequest = Schema.Struct({
+  conversation: ConversationId,
+  inviter: Schema.String,
+  kind: Schema.Literals(["dm", "group"]),
+  title: Schema.optionalKey(Schema.String),
+  preview: Schema.String,
+  created_at: Schema.String,
+  expires_at: Schema.String,
+  trusted: Schema.Boolean
+})
+
+export const HomeRequestsList = def({
+  name: "home.requests.list",
+  owner: "cloud:ConversationDO",
+  class: "read",
+  risk: "read",
+  target: "invite",
+  principals: ["session"],
+  params: Schema.Struct({}),
+  result: Schema.Struct({ requests: Schema.Array(HomeRequest) }),
+  errors: [...conversationErrors],
+  docs: "Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.",
+  cli: { path: "chat requests list", visible: true },
   mcp: { expose: "never", group: "home" }
 })
 
@@ -337,6 +505,25 @@ export const ConversationHistory = def({
   mcp: { expose: "default", group: "home" }
 })
 
+export const ConversationMembers = def({
+  name: "conversation.members",
+  owner: "cloud:ConversationDO",
+  class: "read",
+  risk: "read",
+  target: "conversation",
+  principals: ["session", "install"],
+  params: Schema.Struct({
+    ...conv,
+    after: Schema.optionalKey(Seq),
+    limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(1000)))
+  }),
+  result: Schema.Struct({ members: Schema.Array(Participant), member_count: Seq, next: Schema.optionalKey(Seq) }),
+  errors: [...conversationErrors],
+  docs: "Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster.",
+  cli: cli("members"),
+  mcp: { expose: "default", group: "home" }
+})
+
 export const ConversationThread = def({
   name: "conversation.thread",
   owner: "cloud:ConversationDO",
@@ -371,12 +558,13 @@ export const ConversationImport = def({
     title: Schema.optionalKey(Title),
     participants: Schema.optionalKey(Schema.Array(ParticipantInput).check(Schema.isMaxLength(64))),
     after_seq: Schema.optionalKey(Seq),
+    fill: Schema.optionalKey(Schema.Boolean),
     messages: Schema.Array(Schema.Unknown).check(Schema.isMaxLength(500)),
     read_cursors: Schema.optionalKey(Schema.Unknown)
   }),
   result: commit,
   errors: [...conversationErrors, "conversation_exists", "import_out_of_order", "importing", "invalid_conversation_id"],
-  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+  docs: "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same.",
   cli: { path: "chat import", visible: false },
   mcp: { expose: "never", group: "home" }
 })
@@ -408,14 +596,24 @@ export const homeConversationOps = [
   ReactionRemove,
   ReadCursorSet,
   TitleSet,
+  ThreadUpdate,
   ParticipantsAdd,
   ParticipantsRemove,
+  ParticipantsSetRole,
+  OwnershipTransfer,
+  ParticipantsUnban,
+  GrantCreate,
+  GrantRevoke,
   InviteCreate,
   InviteRevoke,
   InviteAccept,
+  InviteAcceptVerified,
+  RequestDismiss,
+  HomeRequestsList,
   InviteApproveJoin,
   ConversationSettingsSet,
   ConversationSnapshot,
   ConversationHistory,
+  ConversationMembers,
   ConversationThread
 ] as const

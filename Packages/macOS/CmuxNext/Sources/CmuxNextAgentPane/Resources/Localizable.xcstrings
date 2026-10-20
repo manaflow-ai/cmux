@@ -1,6 +1,1854 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "agentPane.processTerminal.title": {
+      "comment": "Title of the terminal tab that shows everything a background task printed, until the task's command replaces it",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مهمة في الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadinski zadatak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baggrundsopgave"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrundaufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background task"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarea en segundo plano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tâche en arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attività in background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "バックグラウンドタスク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កិច្ចការផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "백그라운드 작업"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bakgrunnsoppgave"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadanie w tle"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarefa em segundo plano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фоновая задача"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "งานเบื้องหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arka plan görevi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фонове завдання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tác vụ nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "后台任务"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景工作"
+          }
+        }
+      }
+    },
+    "notifications.approval.allowOnce": {
+      "comment": "Button on an agent chat's approval banner: allows the one tool call the agent asked for.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح مرة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli jednom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad én gang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einmal erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow once"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir una vez"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser une fois"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti una volta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今回のみ許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតម្តង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat én gang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól raz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir uma vez"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить один раз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตครั้งเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir kez izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити один раз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép một lần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许一次"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許一次"
+          }
+        }
+      }
+    },
+    "notifications.approval.deny": {
+      "comment": "Button on an agent chat's approval banner: denies the tool call the agent asked for.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbij"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deny"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denegar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nega"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒否"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដិសេធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odmów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отклонить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reddet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відхилити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ chối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕"
+          }
+        }
+      }
+    },
+    "notifications.approval.hiddenBody": {
+      "comment": "Body of an agent chat's approval banner where macOS hides notification previews (for example on the lock screen).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل ينتظر موافقتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent čeka vaše odobrenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent venter på din godkendelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent wartet auf deine Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent is waiting for your approval"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente espera tu aprobación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent attend votre approbation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente attende la tua approvazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが承認を待っています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារកំពុងរង់ចាំការយល់ព្រមរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 승인을 기다리고 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent venter på godkjenningen din"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent czeka na Twoją zgodę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente está aguardando sua aprovação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент ждёт вашего одобрения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์กำลังรอการอนุมัติจากคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan onayınızı bekliyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент чекає на ваше схвалення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tác tử đang chờ bạn phê duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理正在等待你的批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式正在等待你的核准"
+          }
+        }
+      }
+    },
+    "hands.approval.title": {
+      "comment": "Title of the banner for a Chief hand request that waits for the owner's Allow or Deny; %@ is the hand's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ يطلب موافقتك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ traži odobrenje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ beder om godkendelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bittet um Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ asks for approval"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pide aprobación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ demande une approbation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ chiede l'approvazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が承認を求めています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ស្នើសុំការអនុម័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 승인을 요청합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ber om godkjenning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ prosi o zgodę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ pede aprovação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ запрашивает одобрение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ขอการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ onay istiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ просить схвалення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yêu cầu phê duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 请求批准"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 請求核准"
+          }
+        }
+      }
+    },
+    "hands.level.full": {
+      "comment": "Name of a Chief hand permission level: no approvals, only the hand's integrity guard.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voll"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pełny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เต็มรูปแบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đầy đủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全"
+          }
+        }
+      }
+    },
+    "hands.level.auto": {
+      "comment": "Name of a Chief hand permission level: a classifier decides, risky actions ask the owner.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматический"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "hands.level.ask": {
+      "comment": "Name of a Chief hand permission level: every write, program run and agent session asks the owner.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "묻기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詢問"
+          }
+        }
+      }
+    },
+    "hands.level.readOnly": {
+      "comment": "Name of a Chief hand permission level: reads only.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قراءة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo čitanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun læsning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read only"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo lectura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sola lettura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み取り専用"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "읽기 전용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun lesing"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tylko odczyt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente leitura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Только чтение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salt okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лише читання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唯讀"
+          }
+        }
+      }
+    },
+    "hands.raise.hand": {
+      "comment": "Reason in the Touch ID / password prompt (macOS shows it after “cmux is trying to”); %1$@ is the hand's name, %2$@ the new level name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع مستوى اليد “%1$@” إلى %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podići nivo ruke “%1$@” na %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hæve hånden “%1$@” til %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Stufe der Hand “%1$@” auf %2$@ anheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "raise the hand “%1$@” to %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subir la mano “%1$@” a %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "élever la main « %1$@ » au niveau %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alzare la mano “%1$@” a %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hand “%1$@” のレベルを %2$@ に上げる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើនកម្រិតដៃ “%1$@” ទៅ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hand “%1$@”의 수준을 %2$@(으)로 올리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "heve hånden “%1$@” til %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podnieść poziom ręki „%1$@” do %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elevar a mão “%1$@” para %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "повысить уровень руки «%1$@» до %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มระดับของแฮนด์ “%1$@” เป็น %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@” elinin düzeyini %2$@ olarak yükseltmek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "підвищити рівень руки «%1$@» до %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nâng mức của tay “%1$@” lên %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Hand “%1$@” 的级别提升为 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 Hand “%1$@” 的等級提升為 %2$@"
+          }
+        }
+      }
+    },
+    "hands.raise.default.sandbox": {
+      "comment": "Reason in the Touch ID / password prompt (macOS shows it after “cmux is trying to”); %@ is the new level name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع المستوى الافتراضي لأيدي البيئات المعزولة الجديدة إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podići zadani nivo novih ruku u sandboxu na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hæve standardniveauet for nye sandbox-hænder til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Standardstufe neuer Sandbox-Hände auf %@ anheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "raise the default level of new sandbox hands to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subir el nivel predeterminado de las nuevas manos de sandbox a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "élever le niveau par défaut des nouvelles mains sandbox à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alzare il livello predefinito delle nuove mani sandbox a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいサンドボックス Hand の既定レベルを %@ に上げる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើនកម្រិតលំនាំដើមនៃដៃ sandbox ថ្មីទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 샌드박스 Hand의 기본 수준을 %@(으)로 올리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "heve standardnivået for nye sandkassehender til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podnieść domyślny poziom nowych rąk w piaskownicy do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elevar o nível padrão das novas mãos de sandbox para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "повысить уровень по умолчанию для новых рук в песочнице до %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มระดับเริ่มต้นของแฮนด์แซนด์บ็อกซ์ใหม่เป็น %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yeni sandbox ellerinin varsayılan düzeyini %@ olarak yükseltmek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "підвищити типовий рівень нових рук у пісочниці до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nâng mức mặc định của các tay sandbox mới lên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将新沙盒 Hand 的默认级别提升为 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將新沙盒 Hand 的預設等級提升為 %@"
+          }
+        }
+      }
+    },
+    "hands.raise.default.mac": {
+      "comment": "Reason in the Touch ID / password prompt (macOS shows it after “cmux is trying to”); %@ is the new level name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفع المستوى الافتراضي لأيدي Mac الجديدة إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podići zadani nivo novih Mac ruku na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hæve standardniveauet for nye Mac-hænder til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Standardstufe neuer Mac-Hände auf %@ anheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "raise the default level of new Mac hands to %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "subir el nivel predeterminado de las nuevas manos de Mac a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "élever le niveau par défaut des nouvelles mains Mac à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alzare il livello predefinito delle nuove mani Mac a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい Mac Hand の既定レベルを %@ に上げる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្កើនកម្រិតលំនាំដើមនៃដៃ Mac ថ្មីទៅ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 Mac Hand의 기본 수준을 %@(으)로 올리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "heve standardnivået for nye Mac-hender til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podnieść domyślny poziom nowych rąk Mac do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elevar o nível padrão das novas mãos de Mac para %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "повысить уровень по умолчанию для новых рук Mac до %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มระดับเริ่มต้นของแฮนด์ Mac ใหม่เป็น %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yeni Mac ellerinin varsayılan düzeyini %@ olarak yükseltmek"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "підвищити типовий рівень нових рук Mac до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nâng mức mặc định của các tay Mac mới lên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将新 Mac Hand 的默认级别提升为 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將新 Mac Hand 的預設等級提升為 %@"
+          }
+        }
+      }
+    },
+    "hands.presence.unavailable": {
+      "comment": "Shown when a hand level raise is refused because this Mac has no Secure Enclave for the Touch ID / password presence key.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يحتوي جهاز Mac هذا على Secure Enclave، لذا لا يمكنه التأكد من وجودك. يمكن خفض مستوى اليد فقط من جهاز Mac هذا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nema Secure Enclave, pa ne može potvrditi da ste prisutni. Nivo ruke se s ovog Maca može samo sniziti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac har ingen Secure Enclave, så den kan ikke bekræfte, at du er til stede. En hånds niveau kan kun sænkes fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hat keine Secure Enclave und kann daher nicht bestätigen, dass du anwesend bist. Die Stufe einer Hand kann auf diesem Mac nur gesenkt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac has no Secure Enclave, so it cannot confirm that you are present. A hand's level can only be lowered from this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no tiene Secure Enclave, así que no puede confirmar que estás presente. Desde este Mac solo se puede bajar el nivel de una mano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a pas de Secure Enclave et ne peut donc pas confirmer votre présence. Depuis ce Mac, le niveau d’une main peut seulement être abaissé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non ha la Secure Enclave, quindi non può confermare che sei presente. Da questo Mac il livello di una mano può solo essere abbassato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には Secure Enclave がないため、本人の在席を確認できません。この Mac からは Hand のレベルを下げることしかできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះគ្មាន Secure Enclave ទេ ដូច្នេះវាមិនអាចបញ្ជាក់ថាអ្នកមានវត្តមានបានទេ។ កម្រិតរបស់ដៃអាចបន្ថយបានតែពី Mac នេះប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에는 Secure Enclave가 없어 사용자가 있는지 확인할 수 없습니다. 이 Mac에서는 Hand의 수준을 낮추기만 할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen har ingen Secure Enclave, så den kan ikke bekrefte at du er til stede. Nivået til en hånd kan bare senkes fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie ma Secure Enclave, więc nie może potwierdzić, że jesteś obecny. Z tego Maca poziom ręki można tylko obniżyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não tem Secure Enclave, então não pode confirmar que você está presente. Neste Mac, o nível de uma mão só pode ser reduzido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На этом Mac нет Secure Enclave, поэтому он не может подтвердить ваше присутствие. С этого Mac уровень руки можно только понизить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ไม่มี Secure Enclave จึงยืนยันไม่ได้ว่าคุณอยู่ตรงนั้น จาก Mac เครื่องนี้ลดระดับของแฮนด์ได้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te Secure Enclave yok, bu yüzden orada olduğunuzu doğrulayamaz. Bu Mac'ten bir elin düzeyi yalnızca düşürülebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На цьому Mac немає Secure Enclave, тому він не може підтвердити вашу присутність. З цього Mac рівень руки можна лише знизити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này không có Secure Enclave nên không thể xác nhận bạn đang có mặt. Từ máy Mac này chỉ có thể hạ mức của tay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 没有 Secure Enclave，因此无法确认你本人在场。在这台 Mac 上只能降低 Hand 的级别。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 沒有 Secure Enclave，因此無法確認你本人在場。在這台 Mac 上只能降低 Hand 的等級。"
+          }
+        }
+      }
+    },
+    "hands.install.notLinked": {
+      "comment": "Shown in a Chief hand banner, and as the reason a level raise fails, when this Mac has no registered Cloud install, so Allow or a raise cannot be signed. Uses the localized name of the Sign In to cmux command.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جهاز Mac هذا غير مُعد للسحابة، لذا لا يمكنه تأكيد ذلك. اختر \"تسجيل الدخول إلى cmux\"، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije postavljen za Cloud, pa ovo ne može potvrditi. Odaberite „Prijava u cmux”, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac er ikke sat op til Cloud, så den kan ikke bekræfte dette. Vælg “Log ind på cmux”, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac ist nicht für Cloud eingerichtet und kann das daher nicht bestätigen. Wähle „Bei cmux anmelden“ und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac is not set up for Cloud, so it cannot confirm this. Choose Sign In to cmux, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no está configurado para Cloud, así que no puede confirmarlo. Elige «Iniciar sesión en cmux» y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’est pas configuré pour Cloud et ne peut donc pas confirmer cela. Choisissez « Se connecter à cmux », puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non è configurato per Cloud, quindi non può confermarlo. Scegli “Accedi a cmux”, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac は Cloud 用に設定されていないため、確認できません。「cmux にサインイン」を選んでから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនទាន់បានរៀបចំសម្រាប់ Cloud ទេ ដូច្នេះវាមិនអាចបញ្ជាក់រឿងនេះបានទេ។ ជ្រើស “ចូល cmux” រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 Cloud용으로 설정되지 않아 확인할 수 없습니다. 'cmux에 로그인'을 선택한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen er ikke satt opp for Cloud, så den kan ikke bekrefte dette. Velg «Logg inn på cmux», og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie jest skonfigurowany dla Cloud, więc nie może tego potwierdzić. Wybierz „Zaloguj się do cmux”, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não está configurado para o Cloud, então não pode confirmar isso. Escolha “Entrar no cmux” e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не настроен для Cloud, поэтому не может это подтвердить. Выберите «Войти в cmux» и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ยังไม่ได้ตั้งค่าสำหรับ Cloud จึงยืนยันรายการนี้ไม่ได้ เลือก “ลงชื่อเข้าใช้ cmux” แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac Cloud için ayarlanmamış, bu yüzden bunu onaylayamaz. “cmux'a giriş yap”ı seçin, sonra yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не налаштовано для Cloud, тому він не може це підтвердити. Виберіть «Увійти в cmux» і спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này chưa được thiết lập cho Cloud nên không thể xác nhận việc này. Hãy chọn “Đăng nhập cmux” rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 尚未设置 Cloud，因此无法确认此操作。请选择“登录 cmux”，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 尚未設定 Cloud，因此無法確認此操作。請選擇「登入 cmux」，然後再試一次。"
+          }
+        }
+      }
+    },
     "agentPane.addFiles.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -18473,6 +20321,137 @@
         }
       }
     },
+    "agentPane.menu.openInSideChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح في دردشة جانبية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori u sporednom chatu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn i sidechat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Nebenchat öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in Side Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir en chat lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir dans une discussion annexe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri in chat laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドチャットで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកក្នុងការជជែកចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드 채팅에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne i sidechat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz w czacie pobocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir em chat lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть в побочном чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดในแชทข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yan sohbette aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити в побічному чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở trong cuộc trò chuyện phụ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边对话中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊對話中開啟"
+          }
+        }
+      }
+    },
     "agentPane.menu.copyAsPlainText": {
       "extractionState": "manual",
       "localizations": {
@@ -24233,6 +26212,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "儲存文件"
+          }
+        }
+      }
+    },
+    "agentPane.harness.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent service is not running. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة الوكيل لا تعمل. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga agenta nije pokrenuta. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten kører ikke. Prøv igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agentdienst läuft nicht. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de agentes no se está ejecutando. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d'agents n'est pas en cours d'exécution. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio agenti non è in esecuzione. Riprova tra un momento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントサービスが実行されていません。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាភ្នាក់ងារមិនកំពុងដំណើរការទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 서비스가 실행 중이 아닙니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten kjører ikke. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa agentów nie działa. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de agentes não está em execução. Tente novamente em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентов не запущена. Повторите попытку через мгновение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเอเจนต์ไม่ได้ทำงานอยู่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan hizmeti çalışmıyor. Birazdan yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентів не запущена. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ tác tử không chạy. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理服务未运行。请稍后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式服務未在執行。請稍後再試。"
+          }
+        }
+      }
+    },
+    "agentPane.harness.oldService": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent service on this Mac is out of date. Quit and reopen cmux, then try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة الوكيل على هذا الـ Mac قديمة. أغلق cmux وأعد فتحه، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usluga agenta na ovom Macu je zastarjela. Zatvorite i ponovo otvorite cmux, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten på denne Mac er forældet. Afslut og åbn cmux igen, og prøv så igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agentdienst auf diesem Mac ist veraltet. Beende cmux, öffne es erneut und versuche es dann noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de agentes de este Mac está desactualizado. Cierra y vuelve a abrir cmux, y luego inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d'agents de ce Mac n'est pas à jour. Quittez puis rouvrez cmux, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio agenti su questo Mac non è aggiornato. Chiudi e riapri cmux, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のエージェントサービスが古くなっています。cmux を終了して再度開いてから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាភ្នាក់ងារនៅលើ Mac នេះហួសសម័យ។ សូមបិទ ហើយបើក cmux ឡើងវិញ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 에이전트 서비스가 오래되었습니다. cmux를 종료했다가 다시 연 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten på denne Macen er utdatert. Avslutt og åpne cmux på nytt, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa agentów na tym Macu jest nieaktualna. Zamknij i ponownie otwórz cmux, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de agentes deste Mac está desatualizado. Encerre e reabra o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентов на этом Mac устарела. Закройте и снова откройте cmux, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเอเจนต์บน Mac เครื่องนี้ล้าสมัย ปิดแล้วเปิด cmux ใหม่ จากนั้นลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'teki ajan hizmeti güncel değil. cmux'tan çıkıp yeniden açın, sonra tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентів на цьому Mac застаріла. Закрийте й знову відкрийте cmux, а потім спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ tác tử trên máy Mac này đã cũ. Hãy thoát và mở lại cmux, rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的代理服务已过时。请退出并重新打开 cmux，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 上的代理程式服務已過時。請結束並重新開啟 cmux，然後再試一次。"
+          }
+        }
+      }
+    },
+    "agentPane.harness.slow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is taking longer than expected. It may still finish; check Settings > Agents."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستغرق هذا وقتًا أطول من المتوقع. قد يكتمل لاحقًا؛ تحقق من الإعدادات > الوكلاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo traje duže nego što je očekivano. Možda će se ipak završiti; provjerite Postavke > Agenti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det tager længere tid end forventet. Det kan stadig blive færdigt; se Indstillinger > Agenter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das dauert länger als erwartet. Es wird vielleicht noch fertig; sieh unter Einstellungen > Agenten nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto está tardando más de lo esperado. Puede que aún termine; consulta Ajustes > Agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cela prend plus de temps que prévu. L'opération peut encore aboutir ; consultez Réglages > Agents."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ci vuole più tempo del previsto. Potrebbe comunque terminare; controlla Impostazioni > Agenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "予想より時間がかかっています。まだ完了する可能性があります。設定 > エージェント を確認してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាចំណាយពេលយូរជាងការរំពឹងទុក។ វាអាចនៅតែបញ្ចប់បាន សូមពិនិត្យ ការកំណត់ > ភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예상보다 오래 걸리고 있습니다. 아직 완료될 수 있으니 설정 > 에이전트를 확인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette tar lengre tid enn forventet. Det kan fortsatt bli ferdig; sjekk Innstillinger > Agenter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trwa to dłużej, niż oczekiwano. Może się jeszcze zakończyć; sprawdź Ustawienia > Agenci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isso está demorando mais do que o esperado. Ainda pode terminar; verifique Ajustes > Agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это занимает больше времени, чем ожидалось. Процесс ещё может завершиться; проверьте Настройки > Агенты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้เวลานานกว่าที่คาดไว้ อาจยังเสร็จได้ ตรวจสอบที่ การตั้งค่า > เอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu beklenenden uzun sürüyor. Yine de tamamlanabilir; Ayarlar > Ajanlar'a bakın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це триває довше, ніж очікувалося. Процес ще може завершитися; перевірте Налаштування > Агенти."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Việc này mất nhiều thời gian hơn dự kiến. Nó vẫn có thể hoàn tất; hãy kiểm tra Cài đặt > Tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所需时间比预期长。它可能仍会完成；请查看“设置”>“代理”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所需時間比預期長。它可能仍會完成；請查看「設定」>「代理程式」。"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonHeldByOtherBuild": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is running, but %1$@ owns it (%2$@) and this build may not use it. Quit %1$@, or use that build."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux は実行中ですが、%1$@ が所有しているため (%2$@)、このビルドでは使えません。%1$@ を終了するか、そのビルドを使ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux قيد التشغيل، لكن %1$@ يملكه (%2$@) ولا يمكن لهذا الإصدار استخدامه. أغلق %1$@، أو استخدم ذلك الإصدار."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux radi, ali ga posjeduje %1$@ (%2$@) i ovaj build ga ne smije koristiti. Zatvorite %1$@ ili koristite taj build."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kører, men %1$@ ejer den (%2$@), og denne build må ikke bruge den. Afslut %1$@, eller brug den build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux läuft, gehört aber %1$@ (%2$@) und dieser Build darf es nicht verwenden. Beende %1$@ oder verwende diesen Build."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux se está ejecutando, pero pertenece a %1$@ (%2$@) y esta compilación no puede usarlo. Cierra %1$@ o usa esa compilación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux est en cours d’exécution, mais %1$@ en est propriétaire (%2$@) et cette build ne peut pas l’utiliser. Quittez %1$@ ou utilisez cette build."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux è in esecuzione, ma appartiene a %1$@ (%2$@) e questa build non può usarlo. Chiudi %1$@ o usa quella build."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux កំពុងដំណើរការ ប៉ុន្តែ %1$@ ជាម្ចាស់ (%2$@) ហើយ build នេះមិនអាចប្រើវាបានទេ។ បិទ %1$@ ឬប្រើ build នោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 실행 중이지만 %1$@이(가) 소유하고 있어(%2$@) 이 빌드에서는 사용할 수 없습니다. %1$@을(를) 종료하거나 해당 빌드를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kjører, men %1$@ eier den (%2$@), og denne builden kan ikke bruke den. Avslutt %1$@, eller bruk den builden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux działa, ale należy do %1$@ (%2$@) i ta kompilacja nie może go używać. Zamknij %1$@ albo użyj tamtej kompilacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux está em execução, mas pertence a %1$@ (%2$@) e esta build não pode usá-lo. Encerre %1$@ ou use essa build."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущен, но принадлежит %1$@ (%2$@), и эта сборка не может его использовать. Закройте %1$@ или используйте ту сборку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux กำลังทำงาน แต่ %1$@ เป็นเจ้าของ (%2$@) และบิลด์นี้ใช้ไม่ได้ ปิด %1$@ หรือใช้บิลด์นั้นแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux çalışıyor, ancak %1$@ ona sahip (%2$@) ve bu derleme onu kullanamaz. %1$@ uygulamasından çıkın veya o derlemeyi kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущено, але він належить %1$@ (%2$@), і ця збірка не може його використовувати. Закрийте %1$@ або скористайтеся тією збіркою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux đang chạy, nhưng %1$@ sở hữu nó (%2$@) và bản build này không thể dùng. Hãy thoát %1$@ hoặc dùng bản build đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在运行，但归 %1$@ 所有（%2$@），此版本无法使用。请退出 %1$@，或使用该版本。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在執行，但歸 %1$@ 所有（%2$@），此版本無法使用。請結束 %1$@，或使用該版本。"
+          }
+        }
+      }
+    },
+    "agentPane.error.daemonRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux is running at %1$@, but this build may not use it: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux は %1$@ で実行中ですが、このビルドでは使えません: %2$@。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux قيد التشغيل على %1$@، لكن لا يمكن لهذا الإصدار استخدامه: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux radi na %1$@, ali ga ovaj build ne smije koristiti: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kører på %1$@, men denne build må ikke bruge den: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux läuft unter %1$@, aber dieser Build darf es nicht verwenden: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux se está ejecutando en %1$@, pero esta compilación no puede usarlo: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux est en cours d’exécution sur %1$@, mais cette build ne peut pas l’utiliser : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux è in esecuzione su %1$@, ma questa build non può usarlo: %2$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux កំពុងដំណើរការនៅ %1$@ ប៉ុន្តែ build នេះមិនអាចប្រើវាបានទេ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 %1$@에서 실행 중이지만 이 빌드에서는 사용할 수 없습니다: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux kjører på %1$@, men denne builden kan ikke bruke den: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux działa pod adresem %1$@, ale ta kompilacja nie może go używać: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux está em execução em %1$@, mas esta build não pode usá-lo: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущен по адресу %1$@, но эта сборка не может его использовать: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux กำลังทำงานที่ %1$@ แต่บิลด์นี้ใช้ไม่ได้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux %1$@ konumunda çalışıyor, ancak bu derleme onu kullanamaz: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux запущено за адресою %1$@, але ця збірка не може його використовувати: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux đang chạy tại %1$@, nhưng bản build này không thể dùng: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在 %1$@ 运行，但此版本无法使用：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 正在 %1$@ 執行，但此版本無法使用：%2$@。"
           }
         }
       }

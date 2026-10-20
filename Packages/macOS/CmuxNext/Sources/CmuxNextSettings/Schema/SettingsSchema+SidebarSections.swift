@@ -7,6 +7,7 @@ nonisolated enum SidebarSectionSettingsSchema {
         let sidebar = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         let share = SettingNumber(SidebarSectionsPreferences.shareRange, step: 0.05, unit: .fraction)
         return [
+            SidebarSurfaceSetting.descriptor(group: sidebar),
             SettingDescriptor(
                 SidebarBorderSetting.borderPath, section: .appearance, group: sidebar,
                 title: SettingsText.keyed("settings.sidebar.border", "Border"),
@@ -62,6 +63,10 @@ nonisolated enum SidebarSectionSettingsSchema {
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
             SidebarSectionsSetting.minimalDescriptor(group: sidebar),
             SidebarSectionsSetting.densityDescriptor(group: sidebar),
+            SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),

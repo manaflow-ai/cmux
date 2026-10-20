@@ -460,6 +460,83 @@ fn link_status_and_stop_find_the_link_from_another_tmpdir() {
     assert!(!alive(pid(&first)));
 }
 
+/// After a sign-out the app archives the install (`link archive`): the key
+/// and peers go into its archive and the config goes, so an ensure without
+/// `--install` cannot start the link as that account; the same install
+/// signing in again gets its key and peers back. Refused while it runs.
+#[test]
+fn link_archive_puts_the_install_away_and_the_same_install_gets_it_back() {
+    let base = Scratch::new("archive");
+    let app = base.app("a");
+    let dir = app.state_dir();
+    let d = dir.to_str().unwrap();
+    app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    app.json(&[
+        "link",
+        "peer",
+        "add",
+        "--state-dir",
+        d,
+        "--install",
+        "inst_peer",
+        "--user",
+        "u_a",
+        "--team",
+        "t_a",
+        "--public-key",
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    ]);
+    let key = app.json(&["link", "show", "--state-dir", d])["public_key"].clone();
+    let busy = app.cmux(&["link", "archive", "--state-dir", d]);
+    assert!(!busy.status.success(), "archived while the link runs");
+    assert!(String::from_utf8_lossy(&busy.stderr).contains("link_running"));
+    app.stop();
+    let archived = app.json(&["link", "archive", "--state-dir", d]);
+    assert_eq!(archived["archived"], true, "{archived}");
+    assert!(!dir.join("config.json").exists() && !dir.join("private.key").exists());
+    let out = app.cmux(&["link", "ensure", "--state-dir", d]);
+    assert!(!out.status.success(), "an ensure without --install started the archived install");
+    assert!(app.status()["running"] == false);
+    app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    assert_eq!(
+        app.json(&["link", "show", "--state-dir", d])["public_key"],
+        key,
+        "the install did not get its key back"
+    );
+    let peers = app.json(&["link", "peer", "list", "--state-dir", d])["peers"].clone();
+    assert_eq!(
+        peers.as_array().map(Vec::len),
+        Some(1),
+        "the install did not get its peers back: {peers}"
+    );
+}
+
+/// A restore never overwrites a current key that was not archived first.
+#[test]
+fn link_ensure_refuses_to_restore_over_an_unarchived_key() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = Scratch::new("orphan");
+    let app = base.app("a");
+    let dir = app.state_dir();
+    let d = dir.to_str().unwrap();
+    app.ensure(&["--install", "inst_app_a", "--port", "0"]);
+    app.stop();
+    app.json(&["link", "archive", "--state-dir", d]);
+    std::fs::write(dir.join("private.key"), b"stray").unwrap();
+    std::fs::set_permissions(dir.join("private.key"), std::fs::Permissions::from_mode(0o600))
+        .unwrap();
+    let out =
+        app.cmux(&["link", "ensure", "--state-dir", d, "--install", "inst_app_a", "--port", "0"]);
+    assert!(!out.status.success(), "a restore overwrote an unarchived key");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("unarchived_key"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read(dir.join("private.key")).unwrap(), b"stray");
+    assert!(dir.join("private.key.inst_app_a").exists(), "the archive went");
+}
+
 #[test]
 fn link_ensure_needs_an_install_the_first_time() {
     let base = Scratch::new("first");

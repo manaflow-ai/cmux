@@ -4,6 +4,11 @@
 //! agents, and stops promptly on SIGTERM.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -60,24 +65,21 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
     )
     .unwrap();
-    // A login shell that takes 4 s and exports one variable.
+    // A login shell that takes 2 s (under the 3 s limit) and exports one variable.
     let shell = dir.join("slowsh");
     write_executable(
         &shell,
-        "#!/bin/sh\nsleep 4\nprintf 'AMX_TEST_IMPORTED=yes\\0'\nexec env -0\n",
+        "#!/bin/sh\nsleep 2\nprintf 'SSL_CERT_DIR=/amx-test-imported\\0'\nexec env -0\n",
     );
     let socket = dir.join("s.sock");
     let started = Instant::now();
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "1")
         .env("SHELL", &shell)
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
-        .env_remove("AMX_TEST_IMPORTED")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -97,8 +99,8 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         panic!("daemon exited without a readiness line");
     });
     let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
-    // Bound and ready well before the 4 s login shell finishes.
-    assert!(started.elapsed() < Duration::from_secs(3), "ready after {:?}", started.elapsed());
+    // Bound and ready before the 2 s login shell finishes.
+    assert!(started.elapsed() < Duration::from_secs(2), "ready after {:?}", started.elapsed());
     assert_eq!(ready["pid"], pid);
     assert_eq!(ready["socket"], socket.to_string_lossy().as_ref());
     let listen = ready["listen"].as_str().unwrap().to_owned();
@@ -111,7 +113,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
 
     let mut rpc = Rpc::connect(&socket).await;
     let status = rpc.call("_acpmux/status", json!({})).await;
-    assert!(started.elapsed() < Duration::from_secs(4), "status after {:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(2), "status after {:?}", started.elapsed());
     assert_eq!(status["ready"], false);
     assert_eq!(status["loginEnv"], "pending");
     assert_eq!(status["listen"], listen);
@@ -126,7 +128,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
     let id = s["sessionId"].as_str().unwrap().to_owned();
     rpc.call(
         "session/prompt",
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: AMX_TEST_IMPORTED"}]}),
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "env: SSL_CERT_DIR"}]}),
     )
     .await;
     let events = rpc
@@ -138,7 +140,7 @@ async fn daemon_binds_before_login_env_reports_ready_and_stops_on_sigterm() {
         .iter()
         .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
         .collect();
-    assert_eq!(texts, ["AMX_TEST_IMPORTED=yes"]);
+    assert_eq!(texts, ["SSL_CERT_DIR=/amx-test-imported"]);
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["ready"], true);
     assert_eq!(status["loginEnv"], "imported");
@@ -186,14 +188,12 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let mut fds = [0i32; 2];
     assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
     let (rfd, wfd) = (fds[0], fds[1]);
-    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
+    let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
     cmd.args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "3"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("CLAUDECODE")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -295,14 +295,13 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     std::fs::create_dir_all(&dir).unwrap();
     let socket = dir.join("s.sock");
     assert!(socket.as_os_str().len() > 104, "the path must be past the limit");
-    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let mut child = daemon_env::acpmux(&dir)
         .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
         .args(["--log", "warn"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
         .env("TMPDIR", &dir)
-        .env_remove("XPC_SERVICE_NAME")
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -322,7 +321,7 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     let bound = PathBuf::from(ready["socket"].as_str().unwrap());
     assert!(bound.as_os_str().len() <= 103, "bound past the limit: {}", bound.display());
     // A client knows only the long path.
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+    let out = daemon_env::acpmux(&dir)
         .args(["daemon", "shutdown"])
         .env("ACPMUX_HOME", &dir)
         .env("ACPMUX_SOCKET", &socket)
@@ -367,4 +366,111 @@ fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]
         .unwrap();
     child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
     assert!(child.wait().unwrap().success(), "could not write {}", path.display());
+}
+
+/// An agent chat's agent runs the app's `cmux` and reaches the app (cx-c6xdh):
+/// the app hands its daemon the bundled CLI (`CMUX_BUNDLED_CLI_PATH`) and its
+/// control socket, and every agent finds that CLI first on its `PATH`, ahead
+/// of the login shell's entries (where an older `cmux` may live), with the
+/// socket that names the app.
+#[tokio::test]
+async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
+    let dir = scratch("cli");
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    std::fs::write(
+        dir.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+    let bundled = dir.join("cmux.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&bundled).unwrap();
+    write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    // The app's agent zsh layer (Resources/cmux-cli-path/zsh-agent): the
+    // agent's own `zsh -lc` runs the user's .zprofile, which may put the old
+    // `cmux` first again; the layer moves the bundled one back after it.
+    let agent_zsh = dir.join("cmux.app/Contents/Resources/cmux-cli-path/zsh-agent");
+    std::fs::create_dir_all(&agent_zsh).unwrap();
+    std::fs::write(agent_zsh.join(".zshenv"), "# layer\n").unwrap();
+    let user_zdotdir = dir.join("user-zdotdir");
+    let login = dir.join("login-bin");
+    std::fs::create_dir_all(&login).unwrap();
+    write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
+    // The login shell lists its own `cmux` first.
+    let shell = dir.join("loginsh");
+    write_executable(
+        &shell,
+        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+    );
+    let socket = dir.join("s.sock");
+    let app_socket = dir.join("app.sock");
+    let mut child = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[])
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "1")
+        .env("SHELL", &shell)
+        .env("CMUX_BUNDLED_CLI_PATH", bundled.join("cmux"))
+        .env("CMUX_SOCKET_PATH", &app_socket)
+        .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
+        .env("ZDOTDIR", &user_zdotdir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    tokio::task::spawn_blocking(move || {
+        for line in BufReader::new(stdout).lines() {
+            if serde_json::from_str::<Value>(&line.unwrap()).is_ok_and(|v| v["ready"] == true) {
+                return;
+            }
+        }
+        panic!("daemon exited without a readiness line");
+    })
+    .await
+    .unwrap();
+
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "cli"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut answers = Vec::new();
+    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "ZDOTDIR", "CMUX_CLI_AGENT_ZDOTDIR"]
+    {
+        rpc.call(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+        )
+        .await;
+        let events = rpc
+            .call("_acpmux/events", json!({"sessionId": id, "kinds": ["agent_message_chunk"]}))
+            .await;
+        let seen: Vec<String> = events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+        answers.push(seen.last().cloned().unwrap_or_default());
+    }
+    let seen = answers;
+    let _ = child.kill();
+    let _ = child.wait();
+    let path = seen[0].strip_prefix("PATH=").unwrap_or_else(|| panic!("{seen:?}"));
+    let first_cmux = path
+        .split(':')
+        .map(|entry| Path::new(entry).join("cmux"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| panic!("no cmux on the agent's PATH: {path}"));
+    assert_eq!(first_cmux, bundled.join("cmux"), "the agent's PATH: {path}");
+    assert_eq!(seen[1], format!("CMUX_SOCKET_PATH={}", app_socket.display()));
+    assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
+    assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
+    assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

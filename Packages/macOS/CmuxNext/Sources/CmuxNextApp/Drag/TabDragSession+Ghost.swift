@@ -42,8 +42,9 @@ extension TabDragSession {
             update(current.point)
             moving = true
         }
-        // A pointer resting on a pane edge sends no events: hit-test again once the edge arms.
-        if current === drag, let layout = current.winner?.provider as? LayoutTabDropTarget, let deadline = layout.dwellDeadline {
+        // A pointer resting on a pane edge or a sidebar slot sends no events: hit-test again once it arms.
+        if current === drag, let deadline = (current.winner?.provider as? LayoutTabDropTarget)?.dwellDeadline
+            ?? (current.winner?.provider as? SidebarTabDropTarget)?.dwellDeadline {
             if CACurrentMediaTime() >= deadline { update(current.point) }
             moving = true
         }
@@ -123,7 +124,7 @@ extension TabDragSession {
     func land(_ drag: Drag, at rect: CGRect, cardness: CGFloat, opacity: CGFloat, scale: CGFloat) {
         finishLanding()
         // The release settles with a slightly under-damped spring.
-        drag.motion.rectSpring = Motion.spring(.settle)
+        drag.motion.rectSpring = Motion.tabs.spring(.settle)
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))
         landing = drag

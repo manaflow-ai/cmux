@@ -13,6 +13,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-escape.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -87,6 +88,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     await (await stage("agent-pane.composer", "idle", { width: 900, height: 700 })).close();
   });
@@ -159,9 +161,12 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const rows = await page.locator(".ui-context-menu [role=menuitem]").count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
-    const next = String(Number(show?.params.highlighted) + 1);
     // Every row, its separator and its disabled state as the page has them.
     const items = show?.params.items as { separator?: boolean; disabled?: boolean }[];
+    // ArrowDown skips separators and disabled rows (Redo with no history, after Undo).
+    const from = Number(show?.params.highlighted);
+    const next = String(items.findIndex((item, index) => index > from && !item.separator && !item.disabled));
+    expect(next).not.toBe("-1");
     expect(items.filter((item) => !item.separator).map((item) => item.disabled)).toEqual(
       await page.$$eval(".ui-context-menu [role=menuitem]", (all) => all.map((row) => row.hasAttribute("disabled"))),
     );
@@ -202,7 +207,13 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
   });
 
   /** Types `query` into `field` with the recorder on; the list escapes, keyboard and pick intact. */
-  const checkSuggestions = async (page: Page, field: string, list: string, query: string) => {
+  const checkSuggestions = async (
+    page: Page,
+    field: string,
+    list: string,
+    query: string,
+    side: "top" | "bottom" = "bottom",
+  ) => {
     await page.click(field);
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
@@ -215,7 +226,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     });
     const rows = await page.locator(`${list} [role=option]`).count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
-    expect(show?.params).toMatchObject({ kind: "list", side: "bottom" });
+    expect(show?.params).toMatchObject({ kind: "list", side });
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The field keeps the keyboard; the host's highlight follows the arrows to the page's row.
@@ -231,7 +242,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       },
       [list, before] as const,
     );
-    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe("INPUT");
+    expect(["INPUT", "TEXTAREA"]).toContain(await page.evaluate(() => document.activeElement?.tagName ?? ""));
     // The host's labels are the rows' words, spaced, without the Return hint the selected row shows.
     const labels = ((show?.params.items ?? []) as { label: string }[]).map((item) => item.label);
     for (const label of labels) expect(label).not.toContain("↵");
@@ -249,7 +260,16 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
 
   test("a short window sends the New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
+    // The default (Cards) template's field heads the page, so its rows open under it.
     const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    expect(labels).toContain("Release notes cmux.dev");
+    await page.close();
+  });
+
+  test("a short window sends the stage layout's New Tab suggestions past its edge, above the composer", async () => {
+    const page = await stage("agent-pane.new-tab", "typed-tab-match-stage", { width: 600, height: 260 });
+    // Default's stage layout keeps the composer at the foot of the page, so its rows open above it.
+    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release", "top");
     expect(labels).toContain("Release notes cmux.dev");
     await page.close();
   });

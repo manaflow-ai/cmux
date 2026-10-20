@@ -10,6 +10,8 @@ public final class WorkspaceModel: Identifiable {
     /// Durable resource id (`ws_…`) on registry daemons.
     public internal(set) var resourceID: ResourceID?
     public internal(set) var name: String
+    public internal(set) var nameSource: WorkspaceNameSource
+    public internal(set) var nameRevision: UInt64
     public internal(set) var screens: [ScreenModel]
     /// Screen group runs in screen order (`screen-groups-v1`).
     public internal(set) var screenGroups: [ScreenGroupSnapshot]
@@ -23,9 +25,18 @@ public final class WorkspaceModel: Identifiable {
     /// The folder new agent chats of this workspace start in, set by the user with "Choose
     /// Folder…" (`workspace.agent_folder.set`); from the daemon's state resources.
     public internal(set) var agentFolder: String?
+    /// The person's notes for the workspace (Edit Workspace Description…,
+    /// `workspace-description-v1`); from the daemon's state resources.
+    public internal(set) var workspaceDescription: String?
+    /// The task lane the person pinned (Mark as Done, Set Workspace Status,
+    /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
+    public internal(set) var taskStatus: WorkspaceTaskStatus?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
+    /// The checklist, in list order (`workspace_checklist.*`, `workspace-checklist-v1`); from the
+    /// daemon's state resources. Empty without items or on a daemon that keeps none.
+    public internal(set) var checklist: [WorkspaceChecklistItem] = []
     /// Screen groups come from the daemon's state resources.
     @ObservationIgnored var screenGroupsFromState = false
     /// Listed in the sidebar's Pinned section (`workspace-pin-v1`).
@@ -40,6 +51,12 @@ public final class WorkspaceModel: Identifiable {
     public internal(set) var app: String?
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
+
+    /// A stand-in Cmd-N shows before the daemon has the workspace (``ProvisionalWorkspace``):
+    /// its handle names no daemon workspace, so no command may target it yet.
+    public var isProvisional: Bool { ProvisionalWorkspace.isProvisional(handle) }
+    /// Its id in the store's list check: a stand-in's takeover by the daemon's workspace is a list change.
+    var listID: String { isProvisional ? id + "~" : id }
 
     /// Custom title when set, else the name.
     public var displayName: String {
@@ -64,6 +81,8 @@ public final class WorkspaceModel: Identifiable {
         handle = s.id
         resourceID = s.resourceID
         name = s.name
+        nameSource = s.nameSource
+        nameRevision = s.nameRevision
         screens = s.screens.map(ScreenModel.init)
         screenGroups = s.screenGroups
         group = s.group
@@ -86,6 +105,8 @@ public final class WorkspaceModel: Identifiable {
         if resourceID != s.resourceID { resourceID = s.resourceID }
         if handle != s.id { handle = s.id }
         if name != s.name { name = s.name }
+        if nameSource != s.nameSource { nameSource = s.nameSource }
+        if nameRevision != s.nameRevision { nameRevision = s.nameRevision }
         if group != s.group { group = s.group }
         if color != s.color { color = s.color }
         if icon != s.icon { icon = s.icon }
@@ -102,10 +123,15 @@ public final class WorkspaceModel: Identifiable {
     }
 
     /// Lays the daemon's workspace state over the record.
-    func applyState(ephemeral: Bool, agentFolder: String? = nil, status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
+    func applyState(ephemeral: Bool, agentFolder: String? = nil, notes: SessionStateMirror.WorkspaceNotes = .init(),
+                    status: WorkspaceStatus?, checklist: [WorkspaceChecklistItem] = [],
+                    screenGroups groups: [ScreenGroupSnapshot]?) {
         if self.ephemeral != ephemeral { self.ephemeral = ephemeral }
         if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
+        if workspaceDescription != notes.description { workspaceDescription = notes.description }
+        if taskStatus != notes.taskStatus { taskStatus = notes.taskStatus }
         if self.status != status { self.status = status }
+        if self.checklist != checklist { self.checklist = checklist }
         screenGroupsFromState = groups != nil
         if let groups, screenGroups != groups { screenGroups = groups }
     }

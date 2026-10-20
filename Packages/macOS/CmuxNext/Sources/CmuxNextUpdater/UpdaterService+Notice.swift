@@ -18,7 +18,7 @@ extension UpdaterService {
                 shown.detail = changelog.detail ?? shown.detail
                 shown.lines = changelog.lines
             }
-        case .checking, .downloading, .note:
+        case .checking, .downloading, .installing, .note:
             break
         }
         return shown
@@ -31,7 +31,7 @@ extension UpdaterService {
         switch card {
         case .available(let found): version = found
         case .note(.found(let found)): version = found
-        case .checking, .downloading, .note, nil: return nil
+        case .checking, .downloading, .installing, .note, nil: return nil
         }
         return version.flatMap { UpdateState.ReleaseNotes(displayVersionString: $0)?.url }
             ?? URL(string: "https://github.com/manaflow-ai/cmux/releases")
@@ -48,15 +48,15 @@ extension UpdaterService {
         }
     }
 
-    /// The notice's x: a found update hides until a newer one; a result
-    /// clears (as when it times out).
+    /// The notice's x without its menu: a found update hides until a newer
+    /// one (``closeUpdateCard(_:)``); a result clears (as when it times out).
     public func dismissCard() {
         switch card {
-        case .available(let version):
-            dismissedAvailableVersion = version ?? ""
+        case .available:
+            closeUpdateCard(.hideVersion)
         case .note:
             dismissIndicatorNote()
-        case .checking, .downloading, nil:
+        case .checking, .downloading, .installing, nil:
             break
         }
         followCardExpiry()

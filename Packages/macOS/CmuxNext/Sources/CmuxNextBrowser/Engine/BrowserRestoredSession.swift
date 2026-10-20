@@ -42,6 +42,14 @@ class BrowserRestoredSession {
     /// Scroll positions of pages in the tab's history, by URL: saved ones
     /// and those measured since, for the history saved at quit.
     private var knownScrollY: [URL: Double] = [:]
+    /// Pages in the tab's history whose document came from a form
+    /// submission (a POST), by URL: committed here or saved so (BR-R1).
+    /// The saved session carries the flag to the daemon; a hibernation
+    /// never starts on such a page.
+    private var formPostURLs: Set<URL> = []
+    /// The shown document came from a form submission, as its main-frame
+    /// commit said (a same-document navigation keeps it).
+    private(set) var showsFormSubmission = false
 
     init(host: @escaping () -> (any BrowserRestoredSessionHost)?) {
         self.host = host
@@ -66,10 +74,22 @@ class BrowserRestoredSession {
         for entry in entries where entry.scrollY != nil {
             knownScrollY[entry.url] = entry.scrollY
         }
+        // The shown page's own commit says how it loaded.
+        for (index, entry) in entries.enumerated() where entry.formPost && index != current {
+            formPostURLs.insert(entry.url)
+        }
         if let y = entries[current].scrollY, y > 0 {
             if case .finished = tab.state.phase { restoreScroll(y) } else { pendingScrollY = y }
         }
         applyAvailability()
+    }
+
+    /// Scrolls the shown page to `y` once its document loads: a page whose
+    /// engine restored its own history, which may keep an older position
+    /// for the page shown than the one saved at quit.
+    func scrollOnLoad(to y: Double) {
+        guard y > 0, let tab, !tab.isClosed else { return }
+        if case .finished = tab.state.phase { restoreScroll(y) } else { pendingScrollY = y }
     }
 
     /// `native` is the run of saved entries that ends or contains `current`:
@@ -81,8 +101,9 @@ class BrowserRestoredSession {
               native.entries.indices.allSatisfy({ native.entries[$0].url == entries[start + $0].url }) else { return }
         let back = entries[..<start].filter { Self.isWebPage($0.url) }
         history = BrowserRestoredHistory(entries: back + [entries[current]], current: back.count)
-        for entry in back where entry.scrollY != nil {
-            knownScrollY[entry.url] = entry.scrollY
+        for entry in back {
+            if entry.scrollY != nil { knownScrollY[entry.url] = entry.scrollY }
+            if entry.formPost { formPostURLs.insert(entry.url) }
         }
         applyAvailability()
     }
@@ -99,10 +120,13 @@ class BrowserRestoredSession {
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
         var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
         guard session.entries.indices.contains(session.current) else { return nil }
-        for index in session.entries.indices where session.entries[index].scrollY == nil {
-            session.entries[index].scrollY = knownScrollY[session.entries[index].url]
+        for index in session.entries.indices {
+            if session.entries[index].scrollY == nil { session.entries[index].scrollY = knownScrollY[session.entries[index].url] }
+            session.entries[index].formPost = index == session.current
+                ? showsFormSubmission : formPostURLs.contains(session.entries[index].url)
         }
         knownScrollY = knownScrollY.filter { known in session.entries.contains { $0.url == known.key } }
+        formPostURLs = formPostURLs.filter { url in session.entries.contains { $0.url == url } }
         return session
     }
 
@@ -157,7 +181,8 @@ class BrowserRestoredSession {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { isStepping = false }
-            let shown = BrowserSavedEntry(url: shownURL, title: title, scrollY: await self.tab?.currentScrollY())
+            let shown = BrowserSavedEntry(url: shownURL, title: title, scrollY: await self.tab?.currentScrollY(),
+                                          formPost: formPostURLs.contains(shownURL))
             if let y = shown.scrollY { knownScrollY[shownURL] = y }
             guard var saved = history, let tab = self.tab, !tab.isClosed else { return }
             guard let target = offset < 0 ? saved.goBack(-offset, from: shown) : saved.goForward(offset, from: shown) else { return }
@@ -187,7 +212,27 @@ class BrowserRestoredSession {
         restoringEntry = nil
         // Another page committed (the replace did not navigate): its scroll
         // position is not the saved entry's.
-        if url == entry.url { pendingScrollY = entry.scrollY }
+        if Self.sameDocumentURL(url, entry.url) { pendingScrollY = entry.scrollY }
+    }
+
+    /// File URLs can differ only by the macOS `/private` alias or symlink
+    /// spelling even though they identify the same document. Keep the saved
+    /// scroll restore attached to that commit; web URLs still require exact
+    /// identity so a different navigation cannot inherit the position.
+    private static func sameDocumentURL(_ actual: URL?, _ expected: URL) -> Bool {
+        guard let actual else { return false }
+        if actual == expected { return true }
+        guard actual.isFileURL, expected.isFileURL else { return false }
+        return actual.standardizedFileURL.resolvingSymlinksInPath()
+            == expected.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    /// A main-frame document committed; `formPost` when its request was a
+    /// POST (a form the person sent, or one an engine sent again).
+    func documentCommitted(url: URL?, formPost: Bool) {
+        showsFormSubmission = formPost
+        guard let url else { return }
+        if formPost { formPostURLs.insert(url) } else { formPostURLs.remove(url) }
     }
 
     /// The document loaded: scroll a restored page back to where it was.
@@ -211,20 +256,25 @@ class BrowserRestoredSession {
     }
 
     /// Scrolls to `y` once the page is tall enough (up to 3 s while it lays
-    /// out), and stops as soon as the user scrolls or types.
+    /// out), then holds it for 1.5 s (an engine restoring its own history
+    /// can put back an older position after the load), and stops as soon as
+    /// the user scrolls, clicks or types.
     private func restoreScroll(_ y: Double) {
         let script = """
         (function (y) {
-          var moved = false, tries = 0;
+          var moved = false, tries = 0, held = 0;
           var stop = function () { moved = true; };
           addEventListener('wheel', stop, { once: true, passive: true });
           addEventListener('keydown', stop, { once: true });
+          addEventListener('mousedown', stop, { once: true });
           addEventListener('touchstart', stop, { once: true, passive: true });
           (function step() {
             if (moved) return;
             var room = document.documentElement.scrollHeight - innerHeight;
-            scrollTo(0, Math.min(y, Math.max(room, 0)));
-            if (room < y && tries++ < 30) setTimeout(step, 100);
+            var target = Math.min(y, Math.max(room, 0));
+            if (Math.abs(scrollY - target) > 1) scrollTo(0, target);
+            if (room < y && tries++ < 30) return setTimeout(step, 100);
+            if (held++ < 15) setTimeout(step, 100);
           })();
           return true;
         })(\(y))

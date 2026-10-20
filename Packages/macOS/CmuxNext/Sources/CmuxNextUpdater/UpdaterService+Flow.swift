@@ -9,10 +9,11 @@ public import Foundation
 /// `updates.installOnQuit`.
 extension UpdaterService {
     /// The notice card's update status, or nil (``UpdateFlow/card``); a
-    /// found update the user dismissed stays hidden until a newer one.
+    /// found update the person closed or snoozed (``updateSnooze``) stays
+    /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card else { return nil }
-        if case .available(let version) = card, dismissedAvailableVersion == (version ?? "") { return nil }
+        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return nil }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
     }
 
@@ -86,6 +87,7 @@ extension UpdaterService {
     func syncFlowPhase() {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         if case .note = phase, let controller,
@@ -95,21 +97,26 @@ extension UpdaterService {
         #endif
         let wasInstalling = flow.phase == .installing
         let wasReady = if case .ready = flow.phase { true } else { false }
+        let clickedInstall = flow.installRequested
         send(.sparkle(phase))
         followStagedUpdate(phase)
         switch phase {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
-        case .note where wasInstalling || wasReady:
+        case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
+            // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
             installAbandoned?()
             presentUpdateUI?()
             #if DEBUG
             UpdateHarness.mark("failure_sheet_presented")
             #endif
+        case .note(let note) where !flow.userAsked:
+            // A scheduled check's result shows nothing; the log keeps it (`cmux update log`).
+            log.append("background check: \(note.text) (not shown)")
         default:
             break
         }

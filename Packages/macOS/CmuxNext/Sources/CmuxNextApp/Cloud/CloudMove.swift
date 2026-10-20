@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -74,7 +75,7 @@ struct CloudMove {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
         // An unresolved move finishes on the machine it started on.
-        if case .move(let machineID) = left, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
+        if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         perform(tab: tab, invocation: invocation) { [invocation] in
             try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
@@ -117,12 +118,16 @@ struct CloudMove {
         var retry: (@MainActor () -> Void)?
         if let next = failure.retry {
             var arguments = invocation.arguments
-            if case .move(let machineID) = next { arguments["machine"] = .string(machineID) }
+            arguments[CloudMachineUpdate.argument] = nil
+            if let machineID = next.machineID { arguments["machine"] = .string(machineID) }
+            if case .update = next { arguments[CloudMachineUpdate.argument] = .bool(true) }
             let registry = services.registry
             let again = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tabID), arguments: arguments, origin: .user)
             retry = { _ = registry.perform(Self.action, invocation: again) }
         }
-        toast(toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry)
+        var title = CloudMoveStrings.retry
+        if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
+        Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
         return ActionWorkFailure(failure.message)
     }
 
@@ -141,6 +146,12 @@ struct CloudMove {
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
+        }
+        // Only the person's "Update Machine" updates the machine first.
+        if CloudMachineUpdate.requested(invocation) {
+            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: "cloud-move-" + tab.id,
+                                             retry: .update(machineID: machine.machineID))
+            toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
         let moved: CloudMoveCLI.Answer
@@ -216,7 +227,7 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
-        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry) }
+        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating) }
         throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
     }
 
@@ -296,7 +307,8 @@ struct CloudMove {
         case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
         // This Mac's own daemon (the source) is never the machine to update.
-        case CloudMoveStrings.outdatedCode where answer.side != "source": Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry)
+        case CloudMoveStrings.outdatedCode where answer.side != "source":
+            Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry.updating)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
         default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
         }

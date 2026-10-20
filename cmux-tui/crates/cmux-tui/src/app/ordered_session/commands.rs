@@ -516,9 +516,31 @@ impl OrderedSession {
         );
     }
 
+    #[cfg(test)]
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
         self.enqueue_pointer_mutation("move workspace", move |session| {
             session.move_workspace(workspace, index)
         });
+    }
+
+    /// A workspace drag's drop: see `Session::move_workspace_to_slot`.
+    pub fn move_workspace_to_slot(
+        &self,
+        workspace: WorkspaceId,
+        index: usize,
+        resource: Option<String>,
+        anchors: crate::session::SidebarDropAnchors,
+    ) {
+        self.enqueue_pointer_mutation("move workspace", move |session| {
+            session.move_workspace_to_slot(workspace, index, resource.as_deref(), &anchors)
+        });
+    }
+
+    /// `sidebar.pin` / `sidebar.unpin` one workspace (by public id).
+    pub fn set_sidebar_workspace_pinned(&self, workspace: String, pinned: bool) {
+        self.enqueue_pointer_mutation(
+            if pinned { "pin workspace" } else { "unpin workspace" },
+            move |session| session.set_sidebar_workspace_pinned(&workspace, pinned),
+        );
     }
 }

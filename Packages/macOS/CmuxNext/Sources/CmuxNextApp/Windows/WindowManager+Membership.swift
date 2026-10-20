@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -71,21 +72,22 @@ extension WindowManager {
             if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
             }
-            var visible = WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines)
+            var visible = WindowProfiles.shown(window.workspaceIDs, profile: state.profileID, machines: machines)
             // A window waiting for the workspace it just created in a new
             // or empty room keeps that room.
             let waiting = pendingClaims.values.contains(window.id)
             if visible.isEmpty, !waiting,
                let fallback = WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) {
                 state.enterProfile(fallback)
-                visible = WindowProfiles.visible(window.workspaceIDs, profile: fallback, machines: machines)
+                visible = WindowProfiles.shown(window.workspaceIDs, profile: fallback, machines: machines)
             }
             // A room change shows the workspace last shown in that room.
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
-                                                        members: visible, preferred: wanted)
+            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
+            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }
@@ -94,7 +96,7 @@ extension WindowManager {
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
         let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
-            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+            ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
 
@@ -117,17 +119,20 @@ extension WindowManager {
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
     /// else in `state`'s window, which takes it.
-    /// An action run without view-change permission shows nothing.
+    /// An action run without view-change permission shows nothing. The window
+    /// swaps its content in this turn, not on its observation hop (I6).
     func show(workspaceID: String, in state: WindowState) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
         if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
+            target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
             return
         }
         claim(workspaceID: workspaceID, in: state)
+        controller(for: state.id)?.showWorkspace(requested: state.workspaceID)
     }
 
     /// Shows `workspaceID` where it lives: its window when open, else the
@@ -214,10 +219,23 @@ extension WindowManager {
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
-        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame) }
+        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
+    }
+
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
+    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
+    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
+    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
+        let source = origin.window.flatMap(controller(for:))
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
+        if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
+        guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
+        if select { bringToFront(moved) }
     }
 
     /// The user closed window `id`: it stays registered, closed, with its
@@ -346,7 +364,8 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, fallbackWindow: fallback)
+            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                               fallbackWindow: fallback)
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
