@@ -111,6 +111,31 @@ describe("chief brain place", { timeout: 60_000 }, () => {
     expect(after.ok).toBe(false)
   })
 
+  it("a placed Chief whose team has no credits is answered chief_placed, never credits_exhausted; the Worker-brain Chief is still charged", async () => {
+    const owner = await sessionToken("brain-place-credits")
+    const user = (await op(owner, "user.ensure", {})).json.value.id as string
+    const server = await pairServer(owner)
+    const settings = (agent: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as {
+      configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: boolean }>
+      admit(agent: string, owner: string, turn: boolean): Promise<{ ok: boolean; reason?: string }>
+    }
+    // A real (metered) model, so the credits gate is not skipped as it is for the fake model; the team has 0 credits.
+    const model = "@cf/moonshotai/kimi-k2.7-code"
+    const placed = (await op(owner, "chief.create", { display_name: "Placed" })).json.value
+    const worker = (await op(owner, "chief.create", { display_name: "Worker" })).json.value
+    for (const c of [placed, worker]) {
+      const on = await settings(c.id).configure(c.id, user, { enabled: true, model })
+      expect(on.ok, JSON.stringify(on)).toBe(true)
+    }
+    // Placed after its brain was on (turning on a placed Chief is refused): its server now runs it.
+    const moved = (await op(owner, "chief.update", { chief: placed.id, expected_rev: placed.rev, brain_place: { host: server.host, install: server.install } })).json
+    expect(moved.ok, JSON.stringify(moved)).toBe(true)
+
+    expect(await settings(placed.id).admit(placed.id, user, true)).toEqual({ ok: false, reason: "chief_placed" })
+    // The same team's Chief that stays on the Worker brain is refused for credits (the gate is on here).
+    expect(await settings(worker.id).admit(worker.id, user, true)).toEqual({ ok: false, reason: "credits_exhausted" })
+  })
+
   it("review G8: install tokens never set or clear a place; a revoked placed server and a token for another chief stay narrow", async () => {
     const owner = await sessionToken("brain-place-review")
     const user = (await op(owner, "user.ensure", {})).json.value.id as string
