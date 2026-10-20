@@ -508,6 +508,36 @@ fn an_open_page_learns_that_the_app_signed_in() {
     assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
 
+/// Hide Alerts on a Cloud DM or group (plans/cmux-next/home-dm-group-chats/AUDIT.md item 13):
+/// the person's client sends `cloud-inbox-op` `inbox.mute` and the daemon forwards it to the
+/// person's UserDO inbox unchanged, with an optional `until` (Unix ms) and the client's key.
+#[test]
+fn the_persons_page_mutes_a_cloud_conversation_through_the_daemon() {
+    let fixture = Fixture::start("mute");
+    let cloud = FakeCloud::start();
+    let token = person_token();
+    let mut app = fixture.app();
+    assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
+    let mut page = Page::open(&fixture.credential().0, &page_credential(&mut app));
+    let muted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-1","op":{"kind":"inbox.mute","muted":true,"until":1_900_000_000_000_u64}}));
+    assert_eq!(muted["ok"], true, "{muted}");
+    let unmuted = page.rpc(json!({"cmd":"cloud-inbox-op","conversation":CONV,
+        "idempotency_key":"mute-2","op":{"kind":"inbox.mute","muted":false}}));
+    assert_eq!(unmuted["ok"], true, "{unmuted}");
+    let requests = cloud.requests();
+    assert_eq!(
+        requests.iter().map(|(path, _, body)| (path.clone(), body.clone())).collect::<Vec<_>>(),
+        vec![
+            ("/v1/ops".to_string(), json!({"op":"inbox.mute","params":{"muted":true,
+                "until":1_900_000_000_000_u64,"conversation":CONV},"idempotency_key":"mute-1"})),
+            ("/v1/ops".to_string(), json!({"op":"inbox.mute","params":{"muted":false,
+                "conversation":CONV},"idempotency_key":"mute-2"})),
+        ],
+        "{requests:?}"
+    );
+}
+
 /// The person's pin and "marked unread" of a Cloud conversation
 /// (`conversation-inbox-state-v1`): the page sends `cloud-inbox-op` and the
 /// daemon forwards the Cloud owner's own inbox ops (`inbox.pin`,
