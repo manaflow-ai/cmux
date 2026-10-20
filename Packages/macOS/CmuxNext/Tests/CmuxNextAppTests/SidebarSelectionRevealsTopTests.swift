@@ -28,6 +28,31 @@ struct SidebarSelectionRevealsTopTests {
         #expect(!order.revealsTop(for: nil))
     }
 
+    /// A document block (a top item drawn in the list) ahead of the workspaces is a row before the
+    /// first workspace: that workspace still reveals the top, so the block above it shows. A top item
+    /// drawn among the rows below a workspace does not.
+    @Test func theFirstWorkspaceBelowAListedBlockRevealsTheTop() {
+        let a = WorkspaceID("a"), b = WorkspaceID("b")
+        let home = SidebarItem.topItem(LayoutItemID("home")), link = SidebarItem.topItem(LayoutItemID("link"))
+        let order = SidebarItemOrder(topItems: [], rows: [home, .workspace(a), link, .workspace(b)])
+        #expect(order.revealsTop(for: home))
+        #expect(order.revealsTop(for: .workspace(a)))
+        #expect(!order.revealsTop(for: link))
+        #expect(!order.revealsTop(for: .workspace(b)))
+    }
+
+    @Test func theDocumentsTopBlockKeepsTheFirstWorkspaceRevealingTheTop() throws {
+        let machine = Self.sections([1, 2, 3])
+        let ids = try #require(machine.first?.workspaces.map(\.id))
+        let block = CmuxNextSidebar.SidebarSection(
+            kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue, title: "", showsTitle: false)), nodes: [])
+        let model = SidebarModel(sections: [block] + machine, activeWorkspaceID: ids[1])
+        let order = model.itemOrder
+        try #require(order.rows.first == .topItem(LayoutItemID("itm_home")), "the top block is not a list row: \(order.rows)")
+        #expect(order.revealsTop(for: .workspace(ids[0])), "the first workspace under the top block reveals only its row")
+        #expect(!order.revealsTop(for: .workspace(ids[1])))
+    }
+
     @Test func wrappingToTheFirstWorkspaceScrollsToOffsetZero() throws {
         let start = Self.sections(Array(1...40))
         let ids = try #require(start.first?.workspaces.map(\.id))
