@@ -1,8 +1,9 @@
 import CmuxNextDesign
 import QuartzCore
 
-/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the icon
-/// slot. A busy cell registers with `StatusIndicatorAppearance`, so a
+/// The tab's busy indicator: the shared `StatusIndicatorLayer` in the
+/// trailing cluster (TabCell+TrailingMarks; in the icon slot only on a tab
+/// that shows no title). A busy cell registers with `StatusIndicatorAppearance`, so a
 /// settings or Debug Settings change restyles it live; idle cells cost
 /// nothing.
 extension TabCell: StatusIndicatorConfigClient {

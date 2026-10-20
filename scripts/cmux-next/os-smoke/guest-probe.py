@@ -443,6 +443,43 @@ try:
         settings_shot = snap("settings", "settings.png")
         step("settings", isinstance(settings, dict) and settings.get("opened") is True and bool(page_state) and settings_shot,
              {"run": settings, "page": {k: (page_state or {}).get(k) for k in ("page", "painted", "painted_ms", "language")}})
+        if debug_router():
+            # Cmd-D then Cmd-W at once from the Settings tab (macOS 15 tester, 2026-10-19: "does not
+            # work on the first 2-3 tries and then ends up closing"). The split's key hold kept every
+            # Cmd-W until the new pane's focus landed, which a New Tab page split never gives, then ran
+            # them all together: the new tab, Settings and the window closed. Each Cmd-W must run at
+            # once (closeTab), and the window must end with the tabs it had before the first Cmd-D.
+            def shown_windows():
+                return [w for w in (windows_now() or []) if w.get("open") and w.get("visible")]
+
+            def tab_count():
+                return (rpc("snapshot.get") or {}).get("tab_count")
+
+            windows_before, tabs_before = len(shown_windows()), tab_count()
+            pairs = []
+            for _ in range(3):
+                pairs.append((rpc("debug.key", {"key": "d", "modifiers": ["cmd"]}),
+                              rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})))
+            settled = wait(lambda: tab_count() == tabs_before, 5, alive)
+            late_closes = [w.get("action") for _, w in pairs if not isinstance(w, dict) or w.get("action") != "closeTab"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("settings_split_close", alive() and not late_closes and bool(settled) and len(shown_windows()) == windows_before,
+                 {"windows_before": windows_before, "windows_after": len(shown_windows()), "tabs_before": tabs_before,
+                  "tabs_after": tab_count(), "cmd_w_routed": [(w or {}).get("action") for _, w in pairs],
+                  "cmd_d_routed": [(d or {}).get("action") for d, _ in pairs],
+                  "settings": rpc("debug.page", {"page": "cmux.settings"}), "crash": crash})
+            # Cmd-1, Cmd-2, Cmd-3 (macOS 15 tester: "crashes after cmd 123"). Cmd-1 is Home: leaving
+            # it releases its views inside the key's action scope, where every main-actor class's
+            # implicit isolated deinit runs inline (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+            digits = [rpc("debug.key", {"key": str(n), "modifiers": ["cmd"]}) for _ in range(4) for n in (1, 2, 3)]
+            wait(lambda: not alive(), 3, step_s=0.5)
+            digit_errors = [d for d in digits if not isinstance(d, dict) or "error" in d or d.get("handled_by") != "app"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("cmd_digits", alive() and not digit_errors,
+                 {"keys": len(digits), "routed": [(d or {}).get("action") for d in digits][:6], "errors": digit_errors[:3],
+                  "exit": None if alive() else app.returncode, "crash": crash})
+            if alive():
+                rpc("settings.open", {"focus": True})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})

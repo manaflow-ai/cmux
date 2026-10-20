@@ -57,7 +57,9 @@ is not a supply-chain safety attestation and does not replace required CI.
 A reviewed checkout can come from a fork. After reviewing the exact source that
 merged-tree checks execute, run `scripts/gh-merge-green OWNER/REPO#NUMBER
 --trust-fork-head FULL_SHA --squash` from the trusted helper checkout. The flag
-records source trust for that commit only; a different current head is refused.
+records source trust for that commit only; a different current head is refused. Into
+`feat-cmux-next`, a maintainer adds `ready-to-land` after reviewing that exact head instead, and
+`next-autoland` lands it; a later push needs a new label.
 It does not waive CI, frozen paths, mergeability, or merged-tree validation.
 No coordinator acknowledgement or duplicate upstream PR is needed solely because
 the branch is in a fork. Leave unfamiliar code untrusted.

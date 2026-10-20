@@ -77,7 +77,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
 ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
-<div class="md-link-card" id="md-link-card">https://example.com</div>
+<div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
@@ -88,7 +88,7 @@ ${tooltips}
       "menu",
       "page-menu",
       "icon-bar-pill",
-      "md-link-card",
+      "md-link-bubble",
       "md-link-popover",
       "hc-msg-toolbar",
       "lg-palette",
@@ -115,7 +115,6 @@ ${tooltips}
 <div class="acpmux-context-pop" id="context-pop">Context</div>
 <div class="acpmux-slash-menu" id="slash">/compact</div>
 <div class="ui-popup ui-picker-popup acpmux-mp" id="model-picker">Models</div>
-<div class="acpmux-mp-cascade"><div class="acpmux-mp-sub" id="model-sub">Older</div></div>
 <div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
 </div>
 <div class="ui-positioner"><div class="ui-popup" id="popup">Menu</div></div>
@@ -132,7 +131,6 @@ ${tooltips}`,
       "context-pop",
       "slash",
       "model-picker",
-      "model-sub",
       "file-menu",
       "popup",
       "context-menu",

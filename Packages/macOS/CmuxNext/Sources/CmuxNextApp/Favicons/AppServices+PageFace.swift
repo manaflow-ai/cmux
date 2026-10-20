@@ -20,11 +20,12 @@ extension AppServices {
     /// browser tab in its tab list: the page's favicon (cx-e32b), and while
     /// the workspace keeps the daemon's default name, the name the front tab
     /// gives it (hq#1957, `WorkspaceAutoName`; renaming it shows the user's name).
-    func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel) -> SidebarMapping.PageFace {
+    /// A page beside `work` (an agent's PR in a split) keeps the name `work` gives.
+    func sidebarPageFace(_ workspace: WorkspaceModel, tab: TabModel, work: TabModel?) -> SidebarMapping.PageFace {
         let incognito = tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id)
         let favicon = tab.kind != .browser ? nil
             : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).map { SidebarFavicon($0.cgImage) }
         let names = WorkspaceAutoNameWiring(services: self).reader
-        return .init(title: names.rule.label(name: workspace.name, title: workspace.title, front: names.front(tab)), favicon: favicon)
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon)
     }
 }
