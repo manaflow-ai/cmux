@@ -228,9 +228,11 @@ fn receiver_root_privileged_original_producer_cannot_deliver_after_stop_during_c
     let mut client = original_client(
         &paths,
         Some(Rc::new(move || {
+            // No frame has been published, so there is no receiving child to
+            // acknowledge. Stop still fences the pending producer request.
             assert_eq!(
                 stopping.quiesce(Instant::now() + Duration::from_secs(8)).unwrap(),
-                StopReceipt::Acknowledged
+                StopReceipt::NoReceiver
             );
         })),
     );
