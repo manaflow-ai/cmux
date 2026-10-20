@@ -1767,13 +1767,21 @@ jobs:
           started=$SECONDS
           git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
-          git checkout -q --force --detach "$BUILD_SHA"
+          git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
           git -c protocol.version=2 submodule update --init --force --depth=1 --recursive
+          # A hosted runner starts with clean submodules; drop what earlier runs left.
+          git submodule foreach -q --recursive 'git clean -ffdxq && git reset -q --hard'
           git submodule foreach -q --recursive git config --local gc.auto 0
+          # Each fetch adds a pack and gc.auto is off: fold them past 40.
+          packs=$(find .git/objects/pack -name '*.pack' | wc -l | tr -d ' ')
+          if [ "$packs" -gt 40 ]; then
+            echo "$packs packs: repacking"
+            git repack -d -q
+          fi
           test "$(git rev-parse HEAD)" = "$BUILD_SHA"
           git status --short | head -20
 
