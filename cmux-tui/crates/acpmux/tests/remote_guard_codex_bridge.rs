@@ -47,8 +47,12 @@ fn hub(d: &Path) -> Arc<Hub> {
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "bridge": {"argv": [codex, "app-server"]},
+            "bridge": {"argv": [codex.clone(), "app-server"]},
+            "bridge-placeholder": {"argv": [d.join("missing/codex"), "app-server"]},
             "adapter": {"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"},
+        },
+        "defaults": {
+            "bridge-placeholder": {"env": {"CODEX_PATH": codex}}
         },
         "defaultHarness": "bridge",
         "permissionPolicy": "ask",
@@ -128,6 +132,25 @@ async fn an_authenticated_web_connection_drives_the_codex_bridge_in_full_access(
         )
         .await;
     assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_remote_codex_bridge_validates_the_effective_codex_path() {
+    let d = dir("effective-path");
+    let hub = hub(&d);
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let created = web.new_on(&d, "bridge-placeholder").await;
+    let session = created["result"]["sessionId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("valid CODEX_PATH was refused: {created}"));
+    let reply = web
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

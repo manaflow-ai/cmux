@@ -139,10 +139,10 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
             device = UInt64(info.st_dev)
             inode = UInt64(info.st_ino)
             size = info.st_size
-            modifiedSeconds = info.st_mtimespec.tv_sec
-            modifiedNanoseconds = info.st_mtimespec.tv_nsec
-            changedSeconds = info.st_ctimespec.tv_sec
-            changedNanoseconds = info.st_ctimespec.tv_nsec
+            modifiedSeconds = Int64(info.st_mtimespec.tv_sec)
+            modifiedNanoseconds = Int64(info.st_mtimespec.tv_nsec)
+            changedSeconds = Int64(info.st_ctimespec.tv_sec)
+            changedNanoseconds = Int64(info.st_ctimespec.tv_nsec)
             kind = info.st_mode & S_IFMT
         }
 

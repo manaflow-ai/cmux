@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -726,6 +727,19 @@ pub fn apply_tokio_for(
     }
 }
 
+/// The fixed login-derived subset a remote-origin harness may receive.
+///
+/// Only the resolved executable search path crosses this boundary. The
+/// person's `loginEnvAllow`, provider variables, proxy variables and shell
+/// startup layer are local authority and are never inherited by a remote
+/// process. A remote profile may still name an explicit `${env:...}` value;
+/// resolving that reference is the profile owner's authorization.
+pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
+    }
+}
+
 /// Same, for std's process builder.
 pub fn apply_std_for(
     cmd: &mut std::process::Command,
@@ -901,7 +915,9 @@ fn cache_path() -> PathBuf {
 }
 
 fn load_cache() -> Option<Cache> {
-    let bytes = std::fs::read(cache_path()).ok()?;
+    let mut file = crate::config::private_state_file(&cache_path()).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
     (cache.version == CACHE_VERSION).then_some(cache)
 }

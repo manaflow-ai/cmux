@@ -477,10 +477,18 @@ ensure_tree_publisher() {
 await_outside_publisher() {
   local key="$1" sha="$2" current
   local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started
-  # Only a pull request has that publisher; other callers have their own waits.
-  [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] || return 0
+  # Only a pull request has that publisher. A scheduled DEV run
+  # (workflow_dispatch) looks once for its push's run or a same-tree run: that
+  # run started before the dispatch, and dev-daily-tree-wait does the waiting.
+  # Other callers have their own waits.
+  case "${GITHUB_EVENT_NAME:-}" in
+    pull_request) ;;
+    workflow_dispatch) wait=0 ;;
+    *) return 0 ;;
+  esac
   [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
-  echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+  [[ "${GITHUB_EVENT_NAME:-}" != pull_request ]] \
+    || echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
   # `date +%s`, not $SECONDS: the tests run this wait on a virtual clock (tests/lib/fake-clock.sh).
   started="$(date +%s)"
   while :; do
@@ -1024,7 +1032,9 @@ tree_published() {
 # CMUX_TUI_TREE_DISPATCH (cmux-next path routing, which is read-only) the probe
 # waits up to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS for the artifacts run that
 # main's cmux-next-pr-merge-tree.yml starts for the merge commit, and defers to
-# it (await_outside_publisher). With
+# it (await_outside_publisher). A scheduled DEV run (workflow_dispatch with no
+# publisher SHA) looks once, read-only, for its push's run or a same-tree run
+# and defers to it the same way. With
 # CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs) the probe starts one
 # cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit, or
 # at the PR head (CMUX_TUI_TREE_HEAD_SHA) when the API refuses the merge commit
@@ -1067,7 +1077,8 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
-  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
+  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
+      || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
     if [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]]; then
@@ -1076,6 +1087,9 @@ probe_checkout_tree() {
       # Read-only (cmux-next path routing since e93faa5f1fb0): starts nothing,
       # but defers to the run main's cmux-next-pr-merge-tree.yml starts on
       # cmux-tui-pin-<sha12> for this merge commit, or one with the same tree.
+      # A scheduled DEV run (workflow_dispatch, no publisher SHA) defers the
+      # same way to its push's artifacts run, or to the same-key run that push
+      # run handed the build to (one look; dev-daily-tree-wait then waits).
       await_outside_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)"
     fi
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
