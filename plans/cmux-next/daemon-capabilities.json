@@ -124,6 +124,7 @@
     "window-records-v1",
     "workspace-agent-folder-v1",
     "workspace-agent-start-v1",
+    "workspace-checklist-v1",
     "workspace-description-v1",
     "workspace-group-icon-v1",
     "workspace-group-pin-v1",
