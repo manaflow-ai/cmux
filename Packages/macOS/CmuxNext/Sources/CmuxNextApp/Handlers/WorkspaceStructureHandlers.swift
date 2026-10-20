@@ -66,27 +66,45 @@ enum WorkspaceStructureHandlers {
         guard let daemon = context.services.machines.daemon(forWorkspace: workspace.id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let withBrowsers = browsers && daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
         var blueprint = WorkspaceBlueprint(workspace)
-        if !withBrowsers { blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context)) }
+        if !browsers || !daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) {
+            blueprint = blueprint.withoutBrowserTabs(fallbackDirectory: WorkspaceVerbHandlers.directory(of: workspace, context))
+        }
         let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id) ?? context.activeWindow?.state.id)
-        var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: workspace.displayName)
-        spawn.slot = .below(workspace.id)
-        let engine: BrowserEngine = if case .open(let choice) = context.services.cache.browserTabs.resolve(requested: nil) {
+        build(blueprint, name: workspace.displayName, slot: .below(workspace.id), on: daemon, into: target,
+              label: "duplicate workspace", services: context.services, done: done)
+    }
+
+    /// Creates a workspace named `name` in window `target` (at `slot`, nil: `workspaces.newPlacement`)
+    /// and builds `blueprint` into it with new terminals, its color and icon too: the one path of
+    /// Duplicate Workspace and New Workspace from Template. Browser tabs open only where the daemon
+    /// serves them (else they are left out). `done` gets the new workspace's id once its layout is
+    /// built (nil when it failed); the failure is the returned work's result. `tracks` false leaves
+    /// the work untracked, for a caller that awaits it inside its own tracked work.
+    @discardableResult
+    static func build(_ blueprint: WorkspaceBlueprint, name: String?, slot: WorkspaceSlot?, on daemon: DaemonService, into target: String,
+                      label: String, services: AppServices, tracks: Bool = true,
+                      done: (@MainActor @Sendable (String?) -> Void)? = nil) -> ActionWork {
+        let withBrowsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let blueprint = withBrowsers ? blueprint : blueprint.withoutBrowserTabs(fallbackDirectory: blueprint.firstDirectory)
+        let windows = services.windows
+        var spawn = WorkspaceSpawn(cwd: firstLeafDirectory(blueprint), name: name)
+        spawn.slot = slot
+        let engine: BrowserEngine = if case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) {
             choice.engine
         } else {
             .webkit
         }
         let metadata = daemon.supports(DaemonCapabilities.shared.workspaceMetadata)
-        context.services.registry.track(Task {
+        let work = ActionWork { @MainActor in
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 let key = WorkspaceKey(rawValue: id)
-                let resource = daemon.store.stateResourceID(workspace: key), blueprint = blueprint
+                let resource = daemon.store.stateResourceID(workspace: key)
                 // Through the funnel: the action run waits for the layout's
                 // echo, so `created` names the tabs it made.
-                try await daemon.perform("duplicate workspace layout") { connection in
+                try await daemon.perform(label + " layout") { connection in
                     try await WorkspaceBlueprintBuilder(connection: connection, key: key, browsers: withBrowsers, defaultEngine: engine)
                         .build(blueprint)
                     if metadata, blueprint.color != nil || blueprint.icon != nil {
@@ -99,9 +117,11 @@ enum WorkspaceStructureHandlers {
                 return nil
             } catch {
                 done?(nil)
-                return ActionWorkFailure("duplicate workspace", error)
+                return ActionWorkFailure(label, error)
             }
-        })
+        }
+        if tracks { services.registry.track(work) }
+        return work
     }
 
     /// The directory the new workspace's first terminal starts in: the first

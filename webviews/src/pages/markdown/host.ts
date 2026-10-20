@@ -80,8 +80,6 @@ export interface MarkdownConfig {
   assetBase?: string;
   /** URL prefix of the diagram libraries; without it diagrams show their source only. */
   libBase?: string;
-  /** Mermaid renderer flag: "ondine" (default, Mermaid as fallback) or "mermaid" (Mermaid only). */
-  mermaidRenderer?: "ondine" | "mermaid";
   /**
    * URL prefix the host fetches remote (http, https) images under, `<remoteImageBase><base64url of
    * the URL>`; without it remote images do not load (the page CSP allows only its own origin).

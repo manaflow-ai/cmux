@@ -19,6 +19,10 @@ import os
 /// and edited form fields (with a deadline) and captures its history; the
 /// hibernate event is sent only while the page is still hidden with the
 /// same generation, so a page the user selects meanwhile is never touched.
+///
+/// Long before that, a hidden Chromium page freezes after
+/// `browser.freezeHiddenTabs` seconds (30 by default) to save power, and
+/// thaws when it shows, when an agent drives it, or before it hibernates.
 @MainActor
 final class BrowserHibernation {
     private weak var cache: TabContentCache?
@@ -37,6 +41,13 @@ final class BrowserHibernation {
     private var prepared: [String: (state: BrowserRestoreState, snapshot: CGImage?)] = [:]
     private var probing: Set<String> = []
     private let deadline = DemandTimer(owner: "BrowserHibernation")
+    /// Hidden pages frozen now (`browser.freezeHiddenTabs`); they thaw when shown or driven.
+    private(set) var frozen: Set<String> = []
+    /// Pages a freeze probe is asking (media, Web Audio, capture).
+    private var freezeProbing: Set<String> = []
+    /// When a page the probe kept awake (playing audio) is asked again.
+    private var freezeKeptAt: [String: ContinuousClock.Instant] = [:]
+    private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
     private var pressureSource: (any DispatchSourceMemoryPressure)?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
@@ -73,6 +84,7 @@ final class BrowserHibernation {
         pressureSource?.cancel()
         pressureSource = nil
         deadline.cancel()
+        freezeDeadline.cancel()
     }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
@@ -110,6 +122,8 @@ final class BrowserHibernation {
     }
 
     func tabDidShow(_ key: String) {
+        thaw(key)
+        freezeKeptAt[key] = nil
         hiddenAt[key] = nil
         prepared[key] = nil
         exemptions[key] = nil
@@ -122,6 +136,8 @@ final class BrowserHibernation {
     func noteAgentUse(_ key: String) {
         guard let cache, cache.browsers[key] != nil else { return }
         agentUsedAt[key] = .now
+        // Before the agent's call goes out: a frozen page runs no script.
+        thaw(key)
         guard cache.lifecycle.phase(key) == .mountedHidden else { return }
         hiddenAt[key] = .now
         replan()
@@ -135,6 +151,9 @@ final class BrowserHibernation {
         prepared[key] = nil
         probing.remove(key)
         exemptions[key] = nil
+        frozen.remove(key)
+        freezeProbing.remove(key)
+        freezeKeptAt[key] = nil
     }
 
     // MARK: Planning
@@ -166,6 +185,66 @@ final class BrowserHibernation {
         } else {
             deadline.cancel()
         }
+        replanFreeze(candidates)
+    }
+
+    // MARK: Freeze
+
+    /// Freezes every hidden page past `freezeSeconds` and arms one deadline
+    /// for the next (`HibernationPlanner.freezePlan`). Events only, as for hibernation.
+    private func replanFreeze(_ hidden: [HibernationPlanner.Candidate]) {
+        guard let cache else { return }
+        let now = ContinuousClock.now
+        let threshold = setting.freezeSeconds
+        var recheck: Double?
+        let candidates = hidden.filter { candidate in
+            guard !frozen.contains(candidate.key), !freezeProbing.contains(candidate.key),
+                  cache.browsers[candidate.key]?.tab is any BrowserFreezing else { return false }
+            if let kept = freezeKeptAt[candidate.key], let threshold {
+                let left = threshold - (now - kept).seconds
+                if left > 0 { recheck = min(recheck ?? left, left); return false }
+                freezeKeptAt[candidate.key] = nil
+            }
+            return true
+        }
+        let plan = HibernationPlanner.freezePlan(setting, candidates: candidates)
+        for key in plan.due { freeze(key) }
+        if let next = [plan.nextCheck, recheck].compactMap(\.self).min() {
+            freezeDeadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
+        } else {
+            freezeDeadline.cancel()
+        }
+    }
+
+    /// Asks the page for playing media, Web Audio and capture, then freezes it
+    /// if it is still the same hidden page. A page that plays stays awake and
+    /// is asked again after `freezeSeconds`.
+    private func freeze(_ key: String) {
+        guard let cache, let tab = cache.browsers[key]?.tab, let page = tab as? any BrowserFreezing,
+              let generation = cache.lifecycle.record(key)?.generation, freezeProbing.insert(key).inserted else { return }
+        Task { @MainActor [weak self] in
+            let probe = await PageProbe.run(tab)
+            guard let self, let cache = self.cache else { return }
+            self.freezeProbing.remove(key)
+            guard cache.browsers[key]?.tab === tab, cache.lifecycle.record(key)?.generation == generation,
+                  cache.lifecycle.phase(key) == .mountedHidden, self.hiddenAt[key] != nil else { return }
+            if let used = self.agentUsedAt[key], (ContinuousClock.now - used).seconds < Self.agentGrace { return }
+            if probe.capturing || probe.playingMedia || probe.webAudio {
+                self.freezeKeptAt[key] = .now
+                self.replan()
+                return
+            }
+            page.setFrozen(true)
+            self.frozen.insert(key)
+            cache.trace(key, "frozen")
+        }
+    }
+
+    /// Thaws a frozen page (shown, driven by an agent, or about to hibernate).
+    private func thaw(_ key: String) {
+        guard frozen.remove(key) != nil else { return }
+        (cache?.browsers[key]?.tab as? any BrowserFreezing)?.setFrozen(false)
+        cache?.trace(key, "thawed")
     }
 
     private func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double) -> HibernationPlanner.Candidate {
@@ -198,6 +277,8 @@ final class BrowserHibernation {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
         let tab = entry.tab
+        // The probe and the history capture run script: a frozen page runs none.
+        thaw(key)
         Task { @MainActor [weak self] in
             let probe = user ? PageProbe() : await PageProbe.run(tab)
             let exemption = probe.exemption(pressure: self?.pressure ?? .normal) ?? (source.showsFormSubmission ? .formSubmission : nil)

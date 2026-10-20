@@ -131,6 +131,7 @@ public final class FileGridView: NSView {
         layoutValues.sectionInset = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
         collectionView.collectionViewLayout = layoutValues
         collectionView.isSelectable = true
+        collectionView.focusRingType = .none
         collectionView.allowsMultipleSelection = true
         collectionView.backgroundColors = [.clear]
         collectionView.register(FileGridCell.self, forItemWithIdentifier: FileGridCell.identifier)

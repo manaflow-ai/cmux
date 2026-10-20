@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextPages
 
 /// Workspace lifecycle, navigation, order, and bulk close (category
 /// `workspace`). Names, colors, and notifications are in
@@ -15,18 +16,24 @@ enum WorkspaceHandlers {
         WorkspaceBulkClose.bind(into: registry, context: context)
         WorkspaceSetVerbs.bind(into: registry, context: context)
 
-        registry.bindUnavailable(["palette.openFolderInVSCodeInline"], ActionFailure.needsAppCapability("vscode-inline"))
+        VSCodeInlineHandlers.bind(into: registry, context: context)
         registry.bindUnavailable(["palette.openWorkspacePullRequests"], ActionFailure.needsAppCapability("github-integration"))
-        registry.bindUnavailable(["palette.findWork"], ActionFailure.needsAppCapability("github-integration"))
-        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        // Find Work: the palette's current-work page (workspaces needing attention, then the
+        // user's GitHub review requests and assignments), from the palette, the CLI and the menu.
+        context.services.palette.sources.actionPages["palette.findWork"] = { [weak services = context.services] in
+            services.map { FindWorkPalettePage(services: $0).page() }
+        }
+        registry.bind("palette.findWork", run: { _ in
+            context.services.palette.show(page: FindWorkPalettePage(services: context.services).page(),
+                                          relativeTo: context.activeWindow?.window)
+        })
+        registry.bind("reopenPreviousSession", run: { _ in try PreviousLaunchRestorer(services: context.services).restore() })
         registry.bind("reopenClosedWorkspace", invoke: { _ in
             guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
-        for id: ActionID in ["saveLayoutTemplate", "palette.layout.open", "manageLayouts"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("layout-templates-v1"))
-        }
+        LayoutTemplateHandlers.bind(into: registry, context: context)
         for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
             registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
         }
@@ -106,11 +113,28 @@ enum WorkspaceHandlers {
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
         try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
-        let browserTabs = context.services.cache.browserTabs
+        newBrowserWorkspace(services: context.services, url: nil)
+    }
+
+    /// Opens `url` in a cmux browser tab of a new workspace when links open in the cmux browser
+    /// and the daemon serves browser tabs, else where the link rule sends it (Find Work's rows).
+    static func openInNewWorkspace(_ url: URL, services: AppServices) {
+        guard LinkRouter.shared.target(for: url) == .cmuxBrowser,
+              services.activeDaemon.supports(DaemonCapabilities.shared.frontendBrowserTabs) else {
+            LinkRouter.shared.open(url)
+            return
+        }
+        LinkRouter.shared.record("workspace:" + url.absoluteString)
+        newBrowserWorkspace(services: services, url: url.absoluteString)
+    }
+
+    /// A new workspace holding one browser tab at `url` (the new-tab page when nil).
+    private static func newBrowserWorkspace(services: AppServices, url: String?) {
+        let browserTabs = services.cache.browserTabs
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
-        let fallbacks = browserTabs.fallbacks, machine = context.services.activeDaemon.machineID
-        let address = context.services.newTabAddress(for: choice)
-        createAndShow(context) { connection, terminal in
+        let fallbacks = browserTabs.fallbacks, machine = services.activeDaemon.machineID
+        let address = url ?? services.newTabAddress(for: choice)
+        createAndShow(services: services) { connection, terminal in
             guard let pane = terminal.pane else { return }
             // On the active machine's connection (it may be a Cloud machine).
             let created = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)

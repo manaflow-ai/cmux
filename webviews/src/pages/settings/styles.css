@@ -1176,3 +1176,64 @@ mark {
   font-size: var(--text-detail);
   white-space: nowrap;
 }
+
+/* Agents > Chiefs (ChiefsCard.tsx): one row per Chief, a button that opens its editor. */
+.chiefs-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.chiefs-row:hover {
+  background: var(--input-bg);
+}
+.chiefs-row .row-main {
+  flex: 1;
+  min-width: 0;
+}
+.chiefs-row .row-label {
+  display: flex;
+  flex-direction: column;
+}
+.chiefs-picture {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--input-bg);
+}
+.chiefs-picture img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.chiefs-initial {
+  font-weight: 600;
+}
+.chiefs-backend {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chiefs-card.editing .chief-editor {
+  min-height: 0;
+}
+.chiefs-card.editing .ce-head {
+  padding-left: 0;
+}
+.chiefs-card.editing .ce-body {
+  overflow: visible;
+  padding-left: 36px;
+}

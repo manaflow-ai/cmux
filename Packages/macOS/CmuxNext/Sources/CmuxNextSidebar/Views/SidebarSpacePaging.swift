@@ -212,6 +212,7 @@ import QuartzCore
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.detailedStatus = host.model.detailedStatus
+        model.showsTimestamps = host.model.showsTimestamps
         model.activeWorkspaceID = host.model.activeWorkspaceID
         container.frame = page.frame
         container.wantsLayer = true
