@@ -38,6 +38,49 @@ struct AgentPaneReplyReadPathTests {
         #expect(!read.truncated)
     }
 
+    @Test(arguments: ["pdf", "PDF"])
+    func leavesAnASCIIOnlyPDFToTheTab(extension suffix: String) throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ascii-\(UUID().uuidString).\(suffix)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        // A valid blank page, including an xref table, with no binary marker or NUL bytes.
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> >>",
+        ]
+        var pdf = "%PDF-1.4\n"
+        var offsets: [Int] = []
+        for (index, object) in objects.enumerated() {
+            offsets.append(pdf.utf8.count)
+            pdf += "\(index + 1) 0 obj\n\(object)\nendobj\n"
+        }
+        let xref = pdf.utf8.count
+        pdf += "xref\n0 4\n0000000000 65535 f \n"
+        for offset in offsets { pdf += String(format: "%010d 00000 n \n", offset) }
+        pdf += "trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n"
+        let data = Data(pdf.utf8)
+        #expect(data.allSatisfy { $0 > 0 && $0 < 128 })
+        try data.write(to: file)
+
+        let read = try #require(AgentPaneReplyRequest.FileText(path: file.path))
+        #expect(read.text == nil)
+        #expect(read.bytes == data.count)
+        #expect(!read.truncated)
+    }
+
+    @Test(arguments: ["svg", "png", "zip", "tar", "mp4", "mp3", "ttf"])
+    func leavesKnownNonTextTypesToTheTab(extension suffix: String) throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("typed-\(UUID().uuidString).\(suffix)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let data = Data("ASCII-only payload".utf8)
+        try data.write(to: file)
+
+        let read = try #require(AgentPaneReplyRequest.FileText(path: file.path))
+        #expect(read.text == nil)
+        #expect(read.bytes == data.count)
+        #expect(!read.truncated)
+    }
+
     @Test func readsTextCutsLongFilesAndLeavesBinaryToTheTab() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("read-path-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
