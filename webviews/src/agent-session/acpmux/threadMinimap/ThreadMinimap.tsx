@@ -173,9 +173,10 @@ export function ThreadMinimap({
       settleScroll(
         node,
         () => {
-          const bubble = bubbleOf(mountedRow(node, turn.id));
-          if (!bubble) return undefined;
-          return bubble.getBoundingClientRect().top - node.getBoundingClientRect().top - LANDING_OFFSET;
+          const box = bubbleOf(mountedRow(node, turn.id))?.getBoundingClientRect();
+          // Not drawn yet, or no layout to measure (a hidden pane).
+          if (!box || box.height === 0) return undefined;
+          return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
         },
         SETTLE_FRAMES,
       );
