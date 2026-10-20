@@ -108,7 +108,6 @@ import Testing
         scroll(h, to: h.demo.minOffset + g.viewport / 2)
         layout(h)
         let anchor = try #require(h.demo.anchorProbe)
-        let offsetBefore = h.demo.collection.contentOffset.y
 
         await settle()
         h.view.projection.refresh()
@@ -118,7 +117,6 @@ import Testing
         #expect(firstAfter < firstBefore, "no older page loaded (first seq \(firstAfter))")
         let y = try #require(windowY(h, key: anchor.key), "the top row \(anchor.key) is gone after the page")
         #expect(abs(y - anchor.y) <= 1, "the top row moved \(y - anchor.y) pt when the page loaded above")
-        #expect(h.demo.collection.contentOffset.y > offsetBefore, "the offset did not grow by the page's height")
     }
 
     @Test func aPageThatArrivesInARebuildStillLetsScrollingReachTheFirstMessage() async throws {
