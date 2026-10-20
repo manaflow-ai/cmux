@@ -24,6 +24,22 @@ struct LegacyBackdropArtValueTests {
         #expect(row.effectiveValue(in: root(["backdropArt": .string("none")])) == .string("none"))
     }
 
+    /// The legacy key took paintings only: anything else paints nothing (BackdropArtSetting), so the
+    /// row shows No wallpaper, not Shuffle Daily or the desktop picture.
+    @Test func aLegacyValueThatIsNotAPaintingShowsNoWallpaper() throws {
+        let row = try #require(SettingsSchema.descriptor(for: Self.path))
+        for value in ["daily", "desktop", "garbage"] {
+            #expect(row.effectiveValue(in: root(["backdropArt": .string(value)])) == .string("none"))
+        }
+    }
+
+    /// A retired id paints the work that stands in for it, so the row names that work's tile.
+    @Test func aRetiredLegacyIdShowsItsStandIn() throws {
+        let row = try #require(SettingsSchema.descriptor(for: Self.path))
+        let retired = root(["backdropArt": .string("wheat-field-with-cypresses")])
+        #expect(row.effectiveValue(in: retired) == .string("van-gogh-wheat-field-cypresses"))
+    }
+
     @Test func theCurrentKeyWinsOverTheLegacyOne() throws {
         let row = try #require(SettingsSchema.descriptor(for: Self.path))
         let both = root(["background": .string("daily"), "backdropArt": .string("van-gogh-starry-night")])
