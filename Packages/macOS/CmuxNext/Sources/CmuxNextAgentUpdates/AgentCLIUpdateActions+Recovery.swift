@@ -20,15 +20,16 @@ extension AgentCLIUpdateActions {
             if let intent { setFlags(resume: false, dismiss: false, key: input.key, in: intent) }
             if intent?.busy == true { continue }
             do {
-                if intent == nil || intent?.route.isCurrent() != true {
+                if let intent {
+                    // The same owner rule as showing and blocking: the captured route, or the same
+                    // machine and session after a reconnect.
+                    guard owner(of: intent) != nil else { throw DaemonError.notConnected }
+                } else {
                     let route = try captureRecovered(input.machine, input.session)
                     guard route.machine == input.machine, route.session == input.session, route.isCurrent() else { throw DaemonError.notConnected }
-                    if let intent { intent.route = route }
-                    else {
-                        let restored = Intent(route: route, profile: nil, target: nil)
-                        restored.inputs = [input]; restored.jobs = [Self.job(input)]; restored.restored = true
-                        intents[input.key] = restored; intent = restored
-                    }
+                    let restored = Intent(route: route, invocation: ActionInvocation(origin: .user))
+                    restored.inputs = [input]; restored.jobs = [Self.job(input)]; restored.restored = true
+                    intents[input.key] = restored; intent = restored
                 }
                 guard let intent, intent.route.isCurrent() else { continue }
                 if let saved = stored.receipt, !intent.receipts.contains(where: { $0.path == saved.path && $0.revision == saved.revision }) {

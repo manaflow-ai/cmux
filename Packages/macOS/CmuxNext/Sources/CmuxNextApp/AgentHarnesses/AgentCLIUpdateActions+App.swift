@@ -5,6 +5,7 @@ extension AgentCLIUpdateActions {
     convenience init(services: AppServices) {
         self.init(daemons: .init(active: { [weak services] in services?.activeDaemon }, all: { [weak services] in services?.machines.daemons ?? [] },
                                  machine: { [weak services] in services?.machines.daemon(machine: $0) }),
-                  unsupported: { AgentHarnessStrings.unsupported }, localMachine: MachineRegistry.localID)
+                  unsupported: { AgentHarnessStrings.unsupported }, nothingToUpdate: { AgentHarnessStrings.nothingToUpdate },
+                  stillUpdating: AgentHarnessStrings.stillUpdating, localMachine: MachineRegistry.localID)
     }
 }

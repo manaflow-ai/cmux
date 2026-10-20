@@ -30,6 +30,8 @@ public final class HomeSidebarView: NSView {
     public var onNewMessage: () -> Void = {}
     /// The compose button's right-click menu (New Chief, Invite), or nil for none.
     public var composeMenu: () -> NSMenu? = { nil }
+    /// The Message Requests button was clicked (`showRequests`).
+    public var onOpenRequests: () -> Void = {}
 
     let list = CmuxSidebarView()
     /// The strip above the search field: a drag there moves the window, as
@@ -39,6 +41,8 @@ public final class HomeSidebarView: NSView {
     let compose = HomeComposeButton()
     /// A quiet line under the list (`HomeSidebarModel.note`).
     let noteLabel = ChromeLabel(labelWithString: "")
+    /// "Message Requests (2)" under the list while there are requests (DESIGN 2.3); hidden otherwise.
+    let requestsButton = NSButton(title: "", target: nil, action: nil)
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
 
     public override init(frame: NSRect) {
@@ -67,6 +71,17 @@ public final class HomeSidebarView: NSView {
         noteLabel.isHidden = true
         noteLabel.setAccessibilityIdentifier("cmux.home.sidebar.note")
         addSubview(noteLabel)
+        requestsButton.bezelStyle = .accessoryBarAction
+        requestsButton.isBordered = false
+        requestsButton.alignment = .left
+        requestsButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
+        requestsButton.imagePosition = .imageLeading
+        requestsButton.target = self
+        requestsButton.action = #selector(openRequests)
+        requestsButton.isHidden = true
+        requestsButton.setAccessibilityIdentifier("cmux.home.sidebar.requests")
+        addSubview(requestsButton)
         // No system blue in the list: a neutral grey selection and grey pinned names, as Messages'
         // pinned grid; the filter button is the compose button's round twin.
         list.neutralSelection = true
@@ -126,7 +141,7 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar))
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -141,6 +156,19 @@ public final class HomeSidebarView: NSView {
     }
 
     @objc func newMessage() { onNewMessage() }
+    @objc func openRequests() { onOpenRequests() }
+
+    /// Shows the Message Requests button for `count` open requests; none hides it.
+    public func showRequests(_ count: Int) {
+        let title = count > 0 ? HomeConversationStrings.requestsBar(count) : ""
+        guard requestsButton.title != title || requestsButton.isHidden != (count == 0) else { return }
+        requestsButton.title = title
+        requestsButton.setAccessibilityLabel(title)
+        if requestsButton.isHidden != (count == 0) {
+            requestsButton.isHidden = count == 0
+            needsLayout = true
+        }
+    }
 
     /// A context-menu item for `menuItems` that runs `handler`.
     public static func menuItem(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
@@ -159,6 +187,7 @@ public final class HomeSidebarView: NSView {
     func applyColors() {
         list.unreadColor = performWithTheme { Palette.accent }
         noteLabel.textColor = performWithTheme { Palette.textSecondary }
+        requestsButton.contentTintColor = performWithTheme { Palette.textSecondary }
         // The menu ring and an active filter's glyph: the label colour, not the system accent.
         list.selectionColor = .labelColor
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
@@ -201,9 +230,12 @@ public final class HomeSidebarView: NSView {
         let side = Self.roundSide
         dragStrip.frame = NSRect(x: 0, y: bounds.height - Self.stripHeight, width: bounds.width, height: Self.stripHeight)
         // The note's strip at the bottom; the list ends above it.
+        // The note's and the requests button's strips at the bottom; the list ends above them.
         let note: CGFloat = noteLabel.isHidden ? 0 : 30
-        list.frame = NSRect(x: 0, y: note, width: bounds.width, height: bounds.height - note)
+        let requests: CGFloat = requestsButton.isHidden ? 0 : 30
+        list.frame = NSRect(x: 0, y: note + requests, width: bounds.width, height: bounds.height - note - requests)
         noteLabel.frame = NSRect(x: 14, y: 8, width: max(0, bounds.width - 28), height: 16)
+        requestsButton.frame = NSRect(x: 10, y: note + 4, width: max(0, bounds.width - 20), height: 22)
         // Right-aligned with the filter button under it (the list's search inset, 10 pt).
         compose.frame = NSRect(x: bounds.width - side - 10, y: (bounds.height - 26 - side / 2).rounded(), width: side, height: side)
     }

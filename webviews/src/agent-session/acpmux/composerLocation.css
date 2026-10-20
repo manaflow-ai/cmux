@@ -420,11 +420,11 @@
   width: auto;
   gap: 4px;
 }
-.acpmux-composer-bar .acpmux-model .acpmux-picker-button,
-.acpmux-composer-bar .acpmux-effort .acpmux-picker-button,
-.acpmux-composer-bar .acpmux-access .acpmux-picker-button {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button,
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
   height: 28px;
-  border-radius: 999px;
+  border-radius: 7px;
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -434,82 +434,78 @@
   padding-inline: var(--acpmux-row-inset);
 }
 /* Hover is the shared quiet wash (ui/ui.css --ui-hover, which the agent pane does not load): the
-   control's own ink at 6% over the card, tight to the control, a step further on press; no
-   opaque block. */
-.acpmux-composer-bar {
+   control's own ink at 6% over the card, tight to the control; no opaque block. */
+:is(.acpmux-composer-bar, .nt-pickers) {
   --acpmux-row-hover: var(--acpmux-pill-hover, var(--ui-hover, color-mix(in srgb, currentcolor 6%, transparent)));
-  --acpmux-row-press: var(--acpmux-pill-press, color-mix(in srgb, currentcolor 12%, transparent));
 }
-.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"] {
-  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
-  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
+/* Every chip open or pressed (+, the model, effort and mode chips, the combobox pickers) holds the
+   hover's pill with no edge: no brighter tone and no ring flash on a click (Leo 2026-10-19).
+   Opening a picker moves focus into its popup before the browser paints the held frame, which
+   clears :active, so data-press-active (popoverTrigger.ts) keeps that first frame on the same pill. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
+  background: var(--acpmux-row-hover);
+  box-shadow: none;
 }
-/* Hover only under a fine pointer (cg-composer click polish): a tap never leaves a wash behind. */
+/* No control draws a pill at rest; the one under the pointer gets the soft pill, as the Claude app's
+   chips do (Leo 2026-10-19). Hover only under a fine pointer (cg-composer click polish): a tap never
+   leaves a wash behind. A press keeps that same pill (no brighter or tinted press tone); its
+   feedback is the small shrink in composerStates.css. */
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer-bar .acpmux-picker-button:hover,
-  .acpmux-composer-bar .acpmux-plan:hover,
-  .acpmux-composer-bar .acpmux-steer:hover,
-  .acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
-    /* Keep hover on the ink, not on the full transparent hit target. */
-    background: transparent;
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+    background: var(--acpmux-row-hover);
     color: var(--agent-text);
   }
 }
-.acpmux-composer-bar .acpmux-picker-button:active,
-.acpmux-composer-bar .acpmux-plan:active,
-.acpmux-composer-bar .acpmux-steer:active,
-.acpmux-composer-bar .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):active {
-  background: var(--acpmux-row-press);
-}
-/* Opening a picker moves focus into its popup before the browser paints the held frame, which
-   clears :active. Keep that first frame at the same tone as the open chip (popoverTrigger.ts). */
-.acpmux-composer-bar .acpmux-picker-button[data-press-active] {
-  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
-}
-.acpmux-composer-bar
-  :is(.acpmux-model, .acpmux-effort, .acpmux-access)
-  .acpmux-picker-button:focus-visible {
-  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
-  box-shadow: inset 0 0 0 1px var(--acpmux-pill-edge, transparent);
-}
-.acpmux-composer-bar .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
-  color: var(--agent-text);
-}
-/* A pill pressed or open stays on that hover step with no edge: a click never flashes a brighter
-   press tone or a ring (Leo 2026-10-18). */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:is(:active, [aria-expanded="true"], [data-press-active]) {
-  background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
+/* Keyboard focus draws the same pill on any button, beside its focus outline (below). A listening
+   mic keeps its red. */
+:is(.acpmux-composer-bar, .nt-pickers)
+  :is(
+    .acpmux-picker-button,
+    .acpmux-plan,
+    .acpmux-steer,
+    .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]),
+    .acpmux-fast
+  ):focus-visible {
+  background: var(--acpmux-row-hover);
   box-shadow: none;
+}
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button[aria-expanded="true"] {
+  color: var(--agent-text);
 }
 /* The model, reasoning and access pills keep their fill, so their hover is the pill's quiet step
    (--acpmux-pill-hover), as Claude's and ChatGPT's composer chips do (Leo 2026-10-18). */
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer-bar .acpmux-model .acpmux-picker-button:hover,
-  .acpmux-composer-bar .acpmux-effort .acpmux-picker-button:hover,
-  .acpmux-composer-bar .acpmux-access .acpmux-picker-button:hover {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-model .acpmux-picker-button:hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button:hover,
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button:hover {
     color: var(--agent-text);
   }
-  .acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:hover:not([aria-expanded="true"]) {
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:hover:not([aria-expanded="true"]) {
     background: var(--acpmux-pill-hover, var(--acpmux-row-hover));
   }
 }
-.acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
 }
 @media (prefers-contrast: more) {
-  .acpmux-composer-bar :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic):focus-visible {
+  :is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):focus-visible {
     outline-offset: 2px;
   }
 }
-/* Hover is ink-only, but a selected/open control must keep its open wash while the pointer is
-   over it: the same tone a press shows (test/composer-chip-press.test.ts). */
-.acpmux-composer-bar .acpmux-picker-button[aria-expanded="true"],
-.acpmux-composer-bar .acpmux-access-trigger[aria-expanded="true"] {
-  background: var(--acpmux-pill-open, var(--acpmux-row-hover));
+/* An open control keeps its pill while the pointer is over it: the same tone a press shows
+   (test/composer-chip-press.test.ts). */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-access-trigger[aria-expanded="true"] {
+  background: var(--acpmux-row-hover);
+  box-shadow: none;
 }
-.acpmux-composer-bar .acpmux-plan[aria-pressed="true"]:hover {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
+/* Plan on is accent ink with no pill at rest; hovered it takes the same soft pill as every chip
+   and keeps its accent ink. */
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan[aria-pressed="true"]:is(:hover, :focus-visible) {
+  color: var(--agent-accent, var(--agent-text));
 }
 .acpmux-composer-bar .acpmux-picker-button > .acpmux-icon:last-child,
 .acpmux-composer-bar .acpmux-access-trigger > .acpmux-icon:last-child {
@@ -522,9 +518,9 @@
   font-size: var(--text-control);
 }
 /* The plain footer (Debug Settings > Pages > "Agent composer: plain footer", composerSettings.ts
-   plainFooter): Claude Code desktop's footer, text at rest. The default model, effort and mode
-   pills draw a resting fill (styles.css --acpmux-pill-fill); the plain look drops it, so a chip
-   draws no fill or ring until it is hovered, keyboard-focused, pressed or open. The model's name
+   plainFooter): Claude Code desktop's footer, text at rest. Neither look draws a pill at rest
+   (styles.css); a chip draws no fill or ring until it is hovered, keyboard-focused, pressed or
+   open. The model's name
    (any form of it) is muted like effort and the mode, the model's brand mark and the mode's lock
    are hidden (chevrons stay), and Plan when on is accent text only. Hover, keyboard focus and an
    open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts: the composer's
@@ -532,35 +528,35 @@
    take the model's name or the mode's label away, its mark or lock shows again, so neither chip
    is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
    accessLabelHidden (420). test/composer-footer-plain.test.ts measures it. */
-.acpmux-composer-bar[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
 @container composer (width > 370px) {
-  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
     display: none;
   }
 }
 @container composer (width > 420px) {
-  .acpmux-composer-bar[data-footer-look="plain"]:not([data-fit-access="icon"]) .acpmux-access-trigger > .acpmux-icon:first-child {
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-access="icon"]) .acpmux-access-trigger > .acpmux-icon:first-child {
     display: none;
   }
 }
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);
 }
-.acpmux-composer-bar[data-footer-look="plain"]
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]
   :is(.acpmux-model, .acpmux-effort, .acpmux-access)
   .acpmux-picker-button:not(:hover, :focus-visible, :active, [aria-expanded="true"], [data-press-active]) {
   background: none;
   box-shadow: none;
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer-bar[data-footer-look="plain"]
+  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]
     :is(.acpmux-model, .acpmux-effort, .acpmux-access)
     .acpmux-picker-button:hover:not(:active, [aria-expanded="true"], [data-press-active]) {
     background: var(--acpmux-row-hover);
   }
 }
-.acpmux-composer-bar[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
+:is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan[aria-pressed="true"]:not(:hover, :focus-visible, :active) {
   background: none;
   box-shadow: none;
 }
@@ -1049,15 +1045,8 @@
 .acpmux-fast .acpmux-icon { width: 16px; height: 16px; }
 .acpmux-fast:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-fast:hover { background: var(--acpmux-row-hover, var(--acpmux-composer-hover)); color: var(--agent-text); }
-.acpmux-fast:active { background: var(--acpmux-row-press, var(--acpmux-composer-press)); }
 .acpmux-fast[aria-pressed="true"],
 .acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
 /* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the
-   `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. */
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-fast {
-    transition:
-      background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out);
-  }
-}
+   `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. Its hover
+   ease and its press's spring are the other chips' (composerStates.css). */

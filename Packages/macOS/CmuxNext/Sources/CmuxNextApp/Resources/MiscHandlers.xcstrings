@@ -8970,6 +8970,270 @@
         }
       }
     },
+    "handlers.agent.harness.nothingToUpdate": {
+      "comment": "Agent CLI update refusal when no listed CLI can be updated by the app; Settings > Agents is the settings page",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد واجهة سطر أوامر لوكيل هنا لها تحديث يمكن للتطبيق تشغيله. تعرض الإعدادات > الوكلاء أمر التحديث لكل منها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan CLI agenta ovdje nema ažuriranje koje aplikacija može pokrenuti. Postavke > Agenti prikazuju naredbu za ažuriranje svakog."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent-CLI her har en opdatering, appen kan køre. Indstillinger > Agenter viser hver enkelts opdateringskommando."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Agent-CLI hier hat ein Update, das die App ausführen kann. Einstellungen > Agenten zeigt den Update-Befehl jeder CLI."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent CLI here has an update the app can run. Settings > Agents shows each one's update command."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna CLI de agente aquí tiene una actualización que la app pueda ejecutar. Ajustes > Agentes muestra el comando de actualización de cada una."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune CLI d'agent ici n'a de mise à jour que l'app peut lancer. Réglages > Agents affiche la commande de mise à jour de chacune."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna CLI di agente qui ha un aggiornamento che l'app può eseguire. Impostazioni > Agenti mostra il comando di aggiornamento di ciascuna."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリで実行できる更新があるエージェント CLI はここにはありません。各 CLI の更新コマンドは「設定 > エージェント」に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន CLI ភ្នាក់ងារនៅទីនេះដែលមានការធ្វើបច្ចុប្បន្នភាពដែលកម្មវិធីអាចដំណើរការបានទេ។ ការកំណត់ > ភ្នាក់ងារ បង្ហាញពាក្យបញ្ជាធ្វើបច្ចុប្បន្នភាពនៃនីមួយៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱이 실행할 수 있는 업데이트가 있는 에이전트 CLI가 여기에 없습니다. 설정 > 에이전트에서 각 CLI의 업데이트 명령을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent-CLI her har en oppdatering appen kan kjøre. Innstillinger > Agenter viser oppdateringskommandoen for hver."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żadne CLI agenta tutaj nie ma aktualizacji, którą aplikacja może uruchomić. Ustawienia > Agenci pokazują polecenie aktualizacji każdego z nich."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma CLI de agente aqui tem uma atualização que o app possa executar. Ajustes > Agentes mostra o comando de atualização de cada uma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь нет CLI агента с обновлением, которое может запустить приложение. В разделе «Настройки > Агенты» показана команда обновления для каждого."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี CLI ของเอเจนต์ที่นี่ที่มีอัปเดตซึ่งแอปเรียกใช้ได้ การตั้งค่า > เอเจนต์ แสดงคำสั่งอัปเดตของแต่ละตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada uygulamanın çalıştırabileceği bir güncellemesi olan aracı CLI'si yok. Ayarlar > Aracılar her birinin güncelleme komutunu gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут немає CLI агента з оновленням, яке може запустити застосунок. У «Параметри > Агенти» показано команду оновлення для кожного."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có CLI tác tử nào ở đây có bản cập nhật mà ứng dụng có thể chạy. Cài đặt > Tác tử hiển thị lệnh cập nhật của từng cái."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这里没有可由应用运行更新的智能体 CLI。“设置 > 智能体”会显示每个 CLI 的更新命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這裡沒有可由 App 執行更新的代理 CLI。「設定 > 代理」會顯示每個 CLI 的更新指令。"
+          }
+        }
+      }
+    },
+    "handlers.agent.harness.stillUpdating": {
+      "comment": "Agent CLI update refusal while an earlier update of the same CLI runs; %@ is the CLI name (claude, codex)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال %@ قيد التحديث. انتظر حتى ينتهي ذلك التحديث، ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ se još ažurira. Sačekaj da to ažuriranje završi, pa pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ opdateres stadig. Vent, til opdateringen er færdig, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ wird noch aktualisiert. Warte, bis dieses Update fertig ist, und versuche es dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is still updating. Wait for that update to finish, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ todavía se está actualizando. Espera a que termine esa actualización y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ est toujours en cours de mise à jour. Attendez la fin de cette mise à jour, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ si sta ancora aggiornando. Attendi che l'aggiornamento finisca, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はまだ更新中です。その更新が終わるまで待ってから、もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ នៅតែកំពុងធ្វើបច្ចុប្បន្នភាព។ រង់ចាំការធ្វើបច្ចុប្បន្នភាពនោះបញ្ចប់ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 아직 업데이트 중입니다. 업데이트가 끝날 때까지 기다린 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ oppdateres fortsatt. Vent til oppdateringen er ferdig, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ nadal się aktualizuje. Poczekaj na zakończenie tej aktualizacji i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ainda está sendo atualizado. Aguarde essa atualização terminar e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ещё обновляется. Дождитесь завершения этого обновления и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ยังอัปเดตอยู่ รอให้การอัปเดตนั้นเสร็จ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ hâlâ güncelleniyor. Bu güncellemenin bitmesini bekleyip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ще оновлюється. Дочекайтеся завершення цього оновлення й спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vẫn đang cập nhật. Hãy đợi bản cập nhật đó hoàn tất rồi thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 仍在更新。请等待该更新完成后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 仍在更新。請等待該更新完成後再試一次。"
+          }
+        }
+      }
+    },
     "handlers.agent.harness.unsupported": {
       "comment": "Agent harness action refusals; keep commands and --arg text exactly",
       "extractionState": "manual",

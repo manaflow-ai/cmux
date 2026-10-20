@@ -51,6 +51,10 @@ public final class AgentCLIUpdateActions {
     let captureRecovered: @MainActor (ResourceID, ResourceID) throws -> Route
     /// The app's localized refusal; the module holds no app string table.
     let unsupported: @MainActor () -> String
+    /// The app's refusal when no listed CLI is one the owner can update.
+    let nothingToUpdate: @MainActor () -> String
+    /// The app's refusal while an earlier update of the same CLI has not ended.
+    let stillUpdating: @MainActor (String) -> String
     /// The target Settings updates name (the app's local machine id).
     let localMachine: String
     var intents: [String: Intent] = [:]
@@ -64,9 +68,9 @@ public final class AgentCLIUpdateActions {
     static var pendingDismissAfter: TimeInterval { 10 * 60 }
 
     @Observable final class Intent {
-        var route: Route
-        let profile: String?
-        let target: ActionTargetRef?
+        /// The captured owner; a reconnect to the same machine and session replaces it.
+        @ObservationIgnored var route: Route
+        let invocation: ActionInvocation
         @ObservationIgnored var work: Task<JSONValue, any Error>?
         var jobs: [JSONValue] = []
         var receipts: [AgentCLIJobReceipt] = []
@@ -74,20 +78,27 @@ public final class AgentCLIUpdateActions {
         var busy = false
         var restored = false
 
-        init(route: Route, profile: String?, target: ActionTargetRef?) {
+        var profile: String? { invocation["id"]?.stringValue }
+
+        init(route: Route, invocation: ActionInvocation) {
             self.route = route
-            self.profile = profile
-            self.target = target
+            self.invocation = invocation
         }
     }
 
     init(capture: @escaping @MainActor (ActionInvocation) throws -> Route, persistence: Persistence? = nil,
          captureRecovered: @escaping @MainActor (ResourceID, ResourceID) throws -> Route = { _, _ in throw DaemonError.notConnected },
-         unsupported: (@MainActor () -> String)? = nil, localMachine: String = "local") {
+         unsupported: (@MainActor () -> String)? = nil,
+         nothingToUpdate: (@MainActor () -> String)? = nil,
+         stillUpdating: (@MainActor (String) -> String)? = nil,
+         localMachine: String = "local") {
         self.capture = capture
         self.persistence = persistence
         self.captureRecovered = captureRecovered
-        self.unsupported = unsupported ?? { RefusalStrings.needsAppCapability("agent-cli-update") }
+        let unsupported = unsupported ?? { RefusalStrings.needsAppCapability("agent-cli-update") }
+        self.unsupported = unsupported
+        self.nothingToUpdate = nothingToUpdate ?? unsupported
+        self.stillUpdating = stillUpdating ?? { "\($0): \(unsupported())" }
         self.localMachine = localMachine
     }
 
@@ -108,12 +119,12 @@ public final class AgentCLIUpdateActions {
             let intent: Intent
             if let existing = intents[key] {
                 guard !existing.restored else { throw ActionFailure(message: unsupported()) }
-                guard existing.profile == invocation["id"]?.stringValue, existing.target == invocation.target else {
+                guard existing.profile == invocation["id"]?.stringValue, existing.invocation.target == invocation.target else {
                     throw ActionFailure(message: unsupported())
                 }
                 intent = existing
             } else {
-                intent = Intent(route: try capture(invocation), profile: invocation["id"]?.stringValue, target: invocation.target)
+                intent = Intent(route: try capture(invocation), invocation: invocation)
                 intents[key] = intent
             }
             if intent.work == nil {
@@ -121,8 +132,16 @@ public final class AgentCLIUpdateActions {
                 // observation and page cancellation never cancel the owner's process.
                 intent.work = Task { try await self.start(intent, key: key) }
             }
-            guard let work = intent.work else { return }
-            registry?.track(Task {
+            guard let work = intent.work, let registry else { return }
+            guard registry.isCapturingWork else {
+                // task-owner: a run no caller waits for (the palette) shows its failure
+                // once the owner answers; it never cancels the update itself.
+                Task { [weak registry] in
+                    do { _ = try await work.value } catch { registry?.refuse(Self.text(error)) }
+                }
+                return
+            }
+            registry.track(Task {
                 do { _ = try await work.value; return nil }
                 catch { return ActionWorkFailure(Self.text(error), mayHaveApplied: !intent.jobs.isEmpty,
                                                 terminalMayAppear: !intent.jobs.isEmpty) }
@@ -191,17 +210,22 @@ public final class AgentCLIUpdateActions {
     }
 
     private func observeRetained() async {
-        for intent in intents.values where intent.route.isCurrent() && !intent.busy {
+        for intent in intents.values where !intent.busy {
             for receipt in intent.receipts {
-                guard intent.route.isCurrent() else { break }
+                guard let route = owner(of: intent) else { break }
                 do {
-                    let status = try await intent.route.observe(receipt)
-                    guard intent.route.isCurrent(), status.terminalID == receipt.path.terminalID,
+                    let status = try await route.observe(receipt)
+                    guard route.isCurrent(), status.terminalID == receipt.path.terminalID,
                           let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == status.terminalID.rawValue }),
                           var job = intent.jobs[index].objectValue else { continue }
+                    // An end observation settles the job even when it has no process result.
                     job["state"] = .string(status.state.rawValue)
-                    if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
-                    if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
+                    switch status.outcome {
+                    case .exit(let code): job["exit_code"] = .number(Double(code))
+                    case .signal(let number): job["signal"] = .number(Double(number))
+                    case .unknown: job["outcome"] = "unknown"
+                    case nil: break
+                    }
                     intent.jobs[index] = .object(job)
                     // Any exit, even one whose outcome is unknown, ends the process: it settles.
                     if status.state == .exited, let key = job["intent_key"]?.stringValue, !settled.contains(key) {
@@ -223,9 +247,28 @@ public final class AgentCLIUpdateActions {
 
     public var state: JSONValue {
         .array(intents.keys.sorted().flatMap { key in
-            guard let intent = intents[key], intent.route.isCurrent() else { return [JSONValue]() }
+            guard let intent = intents[key], owner(of: intent) != nil else { return [JSONValue]() }
             return intent.jobs
         })
+    }
+
+    /// The intent's owner while the app still routes to it: the captured route, or after a
+    /// reconnect to the same machine and session a fresh capture, so its receipts stay
+    /// observable. Nil once that owner is gone; its in-memory jobs then neither show nor block
+    /// (its ledger row still blocks, see `start`).
+    /// Showing, refreshing and blocking all use this one rule. A recovered intent has no
+    /// invocation of its own, so recovery's exact machine/session capture is tried too.
+    func owner(of intent: Intent) -> Route? {
+        if intent.route.isCurrent() { return intent.route }
+        let machine = intent.route.machine, session = intent.route.session
+        let recaptures: [@MainActor () throws -> Route] = [{ try self.capture(intent.invocation) },
+                                                           { try self.captureRecovered(machine, session) }]
+        for recapture in recaptures {
+            guard let route = try? recapture(), route.isCurrent(), route.machine == machine, route.session == session else { continue }
+            intent.route = route
+            return route
+        }
+        return nil
     }
 
     private func start(_ intent: Intent, key: String) async throws -> JSONValue {
@@ -244,7 +287,7 @@ public final class AgentCLIUpdateActions {
             return family.rawValue
         }).sorted()
         guard !families.isEmpty, intent.profile == nil || families.count == 1 else {
-            throw ActionFailure(message: unsupported())
+            throw ActionFailure(message: families.isEmpty ? nothingToUpdate() : unsupported())
         }
         // One family's refusal never stops the others; the batch reports every failure.
         var failures: [String] = []
@@ -259,9 +302,9 @@ public final class AgentCLIUpdateActions {
                 other !== intent && other.jobs.contains { job in
                     job["machine"]?.stringValue == intent.route.machine.rawValue && job["cli"]?.stringValue == family
                         && ["unknown", "created", "pending"].contains(job["state"]?.stringValue ?? "")
-                }
+                } && owner(of: other) != nil
             }) else {
-                failures.append("\(family): \(unsupported())")
+                failures.append(stillUpdating(family))
                 continue
             }
             // Batch children derive from the original intent and family, not row order.
@@ -292,6 +335,12 @@ public final class AgentCLIUpdateActions {
                 failures.append("\(input.cli): \(Self.text(error))")
                 guard intent.route.isCurrent() else { throw error }
                 continue
+            }
+            guard receipt.machine == input.machine, receipt.session == input.session, receipt.cli == input.family else {
+                // Another owner's terminal is not this update's, and this route cannot observe it:
+                // the intent settles, so it leaves no job or ledger row that blocks.
+                await settle(input.key, in: intent)
+                throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
             }
             try remember(receipt, for: input, in: intent)
             try await persistence.attach(input, receipt)

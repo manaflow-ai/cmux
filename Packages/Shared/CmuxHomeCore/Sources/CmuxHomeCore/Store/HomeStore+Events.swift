@@ -103,12 +103,20 @@ extension HomeStore {
             let wasOnline = connection == .online
             connection = state
             if state != .online {
+                // Typing is the owner's ephemeral state: a typing-off sent while this client is not
+                // connected never comes, so nothing kept from before stays on screen as dots under a
+                // finished reply. Dots come back with the owner's next typing frame or a live run.
+                typing.removeAll()
                 log.markDisconnected()
                 pendingResends.removeAll()
                 cancelBackoffs()
             }
             if state == .online, !wasOnline {
                 backoffAttempts.removeAll()
+                // Typing went with the connection: a turn still running shows its dots again from the
+                // owner's live runs (`typists(in:)`), read again for every conversation on screen or
+                // with a run this client kept (a run that ended meanwhile leaves the snapshot).
+                for id in Set(pager.viewers.keys).union(live.keys).sorted(by: { $0.rawValue < $1.rawValue }) { requestLive(id) }
                 enqueueResends(log.takeResends())
                 resumeInterruptedUploads()
                 for stream in mirror.stale { scheduleRefetch(stream) }

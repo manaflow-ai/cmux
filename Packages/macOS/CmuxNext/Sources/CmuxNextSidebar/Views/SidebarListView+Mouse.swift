@@ -60,8 +60,8 @@ extension SidebarListViewComponents {
             model.send(.selectTab(workspace: workspace, tab: tab))
         case let .item(item):
             SidebarGroupKeys(list: self).setFocus(nil)
-            // Home and the App Store switch at once, as a workspace row does; the press can still drag
-            // the row. Any other item runs on mouse-up (as a band item), so a press meant as a move never runs it.
+            // An item opens at once, as a workspace row does (`LayoutItemRef.activatesOnPress`); the press can
+            // still drag the row. A new-tab launcher runs on mouse-up, so a press meant as a move makes no tab.
             let id = LayoutItemID(item)
             if model.listedItem(id)?.ref.activatesOnPress == true {
                 press.activatedOnPress = true
@@ -97,7 +97,14 @@ extension SidebarListViewComponents {
         guard displayed.row(at: point.y)?.key == press.key else { return }
         switch press.key {
         case .workspace:
-            if let id = press.deferredClick { model.click(id) }
+            // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
+            // (u2455: every click laid the whole list out and configured every row). Only a deferred click (one row
+            // of a multi-selection, no drag) changes the selection now, the same way.
+            guard let id = press.deferredClick else { return }
+            let (oldItem, oldSelection) = (model.selectedItem, model.selection)
+            model.click(id)
+            if !patchSelection(from: oldItem, oldSelection: oldSelection) { reload(animated: true) }
+            return
         case .tab:
             break
         case let .group(group):
