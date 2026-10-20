@@ -360,6 +360,57 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
     return value
 
 
+def _blank_rust_comments(text: str) -> str:
+    """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
+    newlines kept, so offsets and lines still match `text`. String, raw string,
+    byte and char literals are copied as they are."""
+    out = list(text)
+    i, n = 0, len(text)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        c = text[i]
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+        elif text.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if text.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif text.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            blank(i, j)
+            i = j
+        elif raw := re.match(r'b?r(#*)"', text[i : i + 300]):
+            if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
+                i += 1
+                continue
+            close = '"' + raw.group(1)
+            j = text.find(close, i + raw.end())
+            i = n if j < 0 else j + len(close)
+        elif c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            i = j + 1
+        elif c == "'":
+            # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
+            char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
+            i += char.end() if char else 1
+        else:
+            i += 1
+    return "".join(out)
+
+
 def _balanced_body(text: str, marker: re.Pattern[str]) -> tuple[str, int] | None:
     match = marker.search(text)
     if match is None:
@@ -582,8 +633,11 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
             )
         )
 
+    # Comments blanked to spaces (same offsets): a commented-out row or a
+    # `];` in a comment is not code.
+    code = _blank_rust_comments(text)
     selector = _balanced_body(
-        text,
+        code,
         re.compile(r"\bfn\s+is_registered_public_id\s*\([^)]*\)[^{]*\{"),
     )
     if selector is None:
@@ -592,9 +646,25 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
         )
     else:
         body, body_offset = selector
-        selector_prefixes = set(re.findall(r'"([a-z][a-z0-9_]*)"', body))
-        missing = set(EXPECTED_PREFIXES) - selector_prefixes
-        stale = selector_prefixes - set(EXPECTED_PREFIXES)
+        # The selector's own literals are prefixes, and when it looks prefixes
+        # up in the `PUBLIC_ID_PREFIXES` table (rows of (prefix, CLI scope)),
+        # so is the first string of each row.
+        found: dict[str, int] = {}
+        for match in re.finditer(r'"([a-z][a-z0-9_]*)"', body):
+            found.setdefault(match.group(1), body_offset + match.start())
+        if re.search(r"\bPUBLIC_ID_PREFIXES\b", body):
+            table = re.search(
+                r"\bconst\s+PUBLIC_ID_PREFIXES\s*:[^=]*=\s*&\[(.*?)\];", code, re.DOTALL
+            )
+            if table is None:
+                diagnostics.append(
+                    Diagnostic(path, 1, 1, "boundary.prefix", "missing PUBLIC_ID_PREFIXES table")
+                )
+                return set(actual.values())
+            for match in re.finditer(r'\(\s*"([a-z][a-z0-9_]*)"\s*,', table.group(1)):
+                found.setdefault(match.group(1), table.start(1) + match.start(1) - 1)
+        missing = set(EXPECTED_PREFIXES) - set(found)
+        stale = set(found) - set(EXPECTED_PREFIXES)
         for prefix in sorted(missing):
             line, column = _line_column(text, body_offset)
             diagnostics.append(
@@ -607,12 +677,11 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
                 )
             )
         for prefix in sorted(stale):
-            relative = body.find(f'"{prefix}"')
             diagnostics.append(
                 _diagnostic_at(
                     path,
                     text,
-                    body_offset + max(relative, 0),
+                    found[prefix],
                     "boundary.prefix",
                     f"selector ID registry has unregistered prefix {prefix!r}",
                 )
