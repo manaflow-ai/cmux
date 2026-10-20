@@ -34,9 +34,6 @@ enum WorkspaceHandlers {
             DaemonClosedHistory.reopen(entry, services: context.services)
         })
         LayoutTemplateHandlers.bind(into: registry, context: context)
-        for id: ActionID in ["reconnectWorkspace", "disconnectWorkspace", "copyWorkspaceSSHError"] {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("remote-workspaces-v1"))
-        }
     }
 
     // MARK: Creation

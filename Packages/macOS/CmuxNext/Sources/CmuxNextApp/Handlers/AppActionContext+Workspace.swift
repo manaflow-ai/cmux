@@ -67,8 +67,7 @@ extension AppActionContext {
     }
 
     func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        writeToPasteboard(text)
     }
 
     /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself

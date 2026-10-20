@@ -79,14 +79,21 @@ struct RemoteWorkspaceActionsTests {
     }
 
     @Test func copySSHErrorCopiesTheMachinesLastError() throws {
-        let services = Self.services()
+        // Only these actions, copying into the test's own box: a test run may have no pasteboard
+        // server, and other test processes on the same Mac write and clear the general one.
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let copied = CopiedText()
+        var context = AppActionContext(services: services)
+        context.writeToPasteboard = { copied.text = $0 }
+        RemoteWorkspaceHandlers.bind(into: services.registry, context: context)
         let (session, workspace, _) = try Self.sshMachine(services)
         #expect(Self.run("copyWorkspaceSSHError", .workspace, workspace.id, in: services) != nil, "no error yet: refused with a reason")
 
         let error = "Permission denied (publickey) \(UUID().uuidString)"
         session.lastError = error
         #expect(Self.run("copyWorkspaceSSHError", .workspace, workspace.id, in: services) == nil)
-        #expect(NSPasteboard.general.string(forType: .string) == error)
+        #expect(copied.text == error)
     }
 
     @Test func disconnectSSHTabDisconnectsTheMachineItsTerminalRunsOn() throws {
@@ -110,4 +117,9 @@ struct RemoteWorkspaceActionsTests {
         #expect(Self.run("disconnectRemoteTab", .tab, tab.id, in: services) != nil)
         #expect(session.autoConnect, "another machine is never disconnected in its place")
     }
+}
+
+/// The text a Copy action wrote, in place of the pasteboard.
+@MainActor private final class CopiedText {
+    var text: String?
 }

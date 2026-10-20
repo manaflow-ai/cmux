@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 
@@ -8,6 +9,12 @@ struct AppActionContext {
     /// Where handlers apply a setting's live value before writing it.
     /// Tests pass their own so parallel suites keep the shared one.
     var design: DesignSettings = .shared
+    /// What Copy actions run (``copy(_:)``): writes the general pasteboard.
+    /// Tests pass their own, so a run never needs the pasteboard server.
+    var writeToPasteboard: @MainActor @Sendable (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 
     var registry: ActionRegistry { services.registry }
 

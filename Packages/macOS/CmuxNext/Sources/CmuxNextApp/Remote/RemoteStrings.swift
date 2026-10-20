@@ -148,6 +148,12 @@ enum RemoteStrings {
 
     /// The refusal of Copy SSH Error for a machine without a failure.
     static func noSSHError(_ machine: String) -> String { String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine) }
+    static var workspaceNotSSH: String {
+        String(localized: "remote.workspace.notSSH", defaultValue: "This workspace is not on an SSH machine.", table: "Remote", bundle: .module)
+    }
+    static var tabNotSSH: String {
+        String(localized: "remote.tab.notSSH", defaultValue: "This tab does not run on an SSH machine.", table: "Remote", bundle: .module)
+    }
 
     static func needText(_ need: InstallNeed, _ session: SSHMachineSession) -> String {
         switch need {
