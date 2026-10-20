@@ -466,6 +466,41 @@
           "aliases": []
         },
         {
+          "id": "search.chats",
+          "title": {
+            "en": "Search Chats & Agents…",
+            "ar": "البحث في الدردشات والوكلاء…",
+            "bs": "Pretraži razgovore i agente…",
+            "da": "Søg i chats og agenter…",
+            "de": "Chats und Agenten durchsuchen…",
+            "es": "Buscar en chats y agentes…",
+            "fr": "Rechercher dans les discussions et les agents…",
+            "it": "Cerca in chat e agenti…",
+            "ja": "チャットとエージェントを検索…",
+            "km": "ស្វែងរកការជជែក និងភ្នាក់ងារ…",
+            "ko": "채팅 및 에이전트 검색…",
+            "no": "Søk i chatter og agenter…",
+            "pl": "Szukaj w czatach i agentach…",
+            "pt-BR": "Pesquisar chats e agentes…",
+            "ru": "Искать в чатах и агентах…",
+            "th": "ค้นหาแชทและเอเจนต์…",
+            "tr": "Sohbetlerde ve ajanlarda ara…",
+            "uk": "Шукати в чатах і агентах…",
+            "vi": "Tìm trong trò chuyện và tác tử…",
+            "zh-CN": "搜索聊天和智能体…",
+            "zh-TW": "搜尋聊天與代理程式…"
+          },
+          "shortcut": {
+            "key": "a",
+            "modifiers": [
+              "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "hints.show",
           "title": {
             "en": "Click by Hint",
@@ -4453,41 +4488,6 @@
             "key": "1",
             "modifiers": [
               "ctrl"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "tab.search",
-          "title": {
-            "en": "Search Tabs…",
-            "ar": "البحث في علامات التبويب…",
-            "bs": "Pretraži tabove…",
-            "da": "Søg i faner…",
-            "de": "Tabs durchsuchen…",
-            "es": "Buscar pestañas…",
-            "fr": "Rechercher dans les onglets…",
-            "it": "Cerca nelle schede…",
-            "ja": "タブを検索…",
-            "km": "ស្វែងរកផ្ទាំង…",
-            "ko": "탭 검색…",
-            "no": "Søk i faner…",
-            "pl": "Szukaj kart…",
-            "pt-BR": "Buscar abas…",
-            "ru": "Поиск вкладок…",
-            "th": "ค้นหาแท็บ…",
-            "tr": "Sekmelerde Ara…",
-            "uk": "Пошук вкладок…",
-            "vi": "Tìm kiếm thẻ…",
-            "zh-CN": "搜索标签页…",
-            "zh-TW": "搜尋分頁…"
-          },
-          "shortcut": {
-            "key": "a",
-            "modifiers": [
-              "shift",
-              "cmd"
             ]
           },
           "chord": null,
