@@ -185,6 +185,16 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
+  "mobile-pairing": {
+    out: "webviews/src/pages/mobile-pairing/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
+      },
+    ],
+  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
