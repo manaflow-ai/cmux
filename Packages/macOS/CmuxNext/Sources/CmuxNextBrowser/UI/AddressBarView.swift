@@ -104,6 +104,8 @@ public final class AddressBarView: NSView {
         didSet {
             field.isEditable = !isReadOnly
             field.isSelectable = true
+            // The omnibar shows focus through its own capsule, never AppKit's ring.
+            field.focusRingType = .none
         }
     }
 

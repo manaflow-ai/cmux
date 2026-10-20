@@ -8399,127 +8399,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Default Engine"
+            "value": "Browser Engine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "デフォルトのエンジン"
+            "value": "ブラウザエンジン"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المحرك الافتراضي"
+            "value": "محرك المتصفح"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zadani mehanizam"
+            "value": "Mehanizam preglednika"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardmotor"
+            "value": "Browsermotor"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standard-Engine"
+            "value": "Browser-Engine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motor predeterminado"
+            "value": "Motor del navegador"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Moteur par défaut"
+            "value": "Moteur du navigateur"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motore predefinito"
+            "value": "Motore del browser"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនលំនាំដើម"
+            "value": "ម៉ាស៊ីនកម្មវិធីរុករក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기본 엔진"
+            "value": "브라우저 엔진"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Standardmotor"
+            "value": "Nettlesermotor"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Domyślny silnik"
+            "value": "Silnik przeglądarki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Motor padrão"
+            "value": "Motor do navegador"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Движок по умолчанию"
+            "value": "Движок браузера"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอนจินเริ่มต้น"
+            "value": "เอนจินเบราว์เซอร์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Varsayılan Motor"
+            "value": "Tarayıcı Motoru"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Типовий рушій"
+            "value": "Рушій браузера"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Công cụ mặc định"
+            "value": "Công cụ trình duyệt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "默认引擎"
+            "value": "浏览器引擎"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "預設引擎"
+            "value": "瀏覽器引擎"
           }
         }
       }
@@ -8530,127 +8530,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New browser tabs open in this engine."
+            "value": "Browser tabs and cmux pages, such as History and Apps, open in this engine."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新しいブラウザタブはこのエンジンで開きます。"
+            "value": "ブラウザタブと、履歴やアプリなどの cmux のページはこのエンジンで開きます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تُفتح علامات تبويب المتصفح الجديدة بهذا المحرك."
+            "value": "تُفتح علامات تبويب المتصفح وصفحات cmux، مثل السجل والتطبيقات، بهذا المحرك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nove kartice preglednika otvaraju se u ovom mehanizmu."
+            "value": "Kartice preglednika i cmux stranice, kao što su Historija i Aplikacije, otvaraju se u ovom mehanizmu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye browserfaner åbnes med denne motor."
+            "value": "Browserfaner og cmux-sider som Historik og Apps åbnes med denne motor."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neue Browser-Tabs öffnen sich mit dieser Engine."
+            "value": "Browser-Tabs und cmux-Seiten wie Verlauf und Apps öffnen sich mit dieser Engine."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las pestañas nuevas del navegador se abren con este motor."
+            "value": "Las pestañas del navegador y las páginas de cmux, como Historial y Apps, se abren con este motor."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les nouveaux onglets s’ouvrent avec ce moteur."
+            "value": "Les onglets du navigateur et les pages de cmux, comme Historique et Apps, s’ouvrent avec ce moteur."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le nuove schede del browser si aprono con questo motore."
+            "value": "Le schede del browser e le pagine di cmux, come Cronologia e App, si aprono con questo motore."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ទាំងកម្មវិធីរុករកថ្មីបើកក្នុងម៉ាស៊ីននេះ។"
+            "value": "ផ្ទាំងកម្មវិធីរុករក និងទំព័រ cmux ដូចជា ប្រវត្តិ និង កម្មវិធី បើកក្នុងម៉ាស៊ីននេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "새 브라우저 탭은 이 엔진으로 열립니다."
+            "value": "브라우저 탭과 기록, 앱 같은 cmux 페이지는 이 엔진으로 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nye nettleserfaner åpnes med denne motoren."
+            "value": "Nettleserfaner og cmux-sider som Historikk og Apper åpnes med denne motoren."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowe karty przeglądarki otwierają się w tym silniku."
+            "value": "Karty przeglądarki i strony cmux, takie jak Historia i Aplikacje, otwierają się w tym silniku."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novas abas do navegador abrem neste motor."
+            "value": "Abas do navegador e páginas do cmux, como Histórico e Apps, abrem neste motor."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новые вкладки браузера открываются в этом движке."
+            "value": "Вкладки браузера и страницы cmux, такие как История и Приложения, открываются в этом движке."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แท็บเบราว์เซอร์ใหม่จะเปิดด้วยเอนจินนี้"
+            "value": "แท็บเบราว์เซอร์และหน้าของ cmux เช่น ประวัติ และ แอป จะเปิดด้วยเอนจินนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Yeni tarayıcı sekmeleri bu motorla açılır."
+            "value": "Tarayıcı sekmeleri ve Geçmiş ile Uygulamalar gibi cmux sayfaları bu motorla açılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нові вкладки браузера відкриваються в цьому рушії."
+            "value": "Вкладки браузера та сторінки cmux, як-от Історія та Програми, відкриваються в цьому рушії."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab trình duyệt mới mở bằng công cụ này."
+            "value": "Tab trình duyệt và các trang của cmux, như Lịch sử và Ứng dụng, mở bằng công cụ này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新浏览器标签页使用此引擎打开。"
+            "value": "浏览器标签页和 cmux 页面（如历史记录和应用）使用此引擎打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "新的瀏覽器標籤頁會以此引擎開啟。"
+            "value": "瀏覽器標籤頁和 cmux 頁面（例如歷史記錄和 App）會以此引擎開啟。"
           }
         }
       }
@@ -137631,6 +137631,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "開頭"
+          }
+        }
+      }
+    },
+    "settings.browser.siteEngines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site Engines"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محركات المواقع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mehanizmi za stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motorer pr. websted"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Engines pro Website"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motores por sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Moteurs par site"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motori per sito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイトごとのエンジン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនតាមគេហទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이트별 엔진"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motorer per nettsted"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silniki dla witryn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motores por site"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Движки для сайтов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอนจินตามเว็บไซต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Site Motorları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рушії для сайтів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Công cụ theo trang web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "按网站选择引擎"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "依網站選擇引擎"
+          }
+        }
+      }
+    },
+    "settings.browser.siteEngines.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مواقع تُفتح دائمًا بمحرك واحد: موقع، مثل spotify.com، و chromium أو webkit. تُفتح Spotify و Netflix ومواقع الوسائط المحمية الأخرى في WebKit، لأن وسائطها لا تعمل في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice koje se uvijek otvaraju u jednom mehanizmu: stranica, kao što je spotify.com, i chromium ili webkit. Spotify, Netflix i druge stranice sa zaštićenim medijima otvaraju se u WebKitu, jer se njihovi mediji ne reproduciraju u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Websteder, der altid åbnes med én motor: et websted, f.eks. spotify.com, og chromium eller webkit. Spotify, Netflix og andre websteder med beskyttede medier åbnes i WebKit, fordi deres medier ikke afspilles i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Websites, die immer in einer Engine geöffnet werden: eine Website wie spotify.com und chromium oder webkit. Spotify, Netflix und andere Websites mit geschützten Medien öffnen sich in WebKit, weil ihre Medien in Chromium nicht abgespielt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sitios que siempre se abren con un motor: un sitio, como spotify.com, y chromium o webkit. Spotify, Netflix y otros sitios con contenido protegido se abren en WebKit, porque su contenido no se reproduce en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sites toujours ouverts avec un moteur : un site, comme spotify.com, et chromium ou webkit. Spotify, Netflix et d’autres sites de médias protégés s’ouvrent dans WebKit, car leurs médias ne sont pas lus dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siti che si aprono sempre con un motore: un sito, come spotify.com, e chromium o webkit. Spotify, Netflix e altri siti con contenuti protetti si aprono in WebKit, perché i loro contenuti non vengono riprodotti in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "常に 1 つのエンジンで開くサイトです。spotify.com などのサイトと、chromium または webkit を指定します。Spotify、Netflix などの保護されたメディアのサイトは、Chromium では再生できないため WebKit で開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គេហទំព័រដែលតែងតែបើកក្នុងម៉ាស៊ីនមួយ៖ គេហទំព័រ ដូចជា spotify.com និង chromium ឬ webkit ។ Spotify, Netflix និងគេហទំព័រមេឌៀដែលបានការពារផ្សេងទៀតបើកក្នុង WebKit ព្រោះមេឌៀរបស់វាមិនចាក់ក្នុង Chromium ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "항상 한 엔진으로 여는 사이트입니다. spotify.com 같은 사이트와 chromium 또는 webkit을 지정합니다. Spotify, Netflix 및 기타 보호된 미디어 사이트는 Chromium에서 미디어가 재생되지 않으므로 WebKit으로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettsteder som alltid åpnes med én motor: et nettsted, for eksempel spotify.com, og chromium eller webkit. Spotify, Netflix og andre nettsteder med beskyttede medier åpnes i WebKit, fordi mediene deres ikke spilles av i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Witryny, które zawsze otwierają się w jednym silniku: witryna, np. spotify.com, oraz chromium lub webkit. Spotify, Netflix i inne witryny z chronionymi multimediami otwierają się w WebKit, ponieważ ich multimedia nie odtwarzają się w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sites que sempre abrem em um motor: um site, como spotify.com, e chromium ou webkit. Spotify, Netflix e outros sites de mídia protegida abrem no WebKit, porque a mídia deles não toca no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сайты, которые всегда открываются в одном движке: сайт, например spotify.com, и chromium или webkit. Spotify, Netflix и другие сайты с защищённым контентом открываются в WebKit, потому что их медиа не воспроизводятся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เว็บไซต์ที่เปิดด้วยเอนจินเดียวเสมอ: เว็บไซต์ เช่น spotify.com และ chromium หรือ webkit โดย Spotify, Netflix และเว็บไซต์สื่อที่มีการป้องกันอื่นๆ จะเปิดใน WebKit เพราะสื่อของเว็บไซต์เหล่านี้เล่นใน Chromium ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her zaman tek bir motorla açılan siteler: spotify.com gibi bir site ve chromium veya webkit. Spotify, Netflix ve diğer korumalı medya siteleri, medyaları Chromium’da oynatılmadığı için WebKit’te açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сайти, що завжди відкриваються в одному рушії: сайт, як-от spotify.com, і chromium або webkit. Spotify, Netflix та інші сайти із захищеним вмістом відкриваються у WebKit, бо їхні медіа не відтворюються в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các trang luôn mở bằng một công cụ: một trang, như spotify.com, và chromium hoặc webkit. Spotify, Netflix và các trang phương tiện được bảo vệ khác mở trong WebKit, vì phương tiện của chúng không phát được trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终使用同一引擎打开的网站：填写网站（如 spotify.com）以及 chromium 或 webkit。Spotify、Netflix 等受保护媒体网站会在 WebKit 中打开，因为其媒体无法在 Chromium 中播放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一律以同一引擎開啟的網站：填寫網站（例如 spotify.com）以及 chromium 或 webkit。Spotify、Netflix 等受保護媒體網站會在 WebKit 中開啟，因為其媒體無法在 Chromium 中播放。"
           }
         }
       }

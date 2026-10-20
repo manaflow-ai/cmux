@@ -24,6 +24,8 @@ optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] | rollback | checkpoint | restore | verify
+                                                           move this Chief to another home or host (see `optchat-chief move help`)
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
@@ -53,6 +55,11 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::from(1)
             }
         };
+    }
+    // `move` parses its own switches (`--stop-host`, `--dry-run`, ...).
+    if args.first().is_some_and(|a| a == "move") {
+        let code = optchat_chief::migrate::cli(&args[1..]);
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
