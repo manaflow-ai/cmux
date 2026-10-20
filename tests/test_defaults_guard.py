@@ -300,6 +300,15 @@ class DefaultsGuardTests(unittest.TestCase):
         # Judged as a change that needs the call, not only as a stale file.
         self.assertIn("::warning title=Default changed::DEFAULTS key.toggleEditor", result.stdout)
 
+    def test_check_fresh_still_finds_a_stale_snapshot(self):
+        """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
+        autofix's commit); it stays the command that says the snapshot needs regenerating."""
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        head = self.head(actions, snapshot=False)
+        result = self.repo.guard("check-fresh", "--ref", head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
+
 
 
 SETTINGS_SOURCES = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings"

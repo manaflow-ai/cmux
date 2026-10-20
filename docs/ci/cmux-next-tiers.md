@@ -135,9 +135,10 @@ settings change and commits the exports and the snapshot, so a lane does not
 have to run the export itself.
 
 The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
-no pull request commits it, the PR autofix leaves it out, and a pull request's
-checks run `check-stamp` instead of `check-fresh`. The base autofix rewrites it
-after each merge. The defaults guard judges a pull request by the defaults its
+no pull request commits it, and the PR autofix leaves it out. It is stale
+between a merge and the base autofix's commit, so CI runs `check-stamp`, never
+`check-fresh`, on every event, including the base and batches. The base autofix
+rewrites it after each merge. The defaults guard judges a pull request by the defaults its
 exports and sources produce, never by a committed snapshot.
 
 ## Measurements

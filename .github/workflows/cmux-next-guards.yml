@@ -194,9 +194,8 @@ jobs:
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
 
-  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
-  # action and settings exports (not on a pull request: the snapshot is
-  # bot-only), in seconds; cmux-next-defaults-guard.yml judges the changes and
+  # The defaults guard's tests and the settings export stamp, in seconds (the
+  # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
   # the approval from each tree's sources.
   defaults-snapshot:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
@@ -211,18 +210,11 @@ jobs:
       - name: The defaults guard judges changes and approvals
         run: python3 tests/test_defaults_guard.py
 
-      # The snapshot is bot-only (#21946): a pull request never commits it, so
-      # a pull request checks only that its settings exports match its sources
-      # (check-stamp); the base, a batch and a dispatch check the snapshot too.
-      - name: The defaults snapshot matches the exports
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [[ "$EVENT" == pull_request ]]; then
-            python3 scripts/ci/defaults_guard.py check-stamp
-          else
-            python3 scripts/ci/defaults_guard.py check-fresh
-          fi
+      # The snapshot is bot-only (#21946): it is stale on every event between a
+      # merge and the base autofix's commit, so this checks only that the
+      # settings exports match their sources (check-stamp).
+      - name: The settings exports match their sources
+        run: python3 scripts/ci/defaults_guard.py check-stamp
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
