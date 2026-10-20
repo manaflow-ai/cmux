@@ -2,7 +2,8 @@ public import Foundation
 
 /// This process's own unified-log errors and faults (`Logger.error`, `Logger.fault`, and the
 /// page console errors ``ConsoleErrorCapture`` logs). Reads `OSLogStore` scoped to the current
-/// process, after the last harvested entry of this launch.
+/// process, after the last harvested entry of this launch; the store returns only errors and
+/// faults (``errorsAndFaults``), so other entries are never decoded in this process.
 ///
 /// Sources: `page:<page>` for the page console subsystem, `app` for `com.cmuxterm` subsystems,
 /// `system:<subsystem>` for frameworks logging in-process (WebKit, AppKit).
@@ -38,7 +39,9 @@ public struct OSLogErrorSource: ErrorHarvestSource {
                 start = Date(timeIntervalSince1970: ms / 1000)
             }
         }
-        let entries = try reader.entries(since: start, matching: nil)
+        // logd filters: entries below error are never decoded here. Reading every level cost the
+        // app 2.6 to 4.4 mW in the windows a harvest fell in, with 20 hidden Chromium tabs (msg 2654).
+        let entries = try reader.entries(since: start, matching: Self.errorsAndFaults)
         var events: [ErrorEvent] = []
         var newest = start
         for entry in entries where entry.date > start {
@@ -51,6 +54,9 @@ public struct OSLogErrorSource: ErrorHarvestSource {
         let ms = Int64((newest.timeIntervalSince1970 * 1000).rounded(.up))
         return ErrorHarvest(events: events, cursor: "\(processID):\(ms)")
     }
+
+    /// The log store predicate for errors and faults (`messageType`, as `log show --predicate` takes it).
+    static var errorsAndFaults: NSPredicate { NSPredicate(format: "messageType == 'error' OR messageType == 'fault'") }
 
     /// Maps one log entry to an event: the first line is the message, a following `at …`
     /// line is the top frame.
