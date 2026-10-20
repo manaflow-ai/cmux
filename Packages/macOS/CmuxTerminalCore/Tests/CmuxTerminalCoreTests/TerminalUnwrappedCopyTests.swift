@@ -43,8 +43,8 @@ struct TerminalUnwrappedCopyTests {
 
     @Test(arguments: ["https://example.com/very/long/", "www.example.com/very/long/url", "/Users/lucas/projects/cmux/src"])
     func joinsSplitURLOrPath(token: String) {
-        let text = "  \(token)\n  continuation"
-        #expect(TerminalUnwrappedCopy(terminalColumns: 40).unwrappedText(text) == token + "continuation")
+        let text = "  \(token)\n  continuation/path"
+        #expect(TerminalUnwrappedCopy(terminalColumns: 40).unwrappedText(text) == token + "continuation/path")
     }
 
     @Test func keepsSpaceAfterURLThatDoesNotFillWidth() {
@@ -143,8 +143,8 @@ struct TerminalUnwrappedCopyTests {
     }
 
     @Test func widthsUseTerminalCellsAndPreDedentGutter() {
-        #expect(TerminalUnwrappedCopy(terminalColumns: 32).unwrappedText("    日本語日本語日本語\n    continued")
-            == "日本語日本語日本語 continued")
+        #expect(TerminalUnwrappedCopy(terminalColumns: 32).unwrappedText("    日本語 日本語日本語\n    continued")
+            == "日本語 日本語日本語 continued")
         #expect(TerminalUnwrappedCopy(terminalColumns: 32).unwrappedText("    cafe\u{301} cafe\u{301} cafe\u{301} cafe\u{301}\n    continued")
             == "cafe\u{301} cafe\u{301} cafe\u{301} cafe\u{301} continued")
     }
