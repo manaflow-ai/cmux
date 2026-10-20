@@ -1612,43 +1612,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "prevSidebarTab",
@@ -1683,43 +1647,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "moveWorkspaceUp",
@@ -1826,107 +1754,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "1",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "2",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "3",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "4",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "5",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "6",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "7",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "8",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "9",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "renameWorkspace",
@@ -2983,14 +2811,27 @@
             "zh-TW": "聚焦左側窗格"
           },
           "shortcut": {
-            "key": "h",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "h",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusRight",
@@ -3018,14 +2859,27 @@
             "zh-TW": "聚焦右側窗格"
           },
           "shortcut": {
-            "key": "l",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "l",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusUp",
@@ -4053,17 +3907,6 @@
             {
               "keys": [
                 {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "]",
                   "modifiers": [
                     "shift",
@@ -4109,18 +3952,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -5379,41 +5210,6 @@
             "key": "r",
             "modifiers": [
               "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "browser.focusSearch",
-          "title": {
-            "en": "Search the Web",
-            "ar": "البحث في الويب",
-            "bs": "Pretraži web",
-            "da": "Søg på nettet",
-            "de": "Im Web suchen",
-            "es": "Buscar en la Web",
-            "fr": "Rechercher sur le Web",
-            "it": "Cerca sul Web",
-            "ja": "ウェブを検索",
-            "km": "ស្វែងរកលើបណ្ដាញ",
-            "ko": "웹 검색",
-            "no": "Søk på nettet",
-            "pl": "Szukaj w sieci",
-            "pt-BR": "Pesquisar na Web",
-            "ru": "Поиск в интернете",
-            "th": "ค้นหาเว็บ",
-            "tr": "Web’de Ara",
-            "uk": "Пошук в інтернеті",
-            "vi": "Tìm kiếm trên web",
-            "zh-CN": "搜索网页",
-            "zh-TW": "搜尋網頁"
-          },
-          "shortcut": {
-            "key": "f",
-            "modifiers": [
-              "opt",
               "cmd"
             ]
           },
