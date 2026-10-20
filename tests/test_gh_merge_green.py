@@ -448,7 +448,9 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
-            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then "
+               + ("echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; " if files_rest_fails == "quota" else "")
+               + "exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
                + "; exit 0; fi\n" if files_rest_fails else "") +
@@ -739,6 +741,18 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 75, result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("rate-limited: GitHub rate-limited gh api", result.stderr)
+
+    def test_a_red_after_a_recovered_rate_limited_read_is_still_a_red(self):
+        """Review on #22443: the REST file list was rate-limited and its GraphQL fallback answered;
+        a genuine red after it is an ordinary refusal (exit 1), not a rate limit."""
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     files_rest_fails="quota", excuse=(1, "not excused: the head's own red"))
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("used GraphQL fallback", result.stderr)
+            self.assertNotIn("rate-limited:", result.stderr)
 
     def test_a_rate_limited_base_comparison_refuses_as_rate_limited(self):
         rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]

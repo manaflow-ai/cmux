@@ -46,6 +46,11 @@ refuse() {
   exit 1
 }
 
+# A fallback answered for a rate-limited read: that hit cost nothing, so a later red is a red.
+fallback_answered() {
+  [ -z "${rate_limit_seen:-}" ] || : >"$rate_limit_seen"
+}
+
 # A refusal after a read GitHub rate-limited (gh() below noted it, even where the caller
 # discarded its stderr) is the rate limit's: say so, with the reset time, and exit 75.
 rate_limit_caused() {
@@ -553,6 +558,7 @@ graphql_workflow_response() {
   fi
   workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
   echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
+  fallback_answered
   return 0
 }
 graphql_check_runs_response() {
@@ -665,6 +671,7 @@ if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ]; then
       refuse "not green: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry the exact-head check'
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
   fi
   if grep -qE '\.(swift|m|mm|h|c|cpp|xcconfig|plist|entitlements|xcstrings)$|\.xcodeproj/|^(Sources|Packages|cmuxTests|cmuxUITests|ghostty|vendor)/|^Package\.(swift|resolved)$' <<<"$files"; then
     needs_app_compile=1
@@ -677,6 +684,7 @@ if ! check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100"
       'restore GitHub API access or GraphQL access, then retry the exact-head check'
   fi
   echo "note: used GraphQL fallback to inspect check runs for $sha" >&2
+  fallback_answered
 fi
 if ! runs=$(jq -r '
   (map(.check_runs) | add)
@@ -867,6 +875,7 @@ if [ "$has_ci" -eq 0 ]; then
       refuse "not green: cannot read status contexts for $sha" 'restore GitHub API access or GraphQL access, then retry'
     fi
     echo "note: used GraphQL fallback to inspect legacy status contexts for $sha" >&2
+    fallback_answered
   fi
   if ! statuses=$(jq -r '
     (add // []) | sort_by(.context, .id) | group_by(.context)[] | last
@@ -1016,6 +1025,7 @@ fast_gate() {
         'restore GitHub API access or GraphQL access, then retry the exact-head check'
     fi
     echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+    fallback_answered
   fi
   # The gate keys on job names, so it reads the workflows that name them on the exact
   # head and refuses when one is gone. An unreadable one refuses (fail closed).
@@ -1123,6 +1133,7 @@ if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q 
     refuse "not green: cannot read the diff for $ref" 'restore GitHub API access or provide a verified cmux checkout for Git fallback'
   fi
   echo "note: used verified Git fallback to inspect the diff for $ref" >&2
+  fallback_answered
 fi
 if grep -qE '^\+(<<<<<<<|>>>>>>>|=======$)' <<<"$patches"; then
   refuse \
@@ -1139,6 +1150,7 @@ if ! changed=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q 
     refuse "not merged: cannot list changed files for $ref" 'restore GitHub API access or GraphQL access, then retry'
   fi
   echo "note: used GraphQL fallback to inspect changed files for $ref" >&2
+  fallback_answered
 fi
 freeze_args=(check --repo "$repo" --pr "$num" --base "$base")
 # Tests hand the checker recorded issues and events. GH_MERGE_GREEN_TEST left set
