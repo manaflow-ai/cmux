@@ -49,6 +49,12 @@ public struct BackdropSelectionSetting: Sendable {
         return nil
     }
 
+    /// The key `appearance.background` replaced (`appearance.backdropArt`, bundled art only),
+    /// which still applies while the new key is absent; nil for any other path.
+    static func legacyPath(for path: [String]) -> [String]? {
+        path == BackdropSelectionSetting().configPath ? BackdropArtSetting().configPath : nil
+    }
+
     /// Parses the new key and accepts the legacy bundled-art key.
     func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> BackdropSelection? {
         if let value = root.value(at: configPath) {
