@@ -26,6 +26,11 @@ package actor CloudTeamScope {
         package let refreshAuthority: @Sendable () async throws -> Snapshot
         package let reselectAuthority: @Sendable () async throws -> Snapshot
         let nativeContext: @Sendable () async throws -> NativeInstallContext
+        let installGeneration: UInt64
+    }
+    package struct Binding: Sendable {
+        package let snapshot: @Sendable () async throws -> Snapshot
+        package let reselect: @Sendable () async throws -> Snapshot
     }
     package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
 
@@ -45,6 +50,25 @@ package actor CloudTeamScope {
         // This binds the install only; no Cloud operation uses the personal token as a fallback.
         let context = try await identity.accountContext()
         return try await snapshot(selected, context: context)
+    }
+
+    /// Retain the signed-in record before a listing or authority read can fail; retrying cannot re-register it.
+    package func bind() async throws -> Binding {
+        let selected = try await selection(), context = try await identity.boundAccountContext()
+        try await check(selected, context)
+        return Binding(snapshot: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.snapshot(selected, context: context)
+        }, reselect: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.reselect(context)
+        })
+    }
+
+    private func reselect(_ context: NativeInstallContext) async throws -> Snapshot {
+        let next = try await selection()
+        guard next.account == context.account else { throw Failure.changed }
+        return try await snapshot(next, context: context)
     }
 
     /// Background authority reconciliation retains the old install and picker selection, without registration recovery.
@@ -108,9 +132,7 @@ package actor CloudTeamScope {
             return try await self.snapshot(selected, context: context)
         }, reselectAuthority: { [weak self] in
             guard let self else { throw Failure.changed }
-            let next = try await self.selection()
-            guard next.account == context.account else { throw Failure.changed }
-            return try await self.snapshot(next, context: context)
+            return try await self.reselect(context)
         }, nativeContext: { [weak self] in
             guard let self else { throw Failure.changed }
             try await self.check(selected, context)
@@ -119,7 +141,7 @@ package actor CloudTeamScope {
             return NativeInstallContext(account: context.account, user: context.user, install: context.install,
                 environment: context.environment, point: context.point, token: token, generation: context.generation,
                 secureStorage: context.secureStorage)
-        })
+        }, installGeneration: context.generation)
     }
 
     package func token() async throws -> String {

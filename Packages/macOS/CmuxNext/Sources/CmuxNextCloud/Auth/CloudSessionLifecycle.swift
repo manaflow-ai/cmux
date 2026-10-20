@@ -56,16 +56,16 @@ package final class CloudSessionLifecycle {
     /// Policy changes retry startup without retiring an unchanged install or its enrollment.
     package func refresh(_ value: AuthenticatedSessionIdentity?) -> Task<Void, Never> {
         if !stopped, !suspended, let value, current(value) {
-            if desired != value { requestFence() }
+            requestFence()
             desired = value; needsStart = true
         }
         return schedule()
     }
 
     /// Reconciles changed authority without retiring an unchanged account's install.
-    package func authorityChanged(_ value: AuthenticatedSessionIdentity) -> Task<Void, Never> {
+    package func authorityChanged(_ value: AuthenticatedSessionIdentity, restart: Bool = true) -> Task<Void, Never> {
         if !stopped, !suspended, identity == value, desired == value, current(value) {
-            needsStart = true
+            needsStart = needsStart || restart
             requestFence()
         }
         return schedule()

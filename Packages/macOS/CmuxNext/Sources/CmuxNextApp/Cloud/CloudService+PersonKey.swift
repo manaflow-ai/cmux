@@ -62,7 +62,8 @@ extension CloudService {
     /// The API Worker with the person's Stack session; the team is the install token's team claim
     /// (the team whose CloudDO holds the app server's machines).
     private func workerApprovalsRoute() -> ApprovalsRoute {
-        let owner = CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), scope: teamScope)
+        let observed = observedAuthority
+        let owner = CloudOwnerAPIClient(baseURL: FeedService.apiBaseURL(auth: auth), snapshot: { try await observed.snapshot() })
         return ApprovalsRoute(
             keyedStart: { machine, length, write in try await owner.acpmuxKeyedStart(machine, keyLineLength: length, writeKey: write) },
             personHolds: { machine, nonce in try await owner.acpmuxPersonHolds(machine, nonce: nonce) },
