@@ -58,6 +58,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/normalize-pbxproj.py",
             "scripts/lint_swift_namespaces.py",
             "scripts/swift_source_mask.py",
+            "scripts/web_lint_prepush.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -147,9 +148,10 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertNotIn("scripts/lint_swift_namespaces.py", hook)
 
     def test_default_install_does_not_enable_namespace_fix_hook(self):
+        # pre-push is installed for the web lint; the namespace fixer stays opt-in.
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse((Path(self.local_hooks_path()) / "pre-push").exists())
+        self.assertFalse((Path(self.local_hooks_path()) / "lint_swift_namespaces.py").exists())
 
     def test_installed_hooks_do_not_follow_checked_out_hook_changes(self):
         result = self.install()
@@ -250,6 +252,63 @@ class InstallGitHooksTests(unittest.TestCase):
     def run_pre_commit(self, env):
         hook = Path(self.local_hooks_path()) / "pre-commit"
         return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_pre_commit_registers_only_the_commits_own_tests(self):
+        """The base carried an unregistered test; the hook wrote it into whichever pull request
+        committed a test next, so unrelated pull requests conflicted on the registry (#21946)."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        workflow.write_text(
+            "name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+            "      - run: python3 tests/test_kept.py\n"
+            "      - run: python3 tests/test_base.py\n      - run: python3 tests/test_mine.py\n",
+            encoding="utf-8",
+        )
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text('version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n',
+                            encoding="utf-8")
+        for name in ("test_kept.py", "test_base.py"):
+            (self.repo / "tests" / name).write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        (self.repo / "tests/test_mine.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "tests/test_mine.py")
+        result = subprocess.run([str(Path(self.local_hooks_path()) / "pre-commit")], cwd=self.repo,
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = registry.read_text(encoding="utf-8")
+        self.assertIn('path = "tests/test_mine.py"', text)
+        self.assertNotIn("tests/test_base.py", text)
+
+    def test_pre_commit_registers_a_test_its_workflow_change_names(self):
+        """A commit that only adds a workflow line for an existing test registers that test, and
+        still not the base's other unregistered one (#21946)."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        base_workflow = ("name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+                         "      - run: python3 tests/test_kept.py\n      - run: python3 tests/test_base.py\n")
+        workflow.write_text(base_workflow, encoding="utf-8")
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text('version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n',
+                            encoding="utf-8")
+        for name in ("test_kept.py", "test_base.py", "test_mine.py"):
+            (self.repo / "tests" / name).write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        workflow.write_text(base_workflow + "      - run: python3 tests/test_mine.py\n", encoding="utf-8")
+        self.git("add", ".github/workflows/ci-guards.yml")
+        result = subprocess.run([str(Path(self.local_hooks_path()) / "pre-commit")], cwd=self.repo,
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        text = registry.read_text(encoding="utf-8")
+        self.assertIn('path = "tests/test_mine.py"', text)
+        self.assertNotIn("tests/test_base.py", text)
 
     def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
         self.assertEqual(self.install().returncode, 0)

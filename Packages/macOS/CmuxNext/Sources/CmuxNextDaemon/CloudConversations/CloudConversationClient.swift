@@ -16,6 +16,8 @@ public protocol CloudConversationCommands: Sendable {
     func requestLive(_ conversation: String) async throws
     /// `cloud-conversation-run`: the steps of a Cloud Chief's run (nil: no such read).
     func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
+    /// `cloud-requests-list`: the account's open message requests.
+    func messageRequests() async throws -> [CloudMessageRequest]
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -101,6 +103,10 @@ public struct CloudConversationClient: CloudConversationCommands {
         _ = try await local(CloudConversationLiveRequest(conversation: conversation))
     }
 
+    public func messageRequests() async throws -> [CloudMessageRequest] {
+        try await network(CloudMessageRequestsRequest()).requests
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
@@ -116,6 +122,9 @@ public struct CloudConversationClient: CloudConversationCommands {
 }
 
 extension CloudConversationCommands {
+    /// Fakes without message requests: none.
+    public func messageRequests() async throws -> [CloudMessageRequest] { [] }
+
     /// Fakes and daemons without live frames: nothing to ask.
     public func requestLive(_ conversation: String) async throws {}
 

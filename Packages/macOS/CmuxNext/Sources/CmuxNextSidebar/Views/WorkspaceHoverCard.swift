@@ -19,6 +19,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// none and leaving a row cancels its pending card. Once a card shows,
     /// moving down the list slides it over at once.
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// Lawrence 2026-10-19: "We need it to instantly disappear with fade opacity when I mouse
+    /// out." The card touches its row, so it needs no grace for the pointer to travel to it:
+    /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
+    /// in the list (`hoverCardBridges`) holds it for the reshow window, so the next row slides
+    /// it over instead of hiding and reshowing it.
+    var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
@@ -65,7 +71,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
               let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
               let anchor = list.hoverCardAnchor(for: id)
         else { return nil }
-        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay), anchor: anchor)
+        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
+                            anchor: anchor)
+    }
+
+    /// A point in the visible list on no row (a header, a gap between rows).
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
+        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor else { return false }
+        return list.visibleRect.contains(list.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
@@ -336,6 +349,12 @@ final class WorkspaceHoverCardView: NSView {
             row.label.lineBreakMode = fact.lines > 1 ? .byWordWrapping : .byTruncatingMiddle
             row.label.preferredMaxLayoutWidth = fact.lines > 1 ? Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 : 0
         }
+        // The last reply sits a step apart from the metadata above it, like the stack's own gap.
+        for (index, row) in factViews.enumerated() {
+            guard let view = row.icon.superview else { continue }
+            let next = index + 1 < content.facts.count ? content.facts[index + 1] : nil
+            factsStack.setCustomSpacing(next?.kind == WorkspaceHoverCardContent.Fact.lastReplyKind ? Metrics.space3 : NSStackView.useDefaultSpacing, after: view)
+        }
         factsStack.isHidden = content.facts.isEmpty
         applyColors()
     }
@@ -454,8 +473,12 @@ extension WorkspaceHoverCardView {
             ageLabel.textColor = Palette.textSecondary
             activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
-            for row in factViews {
-                row.label.textColor = Palette.textPrimary
+            // A clear title, muted metadata, and what was said in the primary ink (Leo 2026-10-19,
+            // Claude desktop's session card); no fill of its own, the shared overlay glass shows.
+            let facts = content?.facts ?? []
+            for (index, row) in factViews.enumerated() {
+                let message = index < facts.count && facts[index].isMessage
+                row.label.textColor = message ? Palette.textPrimary : Palette.textSecondary
                 row.icon.contentTintColor = Palette.textSecondary
             }
             resourceLabel.textColor = Palette.textSecondary

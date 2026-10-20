@@ -46,9 +46,9 @@ Every action in the app's registry is also a verb: `cmux action list --noun work
 
 ## Settings
 
-cmux-owned settings live in `~/.config/cmux/cmux.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings unset PATH` read and write it. `cmux settings reload-configuration` reloads it, and `cmux settings open-json` opens it.
+cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings validate` checks it without the app. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.
 
-Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it.
+Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font family, font size and theme default to Ghostty config and can be overridden in cmux settings.
 
 ## Deep-dive references
 
@@ -59,5 +59,5 @@ Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`,
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
-| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits |
+| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |
