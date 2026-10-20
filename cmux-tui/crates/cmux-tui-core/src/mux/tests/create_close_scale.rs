@@ -147,8 +147,7 @@ pub(super) fn grow_to(mux: &Arc<Mux>, target: usize) {
 }
 
 fn report_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../.build/artifacts/create-close-bench.txt")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build/artifacts/create-close-bench.txt")
 }
 
 #[test]
