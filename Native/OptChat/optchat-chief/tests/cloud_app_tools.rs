@@ -185,3 +185,18 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
         "the last known app tools must stay denied: {no_app:?}"
     );
 }
+
+/// A turn's app requests name the Home chat as their caller
+/// (`CMUX_CALLER_HOME_CHAT`), so its tabs open beside the Chief's chat when
+/// no target is given; a subagent (the pinned subset) does not.
+#[test]
+fn a_turn_names_the_home_chat_and_a_subagent_does_not() {
+    let env = turn_env(&[(REMOTE_APP_KEY, "/home/chief/mac-app.sock")]);
+    assert_eq!(
+        env.get(optchat_chief::cmux_env::HOME_CHAT_KEY)
+            .map(String::as_str),
+        Some("1")
+    );
+    let pinned = optchat_chief::cmux_env::pinned_subset(&env);
+    assert_eq!(pinned.get(optchat_chief::cmux_env::HOME_CHAT_KEY), None);
+}

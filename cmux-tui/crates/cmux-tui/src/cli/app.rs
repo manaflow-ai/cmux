@@ -918,8 +918,19 @@ const CALLER_METHODS: [&str; 4] =
 /// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
 pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value> {
     let set = |key: &str| env(key).filter(|value| !value.is_empty());
+    // A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host): the
+    // app does not know a turn's agent session, so it also names the Home
+    // chat, where the app places the turn's tabs when the session is unknown.
+    let home_chat = set("CMUX_CALLER_HOME_CHAT").as_deref() == Some("1");
     if let Some(session) = set("CMUX_AGENT_SESSION") {
-        return Some(json!({ "agent_session": session }));
+        return Some(if home_chat {
+            json!({ "agent_session": session, "home_chat": true })
+        } else {
+            json!({ "agent_session": session })
+        });
+    }
+    if home_chat {
+        return Some(json!({ "home_chat": true }));
     }
     set("CMUX_TUI_TERMINAL_ID").map(|terminal| json!({ "terminal_id": terminal }))
 }

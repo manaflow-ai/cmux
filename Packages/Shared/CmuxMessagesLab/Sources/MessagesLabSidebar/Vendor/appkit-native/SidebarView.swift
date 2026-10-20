@@ -1310,6 +1310,20 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         }
     }
 
+    /// cmux: the person opened `id` (a plain click, Return, an accessibility press): it is
+    /// selected, then the delegate's `didOpen` moves the keyboard into it. An extra result has
+    /// its own start (`didSelectSearchResult`).
+    func open(_ id: ConversationID) {
+        highlight(id)
+        guard !Self.isExtra(id), highlightID == id else { return }
+        delegate?.sidebar(self, didOpen: id)
+    }
+
+    /// cmux: Return in the list opens the highlighted conversation (none: nothing).
+    func openHighlighted() {
+        if let id = highlightID { open(id) }
+    }
+
     /// Up/down: pinned tiles in order, then the rows.
     func moveSelection(_ delta: Int) {
         let order = pinnedItems.count + rowItems.count
@@ -1517,6 +1531,8 @@ final class SidebarController: NSViewController, NSSearchFieldDelegate, NSMenuDe
         case #selector(NSResponder.insertNewline(_:)):
             if highlightID.map({ position(of: $0) == nil }) ?? true { moveSelection(1) } // no force unwrap
             view.window?.makeFirstResponder(document)
+            // cmux: Return opens the highlighted conversation (its message field takes the keyboard).
+            if let id = highlightID { open(id) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             searchField.stringValue = ""
@@ -1704,7 +1720,7 @@ final class SidebarAccessibilityRow: NSAccessibilityElement {
     weak var controller: SidebarController?
     let id: ConversationID
     init(controller: SidebarController, id: ConversationID) { self.controller = controller; self.id = id; super.init() }
-    override func accessibilityPerformPress() -> Bool { controller?.highlight(id); return true }
+    override func accessibilityPerformPress() -> Bool { controller?.open(id); return true } // cmux: a press opens
     override func isAccessibilityElement() -> Bool { true }
     /// On screen, from the list's own (flipped) geometry at the time of the call: a frame in
     /// parent space came out mirrored on the list's height (dogfood 2026-10-08: rows at y 28590).
@@ -1809,7 +1825,11 @@ final class SidebarDocumentView: NSView {
         c.highlight(s.id, reveal: false)
         // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift: reorder, pin and unpin
         // by drag, Escape cancels), a superset of MessagesLab's tile reorder (tileDragBegan).
-        c.trackPinDrag(from: event, in: self)
+        let dragged = c.trackPinDrag(from: event, in: self)
+        // cmux: a plain click that did not drag opens the conversation (the selected one too), so
+        // its message field takes the keyboard (Lawrence 2026-10-19, u2611). Command-, Shift- and
+        // Control-clicks keep their old effect, the selection only.
+        if !dragged, event.modifierFlags.isDisjoint(with: [.command, .shift, .control]) { c.open(s.id) }
     }
     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
@@ -1822,6 +1842,8 @@ final class SidebarDocumentView: NSView {
         }
     }
     override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
+    /// cmux: Return opens the highlighted conversation (its message field takes the keyboard).
+    override func insertNewline(_ sender: Any?) { controller?.openHighlighted() }
     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
     /// Typing a letter in the list starts a search (as a source list's type-select would).
