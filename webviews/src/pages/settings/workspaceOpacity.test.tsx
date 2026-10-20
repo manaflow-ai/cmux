@@ -33,12 +33,14 @@ test("the slider shows over the workspace's own picture or the one it follows", 
   follows.page.unmount();
 });
 
-test("with no picture in this workspace there is no Opacity over Art slider", async () => {
+test("with this workspace's own No wallpaper there is no Opacity over Art slider", async () => {
   const none = await thisWorkspace("starryNight", "none");
   expect(none.slider()).toBeNull();
   none.page.unmount();
+  // Following All Workspaces' None, the window may still show its own picture (appearance.set
+  // scope=window), which the page does not see, so the slider stays.
   const followsNone = await thisWorkspace("none", null);
-  expect(followsNone.slider()).toBeNull();
+  expect(followsNone.slider()).not.toBeNull();
   followsNone.page.unmount();
 });
 

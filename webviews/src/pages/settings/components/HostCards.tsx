@@ -126,9 +126,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const background = rows.get(BACKGROUND_KEY);
   const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
   const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
-  // A workspace's tint is over its picture (its own, or the one it follows): with none there is
-  // nothing for Opacity over Art to change.
-  const ownPicture = own !== null && (own.value ?? appCurrent) !== "none";
+  // A workspace's tint is over its picture: with its own No wallpaper there is nothing for Opacity
+  // over Art to change. A workspace that follows may still show a picture the page does not see
+  // (a window's own, `appearance.set scope=window`), so it keeps the slider.
+  const ownPicture = own !== null && own.value !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const choose = async (id: string) => {
     cancelDwell();
