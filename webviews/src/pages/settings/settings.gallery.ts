@@ -197,23 +197,6 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 10-19: "the knob, the slider still doesn't work". Over a picture the Opacity slider starts
-  // at the legibility floor the app reports (62% here, on the grid at 65%) and says why.
-  "backdrops-opacity-floor": variant("appearance", {
-    options: { values: { "appearance.background": "starryNight" } },
-    host: {
-      ...host,
-      derived: { "appearance.backgroundOpacity": 0.7 },
-      derived_min: { "appearance.backgroundOpacity": 0.62 },
-      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
-    },
-    backdropImages: { starryNight: VAN_GOGH_STARRY_NIGHT },
-    steps: [
-      wait('[data-card="backdrop"]'),
-      { selector: '[data-card="backdrop"] input[type="range"]', action: "focus" },
-    ],
-    note: "Over a picture the Opacity slider's travel is 65% to 95%, every step of which changes the window; the summary says why it starts at 65%.",
-  }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
     host: {
