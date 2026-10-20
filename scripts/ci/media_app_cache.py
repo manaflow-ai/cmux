@@ -40,6 +40,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -49,10 +50,13 @@ from pathlib import Path
 MANIFEST = "media-app.json"
 API = "https://api.github.com"
 WORKFLOW = ".github/workflows/cmux-next-media.yml"
-# The newest two live artifacts are tried; each download is capped so a slow
-# blob store never costs more than the ~6 min build it replaces.
+# The newest two live artifacts are tried. Their downloads share one budget
+# and curl never retries, so a slow blob store costs at most DOWNLOAD_SECONDS
+# in all, less than the ~6 min build it replaces. A download is not started
+# with under MIN_DOWNLOAD_SECONDS left (the zip is ~364 MB).
 TRIES = 2
 DOWNLOAD_SECONDS = 240
+MIN_DOWNLOAD_SECONDS = 30
 
 
 def xcode_build() -> str:
@@ -120,12 +124,12 @@ class GitHubApi:
     def run(self, repo: str, run_id: int) -> dict:
         return json.loads(self._get(f"{API}/repos/{repo}/actions/runs/{int(run_id)}"))
 
-    def download(self, url: str, dest: Path) -> None:
+    def download(self, url: str, dest: Path, seconds: int) -> None:
         # The zip URL redirects to blob storage, which must not get the token:
         # curl drops the Authorization header on a redirect to another host.
         # The header goes in on stdin, not argv, where other jobs could read it.
         subprocess.run(
-            ["curl", "-fsSL", "--retry", "1", "--max-time", str(DOWNLOAD_SECONDS), "-K", "-", "-o", str(dest), url],
+            ["curl", "-fsSL", "--retry", "0", "--max-time", str(int(seconds)), "-K", "-", "-o", str(dest), url],
             input=f'header = "Authorization: Bearer {self.token}"\n', text=True, check=True,
         )
 
@@ -157,7 +161,7 @@ def trusted(api, repo: str, art: dict) -> str:
 
 
 def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path, api,
-          verify: bool = True) -> Path | None:
+          verify: bool = True, clock=time.monotonic) -> Path | None:
     name = artifact_name(tag, sha, xcode, recipe)
     try:
         candidates = [a for a in api.list_artifacts(repo, name) if a.get("name") == name and not a.get("expired")]
@@ -178,7 +182,12 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
         print(f"app cache: {dest} has package frameworks from another build ({', '.join(beside)}); building instead")
         return None
     dest.mkdir(parents=True, exist_ok=True)
+    deadline = clock() + DOWNLOAD_SECONDS
     for art in candidates[:TRIES]:
+        left = int(deadline - clock())
+        if left < MIN_DOWNLOAD_SECONDS:
+            print(f"app cache: {left}s of the {DOWNLOAD_SECONDS}s download budget left; building instead")
+            break
         scratch = Path(tempfile.mkdtemp(prefix=".media-app-", dir=dest))
         try:
             why = trusted(api, repo, art)
@@ -186,7 +195,7 @@ def fetch(*, repo: str, tag: str, sha: str, xcode: str, recipe: str, dest: Path,
                 print(f"app cache: artifact {art.get('id')} refused: {why}", file=sys.stderr)
                 continue
             zipped = scratch / "app.zip"
-            api.download(art["archive_download_url"], zipped)
+            api.download(art["archive_download_url"], zipped, left)
             digest = str(art.get("digest") or "")
             hasher = hashlib.sha256()
             with zipped.open("rb") as blob:

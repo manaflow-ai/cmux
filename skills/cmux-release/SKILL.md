@@ -18,7 +18,7 @@ Feature PRs don't edit `CHANGELOG.md`. Each PR description has a `## Changelog` 
 
 The release then folds any leftover `## Unreleased` entries into the new version section and removes that heading.
 
-The docs changelog page at `web/app/[locale]/(landing)/docs/changelog/page.tsx` renders from `CHANGELOG.md`, so there is no separate docs changelog source to update.
+The docs changelog page at `web/app/[locale]/(landing)/docs/changelog/page.tsx` renders from `CHANGELOG.md`. Its headline cards live in `web/app/[locale]/(landing)/docs/changelog/changelog-media.ts`: add an entry keyed by the new version.
 
 ## Version bumping
 

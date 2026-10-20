@@ -7,8 +7,9 @@
 # A warm tag's DerivedData keeps the explicit module Xcode precompiled from
 # GhosttyNextKit's ghostty.h and does not rebuild it for a new pin ("ghostty.h
 # has been modified since the module file", job 117892119256). The stamp
-# clears those modules only when a binary pin changed since the tag's last
-# good build.
+# clears the dir's build state (the whole Build dir: clearing only the modules
+# left a build description pointing at them, job 118285853270) only when a
+# binary pin changed since the tag's last good build.
 set -euo pipefail
 dir="$1" tag="$2" log="$3" output="$4"
 stamp="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/media_module_cache_stamp.py"

@@ -10,6 +10,7 @@ import { usePaneLanguage, useT, type PaneLanguage, type Translate } from "../i18
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
+import { AgentTonesContext } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 
 /// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
@@ -127,8 +128,8 @@ export function SubagentGroupHeader({
   );
 }
 
-/// One subagent in an open group: its avatar with a status dot, name, state or current action
-/// with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
+/// One subagent in an open group: its avatar with a status dot, name (in the agent's color,
+/// agentTones.ts), state or current action with what it has spent (subagentProgress.ts), and time. `edge` rounds the list's first and last
 /// rows. A click opens its own view; a running one has a stop button beside it.
 export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const t = useT();
@@ -137,6 +138,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const pane = useContext(SubagentPaneContext);
   const open = pane ?? nav;
   const stop = useContext(SubagentStopContext);
+  const tones = useContext(AgentTonesContext);
   const agent = row.subagents?.[0];
   const now = useNow(agent ? running(agent) : false);
   if (!agent) return null;
@@ -158,7 +160,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     </>
   );
   const line = !open ? (
-    <div id={row.id} className="cv-subagent" data-edge={row.status}>
+    <div id={row.id} className="cv-subagent" data-edge={row.status} data-agent-tone={tones?.get(agent.id)}>
       {content}
     </div>
   ) : (
@@ -167,6 +169,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       id={row.id}
       className="cv-subagent"
       data-edge={row.status}
+      data-agent-tone={tones?.get(agent.id)}
       aria-label={t("subagents.open", { name: agent.name })}
       onClick={() => open(agent.id)}
     >

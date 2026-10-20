@@ -361,6 +361,7 @@ function rawChief(c: HomeChief): Record<string, unknown> {
     rev: c.rev,
     created_at: c.createdAt,
     avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+    ...(c.engine ? { engine: c.engine } : {}),
   };
 }
 
@@ -781,6 +782,9 @@ export class MockHomeProvider implements PageClient {
           instructions: String(params.instructions ?? ""),
           ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
           ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+          ...(typeof params.harness === "string" && params.harness !== "default"
+            ? { engine: { harness: params.harness } }
+            : {}),
         });
         return { value: rawChief(made) } as R;
       }

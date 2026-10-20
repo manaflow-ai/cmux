@@ -55,6 +55,9 @@ class FakeGitHub:
         self.blobs: dict[str, bytes] = {}
         self.runs: dict[int, dict] = {}
         self.requests: list[str] = []
+        self.budgets: list[int] = []
+        self.clock = 0.0
+        self.download_takes = 0.0
 
     def add(self, name: str, tar_path: Path, expired: bool = False, created: str = "2026-10-19T20:00:00Z",
             fork: bool = False, workflow: str = ".github/workflows/cmux-next-media.yml",
@@ -81,8 +84,10 @@ class FakeGitHub:
         self.requests.append(f"list {repo} {name}")
         return [a for a in self.artifacts if a["name"] == name]
 
-    def download(self, url: str, dest: Path) -> None:
+    def download(self, url: str, dest: Path, seconds: int) -> None:
         self.requests.append(f"download {url}")
+        self.budgets.append(seconds)
+        self.clock += self.download_takes
         dest.write_bytes(self.blobs[url])
 
 
@@ -104,7 +109,8 @@ class CacheCase(unittest.TestCase):
 
     def fetch(self, dest: Path, tag: str = TAG, sha: str = SHA, xcode: str = XCODE):
         return media_app_cache.fetch(
-            repo="o/r", tag=tag, sha=sha, xcode=xcode, recipe=RECIPE, dest=dest, api=self.gh, verify=False
+            repo="o/r", tag=tag, sha=sha, xcode=xcode, recipe=RECIPE, dest=dest, api=self.gh, verify=False,
+            clock=lambda: self.gh.clock,
         )
 
 
@@ -184,6 +190,39 @@ class ProvenanceTest(CacheCase):
     def test_a_download_that_does_not_match_the_digest_is_refused(self) -> None:
         self.gh.add(self.name(), self.pack(), digest="sha256:" + "0" * 64)
         self.assertIsNone(self.fetch(self.tmp / "products"))
+
+
+class DownloadBudgetTest(CacheCase):
+    """Every download of one fetch shares one time budget, so a slow blob store
+    costs at most DOWNLOAD_SECONDS in all, never tries x curl retries x the cap."""
+
+    def test_a_slow_first_download_leaves_the_second_only_the_rest(self) -> None:
+        name = self.name()
+        self.gh.add(name, self.pack(), created="2026-10-19T19:00:00Z")
+        self.gh.add(name, self.pack(), created="2026-10-19T21:00:00Z", digest="sha256:" + "0" * 64)
+        self.gh.download_takes = 200
+        self.assertIsNotNone(self.fetch(self.tmp / "products"))
+        self.assertEqual(self.gh.budgets, [media_app_cache.DOWNLOAD_SECONDS, media_app_cache.DOWNLOAD_SECONDS - 200])
+
+    def test_no_download_starts_once_the_budget_is_nearly_spent(self) -> None:
+        name = self.name()
+        self.gh.add(name, self.pack(), created="2026-10-19T19:00:00Z")
+        self.gh.add(name, self.pack(), created="2026-10-19T21:00:00Z", digest="sha256:" + "0" * 64)
+        self.gh.download_takes = media_app_cache.DOWNLOAD_SECONDS - 10
+        self.assertIsNone(self.fetch(self.tmp / "products"))
+        self.assertEqual(len(self.gh.budgets), 1, "a second download started with 10 s left")
+
+    def test_curl_never_retries_and_stops_at_the_budget(self) -> None:
+        seen: list[list[str]] = []
+        real = media_app_cache.subprocess.run
+        media_app_cache.subprocess.run = lambda argv, **kw: seen.append(argv)
+        try:
+            media_app_cache.GitHubApi("t").download("https://x/zip", self.tmp / "z", 37)
+        finally:
+            media_app_cache.subprocess.run = real
+        argv = seen[0]
+        self.assertEqual(argv[argv.index("--retry") + 1], "0")
+        self.assertEqual(argv[argv.index("--max-time") + 1], "37")
 
 
 class PackageFrameworksTest(CacheCase):
