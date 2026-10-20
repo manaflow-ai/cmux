@@ -240,7 +240,9 @@ extension SidebarListViewComponents {
             view.configure(tab, row: row)
         case let (.group(id), view as GroupHeaderRowView):
             guard let group = groups[id] else { return }
-            view.configure(group, row: row, animated: animated)
+            var details = model.groupHeaderDetails
+            details.otherStates = model.detailedStatus
+            view.configure(group, row: row, details: details, animated: animated)
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
