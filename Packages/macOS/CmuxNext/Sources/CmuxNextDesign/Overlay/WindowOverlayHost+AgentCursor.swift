@@ -119,7 +119,11 @@ final class AgentCursorCarrierView: NSView {
     }
 
     override func accessibilityChildren() -> [Any]? {
-        (tags?.agentCursorTags() ?? []).map { AgentCursorTagElement($0, carrier: self) }
+        (tags?.agentCursorTags() ?? []).map { tag in
+            AgentCursorTagElement(tag, frame: localRect(tag.frame), parent: self) { [weak self] in
+                self?.tags?.pressAgentCursorTag(tag.id)
+            }
+        }
     }
 
     override func setFrameSize(_ newSize: NSSize) {

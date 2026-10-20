@@ -4,7 +4,7 @@ import Foundation
 /// ("a201 · cursor-gallery", "Chief · Home"; user, 2026-10-20). The place is
 /// cut with "…" to keep the tag at most ``maxLength`` characters; the driver
 /// is cut only past ``maxDriverLength``.
-public struct AgentCursorTagLabel: Sendable, Equatable {
+nonisolated public struct AgentCursorTagLabel: Sendable, Equatable {
     /// The longest tag text, in characters.
     public static let maxLength = 36
     /// The longest driver name, in characters.

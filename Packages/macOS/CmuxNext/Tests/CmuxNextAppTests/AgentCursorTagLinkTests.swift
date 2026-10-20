@@ -23,14 +23,20 @@ struct AgentCursorTagLinkTests {
     static let agent = BrowserPageAgentOrigin(isChief: false, workspaceID: "ws_1", workspaceName: "cursor-gallery", tabID: "tab_term")
     static let chief = BrowserPageAgentOrigin(isChief: true, workspaceID: "ws_home", workspaceName: "Home", tabID: "tab_chat")
 
+    struct Case: Sendable {
+        var driver: String
+        var place: String?
+        var text: String
+    }
+
     @Test(arguments: [
-        ("a201", "cursor-gallery", "a201 · cursor-gallery"),
-        ("Chief", "Home", "Chief · Home"),
-        ("Claude", nil, "Claude"),
-        ("Claude", "  ", "Claude"),
-    ] as [(String, String?, String)])
-    func theTagSaysWhoDrivesAndWhere(driver: String, place: String?, text: String) {
-        #expect(AgentCursorTagLabel(driver: driver, place: place).text == text)
+        Case(driver: "a201", place: "cursor-gallery", text: "a201 · cursor-gallery"),
+        Case(driver: "Chief", place: "Home", text: "Chief · Home"),
+        Case(driver: "Claude", place: nil, text: "Claude"),
+        Case(driver: "Claude", place: "  ", text: "Claude"),
+    ])
+    func theTagSaysWhoDrivesAndWhere(_ given: Case) {
+        #expect(AgentCursorTagLabel(driver: given.driver, place: given.place).text == given.text)
     }
 
     @Test func aLongPlaceIsCutNeverTheDriver() {

@@ -2,7 +2,7 @@ public import CoreGraphics
 
 /// One agent cursor name tag a person can click (user, 2026-10-20: the tag
 /// names who drives and where, and a click goes there).
-public struct AgentCursorTagTarget: Sendable, Equatable {
+nonisolated public struct AgentCursorTagTarget: Sendable, Equatable {
     /// The cursor's session; ``AgentCursorTagSource/pressAgentCursorTag(_:)`` gets it back.
     public var id: String
     /// The tag's frame in `WindowOverlayHost.agentCursorLayer` coordinates (y-down).

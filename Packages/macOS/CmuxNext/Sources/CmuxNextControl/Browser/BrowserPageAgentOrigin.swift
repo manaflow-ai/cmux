@@ -31,7 +31,7 @@ public struct BrowserPageAgentOrigin: Sendable, Equatable {
     /// The origin of a request's `caller` in `topology`; nil when the request
     /// names no caller (or a malformed one) or the topology does not show it.
     static func resolve(params: [String: JSONValue], topology: ControlTopology) -> Self? {
-        guard let caller = (try? ControlCaller(params)) ?? nil,
+        guard let caller = try? ControlCaller(params),
               let location = ControlCallerLocation.resolve(caller, in: topology) else { return nil }
         let workspace = location.workspace
         let title = workspace.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

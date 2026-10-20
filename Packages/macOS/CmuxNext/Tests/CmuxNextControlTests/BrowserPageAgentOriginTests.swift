@@ -16,7 +16,7 @@ import Testing
         let engine = Engine(BrowserPageAgentInputTests.field)
         BrowserPageService(engine: engine).install(on: router)
         var snapshot = HomeChatCallerTests.snapshot()
-        let index = try! #require(snapshot.topology.workspaces.firstIndex { $0.id == "ws-1" })
+        let index = snapshot.topology.workspaces.firstIndex { $0.id == "ws-1" }!
         snapshot.topology.workspaces[index].title = "cursor-gallery"
         snapshot.topology.workspaces[index].screens[0].panes[0].tabs[0].terminalID = "term-7"
         let page = ControlTabInfo(id: "tab_0123abcd", surface: "12", kind: "browser", title: "Form", url: "https://example.com/")

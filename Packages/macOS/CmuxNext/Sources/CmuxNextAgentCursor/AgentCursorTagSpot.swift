@@ -1,7 +1,7 @@
 public import CoreGraphics
 
 /// Where one agent cursor's name tag is now (``AgentCursorLayerHost/tagSpots()``).
-public struct AgentCursorTagSpot: Sendable, Equatable {
+nonisolated public struct AgentCursorTagSpot: Sendable, Equatable {
     /// The cursor's session.
     public let session: String
     /// The tag's frame in the host layer's coordinates (y-down).
