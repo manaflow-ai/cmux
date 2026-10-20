@@ -28,6 +28,7 @@ mod shutdown;
 mod tests;
 mod tui;
 mod turn;
+mod usage;
 
 use std::io::IsTerminal;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -177,6 +178,9 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);
+    }
+    if args.first().is_some_and(|word| word == "usage") {
+        return usage::run(&global, &args[1..]);
     }
     let args = match parse_args(args) {
         Ok(args) => args,

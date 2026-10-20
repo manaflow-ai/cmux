@@ -35,6 +35,10 @@ export const L = {
   findMatchCase: "find.matchCase",
   findCount: "find.count",
   findNoMatches: "find.noMatches",
+  findReplaceWith: "find.replaceWith",
+  findReplace: "find.replace",
+  findReplaceAll: "find.replaceAll",
+  findToggleReplace: "find.toggleReplace",
   editorLabel: "editor.label",
 } as const;
 

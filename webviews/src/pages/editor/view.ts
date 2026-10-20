@@ -257,13 +257,14 @@ export interface ViewCallbacks {
 }
 
 /** The page commands the shared find pill runs. */
-export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind";
+export type FindCommand = "find" | "findNext" | "findPrevious" | "useSelectionForFind" | "hideFind" | "replace";
 const FIND_COMMANDS: ReadonlySet<string> = new Set<FindCommand>([
   "find",
   "findNext",
   "findPrevious",
   "useSelectionForFind",
   "hideFind",
+  "replace",
 ]);
 
 export interface ViewStatus {
@@ -379,6 +380,7 @@ export class MonacoView implements CodeView {
           ["findNext", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyG],
           ["findPrevious", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyG],
           ["useSelectionForFind", monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyE],
+          ["replace", monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
         ] as const
       ).map(([command, key]) =>
         this.editor.addAction({
@@ -722,6 +724,17 @@ export class MonacoView implements CodeView {
         this.editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Smooth);
       },
       focus: () => this.editor.focus(),
+      readOnly: () => this.documentInfo?.readOnly ?? true,
+      replace: (ranges, text) => {
+        if (!this.model || this.documentInfo?.readOnly) return;
+        // One undo step, as Monaco's Replace All.
+        this.editor.pushUndoStop();
+        this.editor.executeEdits(
+          "cmux.find.replace",
+          ranges.map((range) => ({ range, text, forceMoveMarkers: true })),
+        );
+        this.editor.pushUndoStop();
+      },
     };
   }
 
