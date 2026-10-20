@@ -16,4 +16,3 @@ public nonisolated enum AgentPaneThoughtStyle: String, Sendable, CaseIterable, T
         }
     }
 }
-

@@ -20,6 +20,5 @@ enum SidebarHandlers {
         for (feature, ids) in features {
             for id in ids { registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature)) }
         }
-
     }
 }
