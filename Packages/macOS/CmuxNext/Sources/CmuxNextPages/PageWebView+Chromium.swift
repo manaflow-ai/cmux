@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
@@ -83,7 +84,7 @@ extension PageWebView {
 
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, url: URL) async {
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: Self.chromiumFireAndForget)
-        let session = PageChromiumSession(page: page, bridge: bridge)
+        let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         do {
             for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: Self.chromiumFireAndForget,
@@ -101,10 +102,7 @@ extension PageWebView {
         }
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
-        bridge.onFirstMessage = { [weak session] in
-            session?.deadline?.cancel()
-            session?.deadline = nil
-        }
+        bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
         inputReadiness.inserter = { [weak page] text in
             guard let page else { return false }
             return await Self.insert(text, in: page)
@@ -119,11 +117,10 @@ extension PageWebView {
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
         page.load(url)
         let wait = chromiumDeadline
-        let sleep = chromiumSleep
-        // concurrency-allow: a bounded, cancellable deadline; the first message cancels it.
-        session.deadline = Task { [weak self] in
-            guard (try? await sleep(wait)) != nil, !Task.isCancelled else { return }
-            self?.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
+        // The page's first message cancels the deadline (onFirstMessage); ending the session too.
+        session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in
+            guard let self, let session, self.chromiumSession === session else { return }
+            self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
         if shouldFocusOnAttach == false, window?.firstResponder === webView { focusPage() }
     }
