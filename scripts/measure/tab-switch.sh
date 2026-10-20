@@ -20,6 +20,11 @@ if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
   ./scripts/download-prebuilt-ghosttykit.sh
 fi
 out="$(mktemp -d)"
+# The web bundles need the bun webviews/package.json pins; a bench host's shared ~/.bun may hold
+# another version (cmux20-bench: none). The step gets its own checked copy, first on PATH.
+RUNNER_TEMP="$out" GITHUB_PATH="$out/bun-path" ./scripts/cmux-next/private-bun.sh
+PATH="$(tail -n 1 "$out/bun-path"):$PATH"
+export PATH
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
