@@ -36,8 +36,14 @@ public final class LayoutRootView: NSView {
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
-    /// What scroll-to-focus reads besides the model (`LayoutRootView+ScrollFocus`).
+    /// What focus-follows-mouse reads besides the model (`LayoutRootView+ScrollFocus`).
     let scrollFocusSignals: ScrollFocusSignals
+    /// The pane the pointer was last over (`layout.focusFollowsMouse` hover): focus moves
+    /// only when the pointer enters another pane, so a keyboard move is not undone by a
+    /// small pointer twitch inside the pane it left.
+    var hoveredPane: PaneID?
+    /// Delivers pointer moves for focus-follows-mouse (owner: self).
+    private var hoverTrackingArea: NSTrackingArea?
     var dragTab: TabID?
     /// The drop preview's rect for the current tab drag target, in screen
     /// coordinates; nil when nothing is highlighted. The drag session flies
@@ -95,7 +101,7 @@ public final class LayoutRootView: NSView {
     /// `contentProvider` is held weakly; the App keeps it alive.
     /// `scrollbarClock` runs the strip scrollbar's `auto` fade-out deadline;
     /// tests inject a manual clock.
-    /// `scrollFocusSignals` feeds scroll-to-focus (`layout.focusPaneOnScroll`);
+    /// `scrollFocusSignals` feeds focus-follows-mouse (`layout.focusFollowsMouse`);
     /// tests inject fixed values.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
@@ -142,6 +148,20 @@ public final class LayoutRootView: NSView {
     }
 
     override public var isFlipped: Bool { true }
+
+    override public func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override public func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard event.window === window else { return }
+        focusPaneForPointerHover(at: event.locationInWindow)
+    }
 
     // MARK: Public API
 
