@@ -43,7 +43,7 @@ fn reply_script(make_reply: impl FnOnce(&Path) -> String + Send + 'static) -> Sc
             .split_once("<cmux-media-outbox>")
             .and_then(|(_, tail)| tail.split_once("</cmux-media-outbox>"))
             .map(|(path, _)| std::path::PathBuf::from(path.trim()))
-            .expect("the turn names its media outbox");
+            .unwrap_or_else(|| panic!("the turn names its media outbox; prompt: {prompt}"));
         let text = make_reply.lock().unwrap().take().unwrap()(&outbox);
         vec![
             json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
