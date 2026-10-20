@@ -38,6 +38,8 @@ pub mod overlay_addr;
 pub mod owner_session;
 pub mod pairing;
 pub mod registration;
+#[cfg(target_os = "linux")]
+pub mod root_bootstrap;
 pub mod stamp;
 pub mod stream_lease;
 pub mod token;

@@ -35,6 +35,39 @@ mod linux {
     #[ignore = "private re-exec fixture; not a standalone test"]
     fn receiver_root_fixture() {
         let Some(mode) = std::env::var_os(FIXTURE) else { return };
+        if mode == "fd_probe" {
+            let mut kind = 0_i32;
+            let mut size = size_of_val(&kind) as libc::socklen_t;
+            // SAFETY: correctly sized live output buffers; fd0 may be closed.
+            let result = unsafe {
+                libc::getsockopt(
+                    0,
+                    libc::SOL_SOCKET,
+                    libc::SO_TYPE,
+                    (&raw mut kind).cast(),
+                    &raw mut size,
+                )
+            };
+            assert!(result != 0 || kind != libc::SOCK_STREAM, "private stdin leaked across exec");
+            return;
+        }
+        if mode == "transport" {
+            let daemon = cmux_link::root_bootstrap::Daemon::from_stdin()
+                .unwrap()
+                .expect("the spawner discarded its private root channel");
+            let probe = Command::new(std::env::current_exe().unwrap())
+                .args(["--ignored", "--exact", "linux::receiver_root_fixture"])
+                .env_clear()
+                .env(FIXTURE, "fd_probe")
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .status()
+                .unwrap();
+            assert!(probe.success());
+            daemon.wait().unwrap();
+            return;
+        }
         // SAFETY: dup returns a new descriptor, owned only by this stream.
         let fd = unsafe { libc::fcntl(0, libc::F_DUPFD_CLOEXEC, 3) };
         assert!(fd >= 0);
@@ -210,5 +243,75 @@ mod linux {
         assert_eq!(unsafe { libc::waitpid(pid as i32, &mut status, 0) }, pid as i32);
         assert!(libc::WIFEXITED(status));
         println!("ROOT_BOUNDARY_EXECUTED daemon_survives_owner_drop");
+    }
+
+    fn drive_until(host: &cmux_link::root_bootstrap::Host, condition: impl Fn(bool) -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let sent = host.drive().unwrap();
+            if condition(sent) {
+                return;
+            }
+            let left = deadline
+                .checked_duration_since(std::time::Instant::now())
+                .expect("private root transport did not progress");
+            let wake = host.wake_set().unwrap();
+            let mut fds = wake.fds();
+            // SAFETY: WakeSet retains all initialized descriptors through poll.
+            assert!(
+                unsafe {
+                    libc::poll(
+                        fds.as_mut_ptr(),
+                        fds.len() as libc::nfds_t,
+                        left.as_millis().clamp(1, i32::MAX as u128) as i32,
+                    )
+                } > 0
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires Linux root; scripts/ci/verify-link-root-boundary.py"]
+    fn receiver_root_privileged_delivers_and_quiesces_the_post_start_role() {
+        use cmux_link::root_bootstrap::{Capability, Host, StopReceipt};
+        root();
+        let host = Host::new().unwrap();
+        let first = host.new_ticket().unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--ignored", "--exact", "linux::receiver_root_fixture"])
+            .env_clear()
+            .env(FIXTURE, "transport")
+            .uid(WORK_UID)
+            .gid(WORK_UID)
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit());
+        let child = host.spawn(&mut command, WORK_UID).unwrap();
+        drop(command);
+        // The daemon is authenticated before any enrollment offer is made.
+        drive_until(&host, |_| host.capability().is_some());
+        assert_eq!(host.capability(), Some(Capability::LifetimeOnly));
+        assert!(host.offer(&first));
+        drive_until(&host, |sent| sent);
+        assert_eq!(
+            host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        assert!(!host.offer(&first), "a late enrollment callback reopened a stopped role");
+        let second = host.new_ticket().unwrap();
+        assert!(host.offer(&second));
+        drive_until(&host, |sent| sent);
+        host.invalidate();
+        assert!(!host.offer(&second));
+        let third = host.new_ticket().unwrap();
+        assert!(host.offer(&third));
+        drive_until(&host, |sent| sent);
+        assert_eq!(
+            host.quiesce(std::time::Instant::now() + Duration::from_secs(2)).unwrap(),
+            StopReceipt::Acknowledged
+        );
+        host.detach();
+        assert!(child.wait().unwrap().success());
+        println!("ROOT_BOUNDARY_EXECUTED channel_lifetime");
     }
 }

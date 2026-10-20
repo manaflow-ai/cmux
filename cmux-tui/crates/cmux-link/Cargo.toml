@@ -20,5 +20,8 @@ ring.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+cmux-unix-socket.workspace = true
+
 [dev-dependencies]
 cmux-unix-socket = { workspace = true, features = ["test-support"] }

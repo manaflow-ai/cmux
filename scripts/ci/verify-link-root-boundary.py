@@ -44,7 +44,8 @@ def main() -> int:
         if result.returncode:
             return result.returncode
         for case in ("owned_child_cross_uid", "inherited_root_parent",
-                     "unrelated_child_and_uid_refused", "daemon_survives_owner_drop"):
+                     "unrelated_child_and_uid_refused", "daemon_survives_owner_drop",
+                     "channel_lifetime"):
             if f"ROOT_BOUNDARY_EXECUTED {case}" not in result.stdout:
                 raise SystemExit(f"root boundary case did not execute: {case}")
     return 0

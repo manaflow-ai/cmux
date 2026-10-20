@@ -2009,6 +2009,16 @@ fn run_server(
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
+    // Seal private root stdin before any later terminal-host exec. This
+    // transport accepts only role lifetimes; it starts no serving role.
+    #[cfg(target_os = "linux")]
+    let _root_bootstrap = match cmux_link::root_bootstrap::Daemon::from_stdin() {
+        Ok(bootstrap) => bootstrap,
+        Err(error) => {
+            eprintln!("cmux: root bootstrap unavailable: {error}");
+            None
+        }
+    };
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
     daemon_build::install();

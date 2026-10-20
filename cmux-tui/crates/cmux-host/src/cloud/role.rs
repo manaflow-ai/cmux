@@ -196,6 +196,7 @@ fn wg_keypair() -> Result<(String, String), String> {
 pub struct CloudRole {
     paths: Paths,
     worker: Option<WorkerHandle>,
+    bootstrap: Option<super::bootstrap_role::RoleBridge>,
 }
 
 struct WorkerHandle {
@@ -207,7 +208,15 @@ struct WorkerHandle {
 
 impl CloudRole {
     pub fn new(paths: Paths) -> CloudRole {
-        CloudRole { paths, worker: None }
+        CloudRole { paths, worker: None, bootstrap: None }
+    }
+
+    pub fn with_root_bootstrap(
+        mut self,
+        host: Option<std::sync::Arc<cmux_link::root_bootstrap::Host>>,
+    ) -> Self {
+        self.bootstrap = host.map(super::bootstrap_role::RoleBridge::new);
+        self
     }
 
     fn send(&mut self, word: &str) {
@@ -217,8 +226,11 @@ impl CloudRole {
     }
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
+        let bootstrap = self.bootstrap.as_ref().map(|bridge| bridge.stop(deadline)).transpose();
         self.send("stop");
-        let Some(worker) = self.worker.take() else { return Ok(()) };
+        let Some(worker) = self.worker.take() else {
+            return bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()));
+        };
         // The worker ends after its current request (each is bounded by
         // 20 s); a later deadline is reported, not waited out.
         let wait = deadline.saturating_duration_since(Instant::now());
@@ -228,7 +240,7 @@ impl CloudRole {
             }
             _ => {
                 let _ = worker.thread.join();
-                Ok(())
+                bootstrap.map(|_| ()).map_err(|error| RoleError(error.to_string()))
             }
         }
     }
@@ -244,6 +256,7 @@ impl Role for CloudRole {
         if self.worker.is_some() {
             return Ok(());
         }
+        let bootstrap = self.bootstrap.as_mut().and_then(|bridge| bridge.start().ok());
         let (ours, theirs) = UnixStream::pair().map_err(|e| RoleError(e.to_string()))?;
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
@@ -252,7 +265,11 @@ impl Role for CloudRole {
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs);
+                let worker =
+                    Worker::new(paths, instance_id, heartbeat_env, theirs).map(|mut worker| {
+                        worker.bootstrap = bootstrap;
+                        worker
+                    });
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
@@ -269,6 +286,9 @@ impl Role for CloudRole {
     fn on_event(&mut self, event: &HostEvent) -> Result<(), RoleError> {
         match event {
             HostEvent::Resumed => {
+                if let Some(bridge) = &self.bootstrap {
+                    let _ = bridge.resume();
+                }
                 self.send("resume");
                 Ok(())
             }
@@ -306,6 +326,7 @@ struct Live {
 }
 
 struct Worker {
+    bootstrap: Option<super::bootstrap_role::WorkerBridge>,
     paths: Paths,
     store: FileStore,
     instance_id: String,
@@ -337,6 +358,7 @@ impl Worker {
         inotify.watch_dir(&state_dir)?;
         control.set_nonblocking(true)?;
         Ok(Worker {
+            bootstrap: None,
             store: FileStore::new(paths.clone()),
             paths,
             instance_id,
@@ -412,6 +434,11 @@ impl Worker {
                     revents: 0,
                 });
             }
+            let bootstrap_wakes = self.bootstrap.as_ref().and_then(|bridge| bridge.wake_set());
+            let bootstrap_from = fds.len();
+            if let Some(wakes) = &bootstrap_wakes {
+                fds.extend(wakes.fds());
+            }
             // SAFETY: `fds` is a valid array of `fds.len()` pollfd entries.
             let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, timeout_ms) };
             if n < 0 {
@@ -424,6 +451,11 @@ impl Worker {
             let ready = |i: usize| fds[i].revents != 0;
             if ready(0) && self.control_words()? {
                 return Ok(());
+            }
+            if fds[bootstrap_from..].iter().any(|fd| fd.revents != 0)
+                && let Some(bridge) = &self.bootstrap
+            {
+                bridge.drive();
             }
             if ready(1) {
                 let bind = self.inotify.read_events()?.iter().any(|e| e.name == "bind.json");
@@ -465,6 +497,12 @@ impl Worker {
             match word.as_str() {
                 "stop" => return Ok(true),
                 "resume" => {
+                    if let Some(bridge) = &mut self.bootstrap {
+                        bridge.resume();
+                        if self.live.is_some() {
+                            bridge.enrolled();
+                        }
+                    }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
                         let reqs = live.session.resume(now);
@@ -703,6 +741,9 @@ impl Worker {
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
+        if let Some(bridge) = &self.bootstrap {
+            bridge.enrolled();
+        }
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
