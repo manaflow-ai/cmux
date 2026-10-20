@@ -52,6 +52,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -178,6 +179,10 @@ on:
       - tests/test_next_batch_groups.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
+      - tests/test_cmux_next_pr_autofix_settings.py
+      - scripts/cmux-next/check-generator-inputs.sh
+      - tests/test_ci_generator_input_freshness.sh
+      - .github/workflows/cmux-next-pr-autofix.yml
       - .github/workflows/cmux-next-base-autofix.yml
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_next_update_dev_daily.py
@@ -254,6 +259,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -714,6 +720,11 @@ jobs:
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # A same-repository PR with its own merge tree waits (read-only, the
+          # script's 90s default) for the artifacts run main's
+          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
+          # workflow skips forks, so a fork PR looks once.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -848,6 +859,7 @@ jobs:
         run: scripts/cmux-next/wait-dev-daily-tree.sh
 
   macos-placement:
+    environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight]
     # Attempt 1's macOS jobs stay on the owned side label while the fleet
     # drains. The placement step records idle runners but never falls back on
@@ -1245,6 +1257,9 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
             python3 tests/test_idea_ledger.py
+            # The INTERNAL iOS builder's trigger decisions and What to Test notes.
+            python3 tests/test_ios_internal_builder.py
+            python3 tests/test_ios_internal_notes.py
             bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
             bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
@@ -1283,6 +1298,7 @@ jobs:
           bash scripts/cmux-next/tests/check-single-omnibar.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
+            bash scripts/cmux-next/tests/check-switch-fetches.test.sh
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
@@ -1292,8 +1308,10 @@ jobs:
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
             bash scripts/cmux-next/tests/pr-autofix.test.sh
+            bash tests/test_ci_generator_input_freshness.sh
             bash scripts/cmux-next/tests/generated-ownership.test.sh
             bash scripts/ci/tests/cmux-tui-rust-check.test.sh
+            bash scripts/ci/tests/cmux-tui-base-red.test.sh
             bash scripts/ci/tests/package-test-lane-suite-args.test.sh
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
@@ -1414,6 +1432,7 @@ jobs:
           python3 tests/test_next_batch.py
           python3 tests/test_next_batch_groups.py
           python3 tests/test_cmux_next_base_autofix_finishes.py
+          python3 tests/test_cmux_next_pr_autofix_settings.py
 
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
@@ -1589,6 +1608,13 @@ jobs:
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
+    # Only a feat-cmux-next run enters next-cache-writer (deployment branch
+    # feat-cmux-next only), and only its push publishes the bundles to NEXT's
+    # R2 bucket; a pull request holds no credential and saves only to its
+    # GitHub cache.
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    env:
+      CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1633,6 +1659,26 @@ jobs:
           path: web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
+
+      # The Mac jobs read the bundles from R2's CDN first: the minis download
+      # them from there much faster than from the GitHub cache, and every
+      # pull request whose web sources match feat-cmux-next's hits. The `any`
+      # namespace is shared by every OS (the bundles are platform-independent).
+      # A key that is already stored is not uploaded again.
+      - name: Publish the web bundles to R2 (feat-cmux-next push)
+        if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
 
       - name: Prebuilt bundles install and stamp (build-web-bundles.sh --from)
         run: bash tests/test_build_web_bundles_from.sh
@@ -2187,8 +2233,22 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
+      # R2 first (feat-cmux-next's bundles, published by the web-bundles job of
+      # its pushes; no credential), then this run's GitHub cache entry.
+      - name: Restore the web bundles from R2
+        id: web-bundle-r2
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Restore the web bundles built for this source key
         id: web-bundle-cache
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2196,11 +2256,11 @@ jobs:
           enableCrossOsArchive: true
 
       - name: Install the restored web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -2209,7 +2269,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
-          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
         run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
@@ -2461,8 +2521,22 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
+      # R2 first (feat-cmux-next's bundles, published by the web-bundles job of
+      # its pushes; no credential), then this run's GitHub cache entry.
+      - name: Restore the web bundles from R2
+        id: web-bundle-r2
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Restore the web bundles built for this source key
         id: web-bundle-cache
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2470,11 +2544,11 @@ jobs:
           enableCrossOsArchive: true
 
       - name: Install the restored web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
@@ -2482,7 +2556,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
-          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
         run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
@@ -2687,8 +2761,22 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
+      # R2 first (feat-cmux-next's bundles, published by the web-bundles job of
+      # its pushes; no credential), then this run's GitHub cache entry.
+      - name: Restore the web bundles from R2
+        id: web-bundle-r2
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CI_CACHE_R2_NAMESPACE: any
+        with:
+          backend: r2
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
       - name: Restore the web bundles built for this source key
         id: web-bundle-cache
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2696,18 +2784,18 @@ jobs:
           enableCrossOsArchive: true
 
       - name: Install the restored web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true'
         run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
 
       - name: Build the web bundles
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Build package and tests
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
-          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-cache.outputs.cache-hit }}
+          CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
         run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
@@ -2726,10 +2814,9 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
 
-      - name: Check the CI target graph
-        id: graph
-        continue-on-error: true
-        run: python3 scripts/cmux-next/ci-target-graph.py --check
+      # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
+      # #21946): it is stale on every event between a merge that adds a target
+      # and the base autofix's commit, so no event checks it here.
 
       # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
       # and the defaults snapshot: check-fresh recomputes the source stamp
@@ -2743,14 +2830,11 @@ jobs:
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
         id: regenerate
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           set -euo pipefail
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
-          fi
-          if [[ "${{ steps.graph.outcome }}" == failure ]]; then
-            python3 scripts/cmux-next/ci-target-graph.py
           fi
           # The Swift settings export only when the source stamp is stale (a
           # stale snapshot alone needs only the snapshot below). It writes the
@@ -2767,7 +2851,7 @@ jobs:
           # commit, whose context the head may not have.
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
-          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
             schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
@@ -2791,13 +2875,12 @@ jobs:
           retention-days: 3
 
       - name: Fail on stale generated files
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           {
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
             [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
@@ -2806,6 +2889,7 @@ jobs:
           exit 1
 
   release-compile:
+    environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     needs: [path_route, macos-placement, push-head-preflight]
     if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.path_route.outputs.cmuxnext_swift == 'true') }}
     name: cmux-next Release compile (Xcode 26)
@@ -3274,9 +3358,12 @@ jobs:
       # A console that draws no frames skips the drag lag and theme blend checks
       # with a warning; lanes run those on the GUI host with --frames required.
       # The step does not fail this job: the perf-gate job below reads its outcome.
+      # It runs after a red launch-time budget (timing, host-dependent) too, so
+      # that red cannot hide a counter regression; CMUX_NEXT_DERIVED_DATA is set
+      # only once the scheme compile built the app.
       - name: Perf counter gate
         id: perf-gate
-        if: inputs.dev_daily != true
+        if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
         # The perf-gate job reports the result.
         continue-on-error: true
         timeout-minutes: 15
@@ -3341,8 +3428,10 @@ jobs:
 
   # The perf counter gate (I8, cx-8w027.7) runs in cmux-scheme-compile on the
   # app that job built (one compile, one launch). This job is its check: red
-  # when a counter budget broke. A scheme compile that failed before the gate
-  # ran is that job's own red, so this job passes then.
+  # when a counter budget broke. The gate step runs whenever the app was built,
+  # even after a red launch-time budget, so it is skipped only when the scheme
+  # compile itself failed; that is the compile job's own red, so this job
+  # passes then.
   perf-gate:
     needs: [cmux-scheme-compile]
     if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
