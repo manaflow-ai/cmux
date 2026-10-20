@@ -243,7 +243,7 @@ enum TabMoves {
         }
         let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
     }
 

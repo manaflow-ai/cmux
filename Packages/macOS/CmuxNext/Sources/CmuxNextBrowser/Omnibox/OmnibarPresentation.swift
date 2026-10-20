@@ -34,6 +34,8 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
         case page(focused: Bool)
         /// An extension keyword session: the extension's name.
         case keyword(name: String)
+        /// A search engine keyword session: "Search YouTube".
+        case engineKeyword(label: String)
     }
 
     public init(_ state: OmnibarState) {
@@ -52,7 +54,10 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
 
     private static func chip(for state: OmnibarState) -> Chip {
         let search = PageInfoIndicator.searchSymbol
-        if let keyword = state.keyword, state.hasFocus { return .keyword(name: keyword.name) }
+        if let keyword = state.keyword, state.hasFocus {
+            // Chrome's keyword chip for a search engine: "Search YouTube".
+            return keyword.searchEngine == nil ? .keyword(name: keyword.name) : .engineKeyword(label: Strings.searchKeyword(engine: keyword.name))
+        }
         switch state.phase {
         case .editing:
             if let row = state.popup.highlighted, state.popup.rows.indices.contains(row) {

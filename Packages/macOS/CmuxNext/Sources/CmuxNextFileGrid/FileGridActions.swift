@@ -66,11 +66,13 @@ public struct FileGridActions {
     ///   - item: the file.
     ///   - window: the sheet's window; without one the alert runs as a panel.
     public func rename(_ item: FileGridItem, in window: NSWindow?) async {
+        // dialog-keys-exempt: CmuxNextFileGrid is system frameworks only (Package.swift), so it cannot reach CmuxDialogCenter; move to a dialog seam with the Finder pane
         let alert = NSAlert()
         alert.messageText = FileGridStrings.renameTitle
         alert.addButton(withTitle: FileGridStrings.renameConfirm)
         alert.addButton(withTitle: FileGridStrings.cancel)
         let field = NSTextField(string: item.name)
+        field.focusRingType = .none
         field.frame = CGRect(x: 0, y: 0, width: 280, height: 24)
         alert.accessoryView = field
         alert.layout()
@@ -98,11 +100,13 @@ public struct FileGridActions {
     }
 
     private func show(_ error: any Error, in window: NSWindow?) {
+        // dialog-keys-exempt: CmuxNextFileGrid is system frameworks only (Package.swift), so it cannot reach CmuxDialogCenter; move to a dialog seam with the Finder pane
         let alert = NSAlert(error: error)
         if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
     private func showMessage(_ text: String, in window: NSWindow?) {
+        // dialog-keys-exempt: CmuxNextFileGrid is system frameworks only (Package.swift), so it cannot reach CmuxDialogCenter; move to a dialog seam with the Finder pane
         let alert = NSAlert()
         alert.messageText = text
         if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
