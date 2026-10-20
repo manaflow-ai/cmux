@@ -106,6 +106,13 @@ public final class AccountsModel {
         return startReauthentication(provider)
     }
 
+    /// ``reauthenticate(_:)`` after detection settled, so a busy row's refusal
+    /// reaches the palette or CLI.
+    public func performReauthenticate(_ provider: AIProvider) async -> String? {
+        await settle()
+        return reauthenticate(provider)
+    }
+
     /// A row already Re-authenticating opens the login again (its tab may be gone).
     @discardableResult
     private func startReauthentication(_ provider: AIProvider) -> String? {

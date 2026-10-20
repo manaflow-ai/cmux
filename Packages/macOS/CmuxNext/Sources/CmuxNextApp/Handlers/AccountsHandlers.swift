@@ -1,6 +1,5 @@
 import CmuxNextActions
 import CmuxNextCodeRouter
-import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 
@@ -18,12 +17,7 @@ enum AccountsHandlers {
             let provider = try provider(invocation)
             guard provider.reauthPlan != .none else { throw ActionFailure(message: AccountsAppStrings.nothingToSignIn) }
             guard services.windows.active?.focusedPane != nil else { throw ActionFailure(message: AccountsAppStrings.noWindow) }
-            let model = services.accounts.model
-            registry.track(Task { @MainActor in
-                // Detection first, so a busy row's refusal reaches the caller.
-                await model.settle()
-                return model.reauthenticate(provider).map { ActionWorkFailure($0) }
-            })
+            registry.track(Task { @MainActor [model = services.accounts.model] in await model.performReauthenticate(provider).map { ActionWorkFailure($0) } })
         })
         registry.bind("accounts.connect", run: { invocation in
             let provider = try provider(invocation)
