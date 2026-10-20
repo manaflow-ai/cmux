@@ -27,6 +27,9 @@ use crate::token::{Expected, TokenRefused, TokenVerifier, VerifiedToken};
 mod streams;
 use streams::{reconcile_streams, stream_deadline, wake_streams};
 
+#[path = "receiver_owner.rs"]
+pub mod receiver;
+
 const MAX_TOKEN_BYTES: usize = 8192;
 const MAX_PEERS: usize = 128;
 const MAX_REPLAY: usize = 4096;
