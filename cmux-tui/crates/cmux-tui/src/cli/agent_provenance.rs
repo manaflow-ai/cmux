@@ -25,6 +25,9 @@ const WEB_PREFIX: &str = "https://cmux.com/deeplink/agent?";
 const MAX_COMMITS: usize = 200;
 /// The CI runs `agent artifacts --github` lists per commit at most.
 const RUNS_PER_COMMIT: usize = 20;
+/// The newest commits `agent artifacts --github` asks GitHub about (two `gh`
+/// calls each), so one listing stays a small share of the shared API quota.
+const GITHUB_COMMITS: usize = 20;
 
 /// The environment variables that name the harness session, in order. They are
 /// the ones each harness already exports (acpmux harness names).
@@ -62,7 +65,11 @@ pub(super) struct ArtifactsPlan {
 pub(super) fn intercept(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
     let [scope, verb, rest @ ..] = words.as_slice() else { return None };
-    if scope != "agent" || !matches!(verb.as_str(), "link" | "artifacts") {
+    // `--help` falls through to the `agent` help text.
+    if scope != "agent"
+        || !matches!(verb.as_str(), "link" | "artifacts")
+        || super::has_help_option(&words)
+    {
         return None;
     }
     match parse(verb, rest) {
@@ -80,6 +87,10 @@ pub(super) fn parse(verb: &str, args: &[String]) -> Result<ProvenancePlan, Usage
     let (mut positionals, mut flags, mut repo) = (Vec::new(), Vec::new(), None);
     let mut words = args.iter();
     while let Some(word) = words.next() {
+        if word == "--" {
+            positionals.extend(words.by_ref().map(String::as_str));
+            break;
+        }
         match word.strip_prefix("--") {
             Some("repo") => {
                 repo = Some(
@@ -169,19 +180,30 @@ pub(super) struct AgentSession {
 impl AgentSession {
     /// This environment's session: `CMUX_AGENT_SESSION_ID` (with
     /// `CMUX_AGENT_HARNESS`, default `cmux`), else the first harness variable set.
-    pub(super) fn detect(env: &dyn Fn(&str) -> Option<String>) -> Option<Self> {
+    /// `Err` names a session the link grammar refuses.
+    pub(super) fn detect(env: &dyn Fn(&str) -> Option<String>) -> Result<Option<Self>, String> {
         let set = |key: &str| env(key).filter(|value| !value.is_empty());
-        if let Some(session) = set("CMUX_AGENT_SESSION_ID") {
-            let harness = set("CMUX_AGENT_HARNESS").unwrap_or_else(|| "cmux".into());
-            return Some(Self { harness, session });
-        }
-        HARNESS_ENV.iter().find_map(|(key, harness)| {
-            set(key).map(|session| Self { harness: (*harness).into(), session })
+        let found = match set("CMUX_AGENT_SESSION_ID") {
+            Some(session) => {
+                Some((set("CMUX_AGENT_HARNESS").unwrap_or_else(|| "cmux".into()), session))
+            }
+            None => HARNESS_ENV
+                .iter()
+                .find_map(|(key, harness)| set(key).map(|session| ((*harness).into(), session))),
+        };
+        let Some((harness, session)) = found else { return Ok(None) };
+        Self::checked(harness.clone(), session.clone()).map(Some).ok_or_else(|| {
+            format!(
+                "this environment's agent session `{harness}/{session}` is not a valid address \
+                 (harness: a-z, 0-9 and -; session: A-Z, a-z, 0-9, ., _ and -)"
+            )
         })
     }
 
     /// `<harness>/<session>`, a `cmux://agent/<harness>/<session>` link (any
     /// `cmux-…` scheme) or the `https://cmux.com/deeplink/agent?…` fallback.
+    /// Looser than the app's link parser (a fragment is ignored, any `cmux-…`
+    /// build scheme counts): this only finds a session to look up.
     pub(super) fn parse(text: &str) -> Option<Self> {
         let text = text.trim();
         if let Some(query) = text.strip_prefix(WEB_PREFIX) {
@@ -207,7 +229,7 @@ impl AgentSession {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
         let session_ok = (1..=200).contains(&session.len())
-            && session.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._~-".contains(&byte))
+            && session.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
             && !session.bytes().all(|byte| byte == b'.');
         (harness_ok && session_ok).then_some(Self { harness, session })
     }
@@ -222,23 +244,27 @@ pub(super) struct Identity {
 }
 
 impl Identity {
-    /// Host: `CMUX_AGENT_HOST`, else the short hostname. Name: `CMUX_AGENT_NAME`,
-    /// else the lane part of `AGENT_LEASE_HOLDER` (`<lane>@<host>`).
+    /// Host: `CMUX_AGENT_HOST`, else the short hostname. Name, as
+    /// agent_identity.py picks it: `CMUX_AGENT_NAME`, else the live callsign
+    /// lease of `CALLSIGN_SESSION_ID` (else the session id), else the lane part
+    /// of `AGENT_LEASE_HOLDER` (`<lane>@<host>`).
     pub(super) fn detect(
         env: &dyn Fn(&str) -> Option<String>,
         hostname: &dyn Fn() -> String,
-    ) -> Option<Self> {
-        let session = AgentSession::detect(env)?;
+    ) -> Result<Option<Self>, String> {
+        let Some(session) = AgentSession::detect(env)? else { return Ok(None) };
         let set = |key: &str| env(key).filter(|value| !value.is_empty());
         let host = set("CMUX_AGENT_HOST")
             .unwrap_or_else(|| hostname().split('.').next().unwrap_or_default().to_owned());
+        let lease_key = set("CALLSIGN_SESSION_ID").unwrap_or_else(|| session.session.clone());
         let name = set("CMUX_AGENT_NAME")
+            .or_else(|| super::agent_callsign::callsign(&lease_key, env))
             .or_else(|| {
                 set("AGENT_LEASE_HOLDER")
                     .map(|holder| holder.split('@').next().unwrap_or_default().to_owned())
             })
             .filter(|name| !name.is_empty());
-        Some(Self { session, host, name })
+        Ok(Some(Self { session, host, name }))
     }
 
     fn hints(&self) -> Vec<(&'static str, &str)> {
@@ -284,10 +310,11 @@ impl Identity {
     }
 }
 
+/// `urlencode`: a space in a value is `+`, as Python writes it.
 fn query(params: &[(&str, &str)]) -> String {
     params
         .iter()
-        .map(|(key, value)| format!("{key}={}", percent_encode(value)))
+        .map(|(key, value)| format!("{key}={}", percent_encode(value).replace("%20", "+")))
         .collect::<Vec<_>>()
         .join("&")
 }
@@ -339,7 +366,8 @@ pub(super) struct Commit {
 const FIELD: char = '\u{1f}';
 const RECORD: char = '\u{1e}';
 
-/// The commits of `git log` output (`%H FIELD %ct FIELD %s FIELD trailers RECORD`)
+/// The commits of `git log` output (`%H FIELD %ct FIELD trailers FIELD %s RECORD`;
+/// the subject comes last, so its text can never land in the trailers field)
 /// with an `Agent-Session:` trailer that names `session`. Other commits that
 /// merely mention the id in their text don't count.
 pub(super) fn matching_commits(log: &str, session: &AgentSession) -> Vec<Commit> {
@@ -348,8 +376,8 @@ pub(super) fn matching_commits(log: &str, session: &AgentSession) -> Vec<Commit>
             let mut fields = record.trim_start_matches('\n').splitn(4, FIELD);
             let sha = fields.next()?.trim();
             let time = fields.next()?.trim().parse().ok()?;
-            let subject = fields.next()?;
             let trailers = fields.next()?;
+            let subject = fields.next()?;
             let names =
                 trailers.lines().filter_map(AgentSession::parse).any(|found| &found == session);
             (names && !sha.is_empty()).then(|| Commit {
@@ -363,7 +391,7 @@ pub(super) fn matching_commits(log: &str, session: &AgentSession) -> Vec<Commit>
 
 fn git_log(repo: &Path, session: &AgentSession) -> Result<String, String> {
     let format = format!(
-        "--format=%H{FIELD}%ct{FIELD}%s{FIELD}%(trailers:key={TRAILER_KEY},valueonly,separator=%x0A){RECORD}"
+        "--format=%H{FIELD}%ct{FIELD}%(trailers:key={TRAILER_KEY},valueonly,separator=%x0A){FIELD}%s{RECORD}"
     );
     let output = Command::new("git")
         .arg("-C")
@@ -383,77 +411,123 @@ fn git_log(repo: &Path, session: &AgentSession) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+enum GhError {
+    /// `gh` ran and refused this call.
+    Failed(String),
+    /// `gh` can't run here.
+    Unavailable(String),
+}
+
 /// `gh` with its JSON answer, run in the repository so `{owner}/{repo}` resolve.
-fn gh(repo: &Path, args: &[&str]) -> Result<Value, String> {
+fn gh(repo: &Path, args: &[&str]) -> Result<Value, GhError> {
     let output = Command::new("gh")
         .current_dir(repo)
         .args(args)
         .output()
-        .map_err(|error| format!("cannot run gh: {error}"))?;
+        .map_err(|error| GhError::Unavailable(format!("cannot run gh: {error}")))?;
     if !output.status.success() {
-        return Err(format!(
+        return Err(GhError::Failed(format!(
             "gh {} failed: {}",
             args.join(" "),
             String::from_utf8_lossy(&output.stderr).trim()
-        ));
+        )));
     }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("gh {} answered no JSON: {error}", args.join(" ")))
+    serde_json::from_slice(&output.stdout).map_err(|error| {
+        GhError::Failed(format!("gh {} answered no JSON: {error}", args.join(" ")))
+    })
 }
 
-/// The pull requests that contain the commits (each once, in first-seen order)
-/// and every commit's CI runs.
-fn github(repo: &Path, commits: &[Commit]) -> Result<(Vec<Value>, Vec<Value>), String> {
-    let mut pulls: Vec<Value> = Vec::new();
-    let mut runs = Vec::new();
-    for commit in commits {
-        let found =
-            gh(repo, &["api", &format!("repos/{{owner}}/{{repo}}/commits/{}/pulls", commit.sha)])?;
-        for pull in found.as_array().into_iter().flatten() {
-            if pulls.iter().any(|seen| seen["number"] == pull["number"]) {
-                continue;
+/// What `--github` found: the pull requests that contain the commits (each
+/// once, in first-seen order), every commit's CI runs, and the commits `gh`
+/// couldn't answer for (an unpushed commit, no GitHub remote, no `gh`).
+#[derive(Default)]
+struct GitHubFound {
+    pulls: Vec<Value>,
+    runs: Vec<Value>,
+    errors: Vec<Value>,
+}
+
+/// [`GitHubFound`] for the newest [`GITHUB_COMMITS`] commits. A commit `gh`
+/// fails for is listed in `errors` and skipped; when `gh` can't run at all,
+/// the rest are not tried.
+fn github(repo: &Path, commits: &[Commit]) -> GitHubFound {
+    let mut found = GitHubFound::default();
+    for commit in commits.iter().take(GITHUB_COMMITS) {
+        match github_commit(repo, commit, &mut found) {
+            Ok(()) => {}
+            Err(GhError::Failed(message)) => {
+                found.errors.push(json!({"sha": commit.sha, "message": message}));
             }
-            pulls.push(json!({
-                "number": pull["number"], "url": pull["html_url"], "state": pull["state"],
-                "title": pull["title"], "merged_at": pull["merged_at"],
-            }));
-        }
-        let limit = RUNS_PER_COMMIT.to_string();
-        let found = gh(
-            repo,
-            &[
-                "run",
-                "list",
-                "--commit",
-                &commit.sha,
-                "--limit",
-                &limit,
-                "--json",
-                "databaseId,name,url,status,conclusion",
-            ],
-        )?;
-        for run in found.as_array().into_iter().flatten() {
-            runs.push(json!({
-                "id": run["databaseId"], "name": run["name"], "url": run["url"], "status": run["status"],
-                "conclusion": run["conclusion"], "sha": commit.sha,
-            }));
+            Err(GhError::Unavailable(message)) => {
+                found.errors.push(json!({"sha": commit.sha, "message": message}));
+                break;
+            }
         }
     }
-    Ok((pulls, runs))
+    found
+}
+
+fn github_commit(repo: &Path, commit: &Commit, out: &mut GitHubFound) -> Result<(), GhError> {
+    let pulls =
+        gh(repo, &["api", &format!("repos/{{owner}}/{{repo}}/commits/{}/pulls", commit.sha)])?;
+    let limit = RUNS_PER_COMMIT.to_string();
+    let runs = gh(
+        repo,
+        &[
+            "run",
+            "list",
+            "--commit",
+            &commit.sha,
+            "--limit",
+            &limit,
+            "--json",
+            "databaseId,name,url,status,conclusion",
+        ],
+    )?;
+    for pull in pulls.as_array().into_iter().flatten() {
+        if out.pulls.iter().any(|seen| seen["number"] == pull["number"]) {
+            continue;
+        }
+        out.pulls.push(json!({
+            "number": pull["number"], "url": pull["html_url"], "state": pull["state"],
+            "title": pull["title"], "merged_at": pull["merged_at"],
+        }));
+    }
+    for run in runs.as_array().into_iter().flatten() {
+        out.runs.push(json!({
+            "id": run["databaseId"], "name": run["name"], "url": run["url"], "status": run["status"],
+            "conclusion": run["conclusion"], "sha": commit.sha,
+        }));
+    }
+    Ok(())
 }
 
 fn env_var(key: &str) -> Option<String> {
     std::env::var(key).ok()
 }
 
+#[cfg(unix)]
 fn hostname() -> String {
-    Command::new("hostname")
-        .arg("-s")
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        .unwrap_or_default()
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer is valid for its length; gethostname writes at most
+    // that many bytes and the result is read up to the first NUL.
+    let result = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if result != 0 {
+        return String::new();
+    }
+    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    String::from_utf8_lossy(&buffer[..end]).into_owned()
+}
+
+#[cfg(not(unix))]
+fn hostname() -> String {
+    env_var("COMPUTERNAME").unwrap_or_default()
+}
+
+/// `CMUX_AGENT_PROVENANCE=0` (or `false`, `off`) turns the trailer and the PR
+/// line off, as in agent_identity.py.
+fn provenance_enabled() -> bool {
+    !matches!(env_var("CMUX_AGENT_PROVENANCE").as_deref(), Some("0" | "false" | "off"))
 }
 
 fn fail(global: &GlobalArgs, code: &str, message: String) -> i32 {
@@ -475,8 +549,17 @@ fn no_session() -> String {
 }
 
 fn run_link(global: &GlobalArgs, form: LinkForm) -> i32 {
-    let Some(identity) = Identity::detect(&env_var, &hostname) else {
-        return fail(global, "local.agent_session", no_session());
+    if matches!(form, LinkForm::Trailer | LinkForm::Footer) && !provenance_enabled() {
+        return fail(
+            global,
+            "local.provenance_off",
+            "agent provenance is off here (CMUX_AGENT_PROVENANCE)".into(),
+        );
+    }
+    let identity = match Identity::detect(&env_var, &hostname) {
+        Ok(Some(identity)) => identity,
+        Ok(None) => return fail(global, "local.agent_session", no_session()),
+        Err(message) => return fail(global, "local.agent_session", message),
     };
     let text = match form {
         LinkForm::Native => identity.native_link(),
@@ -499,7 +582,10 @@ fn run_link(global: &GlobalArgs, form: LinkForm) -> i32 {
 fn run_artifacts(global: &GlobalArgs, plan: ArtifactsPlan) -> i32 {
     let session = match plan.session.as_deref() {
         Some(text) => AgentSession::parse(text),
-        None => AgentSession::detect(&env_var),
+        None => match AgentSession::detect(&env_var) {
+            Ok(session) => session,
+            Err(message) => return fail(global, "local.agent_session", message),
+        },
     };
     let Some(session) = session else {
         return fail(
@@ -513,14 +599,7 @@ fn run_artifacts(global: &GlobalArgs, plan: ArtifactsPlan) -> i32 {
         Ok(log) => matching_commits(&log, &session),
         Err(message) => return fail(global, "local.git", message),
     };
-    let (pulls, runs) = if plan.github {
-        match github(&repo, &commits) {
-            Ok(found) => found,
-            Err(message) => return fail(global, "local.github", message),
-        }
-    } else {
-        (Vec::new(), Vec::new())
-    };
+    let found = if plan.github { github(&repo, &commits) } else { GitHubFound::default() };
     let link = format!(
         "{NATIVE_PREFIX}{}/{}",
         percent_encode(&session.harness),
@@ -529,7 +608,8 @@ fn run_artifacts(global: &GlobalArgs, plan: ArtifactsPlan) -> i32 {
     let value = json!({
         "harness": session.harness, "session": session.session, "link": link,
         "commits": commits.iter().map(|commit| json!({"sha": commit.sha, "time": commit.time, "subject": commit.subject})).collect::<Vec<_>>(),
-        "pull_requests": pulls, "runs": runs, "github": plan.github,
+        "pull_requests": found.pulls, "runs": found.runs, "github_errors": found.errors,
+        "github": plan.github,
     });
     match global.output {
         OutputMode::Human => {
@@ -569,6 +649,7 @@ fn human(value: &Value) -> String {
         }
         let runs = list("runs");
         out.push_str(&format!("runs ({})\n", runs.len()));
+        let errors = list("github_errors");
         for run in &runs {
             let result = if run["conclusion"].as_str().is_some_and(|value| !value.is_empty()) {
                 &run["conclusion"]
@@ -581,6 +662,17 @@ fn human(value: &Value) -> String {
                 text(&run["name"]),
                 text(&run["url"])
             ));
+        }
+        if !errors.is_empty() {
+            out.push_str(&format!("github could not answer for {} commit(s)\n", errors.len()));
+            for error in &errors {
+                let sha = text(&error["sha"]);
+                out.push_str(&format!(
+                    "  {}  {}\n",
+                    &sha[..sha.len().min(12)],
+                    text(&error["message"])
+                ));
+            }
         }
     }
     out
@@ -596,19 +688,20 @@ mod tests {
 
     #[test]
     fn the_session_comes_from_the_harness_environment() {
-        let claude = AgentSession::detect(&env(&[("CLAUDE_CODE_SESSION_ID", "abc-1")])).unwrap();
+        let detect = |pairs: &'static [(&'static str, &'static str)]| {
+            AgentSession::detect(&env(pairs)).unwrap()
+        };
+        let claude = detect(&[("CLAUDE_CODE_SESSION_ID", "abc-1")]).unwrap();
         assert_eq!(claude, AgentSession { harness: "claude".into(), session: "abc-1".into() });
-        let codex =
-            AgentSession::detect(&env(&[("CODEX_THREAD_ID", "t-9"), ("OPENCODE_SESSION_ID", "o")]))
-                .unwrap();
+        let codex = detect(&[("CODEX_THREAD_ID", "t-9"), ("OPENCODE_SESSION_ID", "o")]).unwrap();
         assert_eq!(codex.harness, "codex");
-        let cmux = AgentSession::detect(&env(&[
-            ("CMUX_AGENT_SESSION_ID", "s"),
-            ("CLAUDE_CODE_SESSION_ID", "c"),
-        ]))
-        .unwrap();
+        let cmux =
+            detect(&[("CMUX_AGENT_SESSION_ID", "s"), ("CLAUDE_CODE_SESSION_ID", "c")]).unwrap();
         assert_eq!(cmux, AgentSession { harness: "cmux".into(), session: "s".into() });
-        assert_eq!(AgentSession::detect(&env(&[("CLAUDE_CODE_SESSION_ID", "")])), None);
+        assert_eq!(detect(&[("CLAUDE_CODE_SESSION_ID", "")]), None);
+        // A session the link grammar refuses is an error, not a silent miss.
+        assert!(AgentSession::detect(&env(&[("CMUX_AGENT_SESSION_ID", "a b")])).is_err());
+        assert!(AgentSession::detect(&env(&[("CLAUDE_CODE_SESSION_ID", "x~y")])).is_err());
     }
 
     #[test]
@@ -620,6 +713,7 @@ mod tests {
             ]),
             &|| "build-mac.example.net".into(),
         )
+        .unwrap()
         .unwrap();
         assert_eq!(
             identity.native_link(),
@@ -662,14 +756,16 @@ mod tests {
         let session = AgentSession { harness: "claude".into(), session: "abc".into() };
         let trailer = "https://cmux.com/deeplink/agent?harness=claude&session=abc&host=m";
         let log = format!(
-            "{a}{FIELD}10{FIELD}mine{FIELD}{trailer}\n{RECORD}\n\
-             {b}{FIELD}9{FIELD}mentions abc{FIELD}{RECORD}\n\
-             {c}{FIELD}8{FIELD}codex's{FIELD}https://cmux.com/deeplink/agent?harness=codex&session=abc&host=m\n{RECORD}\n\
-             {d}{FIELD}7{FIELD}native{FIELD}other\ncmux://agent/claude/abc?host=m\n{RECORD}\n",
+            "{a}{FIELD}10{FIELD}{trailer}{FIELD}mine{RECORD}\n\
+             {b}{FIELD}9{FIELD}{FIELD}mentions abc{RECORD}\n\
+             {c}{FIELD}8{FIELD}https://cmux.com/deeplink/agent?harness=codex&session=abc&host=m{FIELD}codex's{RECORD}\n\
+             {d}{FIELD}7{FIELD}other\ncmux://agent/claude/abc?host=m{FIELD}native{RECORD}\n\
+             {e}{FIELD}6{FIELD}{FIELD}subject{FIELD}{trailer}{RECORD}\n",
             a = "a".repeat(40),
             b = "b".repeat(40),
             c = "c".repeat(40),
             d = "d".repeat(40),
+            e = "e".repeat(40),
         );
         let found = matching_commits(&log, &session);
         assert_eq!(

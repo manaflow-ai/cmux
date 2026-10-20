@@ -6,6 +6,7 @@
 
 #[cfg(unix)]
 mod action_hint;
+mod agent_callsign;
 mod agent_message;
 mod agent_provenance;
 #[cfg(unix)]
@@ -288,7 +289,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         return code;
     }
     #[cfg(unix)]
-    if let Some(code) = run_app_scope(args).or_else(|| agent_provenance::intercept(args)) {
+    if let Some(code) = run_app_scope(args) {
+        return code;
+    }
+    // Local (git and gh only), so on every platform.
+    if let Some(code) = agent_provenance::intercept(args) {
         return code;
     }
     let parsed = parse(args, surface);

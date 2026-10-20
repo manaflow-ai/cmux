@@ -944,16 +944,23 @@ The session comes from `CMUX_AGENT_SESSION_ID` (with `CMUX_AGENT_HARNESS`,
 default `cmux`), else `CLAUDE_CODE_SESSION_ID` (claude), `CODEX_THREAD_ID` or
 `CODEX_SESSION_ID` (codex), or `OPENCODE_SESSION_ID` (opencode). The host hint is
 `CMUX_AGENT_HOST`, else the short hostname; the name hint is `CMUX_AGENT_NAME`,
-else the lane part of `AGENT_LEASE_HOLDER`. Outside an agent session it exits 1
-with `local.agent_session`. A link is an address, not a credential: it never
+else the callsign of the live callsign lease for `CALLSIGN_SESSION_ID` (else the
+session id; `$CALLSIGN_STATE_DIR`, default `$XDG_STATE_HOME/callsign`), else the
+lane part of `AGENT_LEASE_HOLDER`: the same forms and names
+`tools/remote-agents/agent_identity.py` writes. Outside an agent session, or
+when its session id is not a valid address, it exits 1 with
+`local.agent_session`. With `CMUX_AGENT_PROVENANCE=0` (or `false`, `off`)
+`--trailer` and `--footer` exit 1 with `local.provenance_off`. A link is an address, not a credential: it never
 carries an account or a working directory.
 
-`agent artifacts` lists, newest first, up to 200 commits on any ref of `--repo`
+`agent artifacts` lists, newest first, the commits on any ref of `--repo`
 (default the current directory) whose `Agent-Session:` trailer names the
-session: the one given as `<harness>/<session>` or an agent link, else the
+session, among the newest 200 that mention its id: the one given as `<harness>/<session>` or an agent link, else the
 caller's own. A commit that only mentions the id elsewhere in its message does
 not count. `--github` also lists, through `gh`, the pull requests that contain
-those commits (each once) and up to 20 CI runs per commit.
+the newest 20 of those commits (each once) and up to 20 CI runs per commit. A
+commit `gh` can't answer for (not pushed, no GitHub remote, no `gh`) is listed
+under `github_errors`; the command still succeeds with the commits it found.
 
 ## Local agent plugins
 
