@@ -47,6 +47,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) var connectingView: DaemonConnectingView?
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's clickable agent cursor tags (the overlay host holds it weakly).
+    private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
+        self?.agentCursor.stack?.host
+    }
     /// This window's right sidebar (`WindowController+RightSidebar`).
     let rightSidebar: RightSidebarModel
     /// Its view, made the first time it shows.
