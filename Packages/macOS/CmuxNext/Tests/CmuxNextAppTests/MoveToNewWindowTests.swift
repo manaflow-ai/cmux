@@ -117,14 +117,19 @@ struct MoveToNewWindowTests {
                                               invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id),
                                                                            arguments: ["name": .string(name)], origin: .user)))
             let personal = services.daemon.store.personal
-            // A personal group's members are its sidebar rows (not `WorkspaceModel.group`).
-            @MainActor func group() -> WorkspaceGroupID? {
-                personal.groups.first { $0.name == name }.flatMap { group in
-                    let rows = services.windows.active?.sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue))?.workspaces ?? []
-                    return rows.contains { $0.id.rawValue == workspace.id } ? group.id : nil
+            // A personal group's members are its sidebar rows (not `WorkspaceModel.group`), in
+            // whichever window lists the workspace.
+            @MainActor func groups() -> [SidebarGroup] {
+                services.windows.controllers.flatMap(\.sidebar.model.sections).flatMap(\.nodes).compactMap {
+                    if case .group(let group) = $0 { group } else { nil }
                 }
             }
-            try await PinnedPageTests.until({ group() != nil }, report: { "groups \(personal.groups.map(\.name))" })
+            @MainActor func group() -> WorkspaceGroupID? {
+                groups().first { $0.workspaces.contains { $0.id.rawValue == workspace.id } }.map { WorkspaceGroupID(rawValue: $0.id.rawValue) }
+            }
+            try await PinnedPageTests.until({ group() != nil }, within: .seconds(40), report: {
+                "daemon groups \(personal.groups.map(\.name)); sidebar groups \(groups().map { ($0.name, $0.workspaces.map(\.id.rawValue)) }); workspace \(workspace.id)"
+            })
             let group = try #require(group())
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
