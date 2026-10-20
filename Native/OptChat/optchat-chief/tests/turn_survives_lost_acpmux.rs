@@ -300,3 +300,46 @@ fn a_turn_cut_by_an_update_relaunch_resumes_in_the_next_host() {
     assert_eq!(sends.len(), 1, "answered once: {sends:?}");
     assert!(failures(&h).is_empty(), "{:?}", failures(&h));
 }
+
+/// The user, 2026-10-20: "(turn failed on claude: the acpmux connection was
+/// lost during the turn) i see this error every time i update cmux". An
+/// update relaunch mid-turn shows no error anywhere: no failed reply, and
+/// the cut turn's run record does not say "failed" with the error.
+#[test]
+fn an_update_relaunch_mid_turn_shows_no_error_in_the_run() {
+    let mut h = Harness::new(cut_first_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "what changed today?");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.step();
+    }
+    h.brain.step(Input::from(AgentEvent::Down));
+    h.agents.inner.lock().unwrap().lose = true;
+    h.agents.hold(false);
+    h.agents.release();
+    drain(&mut h, Duration::from_millis(500));
+    h.connect();
+    h.settle_posts();
+    let runs = h.owner.lock().unwrap().runs.clone();
+    assert!(!runs.is_empty(), "the turns wrote run records");
+    let shown: Vec<&Value> = runs
+        .iter()
+        .filter(|r| {
+            r["status"] == "failed"
+                || r["error"]
+                    .as_str()
+                    .is_some_and(|e| e.contains("connection was lost"))
+        })
+        .collect();
+    assert!(
+        shown.is_empty(),
+        "no run shows the lost connection: {shown:?}"
+    );
+    assert!(failures(&h).is_empty(), "{:?}", failures(&h));
+    let sends = h.owner.lock().unwrap().sends();
+    assert!(
+        sends.iter().any(|(_, t)| t.contains("answer 1")),
+        "{sends:?}"
+    );
+}

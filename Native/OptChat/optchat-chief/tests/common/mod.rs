@@ -141,6 +141,8 @@ pub struct Owner {
     pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
     /// The owner lacks `link-preview-v1` (an older daemon).
     pub no_link_previews: bool,
+    /// Every run record summary the brain appended (`run_append`'s run).
+    pub runs: Vec<Value>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -420,6 +422,11 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
+        self.0.lock().unwrap().runs.push(run);
         Ok(())
     }
 
