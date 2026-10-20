@@ -1337,8 +1337,8 @@ mark {
   flex: none;
   width: var(--density-icon);
   height: var(--density-icon);
+  border: 1.5px solid var(--border-strong);
   border-radius: 3px;
-  background: var(--border-strong);
 }
 
 .density-caption {
