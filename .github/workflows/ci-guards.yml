@@ -572,6 +572,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the advisory post-edit checks
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_post_edit_checks.py
+
       - name: Validate bead auto-close on merged pull requests
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_bead_autoclose.py

@@ -86,6 +86,9 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
+They also warn, for the edited files only, about workflow YAML that does not parse or that
+actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.toml`, and a
+CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
 
 ## Area instructions
 

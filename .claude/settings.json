@@ -13,6 +13,11 @@
             "type": "command",
             "command": "bash scripts/ci/format-post-edit.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/ci/check-post-edit.sh",
+            "timeout": 15
           }
         ]
       }

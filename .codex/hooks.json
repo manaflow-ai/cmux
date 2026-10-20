@@ -12,6 +12,11 @@
             "type": "command",
             "command": "bash scripts/ci/format-post-edit.sh 1>&2; printf '{}\\n'",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash scripts/ci/check-post-edit.sh 1>&2; printf '{}\\n'",
+            "timeout": 15
           }
         ]
       }
