@@ -2,7 +2,8 @@
 // A chat's background shells (cx-ncc.84, Claude parity). Claude's Bash calls that run in the
 // background end with acpmux's `background_task_update`. The transcript notes each end where it
 // happened ("Background task stopped · <reason>: <command>"), and the header's summary lists the
-// chat's background tasks with how each stands. The page is the pane's dev entry with its browser
+// chat's background tasks with how each stands. A click on either opens the task's terminal
+// (`chat.processTerminal`, background-task-terminal-DESIGN.md). The page is the pane's dev entry with its browser
 // host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -176,6 +177,61 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     const at = await note.evaluate((node) => node.getBoundingClientRect().top);
     expect(await top("Stop the dev server")).toBeLessThan(at);
     expect(at).toBeLessThan(await top("Dev server stopped."));
+    await page.close();
+  });
+
+  /// A page whose native host records what the page asks of it (CmuxNextAgentPane's `agentSession`).
+  const recordingPage = async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.addInitScript(() => {
+      const posted: { method: string; params: Record<string, unknown> }[] = [];
+      Object.assign(window, {
+        __posted: posted,
+        webkit: {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async (message: { method: string; params: Record<string, unknown> }) => {
+                posted.push({ method: message.method, params: message.params });
+                return { ok: true, value: message.method === "chat.processTerminal" ? { opened: true } : null };
+              },
+            },
+          },
+        },
+      });
+    });
+    await page.goto(url(CHAT));
+    await page.getByText("Dev server stopped.").waitFor();
+    return page;
+  };
+  const opened = (page: Awaited<ReturnType<typeof recordingPage>>) =>
+    page.evaluate(() =>
+      ((window as any).__posted as { method: string; params: Record<string, unknown> }[])
+        .filter((post) => post.method === "chat.processTerminal")
+        .map((post) => post.params),
+    );
+
+  test("clicking a background task's end opens its terminal beside the chat", async () => {
+    const page = await recordingPage();
+    const note = page.getByRole("button", { name: "Background task stopped · Stopped by the agent: npm run dev" });
+    expect(await note.getAttribute("title")).toBe("Show output");
+    await note.click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+    );
+    expect(await opened(page)).toEqual([{ toolCallId: "bg1" }]);
+    await page.close();
+  });
+
+  test("clicking a background task in the summary opens its terminal, a running one included", async () => {
+    const page = await recordingPage();
+    await page.getByRole("button", { name: "Chat summary" }).click();
+    const section = page.getByRole("region", { name: "Background tasks" });
+    await section.waitFor({ timeout: 5_000 });
+    await section.getByRole("button", { name: /cargo watch -x test/ }).click();
+    await page.waitForFunction(() =>
+      ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
+    );
+    expect(await opened(page)).toEqual([{ toolCallId: "bg2" }]);
     await page.close();
   });
 
