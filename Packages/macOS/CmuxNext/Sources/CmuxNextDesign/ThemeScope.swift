@@ -161,6 +161,7 @@ public final class ThemeScope {
                               surfaces: surfaceBackgrounds, tuning: appearanceTuning)
         guard force || key != displayedBackdrop else { return }
         displayedBackdrop = key
+        BackdropRevision.shared.bump()
         // Art Color: another work is another accent.
         if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false, from: nil)
