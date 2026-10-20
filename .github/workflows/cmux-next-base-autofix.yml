@@ -451,7 +451,8 @@ jobs:
           # new tip only if nothing in between touched any area this repair covers: then its inputs are
           # unchanged and the regenerated files are exactly right at the tip. Otherwise (a revert of a new
           # setting, say) the copy from HEAD_SHA could be wrong there, so the run stops and the newer
-          # push's run regenerates it; that also keeps a late re-run from landing old output. A conflict
+          # push's run regenerates it; that also keeps a late re-run from landing old output. The files of
+          # the other areas still land (see the overlap branch below). A conflict
           # fails the run too, which keeps it out of the next run's "since".
           # Each push is a plain push: it fails rather than overwrite a commit pushed meanwhile.
           repair="$(git rev-parse HEAD)"
@@ -482,9 +483,15 @@ jobs:
           }
           repaired="$(git diff --name-only "$HEAD_SHA" "$repair" | output_areas)"
           base="$HEAD_SHA"
+          # The areas left out of a partial re-apply. The overlap is measured from HEAD_SHA each time, so it
+          # only grows and a later attempt never re-adds a left-out file.
+          partial=""
           for attempt in 1 2 3 4 5; do
             if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
               echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next (attempt $attempt)." | tee -a "$GITHUB_STEP_SUMMARY"
+              if [[ -n "$partial" ]]; then
+                echo "The repairs for ${partial} are left to the newer run: feat-cmux-next changed their inputs." | tee -a "$GITHUB_STEP_SUMMARY"
+              fi
               exit 0
             fi
             "${with_auth[@]}" git fetch --quiet --depth=1 "$remote" refs/heads/feat-cmux-next
@@ -500,8 +507,43 @@ jobs:
             fi
             overlap="$(comm -12 <(git diff --name-only "$HEAD_SHA" "$tip" | areas) <(echo "$repaired") | tr '\n' ' ')"
             if [[ -n "${overlap// }" ]]; then
-              echo "::error::feat-cmux-next ${tip:0:12} changed this repair's inputs since ${HEAD_SHA:0:12} (${overlap% }); the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 1
+              # Packages/ (the graph area) moves on nearly every push, so dropping the whole repair for
+              # one stale area meant almost nothing landed (4 of ~50 runs on 2026-10-19/20). Each file is
+              # judged on its own: one whose areas are all untouched since HEAD_SHA, and which the tip
+              # did not edit itself, is exactly right at the tip and lands now; the rest waits for the
+              # newer run. The patch applies without a 3-way merge, so a changed context fails the run.
+              moved_paths="$(git diff --name-only "$HEAD_SHA" "$tip")"
+              kept=()
+              left=()
+              while IFS= read -r path; do
+                [[ -n "$path" ]] || continue
+                if grep -qxF "$path" <<<"$moved_paths" \
+                  || [[ -n "$(comm -12 <(echo "$path" | output_areas) <(tr ' ' '\n' <<<"$overlap" | sed '/^$/d' | sort))" ]]; then
+                  left+=("$path")
+                else
+                  kept+=("$path")
+                fi
+              done < <(git diff --name-only "$HEAD_SHA" "$repair")
+              if (( ${#kept[@]} == 0 )); then
+                echo "::error::feat-cmux-next ${tip:0:12} changed this repair's inputs since ${HEAD_SHA:0:12} (${overlap% }); the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              echo "feat-cmux-next moved to ${tip:0:12} (attempt $attempt) and changed the inputs of ${overlap% }; re-applying the ${#kept[@]} file(s) outside them."
+              git reset --quiet --hard "$tip"
+              base="$tip"
+              if ! git diff --binary "$HEAD_SHA" "$repair" -- "${kept[@]}" | git apply --index; then
+                git reset --quiet --hard "$tip"
+                echo "::error::the repair conflicts with feat-cmux-next ${tip:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
+                exit 1
+              fi
+              if git diff --cached --quiet; then
+                echo "feat-cmux-next already has the repairs outside ${overlap% }; the newer run repairs the rest." | tee -a "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              git commit --quiet -m "$(git log -1 --format=%B "$repair")" \
+                -m "Partial: ${left[*]} left to the newer run (feat-cmux-next ${tip:0:12} changed ${overlap% })."
+              partial="${overlap% }"
+              continue
             fi
             echo "feat-cmux-next moved to ${tip:0:12} (attempt $attempt) without touching this repair's areas; re-applying it."
             git reset --quiet --hard "$tip"

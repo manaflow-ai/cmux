@@ -6,6 +6,7 @@ each push cancelled the running Mac export job and the autofix job, and autofix 
 base had moved. With merges minutes apart, 9 runs in a row were cancelled and the repair never landed.
 A repair generated at an older head may be re-applied on the moved tip only when nothing in between touched
 that repair's areas; otherwise the newer run regenerates it (a revert in between would make it wrong).
+That is judged file by file (2026-10-20): the files of untouched areas land even when another area moved.
 """
 from __future__ import annotations
 
@@ -120,6 +121,14 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed[EXPORT], "old")
         self.assertIn("settings", out)
         self.assertIn("newer run", out)
+
+    def test_a_partial_repair_stays_partial_when_the_base_moves_again(self):
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={EXPORT: "new", SHORTCUTS: "new"},
+                                      move_again={"README.md": "r3"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[EXPORT], "old")
+        self.assertIn("attempt 3", out)
 
     def test_a_partial_repair_never_overwrites_an_output_changed_meanwhile(self):
         # web/data/ is no input area: the tip's own edit of the output keeps it out of the partial repair.
