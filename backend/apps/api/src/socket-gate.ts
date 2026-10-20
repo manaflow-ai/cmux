@@ -2,6 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { cloudOpByName } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import type { Attachment } from "./owner-do.ts"
+import type { InstallSocketRef } from "./install-socket-authority.ts"
 
 /** How long a socket's install status from UserDO is trusted before its events wait for a new check. */
 export const INSTALL_CHECK_MS = 60_000
@@ -14,7 +15,7 @@ export const closeQuietly = (ws: WebSocket, code: number, reason: string) => {
   } catch {}
 }
 
-type InstallRef = { install: string; grant: string | undefined; agent?: string }
+type InstallRef = InstallSocketRef
 
 /** The refusal for a frame whose install could not be checked; it names the frame's idempotency key. */
 const unreachable = (ws: WebSocket, message: string | ArrayBuffer) => {
@@ -59,6 +60,8 @@ export class SocketGate {
   private readonly checks = new Map<string, { active: boolean; at: number }>()
   private readonly held = new Set<WebSocket>()
   private checking = false
+  private readonly registrations = new WeakMap<WebSocket, Promise<boolean>>()
+  private readonly admitting = new WeakSet<WebSocket>()
 
   constructor(
     private readonly ctx: DurableObjectState,
@@ -67,8 +70,9 @@ export class SocketGate {
     private readonly resync: (ws: WebSocket, a: Attachment) => void
   ) {}
 
-  private key = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}\u0000${p.agent ?? ""}`
+  private key = (p: Principal) => `${p.user}\u0000${p.install}\u0000${p.grant ?? ""}\u0000${p.agent ?? ""}\u0000${p.install_authority ?? ""}`
   private watched = (p: Principal) => this.enabled() && p.kind === "install" && !!p.install && !!p.user
+  private ref = (p: Principal): InstallRef => ({ install: p.install!, grant: p.grant, authority: p.install_authority ?? "", ...(p.agent ? { agent: p.agent } : {}) })
 
   /**
    * The Worker checked this install when it opened the socket. The socket is also registered in
@@ -77,22 +81,25 @@ export class SocketGate {
    */
   seed(ws: WebSocket, p: Principal, owner: { cls: string; name: string }): void {
     if (!this.watched(p)) return
-    this.checks.set(this.key(p), { active: true, at: Date.now() })
+    if (!/^[0-9a-f]{64}$/.test(p.install_authority ?? "")) return closeQuietly(ws, 4401, "install authority unavailable")
+    this.admitting.add(ws)
     const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as {
-      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string): Promise<boolean>
+      registerSocket(entity: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number, agent?: string, authority?: string): Promise<boolean>
     }
     const expires = p.expires_at ?? Date.now() + 3600_000
-    this.ctx.waitUntil(
-      stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires, p.agent).then(
-        (ok) => {
-          if (ok) return
-          this.revoked(p.install!)
-          closeQuietly(ws, 4401, "install revoked")
-        },
-        // UserDO unreachable: the socket stays, and the 60 s check closes it if the install is revoked.
-        () => undefined
-      )
-    )
+    const registration = (async () => {
+      let ok = false
+      try { ok = await stub.registerSocket(p.user!, p.install!, p.grant, owner.cls, owner.name, expires, p.agent, p.install_authority) }
+      catch { /* An unreachable owner cannot confirm this connection's authority. */ }
+      ok = ok && ws.readyState === WebSocket.READY_STATE_OPEN
+      this.admitting.delete(ws)
+      this.checks.set(this.key(p), { active: ok, at: Date.now() })
+      if (!ok) closeQuietly(ws, 4401, "install authority changed or unavailable")
+      else if (this.held.has(ws)) this.ctx.waitUntil(this.run())
+      return ok
+    })()
+    this.registrations.set(ws, registration)
+    this.ctx.waitUntil(registration.then(() => undefined))
   }
 
   /** The install was revoked (UserDO push): every cached status of it becomes inactive. */
@@ -101,6 +108,8 @@ export class SocketGate {
   }
 
   closed(ws: WebSocket): void {
+    this.registrations.delete(ws)
+    this.admitting.delete(ws)
     this.held.delete(ws)
     this.chains.delete(ws)
     this.depth.delete(ws)
@@ -146,6 +155,8 @@ export class SocketGate {
       return false
     }
     if (this.watched(p)) {
+      if (!/^[0-9a-f]{64}$/.test(p.install_authority ?? "")) { closeQuietly(ws, 4401, "install authority changed"); return false }
+      if (this.admitting.has(ws)) { this.held.add(ws); return false }
       const c = this.checks.get(this.key(p))
       if (c && !c.active) {
         closeQuietly(ws, 4401, "install revoked")
@@ -166,16 +177,19 @@ export class SocketGate {
    * UserDO refuses the frame (fail closed) and keeps the socket.
    */
   async frameAllowed(ws: WebSocket, a: Attachment): Promise<true | false | "unreachable"> {
+    const registration = this.registrations.get(ws)
+    if (registration && !(await registration)) return false
     const p = a.principal
     if (p.expires_at !== undefined && p.expires_at <= Date.now()) {
       closeQuietly(ws, 4401, "token expired")
       return false
     }
     if (!this.watched(p)) return true
+    if (!/^[0-9a-f]{64}$/.test(p.install_authority ?? "")) { closeQuietly(ws, 4401, "install authority changed"); return false }
     const key = this.key(p)
     let c = this.checks.get(key)
     if (!c || Date.now() - c.at > INSTALL_CHECK_MS) {
-      const status = await this.ask(p.user!, [{ install: p.install!, grant: p.grant, ...(p.agent ? { agent: p.agent } : {}) }])
+      const status = await this.ask(p.user!, [this.ref(p)])
       if (!status) return "unreachable"
       c = { active: status[0] === true, at: Date.now() }
       this.checks.set(key, c)
@@ -242,13 +256,14 @@ export class SocketGate {
     this.checking = true
     try {
       while (this.held.size > 0) {
-        const held = [...this.held]
+        const held = [...this.held].filter((ws) => !this.admitting.has(ws))
+        if (!held.length) return
         const byUser = new Map<string, Map<string, InstallRef>>()
         for (const ws of held) {
           const p = (ws.deserializeAttachment() as Attachment | null)?.principal
           if (!p?.user || !p.install) continue
           const m = byUser.get(p.user) ?? new Map<string, InstallRef>()
-          m.set(this.key(p), { install: p.install, grant: p.grant, ...(p.agent ? { agent: p.agent } : {}) })
+          m.set(this.key(p), this.ref(p))
           byUser.set(p.user, m)
         }
         const now = Date.now()

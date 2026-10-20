@@ -15,6 +15,17 @@ const OWNER_CLASS = /^[A-Z][A-Za-z]{1,40}DO$/
 
 const bindingOf = (cls: string) => cls.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toUpperCase()
 
+export type SocketOwnerCursor = { cls: string; name: string; agent: string }
+/** Stable keyset page: new registrations must already hold current authority. Never removes live registrations. */
+export const socketOwnerPage = (sql: SqlStorage, install: string, cursor: SocketOwnerCursor, now: number): Array<SocketOwnerCursor> => {
+  if (sql.exec(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'socket_owners'`).toArray().length === 0) return []
+  return sql.exec<SocketOwnerCursor>(`SELECT cls, name, agent FROM socket_owners WHERE install = ? AND expires_at > ? AND (cls, name, agent) > (?, ?, ?) ORDER BY cls, name, agent LIMIT 128`,
+    install, now, cursor.cls, cursor.name, cursor.agent).toArray()
+}
+
+export const socketOwnerNamespace = (env: Env, cls: string): DurableObjectNamespace | undefined =>
+  OWNER_CLASS.test(cls) ? (env as unknown as Record<string, DurableObjectNamespace | undefined>)[bindingOf(cls)] : undefined
+
 export const registerSocketOwner = (sql: SqlStorage, install: string, agent: string | undefined, cls: string, name: string, expiresAt: number, now: number): void => {
   if (!OWNER_CLASS.test(cls) || name.length === 0 || name.length > 200) {
     console.warn(JSON.stringify({ msg: "socket registry refused an owner", cls }))

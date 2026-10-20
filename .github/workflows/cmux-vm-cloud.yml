@@ -73,6 +73,9 @@ jobs:
       - name: Install changes retire idle owner sockets
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/socket-install-authority.test.ts
+      - name: Install authority delivery and registration races
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun run test -- test/install-authority-fanout.test.ts test/install-socket-authority.test.ts test/socket-registration.test.ts
       - name: Existing user grant migrations and device state
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test -- test/install-ios-cloud-link-migrate.test.ts test/install-mac-execute-narrow.test.ts test/mac-install-grant.test.ts test/install-ios.test.ts test/push.test.ts

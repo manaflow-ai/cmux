@@ -154,7 +154,7 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
  * active and what its grant allows, and carries the classes on the principal.
  * Undefined means refuse (revoked, unknown, or expired grant).
  */
-type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; bound_machine?: string; sso_team?: string } | { ok: false }
+type GrantAnswer = { ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; authority_version: string; bound_machine?: string; sso_team?: string } | { ok: false }
 
 /**
  * Instant revocation (Lawrence Q2): every request of an install asks its UserDO, which answers from
@@ -184,12 +184,13 @@ export const withGrantClasses = async (env: Env, p: Principal): Promise<Principa
   if (!p.user || !p.install || !p.grant) return undefined
   const r = await askGrant(env, p.user, p.install, p.grant, p.agent)
   if (!r.ok) return undefined
+  if (!/^[0-9a-f]{64}$/.test(r.authority_version)) return undefined
   if (r.expires_at !== null && (!Number.isFinite(r.expires_at) || r.expires_at <= Date.now())) return undefined
   // Every owner already schedules and sweeps this deadline, including idle sockets.
   const expires_at = Math.min(p.expires_at ?? Infinity, r.expires_at ?? Infinity)
   // The install's SSO team as UserDO holds it now (a team removal drops it), never the token's older claim.
   const { bound_machine: _ignored, sso_team: _claimed, ...base } = p
-  return { ...base, grant_classes: [...r.op_classes], install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(Number.isFinite(expires_at) ? { expires_at } : {}), ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}), ...(r.sso_team ? { sso_team: r.sso_team } : {}) }
+  return { ...base, grant_classes: [...r.op_classes], install_authority: r.authority_version, install_kind: r.kind, email: r.email, email_verified: r.email_verified, ...(Number.isFinite(expires_at) ? { expires_at } : {}), ...(r.bound_machine ? { bound_machine: r.bound_machine } : {}), ...(r.sso_team ? { sso_team: r.sso_team } : {}) }
 }
 
 /**
