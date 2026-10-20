@@ -237,6 +237,19 @@ html[data-cmux-page="changelog"] body {
 .cll .cl-group li { display: list-item; padding: 3px 0; }
 .cll .cl-row-text { display: inline; }
 .cll-body .cl-builds { margin-top: 14px; }
+/* The release title (its curated headline) and, when it already names the lead change, that
+   change as the first row's bold title above its picture. */
+.cll-title {
+  margin: 0 0 10px;
+  font-size: 1.6em; /* the page's one large text, relative to the body step */
+  line-height: 1.3;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.cll-lead { margin: 0 0 2px; font-size: var(--text-body); }
+/* A change's own picture under its row: a visual per feature, smaller than the lead one. */
+.cl-row-media { margin: 8px 0 6px; max-width: 420px; }
 /* A narrow tab: the margin folds above the release, Conductor's mobile layout. */
 @media (max-width: 760px) {
   .cll { padding-left: 32px; }

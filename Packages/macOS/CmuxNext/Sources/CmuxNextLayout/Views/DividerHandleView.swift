@@ -222,7 +222,7 @@ final class DividerHandleView: NSView {
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
-            Motion.transaction(.hover) {
+            Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor
                 line.cornerRadius = isEdge ? 1 : 0
             }

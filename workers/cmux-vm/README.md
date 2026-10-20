@@ -42,6 +42,92 @@ key's actor. Creator references remain private. Arbitrary actor selectors are
 rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
 and `cmux-vm snapshot list --created-by-me`.
 
+## Device overlay policy
+
+Mesh ACL destinations accept device IDs and `device:*` as well as VM
+selectors. Device edges are directed and omit self connections. They compile
+separately from provider firewall rules, with limits of 2,500 directed rules
+per mesh and 180 incoming plus outgoing rules per device.
+
+`GET /v1/devices/{deviceId}/overlay-policy` requires `mesh:join` and the
+device's enrolling principal or a tenant admin. A device can instead use
+`POST /v1/devices/{deviceId}/signed/overlay-policy`, signing the existing
+eight-line `cmux-mesh-v1` message with the distinct purpose `overlay-policy`.
+The operator CLI exposes the credential read as
+`cmux-vm device overlay-policy dev_…` (`--json` preserves the response).
+
+The response includes public install and WireGuard keys and separate inbound
+and outbound permissions for relevant peers whose owners remain valid. Its
+digest identifies the projection even when a key changes at the same ACL
+version; it does not prove freshness. Reads hold the ACL/removal writer lock
+and use one device identity inventory.
+This contract does not activate transport, push updates, admit HostDO relay
+sessions or grant command execution; those integrations remain separate.
+
+Provider-free servers use `POST /v1/meshes/{meshId}/overlay-servers`. Sign the
+same eight-line message with purpose `enroll-overlay-server`, the mesh id,
+the server's public keys and name. A fresh signed retry returns the existing
+identity when its owner, name and keys match. Records are separate from
+gateway devices, have no tunnel id and do not authorize provider operations.
+Source wildcards include gateway clients; server initiation needs an explicit
+source-id grant to another device. Provider VM firewall paths cannot originate
+from an overlay server. Destination selectors include both inventories. Enrollment
+checks existing wildcard expansion before recording the new identity.
+
+Operators can read/list/revoke these identities and read their policy under
+`/v1/overlay-servers/{id}` and `/v1/meshes/{meshId}/overlay-servers`. Servers
+can sign their own `/signed/policy` or `/signed/revoke` request with the
+distinct purposes `overlay-server-policy` and `revoke-overlay-server`.
+Policy responses include the authoritative Native tenant id for a future
+backend binding, alongside the mesh id and public keys. Neither pairing nor
+this metadata activates a server role or grants execution. Backend pairing,
+policy push and relay admission still need integration.
+
+The CLI exposes `device enroll-server MESH --request signed-request.json`,
+`device get-server ID`, `device servers MESH`, `device server-policy ID`,
+and `device revoke-server ID --yes`. The enrollment file contains a signed
+public request; the CLI sends only the known request fields. Private keys
+remain with their signer. Admission is limited to 50 live server identities
+per mesh, independently of provider tunnel and Cloud VM billing capacity.
+
+Migration 0014 adds the server inventory and widens signed-request purposes.
+Apply it and grant the Worker SELECT, INSERT and UPDATE on
+`cmux_vm.mesh_overlay_servers` before deployment. The shared Worker/release
+schema gate requires the table, these privileges and a validated replay
+constraint; older gateway rows/readers remain unchanged.
+
+An approver can instead issue `POST /v1/meshes/{meshId}/overlay-server-codes`
+with the approved `name`, `wgPublicKey` and `installPublicKey`. The response
+contains an `msc_` code, those bindings, tenant/mesh ids, a reserved device id
+and a 10-minute expiry. Issuance creates no server; the code is shown once
+and only its SHA-256 is stored. Each mesh may issue 20 codes per hour.
+Deliver the response through the approved pairing channel.
+
+The server redeems at `POST /v1/meshes/{meshId}/overlay-server-enrollments`
+without an account credential. Sign `cmux-mesh-v1` with purpose
+`enroll-overlay-server`, mesh id as target, the approved public keys, and
+`<code>:<name>` as the name line. Colons are not allowed in a plain server
+name, so this cannot be replayed as credential enrollment. The signature
+must be fresh and single use. Authentication failures burn unused codes;
+quota and dependency failures leave them usable with a fresh signature.
+Registration and consumption commit atomically. Until expiry, a fresh
+signed retry acknowledges the same live identity; revocation cannot revive
+it. After a lost response the reserved device id also supports signed policy
+recovery, including after code expiry.
+
+Use `device server-code MESH --request binding.json` to approve, and
+`device redeem-server-code MESH --request signed-code.json` to redeem.
+Redemption reads no account configuration and sends no account headers;
+its origin comes from `--base-url`, `CMUX_VM_BASE_URL`, or the default API.
+The code stays in the request file rather than command arguments. Private
+keys remain with the signer. This API does not deliver the code or activate
+a server role; backend pairing still needs to supply the approved channel.
+
+Migration 0015 adds `cmux_vm.mesh_overlay_server_codes`. Apply it through
+the versioned runner and grant the Worker SELECT, INSERT and UPDATE before
+deployment. The schema gate checks those privileges. Gateway codes and
+older readers retain their own table and code prefix.
+
 ## gdp-ts proofs
 
 `src/proofs/` is the only place proofs are minted: `KeyHasScope`,

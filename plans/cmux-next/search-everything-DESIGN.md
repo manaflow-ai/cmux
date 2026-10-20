@@ -267,7 +267,9 @@ type in any of them). Recommended: look A.
 ### 10.1 One window, built on the palette's `search` scope
 
 - The window is the palette panel on the `search` scope (a247, plans/cmux-next/sidebar-search.md).
-  No second panel, field or ranker. Cmd+P opens `palette.open {scope: search}`; Cmd+Shift+A opens
+  No second panel, field or ranker. Cmd+P (`goToWorkspace` with no workspace) opens the
+  `search` scope, whose open action it is; its empty query lists the workspaces, as Go to Workspace
+  did, so the old Cmd+P results come first (landed, tests `CmdPOpensSearchTests`); Cmd+Shift+A opens
   the same with the chip "Chats & agents" (daemon scopes `["chat", "chief"]`); the sidebar button
   opens it anchored. Cmd+Shift+P stays the command list. Old Cmd+P (Go to) rows are all inside
   Search, so nothing is lost; `palette.goToTab` / `tab.search` stay as aliases for scripts.

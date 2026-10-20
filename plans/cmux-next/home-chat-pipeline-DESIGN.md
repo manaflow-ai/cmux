@@ -1,6 +1,6 @@
 # Home chat pipeline: one ordered timeline from the owner to the bubbles
 
-Status: in progress (Oct 20, 2026). Owner of the model: the "Home chat rebuild" agent.
+Status: landed (Oct 20, 2026): model, B1-B5 fixes, tests. Owner of the model: the "Home chat rebuild" agent.
 Agents on Home chat (a197 streaming lag, a102 bubbles, a287 group chats/replies/reactions,
 a231 long-press, a227 first message) build on this model and do not add new ordering or
 stream paths of their own.
@@ -167,3 +167,13 @@ Runs on the Mac minis (`cmux-ci run --class light`), never on this Mac.
   hold its place from its first delta and B1's single reorder would go too. Needs a cmux-tui
   protocol change and a Cloud owner change.
 - Animated reorder (`.cmuxMove`) instead of the rebuild for B1/B2.
+
+## 6. Results (Oct 20, Mac minis)
+
+- Red (test commit, aws-m4pro-5): B1-B5 tests fail; 24/24 property seeds fail.
+- Green (fix commit): all CmuxHomeCore and CmuxMessagesLab order, property (24 seeds x 90 steps),
+  mid-stream, send-order and stress suites pass.
+- Stress, same worker (aws-m4pro-5), before -> after, 100 agents streaming + the Chief's reply:
+  Chief chunk frame p50 5.41 -> 5.26 ms, p95 8.70 -> 9.53, p99 9.82 -> 10.02, max 13.9 -> 13.1;
+  other-conversation pass p99 0.097 -> 0.046 ms; send frame p50 4.98 -> 4.92 ms.
+  Drag over field while streaming: frame p95 2.40 -> 2.45 ms. No change in speed; the order fix is free.
