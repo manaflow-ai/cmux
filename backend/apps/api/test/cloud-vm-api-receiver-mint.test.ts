@@ -1,0 +1,51 @@
+import { decodeProtectedHeader, importJWK, jwtVerify } from "jose"
+import { expect, it } from "vitest"
+import { withReceiver } from "./cloud-vm-api-receiver-support.ts"
+
+it("mints only for a ready receiving attempt and signs its generation", async () => withReceiver(async (f) => {
+  expect(await f.mint()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  const initial = await f.lifecycleHttp({ phase: "read" })
+  const first = await f.lifecycleHttp({ phase: "begin", expected: initial.json.value.generation, attempt: "a".repeat(32) })
+  expect(first.json.ok).toBe(true)
+  expect(await f.mint()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  await f.lifecycleHttp({ phase: "ready", expected: first.json.value.generation })
+  const minted = await f.mint()
+  expect(minted.ok).toBe(true)
+  const kid = decodeProtectedHeader(minted.value.token).kid!
+  const key = await importJWK(f.keyset[kid]!, "EdDSA")
+  const { payload } = await jwtVerify(minted.value.token, key, { audience: f.host, algorithms: ["EdDSA"] })
+  expect(payload.receiver).toEqual({ version: 2, generation: first.json.value.generation })
+  expect(JSON.stringify(payload)).not.toContain(f.principal.grant)
+  await f.lifecycleHttp({ phase: "end", expected: first.json.value.generation })
+  expect(await f.mint()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  const second = await f.lifecycleHttp({ phase: "begin", expected: first.json.value.generation, attempt: "b".repeat(32) })
+  await f.lifecycleHttp({ phase: "ready", expected: second.json.value.generation })
+  const replacement = await f.mint()
+  expect(replacement.ok).toBe(true)
+  const checked = await jwtVerify(replacement.value.token, key, { audience: f.host, algorithms: ["EdDSA"] })
+  expect(checked.payload.receiver).toEqual({ version: 2, generation: second.json.value.generation })
+  expect(second.json.value.generation).not.toBe(first.json.value.generation)
+}))
+
+it.each(["before", "during"] as const)("rechecks the original VM grant %s client authorization", async (when) => withReceiver(async (f) => {
+  const initial = await f.lifecycleHttp({ phase: "read" })
+  const first = await f.lifecycleHttp({ phase: "begin", expected: initial.json.value.generation, attempt: "c".repeat(32) })
+  expect(first.json.ok).toBe(true)
+  expect((await f.lifecycleHttp({ phase: "ready", expected: first.json.value.generation })).json.ok).toBe(true)
+  if (when === "before") await f.grant("vm", { revoked_at: Date.now() })
+  else f.onDial(() => f.grant("vm", { revoked_at: Date.now() }))
+  expect(await f.mint()).toMatchObject({ ok: false, code: "auth.forbidden" })
+  expect((await f.audit()).filter((entry) => entry.op === "link_token")).toHaveLength(0)
+}))
+
+it("never mints beyond the original receiving VM grant expiry", async () => withReceiver(async (f) => {
+  const expires = Date.now() + 20_000
+  await f.grant("vm", { expires_at: expires })
+  const initial = await f.lifecycleHttp({ phase: "read" })
+  const first = await f.lifecycleHttp({ phase: "begin", expected: initial.json.value.generation, attempt: "d".repeat(32) })
+  expect(first.json.ok).toBe(true)
+  expect((await f.lifecycleHttp({ phase: "ready", expected: first.json.value.generation })).json.ok).toBe(true)
+  const reply = await f.mint()
+  expect(reply.ok).toBe(true)
+  expect(reply.value.expires_at).toBeLessThanOrEqual(expires)
+}))

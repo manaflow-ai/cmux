@@ -17,6 +17,7 @@ export const withReceiver = async (run: (f: {
   native: Record<string, unknown>; requests: Request[]; read: (p?: Principal, params?: unknown) => Promise<any>;
   self: () => Promise<any>; sessionOp: (op: string, params: unknown) => Promise<any>;
   onRead: (hook: () => Promise<void>) => void; remove: () => Promise<unknown>;
+  onDial: (hook: () => Promise<void>) => void;
   grant: (which: "vm" | "client", patch: Record<string, unknown>) => Promise<void>;
   audit: () => Promise<Array<Record<string, unknown>>>;
   nativeResponse: (make: () => Response) => void;
@@ -63,6 +64,7 @@ export const withReceiver = async (run: (f: {
   const native: Record<string, unknown> = { schemaVersion: 1, tenantId: w.tenant, meshId: MESH, vmId: VM, ipv4: "10.128.0.5",
     aclVersion: 1, checkedAt, expiresAt: checkedAt + 30_000, policyDigest: "a".repeat(64), peers: [] }
   let hook: (() => Promise<void>) | undefined
+  let dialHook: (() => Promise<void>) | undefined
   let response: (() => Response) | undefined
   let badAllocation = false
   const used = new Set<string>()
@@ -70,6 +72,7 @@ export const withReceiver = async (run: (f: {
     const path = new URL(r.url).pathname
     if (badAllocation && path === "/v1/vms" && r.method === "GET") return Response.json({ items: [], nextCursor: null })
     if (path === `/v1/devices/${client.device}/signed/overlay-policy`) {
+      const before = dialHook; dialHook = undefined; await before?.()
       expect(r.headers.has("authorization")).toBe(false)
       const proof = await r.json() as { signedAt: number; nonce: string; signature: string }
       const message = ["cmux-mesh-v1", "overlay-policy", client.device, "", point, "", String(proof.signedAt), proof.nonce].join("\n")
@@ -117,6 +120,7 @@ export const withReceiver = async (run: (f: {
     read: (p = principal, params = { machine }) => w.owner().readOp(w.team, p, "cloud.vm.network_policy", params),
     self: () => w.owner().readOp(w.team, principal, "cloud.vm.self.get", { machine }), sessionOp,
     onRead: (value) => { hook = value }, remove: () => w.remove(machine),
+    onDial: (value) => { dialHook = value },
     nativeResponse: (make) => { response = make }, badAllocation: () => { badAllocation = true },
     keyset: value.keyset.keys,
     mint: async () => w.owner().mintLinkToken(w.team, { identity: client.install, kind: "install", user: w.user, team: w.team,
