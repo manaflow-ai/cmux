@@ -48,25 +48,30 @@ private final class SnapshotSequence: @unchecked Sendable {
 }
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/22273:
-/// one pane's runaway `next dev` tree must be stopped under critical aggregate
-/// pressure instead of taking the whole app down, without touching the
-/// pane's login or shell.
+/// one pane's runaway `next dev` session must be stopped under critical
+/// aggregate pressure instead of taking the whole app down, without touching
+/// the pane's login or shell, or anything outside the pane's tty.
 @Suite
 struct RunawayPaneTreeMemoryPressureResponderTests {
     private static let gb: Int64 = 1024 * 1024 * 1024
     private static let threshold: Int64 = 8 * gb
-    private static let cmuxProcessGroupID = 1
+    private static let paneTTY: Int64 = 0x1600_0003
+    private static let paneTTYName = "/dev/ttys003"
+    private static let app = RunawayPaneTreeAppIdentity(processID: 50, processGroupID: 50)
+    private static let ttyDevice: RunawayPaneTreeSelection.TTYDeviceResolver = {
+        $0 == paneTTYName ? paneTTY : nil
+    }
 
     private let workspaceID = UUID()
     private let paneID = UUID()
 
-    private var descriptor: PaneMemoryDescriptor {
+    private func descriptor(ttyName: String? = Self.paneTTYName) -> PaneMemoryDescriptor {
         PaneMemoryDescriptor(
             workspaceId: workspaceID,
             panelId: paneID,
             workspaceTitle: "Workspace",
             paneTitle: "next dev",
-            ttyName: nil,
+            ttyName: ttyName,
             foregroundPID: 300
         )
     }
@@ -76,62 +81,74 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         parent: Int,
         name: String,
         group: Int,
-        foregroundGroup: Int,
         bytes: Int64,
+        tty: Int64? = Self.paneTTY,
         surface: UUID? = nil
     ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
-            pid: pid, parentPID: parent, name: name, path: nil, ttyDevice: 0x1600_0003,
+            pid: pid, parentPID: parent, name: name, path: nil, ttyDevice: tty,
             cmuxWorkspaceID: surface == nil ? nil : workspaceID, cmuxSurfaceID: surface,
             cmuxAttributionReason: nil,
-            processGroupID: group, terminalProcessGroupID: foregroundGroup, cpuPercent: 0,
+            processGroupID: group, terminalProcessGroupID: 300, cpuPercent: 0,
             memoryBytes: bytes, memorySource: .physicalFootprint,
             residentBytes: bytes, residentMemorySource: .residentSize,
             virtualBytes: 0, threadCount: 1
         )
     }
 
-    /// login(100) -> zsh(200) -> next dev(300) -> node workers, all in the
-    /// foreground job group 300, like the reported fork storm.
-    private func runawaySnapshot(
-        workerCount: Int = 60,
-        workerBytes: Int64 = 512 * 1024 * 1024,
-        foregroundGroup: Int = 300,
+    private func census(
+        _ processes: [CmuxTopProcessInfo],
         enumerationIsComplete: Bool = true
     ) -> CmuxTopProcessSnapshot {
-        var processes = [
-            process(100, parent: 1, name: "login", group: 100, foregroundGroup: foregroundGroup,
-                    bytes: 4_000_000, surface: paneID),
-            process(200, parent: 100, name: "zsh", group: 200, foregroundGroup: foregroundGroup,
-                    bytes: 8_000_000, surface: paneID),
-            process(300, parent: 200, name: "node", group: 300, foregroundGroup: foregroundGroup,
-                    bytes: Self.gb, surface: paneID),
-        ]
-        for index in 0..<workerCount {
-            processes.append(
-                process(1_000 + index, parent: 300, name: "node", group: 300,
-                        foregroundGroup: foregroundGroup, bytes: workerBytes)
-            )
-        }
-        return CmuxTopProcessSnapshot(
+        CmuxTopProcessSnapshot(
             processes: processes,
             sampledAt: Date(),
             includesProcessDetails: false,
+            includesCMUXScope: false,
             enumerationIsComplete: enumerationIsComplete
         )
     }
 
-    /// After SIGTERM only the login and shell remain.
-    private func quietSnapshot() -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: [
-                process(100, parent: 1, name: "login", group: 100, foregroundGroup: 200,
-                        bytes: 4_000_000, surface: paneID),
-                process(200, parent: 100, name: "zsh", group: 200, foregroundGroup: 200,
-                        bytes: 8_000_000, surface: paneID),
-            ],
-            sampledAt: Date(),
-            includesProcessDetails: false
+    /// cmux(50) -> login(100) -> zsh(200), the pane's session root and shell.
+    private func session(loginParent: Int = 50) -> [CmuxTopProcessInfo] {
+        [
+            process(100, parent: loginParent, name: "login", group: 100, bytes: 4_000_000),
+            process(200, parent: 100, name: "zsh", group: 200, bytes: 8_000_000),
+        ]
+    }
+
+    /// `next dev`(300) and its node workers in job group 300, like the
+    /// reported fork storm. Orphaned workers were reparented to launchd.
+    private func runawayJob(
+        workerCount: Int = 60,
+        workerBytes: Int64 = 512 * 1024 * 1024,
+        includeLeader: Bool = true,
+        workerParent: Int = 300
+    ) -> [CmuxTopProcessInfo] {
+        var processes: [CmuxTopProcessInfo] = []
+        if includeLeader {
+            processes.append(process(300, parent: 200, name: "node", group: 300, bytes: Self.gb))
+        }
+        for index in 0..<workerCount {
+            processes.append(
+                process(1_000 + index, parent: workerParent, name: "node", group: 300, bytes: workerBytes)
+            )
+        }
+        return processes
+    }
+
+    private func targets(
+        _ snapshot: CmuxTopProcessSnapshot,
+        aggregateGB: Int64 = 32,
+        descriptor: PaneMemoryDescriptor? = nil
+    ) -> [RunawayPaneTreeTarget] {
+        RunawayPaneTreeSelection.targets(
+            descriptors: [descriptor ?? self.descriptor()],
+            snapshot: snapshot,
+            aggregateBytes: UInt64(aggregateGB * Self.gb),
+            thresholdBytes: Self.threshold,
+            app: Self.app,
+            ttyDevice: Self.ttyDevice
         )
     }
 
@@ -155,99 +172,112 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
     }
 
     private func evaluate(
-        aggregate: MemoryPressureAggregateSnapshot,
+        knownAggregate: MemoryPressureAggregateSnapshot?,
+        resampledAggregate: MemoryPressureAggregateSnapshot? = nil,
         snapshots: SnapshotSequence,
         recorder: SignalRecorder,
         graceElapses: Bool = true
     ) async -> [RunawayPaneTreeTarget] {
-        await RunawayPaneTreeMemoryPressureResponder.evaluate(
-            descriptors: [descriptor],
+        let resampled = resampledAggregate ?? MemoryPressureAggregatePolicy.default.evaluate(
+            sample: .unavailable(sampledAt: Date())
+        )
+        return await RunawayPaneTreeMemoryPressureResponder.evaluate(
+            descriptors: [descriptor()],
             thresholdBytes: Self.threshold,
-            knownAggregate: aggregate,
+            knownAggregate: knownAggregate,
             sampledAt: Date(),
             snapshotProvider: { snapshots.next() },
-            aggregateProvider: { _ in aggregate },
+            aggregateProvider: { _ in resampled },
             signalProcessGroup: { recorder.record($0, $1) },
             waitForGraceDeadline: { graceElapses },
-            currentProcessGroupID: Self.cmuxProcessGroupID
+            app: Self.app,
+            ttyDevice: Self.ttyDevice
         )
     }
+
+    // MARK: Selection
 
     @Test
     func selectsOnlyTheRunawayJobGroupNeverLoginOrShell() {
-        let snapshot = runawaySnapshot()
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: [descriptor],
-            snapshot: snapshot,
-            aggregateBytes: UInt64(32 * Self.gb),
-            thresholdBytes: Self.threshold,
-            currentProcessGroupID: Self.cmuxProcessGroupID
-        )
+        let selected = targets(census(session() + runawayJob()))
 
-        #expect(targets.count == 1)
-        #expect(targets.first?.key == descriptor.key)
-        #expect(targets.first?.processGroupIDs == [300])
-        #expect(targets.first?.processCount == 63)
+        #expect(selected.count == 1)
+        #expect(selected.first?.key == descriptor().key)
+        #expect(selected.first?.processGroupIDs == [300])
+        #expect(selected.first?.processCount == 63)
     }
 
     @Test
-    func shellGroupStaysProtectedWhenTheRunawayIsABackgroundJob() {
-        // `next dev &`: the shell owns the terminal foreground.
-        let snapshot = runawaySnapshot(foregroundGroup: 200)
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: [descriptor],
-            snapshot: snapshot,
-            aggregateBytes: UInt64(32 * Self.gb),
-            thresholdBytes: Self.threshold,
-            currentProcessGroupID: Self.cmuxProcessGroupID
-        )
+    func orphanedWorkersOnThePaneTTYStayInTheRunawayGroup() {
+        // Workers whose parent exited were reparented to launchd but keep the
+        // pane's tty; they must not make their own group look like a root.
+        let selected = targets(census(session() + runawayJob(includeLeader: false, workerParent: 1)))
 
-        #expect(targets.first?.processGroupIDs == [300])
+        #expect(selected.first?.processGroupIDs == [300])
+    }
+
+    @Test
+    func detachedAppOutsideThePaneTTYIsNeverMeasuredOrSignalled() {
+        // An app launched from the pane inherits its surface environment but
+        // runs in its own sessions without the pane's tty. Only the pane's own
+        // runaway job may be selected.
+        var processes = session() + runawayJob()
+        processes.append(process(700, parent: 1, name: "Code", group: 700, bytes: 20 * Self.gb,
+                                 tty: nil, surface: paneID))
+        processes.append(process(701, parent: 700, name: "zsh", group: 701, bytes: 20 * Self.gb,
+                                 tty: 0x1600_0099))
+
+        let selected = targets(census(processes), aggregateGB: 60)
+
+        #expect(selected.map(\.processGroupIDs) == [[300]])
+        #expect(selected.first?.processCount == 63)
+    }
+
+    @Test
+    func paneWithoutItsSessionRootFailsClosed() {
+        // The login process is not a child of this cmux: the pane's shell
+        // can't be identified, so nothing is signalled.
+        #expect(targets(census(session(loginParent: 1) + runawayJob())).isEmpty)
+    }
+
+    @Test
+    func paneWithoutATTYFailsClosed() {
+        let snapshot = census(session() + runawayJob())
+
+        #expect(targets(snapshot, descriptor: descriptor(ttyName: nil)).isEmpty)
+    }
+
+    @Test
+    func commandSharingTheShellGroupIsNeverSignalled() {
+        // A custom command without job control: everything stays in the
+        // shell's group, which is protected.
+        let processes = session() + runawayJob(includeLeader: false, workerParent: 200).map {
+            process($0.pid, parent: 200, name: $0.name, group: 200, bytes: $0.memoryBytes)
+        }
+
+        #expect(targets(census(processes)).isEmpty)
     }
 
     @Test
     func paneBelowThresholdIsNeverSelected() {
-        let snapshot = runawaySnapshot(workerCount: 4)
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: [descriptor],
-            snapshot: snapshot,
-            aggregateBytes: UInt64(4 * Self.gb),
-            thresholdBytes: Self.threshold,
-            currentProcessGroupID: Self.cmuxProcessGroupID
-        )
-
-        #expect(targets.isEmpty)
+        #expect(targets(census(session() + runawayJob(workerCount: 4)), aggregateGB: 4).isEmpty)
     }
 
     @Test
     func paneThatDoesNotDominateTheAggregateIsNeverSelected() {
         // 31 GB in this pane, but the rest of cmux holds far more: diffuse
         // pressure must not stop one pane's work.
-        let snapshot = runawaySnapshot()
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: [descriptor],
-            snapshot: snapshot,
-            aggregateBytes: UInt64(80 * Self.gb),
-            thresholdBytes: Self.threshold,
-            currentProcessGroupID: Self.cmuxProcessGroupID
-        )
-
-        #expect(targets.isEmpty)
+        #expect(targets(census(session() + runawayJob()), aggregateGB: 80).isEmpty)
     }
 
     @Test
     func incompleteCensusNeverSelects() {
-        let snapshot = runawaySnapshot(enumerationIsComplete: false)
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: [descriptor],
-            snapshot: snapshot,
-            aggregateBytes: UInt64(32 * Self.gb),
-            thresholdBytes: Self.threshold,
-            currentProcessGroupID: Self.cmuxProcessGroupID
-        )
+        let snapshot = census(session() + runawayJob(), enumerationIsComplete: false)
 
-        #expect(targets.isEmpty)
+        #expect(targets(snapshot).isEmpty)
     }
+
+    // MARK: Termination
 
     @Test
     func criticalAggregatePressureTerminatesTheRunawayGroupAndEscalatesWhenItSurvives() async {
@@ -255,13 +285,17 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         let critical = aggregate(bytes: UInt64(60 * Self.gb))
         #expect(critical.severity == .critical)
 
-        let targets = await evaluate(
-            aggregate: critical,
-            snapshots: SnapshotSequence([runawaySnapshot(), runawaySnapshot()]),
+        let selected = await evaluate(
+            knownAggregate: critical,
+            snapshots: SnapshotSequence([
+                census(session() + runawayJob()),
+                // The leader exited on SIGTERM; its orphaned workers did not.
+                census(session() + runawayJob(includeLeader: false, workerParent: 1)),
+            ]),
             recorder: recorder
         )
 
-        #expect(targets.map(\.processGroupIDs) == [[300]])
+        #expect(selected.map(\.processGroupIDs) == [[300]])
         #expect(recorder.groups(for: SIGTERM) == [300])
         #expect(recorder.groups(for: SIGKILL) == [300])
     }
@@ -271,8 +305,8 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         let recorder = SignalRecorder()
 
         _ = await evaluate(
-            aggregate: aggregate(bytes: UInt64(60 * Self.gb)),
-            snapshots: SnapshotSequence([runawaySnapshot(), quietSnapshot()]),
+            knownAggregate: aggregate(bytes: UInt64(60 * Self.gb)),
+            snapshots: SnapshotSequence([census(session() + runawayJob()), census(session())]),
             recorder: recorder
         )
 
@@ -285,8 +319,8 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         let recorder = SignalRecorder()
 
         _ = await evaluate(
-            aggregate: aggregate(bytes: UInt64(60 * Self.gb)),
-            snapshots: SnapshotSequence([runawaySnapshot()]),
+            knownAggregate: aggregate(bytes: UInt64(60 * Self.gb)),
+            snapshots: SnapshotSequence([census(session() + runawayJob())]),
             recorder: recorder,
             graceElapses: false
         )
@@ -304,23 +338,48 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         #expect(partial.coverage == .lowerBound)
         #expect(partial.isActionable == false)
 
-        for snapshot in [warning, partial] {
-            let targets = await evaluate(
-                aggregate: snapshot,
-                snapshots: SnapshotSequence([runawaySnapshot()]),
+        for known in [warning, partial] {
+            let selected = await evaluate(
+                knownAggregate: known,
+                snapshots: SnapshotSequence([census(session() + runawayJob())]),
                 recorder: recorder
             )
-            #expect(targets.isEmpty)
+            #expect(selected.isEmpty)
         }
         #expect(recorder.count == 0)
     }
+
+    @Test
+    func systemLaneResamplesTheAggregateBeforeActing() async {
+        let recorder = SignalRecorder()
+
+        let quietResample = await evaluate(
+            knownAggregate: nil,
+            resampledAggregate: aggregate(bytes: UInt64(36 * Self.gb)),
+            snapshots: SnapshotSequence([census(session() + runawayJob())]),
+            recorder: recorder
+        )
+        #expect(quietResample.isEmpty)
+        #expect(recorder.count == 0)
+
+        let criticalResample = await evaluate(
+            knownAggregate: nil,
+            resampledAggregate: aggregate(bytes: UInt64(60 * Self.gb)),
+            snapshots: SnapshotSequence([census(session() + runawayJob()), census(session())]),
+            recorder: recorder
+        )
+        #expect(criticalResample.map(\.processGroupIDs) == [[300]])
+        #expect(recorder.groups(for: SIGTERM) == [300])
+    }
+
+    // MARK: Responder
 
     @MainActor
     @Test
     func responderSchedulesOneEvaluationAndSignalsThroughTheRegistry() async {
         let recorder = SignalRecorder()
-        let snapshots = SnapshotSequence([runawaySnapshot(), quietSnapshot()])
-        let paneDescriptor = descriptor
+        let snapshots = SnapshotSequence([census(session() + runawayJob()), census(session())])
+        let paneDescriptor = descriptor()
         let responder = RunawayPaneTreeMemoryPressureResponder(
             paneProvider: { [paneDescriptor] },
             thresholdBytes: { Self.threshold },
@@ -332,15 +391,16 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
                 )
             },
             signalProcessGroup: { recorder.record($0, $1) },
-            waitForGraceDeadline: { true }
+            waitForGraceDeadline: { true },
+            app: Self.app,
+            ttyDevice: Self.ttyDevice
         )
         let registry = MemoryPressureResponderRegistry()
         registry.register(responder)
-        let critical = aggregate(bytes: UInt64(60 * Self.gb))
         let snapshot = MemoryPressureSnapshot(
             severity: .critical,
             physicalFootprintBytes: nil,
-            aggregateMemoryPressure: critical,
+            aggregateMemoryPressure: aggregate(bytes: UInt64(60 * Self.gb)),
             sampledAt: Date()
         )
 
@@ -368,7 +428,9 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
                 MemoryPressureAggregatePolicy.default.evaluate(sample: .unavailable(sampledAt: Date()))
             },
             signalProcessGroup: { _, _ in Issue.record("must not signal") },
-            waitForGraceDeadline: { true }
+            waitForGraceDeadline: { true },
+            app: Self.app,
+            ttyDevice: Self.ttyDevice
         )
         let result = responder.shedMemory(
             for: MemoryPressureSnapshot(

@@ -6,12 +6,14 @@ import CmuxMemoryPressure
 /// Stops one pane's runaway process tree before it takes the whole app down.
 ///
 /// Terminal children share cmux's resource coalition, so a fork storm or leak
-/// in one pane (issue #22273: ~3,500 `node` processes from one `next dev`)
-/// makes macOS's low-memory path act on cmux itself and every session is
-/// lost. Under critical, complete aggregate pressure this responder sends
-/// SIGTERM to the dominant pane's runaway job process groups, then SIGKILL to
-/// the groups still alive in that pane after a bounded grace deadline. The
-/// pane's login and shell groups are never signalled.
+/// in one pane (https://github.com/manaflow-ai/cmux/issues/22273: ~3,500
+/// `node` processes from one `next dev`) makes macOS's low-memory path act on
+/// cmux itself and every session is lost. Under critical, complete aggregate
+/// pressure this responder sends SIGTERM to the runaway job process groups on
+/// the dominant pane's tty, then SIGKILL to the groups still on that tty after
+/// a bounded grace deadline. The pane's session root and login shell are never
+/// signalled. It runs after idle-agent hibernation, which is cheaper and less
+/// destructive.
 @MainActor
 final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     typealias SnapshotProvider = @Sendable () async -> CmuxTopProcessSnapshot
@@ -26,7 +28,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
 
     let memoryPressureResponderID = "runaway-pane-tree"
     let memoryPressureMinimumSeverity: MemoryPressureSeverity = .critical
-    let memoryPressurePriority = 90
+    let memoryPressurePriority = 70
     let memoryPressureResponderScope: MemoryPressureResponderScope = .all
 
     private let paneProvider: @MainActor () -> [PaneMemoryDescriptor]
@@ -35,13 +37,17 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     private let aggregateProvider: AggregateProvider
     private let signalProcessGroup: ProcessGroupSignaller
     private let waitForGraceDeadline: GraceDeadline
+    private let app: RunawayPaneTreeAppIdentity
+    private let ttyDevice: RunawayPaneTreeSelection.TTYDeviceResolver
     private var evaluationTask: Task<Void, Never>?
 
     init(
         paneProvider: @escaping @MainActor () -> [PaneMemoryDescriptor],
         thresholdBytes: @escaping @MainActor () -> Int64 = { PaneMemoryGuardrail.configuredThresholdBytes() },
         snapshotProvider: @escaping SnapshotProvider = {
-            await CmuxTopProcessSnapshot.capture(includeCMUXScope: true)
+            // Selection is tty-scoped, so the census skips per-process
+            // environment reads while memory is critical.
+            await CmuxTopProcessSnapshot.capture(includeCMUXScope: false)
         },
         aggregateProvider: @escaping AggregateProvider = { sampledAt in
             let sampler = DarwinMemoryPressureAggregateSampler(
@@ -63,6 +69,10 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             } catch {
                 return false
             }
+        },
+        app: RunawayPaneTreeAppIdentity = .current,
+        ttyDevice: @escaping RunawayPaneTreeSelection.TTYDeviceResolver = {
+            CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
         }
     ) {
         self.paneProvider = paneProvider
@@ -71,6 +81,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         self.aggregateProvider = aggregateProvider
         self.signalProcessGroup = signalProcessGroup
         self.waitForGraceDeadline = waitForGraceDeadline
+        self.app = app
+        self.ttyDevice = ttyDevice
     }
 
     /// The in-flight evaluation, if one is running.
@@ -91,22 +103,26 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
 
         let responderID = memoryPressureResponderID
         let severity = snapshot.severity
-        let thresholdBytes = thresholdBytes()
+        let threshold = thresholdBytes()
         let sampledAt = snapshot.sampledAt
         let snapshotProvider = snapshotProvider
         let aggregateProvider = aggregateProvider
         let signalProcessGroup = signalProcessGroup
         let waitForGraceDeadline = waitForGraceDeadline
+        let app = app
+        let ttyDevice = ttyDevice
         evaluationTask = Task { @MainActor [weak self] in
             let targets = await Self.evaluate(
                 descriptors: descriptors,
-                thresholdBytes: thresholdBytes,
+                thresholdBytes: threshold,
                 knownAggregate: knownAggregate,
                 sampledAt: sampledAt,
                 snapshotProvider: snapshotProvider,
                 aggregateProvider: aggregateProvider,
                 signalProcessGroup: signalProcessGroup,
-                waitForGraceDeadline: waitForGraceDeadline
+                waitForGraceDeadline: waitForGraceDeadline,
+                app: app,
+                ttyDevice: ttyDevice
             )
             self?.evaluationTask = nil
             guard !targets.isEmpty else { return }
@@ -136,7 +152,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
 
     /// Re-checks aggregate pressure, selects runaway panes from a fresh census,
     /// sends SIGTERM, and after the grace deadline sends SIGKILL to the selected
-    /// groups that still belong to the same pane. Returns the panes acted on.
+    /// groups that are still signallable on the same tty. Returns the panes
+    /// acted on.
     #if compiler(>=6.2)
     @concurrent
     #else
@@ -151,7 +168,10 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         aggregateProvider: AggregateProvider,
         signalProcessGroup: ProcessGroupSignaller,
         waitForGraceDeadline: GraceDeadline,
-        currentProcessGroupID: Int = Int(getpgrp())
+        app: RunawayPaneTreeAppIdentity = .current,
+        ttyDevice: RunawayPaneTreeSelection.TTYDeviceResolver = {
+            CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
+        }
     ) async -> [RunawayPaneTreeTarget] {
         let aggregate: MemoryPressureAggregateSnapshot
         if let knownAggregate {
@@ -168,7 +188,8 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             snapshot: snapshot,
             aggregateBytes: aggregateBytes,
             thresholdBytes: thresholdBytes,
-            currentProcessGroupID: currentProcessGroupID
+            app: app,
+            ttyDevice: ttyDevice
         )
         guard !targets.isEmpty else { return [] }
         for target in targets {
@@ -183,19 +204,13 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             // Without a complete census a reused group ID cannot be ruled out.
             return targets
         }
-        let descriptorsByKey = Dictionary(
-            descriptors.map { ($0.key, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         for target in targets {
-            guard let descriptor = descriptorsByKey[target.key] else { continue }
-            let pids = RunawayPaneTreeSelection.panePIDs(for: descriptor, in: freshSnapshot)
-            let liveGroups = Set(pids.compactMap { freshSnapshot.process(pid: $0)?.processGroupID })
-            let protectedGroups = RunawayPaneTreeSelection
-                .protectedProcessGroupIDs(pids: pids, in: freshSnapshot)
-                .union([currentProcessGroupID])
-            for processGroupID in target.processGroupIDs
-            where liveGroups.contains(processGroupID) && !protectedGroups.contains(processGroupID) {
+            let liveGroups = RunawayPaneTreeSelection.signallableProcessGroupIDs(
+                ttyDevice: target.ttyDevice,
+                in: freshSnapshot,
+                app: app
+            ) ?? []
+            for processGroupID in target.processGroupIDs where liveGroups.contains(processGroupID) {
                 signalProcessGroup(processGroupID, SIGKILL)
             }
         }
