@@ -3887,6 +3887,7 @@ jobs:
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
+      issues: read # the canary mode's report week (nightly_next_canary_mode.py)
     runs-on: macos-26
     timeout-minutes: 30
     strategy:
@@ -4021,21 +4022,43 @@ jobs:
 
       # The nightly canary (docs/ci/nightly-next-canary.md): a visible window,
       # a New Tab, an agent session that answers a prompt (acpmux's test
-      # agent), and no crash in the first minute. Repository variable
-      # NIGHTLY_NEXT_CANARY: unset or `report` runs it and only reports a
-      # failure; `enforce` fails this job, so publish-nightly publishes
-      # nothing; `off` skips it.
-      - name: Canary the signed app
+      # agent), and no crash in the first minute. Its mode comes from
+      # scripts/ci/nightly_next_canary_mode.py, the same resolver as the
+      # post-publication canary: `report` runs it and only reports a failure;
+      # `enforce` fails this job, so publish-nightly publishes nothing; `off`
+      # skips it. NIGHTLY_NEXT_CANARY unset or `auto` reports for one week
+      # (NIGHTLY_NEXT_CANARY_ENFORCE_AFTER) and enforces after a clean week.
+      # An unknown value fails here, so a typo never silently skips or enforces.
+      - name: Resolve the canary mode
+        id: canary-mode
         if: env.TRACK == 'nightly-next' && vars.NIGHTLY_NEXT_CANARY != 'off'
-        continue-on-error: ${{ vars.NIGHTLY_NEXT_CANARY != 'enforce' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+          NIGHTLY_NEXT_CANARY_ENFORCE_AFTER: ${{ vars.NIGHTLY_NEXT_CANARY_ENFORCE_AFTER }}
         run: |
           set -euo pipefail
-          if ! ./scripts/smoke-signed-app-cli.sh "$CHANNEL_APP_PATH" --canary; then
-            echo "::error title=nightly-next canary::the signed app failed the canary (NIGHTLY_NEXT_CANARY=${NIGHTLY_NEXT_CANARY:-report})"
-            exit 1
-          fi
+          python3 scripts/ci/nightly_next_canary_mode.py resolve | tee -a "$GITHUB_OUTPUT"
+
+      # Two attempts, as after publication: one flaky launch must not hold a
+      # nightly back once the canary enforces.
+      - name: Canary the signed app
+        if: env.TRACK == 'nightly-next' && steps.canary-mode.outputs.mode != 'off' && steps.canary-mode.outputs.mode != ''
+        continue-on-error: ${{ steps.canary-mode.outputs.mode != 'enforce' }}
+        run: |
+          set -uo pipefail
+          for attempt in 1 2; do
+            if ./scripts/smoke-signed-app-cli.sh "$CHANNEL_APP_PATH" --canary; then
+              echo "canary passed (attempt $attempt, mode $CANARY_MODE)"
+              exit 0
+            fi
+            echo "::warning title=nightly-next canary::attempt $attempt failed"
+          done
+          echo "::error title=nightly-next canary::the signed app failed the canary twice (mode $CANARY_MODE: $CANARY_WHY)"
+          exit 1
         env:
-          NIGHTLY_NEXT_CANARY: ${{ vars.NIGHTLY_NEXT_CANARY }}
+          CANARY_MODE: ${{ steps.canary-mode.outputs.mode }}
+          CANARY_WHY: ${{ steps.canary-mode.outputs.why }}
 
       # The smokes leave daemons of the shipped bundle running (the app keeps
       # its cmux-tui and acpmux daemons by design). On a hosted runner the
