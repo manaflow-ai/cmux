@@ -19,6 +19,12 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// none and leaving a row cancels its pending card. Once a card shows,
     /// moving down the list slides it over at once.
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
+    /// Lawrence 2026-10-19: "We need it to instantly disappear with fade opacity when I mouse
+    /// out." The card touches its row, so it needs no grace for the pointer to travel to it:
+    /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
+    /// in the list (`hoverCardBridges`) holds it for the reshow window, so the next row slides
+    /// it over instead of hiding and reshowing it.
+    var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
@@ -65,7 +71,14 @@ final class WorkspaceHoverCardController: HoverCardSource {
               let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
               let anchor = list.hoverCardAnchor(for: id)
         else { return nil }
-        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay), anchor: anchor)
+        return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
+                            anchor: anchor)
+    }
+
+    /// A point in the visible list on no row (a header, a gap between rows).
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
+        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor else { return false }
+        return list.visibleRect.contains(list.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {

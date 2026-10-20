@@ -101,7 +101,7 @@ extension DaemonLanePolicy {
         "send-key": ["keys", "surface"],
         "server-stats": ["include"],
         "set-cell-pixels": ["height_px", "width_px"],
-        "set-client-info": ["capabilities", "device_id", "device_kind", "device_name", "display_name", "kind", "name", "user_id"],
+        "set-client-info": ["api_revision", "capabilities", "device_id", "device_kind", "device_name", "display_name", "kind", "name", "user_id"],
         "set-client-sizing": ["client", "enabled", "exclusive", "surface"],
         "set-ratio": ["dir", "pane", "ratio"],
         "set-split-ratio": ["ratio", "split", "transaction"],

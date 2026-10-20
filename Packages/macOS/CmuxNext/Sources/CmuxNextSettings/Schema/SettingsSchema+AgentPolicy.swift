@@ -76,6 +76,7 @@ extension SettingsSchema {
         "layout.dockColumnMode",
         "layout.frameOrientation",
         "layout.rows",
+        "layout.focusPaneOnScroll",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",

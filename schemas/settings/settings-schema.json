@@ -632,24 +632,6 @@
               "key" : "settings.group.editorSaving",
               "text" : "Saving"
             }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.scale",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
           }
         ],
         "id" : "editor",
@@ -924,6 +906,16 @@
             "title" : {
               "key" : "settings.group.bookmarks",
               "text" : "Bookmarks"
+            }
+          },
+          {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
             }
           },
           {

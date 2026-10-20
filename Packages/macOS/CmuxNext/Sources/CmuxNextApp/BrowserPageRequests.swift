@@ -184,6 +184,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.keyRouter.routePageKey(pageKey, from: page)
         case .webNotification(let notification):
             services.notifications.postWebNotification(notification, surface: openerTab.surface)
+        case .verificationPageWaiting:
+            services.verificationAutofill.pageWaiting(page)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:

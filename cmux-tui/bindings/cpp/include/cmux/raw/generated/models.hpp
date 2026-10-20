@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0";
+inline constexpr std::string_view kProtocolIrSha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -289,6 +289,7 @@ struct CloudMuxAckRequest;
 struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
 struct CloudParticipantAvatarGetRequest;
+struct CloudRequestsListRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -1821,6 +1822,10 @@ struct CloudParticipantAvatarGetRequest {
     friend bool operator==(const CloudParticipantAvatarGetRequest&, const CloudParticipantAvatarGetRequest&) = default;
 };
 
+struct CloudRequestsListRequest {
+    friend bool operator==(const CloudRequestsListRequest&, const CloudRequestsListRequest&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -3143,6 +3148,7 @@ struct MachinePlatform {
 };
 
 struct IdentifyResult {
+    Field<std::uint32_t> api_revision{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
@@ -3155,6 +3161,7 @@ struct IdentifyResult {
     std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
     std::optional<MachinePlatform> machine_platform{};
+    Field<std::uint32_t> min_api_revision{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -4840,6 +4847,7 @@ struct SetCellPixelsResult {
 };
 
 struct SetClientInfoRequest {
+    Field<std::uint32_t> api_revision{};
     Field<std::vector<std::string>> capabilities{};
     Field<std::string> device_id{};
     Field<std::string> device_kind{};
@@ -7479,6 +7487,12 @@ template <>
 struct Codec<CloudParticipantAvatarGetRequest> {
     static Result<Json> encode(const CloudParticipantAvatarGetRequest& value);
     static Result<CloudParticipantAvatarGetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudRequestsListRequest> {
+    static Result<Json> encode(const CloudRequestsListRequest& value);
+    static Result<CloudRequestsListRequest> decode(const Json& value);
 };
 
 template <>
