@@ -95,6 +95,63 @@ fn tabs_within_pane() {
     });
 }
 
+/// F6 (pane-active-tab-DESIGN.md I6, close-focus.md): closing the active tab
+/// activates the next tab, else the previous one, as the app's strip does;
+/// closing a background tab keeps the active tab.
+#[test]
+fn closing_the_active_tab_activates_the_next_tab_else_the_previous() {
+    let mux = test_mux();
+    let a = mux.new_workspace(None, None).unwrap();
+    let pane = mux.with_state(|s| s.pane_of(a.id).unwrap());
+    let b = mux.new_tab(Some(pane), None, None).unwrap();
+    let c = mux.new_tab(Some(pane), None, None).unwrap();
+    let d = mux.new_tab(Some(pane), None, None).unwrap();
+    let active = |mux: &Arc<Mux>| mux.with_state(|s| s.panes[&pane].active_surface());
+
+    mux.select_tab(Some(pane), Some(1), None);
+    assert_eq!(active(&mux), Some(b.id));
+    mux.close_surface(b.id).unwrap();
+    assert_eq!(active(&mux), Some(c.id), "the next tab, not the previous");
+
+    // A background tab before the active one closes: the active tab stays.
+    mux.close_surface(a.id).unwrap();
+    assert_eq!(active(&mux), Some(c.id));
+
+    // The last tab closes: no next tab, so the previous one.
+    mux.select_tab(Some(pane), Some(1), None);
+    assert_eq!(active(&mux), Some(d.id));
+    mux.close_surface(d.id).unwrap();
+    assert_eq!(active(&mux), Some(c.id));
+}
+
+/// F10: moving a tab that sits before the active tab out of its pane keeps
+/// the source pane's active tab, in memory and in the durable record.
+#[test]
+fn moving_a_tab_out_keeps_the_source_active_tab_in_memory_and_durably() {
+    let mux = test_mux();
+    let a = mux.new_workspace(None, None).unwrap();
+    let source = mux.with_state(|s| s.pane_of(a.id).unwrap());
+    let b = mux.new_tab(Some(source), None, None).unwrap();
+    let c = mux.new_tab(Some(source), None, None).unwrap();
+    let other = mux.split(source, SplitDir::Right, None).unwrap();
+    let target = mux.with_state(|s| s.pane_of(other.id).unwrap());
+    mux.select_tab(Some(source), Some(2), None);
+    assert_eq!(mux.with_state(|s| s.panes[&source].active_surface()), Some(c.id));
+
+    assert!(mux.move_tab(a.id, target, 0));
+
+    mux.with_state(|s| {
+        assert_eq!(s.panes[&source].tabs, vec![b.id, c.id]);
+        assert_eq!(s.panes[&source].active_surface(), Some(c.id));
+    });
+    let (pane_id, c_id) = mux.with_state(|s| {
+        (s.resource_indexes.pane_ids[&source].clone(), s.resource_indexes.tab_ids[&c.id].clone())
+    });
+    let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+    let record = durable.panes.iter().find(|pane| pane.public_id == pane_id).unwrap();
+    assert_eq!(record.active_tab, Some(c_id), "the durable record names the same active tab");
+}
+
 #[test]
 fn closing_an_ordinary_tab_does_not_rebuild_the_split_index() {
     let mux = test_mux();

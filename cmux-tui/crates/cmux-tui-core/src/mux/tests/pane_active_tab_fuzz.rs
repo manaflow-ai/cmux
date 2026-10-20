@@ -82,6 +82,30 @@ pub(super) fn pane_active_tab_violation(state: &State) -> Option<String> {
     None
 }
 
+/// I3b: the durable record of every live pane names the same active tab as memory
+/// (a restart shows what the user saw).
+fn durable_active_tab_violation(mux: &Arc<Mux>) -> Option<String> {
+    let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().ok()?;
+    mux.with_state(|state| {
+        for (id, pane) in &state.panes {
+            let Some(public) = state.resource_indexes.pane_ids.get(id) else { continue };
+            let Some(record) = durable.panes.iter().find(|record| &record.public_id == public)
+            else {
+                continue;
+            };
+            let live =
+                pane.active_surface().and_then(|tab| state.resource_indexes.tab_ids.get(&tab));
+            if record.active_tab.as_ref() != live {
+                return Some(format!(
+                    "pane {id:?} active tab is {live:?} in memory but {:?} durably (I3b)",
+                    record.active_tab
+                ));
+            }
+        }
+        None
+    })
+}
+
 fn panes(mux: &Arc<Mux>) -> Vec<PaneId> {
     mux.with_state(|state| {
         let mut ids = state.panes.keys().copied().collect::<Vec<_>>();
@@ -200,7 +224,9 @@ fn run(mux: &Arc<Mux>, seed: u64, steps: usize) -> Result<(), String> {
     let mut trace = Vec::new();
     for _ in 0..steps {
         trace.push(step(mux, &mut rng, &mut groups));
-        if let Some(violation) = mux.with_state(pane_active_tab_violation) {
+        if let Some(violation) =
+            mux.with_state(pane_active_tab_violation).or_else(|| durable_active_tab_violation(mux))
+        {
             let tail = trace.iter().rev().take(8).rev().cloned().collect::<Vec<_>>().join("\n  ");
             return Err(format!(
                 "seed {seed:#x} step {}: {violation}\n  last ops:\n  {tail}",

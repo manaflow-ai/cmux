@@ -312,3 +312,21 @@ fn resource_state_patch_failure_leaves_memory_and_database_unchanged() {
     assert!(registry.snapshot().unwrap().workspaces.is_empty());
     registry.set_resource_patch_failure(false).unwrap();
 }
+
+/// F8 (pane-active-tab-DESIGN.md): a durable active tab that is not one of
+/// the pane's tabs (another pane's, or none while the pane has tabs) heals
+/// to the pane's first tab instead of failing the whole restore.
+#[test]
+fn restore_heals_an_unknown_or_missing_active_tab_to_the_first_tab() {
+    for active in [Some(restore_tab_id(1)), Some(restore_tab_id(99)), None] {
+        let (snapshot, mut topology) = resource_restore_fixture();
+        let pane_id = topology.panes[4].public_id.clone();
+        topology.panes[4].active_tab = active.clone();
+        let restored = restore_resource_state(snapshot, topology)
+            .unwrap_or_else(|error| panic!("restore with active {active:?} failed: {error}"));
+        let state = &restored.state;
+        let pane = &state.panes[&state.resource_indexes.panes[&pane_id]];
+        assert_eq!(pane.tabs.len(), 2, "active {active:?}");
+        assert_eq!(pane.active_tab, 0, "healed to the first tab: active {active:?}");
+    }
+}
