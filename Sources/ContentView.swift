@@ -1874,9 +1874,15 @@ struct ContentView: View {
             isFullScreen: isFullScreen,
             runtimeCache: workspacePresentationModeRuntimeCache
         ))
-        .overlay(alignment: .top) {
+        .background {
             if let runawayWarnings = AppDelegate.shared?.runawayPaneWarningCenter {
-                RunawayPaneWarningBanner(center: runawayWarnings, tabManager: tabManager)
+                RunawayPaneWarningOverlay(
+                    warning: runawayWarnings.warnings.first { warning in
+                        tabManager.tabs.contains { $0.id == warning.workspaceId }
+                    },
+                    onStop: { runawayWarnings.stopProcessTree($0) },
+                    onDismiss: { runawayWarnings.dismiss($0) }
+                )
             }
         }
     }

@@ -179,10 +179,10 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         selector: RunawaySessionSelector,
         knownAggregate: MemoryPressureAggregateSnapshot?,
         sampledAt: Date,
-        snapshotProvider: SnapshotProvider,
+        snapshotProvider: @escaping SnapshotProvider,
         aggregateProvider: AggregateProvider,
-        signalProcessGroup: ProcessGroupSignaller,
-        waitForGraceDeadline: GraceDeadline,
+        signalProcessGroup: @escaping ProcessGroupSignaller,
+        waitForGraceDeadline: @escaping GraceDeadline,
         ttyDevice: TTYDeviceResolver,
         shouldEscalate: @Sendable () async -> Bool = { true }
     ) async -> [RunawayPaneTreeTarget] {

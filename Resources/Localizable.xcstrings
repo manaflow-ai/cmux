@@ -671895,55 +671895,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal. The shell stays open."
+            "value": "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal, including nested shells and suspended jobs. The terminal's own shell stays open."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يرسل cmux الإشارة SIGTERM ثم SIGKILL إلى كل مهمة قيد التشغيل في هذه الطرفية. يبقى الصدفة مفتوحًا."
+            "value": "يرسل cmux الإشارة SIGTERM ثم SIGKILL إلى كل مهمة في هذه الطرفية، بما في ذلك الصدفات المتداخلة والمهام المعلّقة. تبقى صدفة الطرفية نفسها مفتوحة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sendet SIGTERM und danach SIGKILL an jeden Job in diesem Terminal. Die Shell bleibt geöffnet."
+            "value": "cmux sendet SIGTERM und danach SIGKILL an jeden Job in diesem Terminal, auch an verschachtelte Shells und angehaltene Jobs. Die eigene Shell des Terminals bleibt geöffnet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux envía SIGTERM y luego SIGKILL a cada trabajo que se ejecuta en este terminal. El shell sigue abierto."
+            "value": "cmux envía SIGTERM y luego SIGKILL a cada trabajo de este terminal, incluidos los shells anidados y los trabajos suspendidos. El shell propio del terminal sigue abierto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux envoie SIGTERM, puis SIGKILL, à chaque tâche en cours dans ce terminal. Le shell reste ouvert."
+            "value": "cmux envoie SIGTERM, puis SIGKILL, à chaque tâche de ce terminal, y compris les shells imbriqués et les tâches suspendues. Le shell propre au terminal reste ouvert."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこのターミナルで実行中のすべてのジョブに SIGTERM を送り、その後 SIGKILL を送ります。シェルは開いたままです。"
+            "value": "cmux はこのターミナルのすべてのジョブ（入れ子のシェルや一時停止中のジョブを含む）に SIGTERM を送り、その後 SIGKILL を送ります。ターミナル自体のシェルは開いたままです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 이 터미널에서 실행 중인 모든 작업에 SIGTERM을 보낸 다음 SIGKILL을 보냅니다. 셸은 열린 상태로 유지됩니다."
+            "value": "cmux가 이 터미널의 모든 작업(중첩된 셸과 일시 중지된 작업 포함)에 SIGTERM을 보낸 다음 SIGKILL을 보냅니다. 터미널 자체의 셸은 열린 상태로 유지됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会先发送 SIGTERM，再发送 SIGKILL 给此终端中运行的每个作业。Shell 保持打开。"
+            "value": "cmux 会先发送 SIGTERM，再发送 SIGKILL 给此终端中的每个作业，包括嵌套 Shell 和已暂停的作业。终端本身的 Shell 保持打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會先傳送 SIGTERM，再傳送 SIGKILL 給此終端機中執行的每個工作。Shell 會保持開啟。"
+            "value": "cmux 會先傳送 SIGTERM，再傳送 SIGKILL 給此終端機中的每個工作，包括巢狀 Shell 與暫停的工作。終端機本身的 Shell 會保持開啟。"
           }
         }
       }
@@ -672298,6 +672298,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@。開啟終端機以停止其處理程序樹。"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.detailWithoutCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processes: %1$@ · Memory: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمليات: %1$@ · الذاكرة: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozesse: %1$@ · Speicher: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procesos: %1$@ · Memoria: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processus : %1$@ · Mémoire : %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセス: %1$@ · メモリ: %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스: %1$@ · 메모리: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "进程：%1$@ · 内存：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "處理程序：%1$@ · 記憶體：%2$@"
+          }
+        }
+      }
+    },
+    "runawayPaneWarning.cannotStop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't stop this tree from here because it runs in the terminal's shell. Stop it in the terminal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux إيقاف هذه الشجرة من هنا لأنها تعمل في صدفة الطرفية. أوقفها من داخل الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann diesen Baum hier nicht beenden, weil er in der Shell des Terminals läuft. Beende ihn im Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede detener este árbol desde aquí porque se ejecuta en el shell del terminal. Detenlo en el terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas arrêter cette arborescence d’ici, car elle s’exécute dans le shell du terminal. Arrêtez-la dans le terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このツリーはターミナルのシェル内で実行されているため、cmux はここから停止できません。ターミナルで停止してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 트리는 터미널의 셸에서 실행 중이라 cmux가 여기서 중지할 수 없습니다. 터미널에서 중지하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此进程树在终端的 Shell 中运行，cmux 无法从这里停止。请在终端中停止它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此處理程序樹在終端機的 Shell 中執行，cmux 無法從這裡停止。請在終端機中停止它。"
           }
         }
       }
