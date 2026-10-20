@@ -344,12 +344,19 @@ final class AgentChatModeUITests: XCTestCase {
         XCTAssertTrue(codex.waitForExistence(timeout: 8))
         codex.tap()
         XCTAssertTrue(app.otherElements["MobileAgentConversation"].waitForExistence(timeout: 8))
-        // RTL can omit the SwiftUI composer container identifier from the
-        // XCTest hierarchy even while its text field is visibly rendered.
-        // Assert the localized field exists and retain the screenshot proof;
-        // geometry queries can wedge XCTest's snapshot service on this path.
-        let composer = app.textFields["Message your agent"]
-        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        // The placeholder is localized, and a multiline SwiftUI field can
+        // export as TextField or TextView. Query its stable identity.
+        let composer = app.descendants(matching: .any)
+            .matching(identifier: "MobileAgentComposerInput")
+            .firstMatch
+        guard composer.waitForExistence(timeout: 8) else {
+            XCTFail("The Arabic composer input should exist")
+            return
+        }
+        XCTAssertTrue(
+            composer.frame.intersects(app.frame),
+            "The composer should remain visible in right-to-left layout"
+        )
         keepScreenshot(app, named: "agent-codex-arabic")
     }
 

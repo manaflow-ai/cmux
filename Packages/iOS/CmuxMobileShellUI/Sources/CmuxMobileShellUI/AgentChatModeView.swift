@@ -2228,6 +2228,7 @@ private struct AgentChatComposer: View {
                     axis: .vertical
                 )
                     .lineLimit(1...6)
+                    .accessibilityIdentifier("MobileAgentComposerInput")
                     .focused(focused)
                     .textFieldStyle(.plain)
                     .padding(.vertical, 10)
