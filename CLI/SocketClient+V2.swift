@@ -7,75 +7,35 @@ extension SocketClient {
     func sendV2(
         method: String,
         params: [String: Any] = [:],
+        requestID: String? = nil,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
+        validateRawResponse: ((String) -> Bool)? = nil,
+        strictFrameMaximumRawBytes: Int? = nil,
         waitUntilCompletion: Bool = false
     ) throws -> [String: Any] {
+        let requestIdentifier = requestID ?? UUID().uuidString
         // One total deadline includes every server-directed backoff and retry.
         let operationDeadline = min(
             deadline ?? .distantFuture,
             Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
         )
-        var tracedParams = params
-        if method.hasPrefix("vm.") {
-            for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
-                               ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),
-                               ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
-                if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
-            }
-        }
-        let requestID = UUID().uuidString
-        let automationOrigin = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"]
-            .flatMap { $0.isEmpty ? nil : Self.automationOriginPayload(ruleID: $0) }
-        // Encoded per attempt: a vm.* call states the time this CLI still
-        // waits (cloud_client_timeout_ms), and a retry has less of it left,
-        // so the app's control-plane request and the server answer inside it.
-        func encodedRequestLine() throws -> String {
-            var attemptParams = tracedParams
-            if method.hasPrefix("vm.") {
-                let remaining = operationDeadline.timeIntervalSinceNow
-                if remaining.isFinite, remaining > 0, remaining < 86_400 {
-                    attemptParams["cloud_client_timeout_ms"] = Int(remaining * 1000)
-                }
-            }
-            var request: [String: Any] = [
-                "id": requestID,
-                "method": method,
-                "params": attemptParams
-            ]
-            if let automationOrigin { request["automation_origin"] = automationOrigin }
-            guard JSONSerialization.isValidJSONObject(request) else {
-                throw CLIError(message: "Failed to encode v2 request")
-            }
-            let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
-            guard let requestLine = String(data: requestData, encoding: .utf8) else {
-                throw CLIError(message: "Failed to encode v2 request")
-            }
-            return requestLine
-        }
-
         let uptimeDeadline = ProcessInfo.processInfo.systemUptime + max(0, operationDeadline.timeIntervalSinceNow)
         while true {
-            let raw = try send(
-                command: try encodedRequestLine(),
+            let response = try sendV2Envelope(
+                method: method,
+                params: params,
+                requestID: requestIdentifier,
                 responseTimeout: responseTimeout,
                 deadline: waitUntilCompletion ? deadline : operationDeadline,
+                includeCapability: includeCapability,
+                capabilityEnvironment: capabilityEnvironment,
+                validateRawResponse: validateRawResponse,
+                strictFrameMaximumRawBytes: strictFrameMaximumRawBytes,
                 waitUntilCompletion: waitUntilCompletion
             )
-
-            // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
-            // before the JSON protocol starts. Surface these directly instead of letting
-            // JSONSerialization throw a confusing parse error.
-            if raw.hasPrefix("ERROR:") {
-                throw CLIError(message: CLITerminalText.printable(raw, keepingLineBreaks: true))
-            }
-
-            guard let responseData = raw.data(using: .utf8) else {
-                throw CLIError(message: "Invalid UTF-8 v2 response")
-            }
-            guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-                throw CLIError(message: "Invalid v2 response: \(CLITerminalText.printable(raw, keepingLineBreaks: true))")
-            }
 
             if let ok = response["ok"] as? Bool, ok {
                 return (response["result"] as? [String: Any]) ?? [:]
@@ -107,8 +67,9 @@ extension SocketClient {
                 // have run, relay requests, transport failures, and malformed
                 // responses never retry.
                 if !isRelayBacked,
+                   strictFrameMaximumRawBytes == nil,
                    response["ok"] as? Bool == false,
-                   response["id"] as? String == requestID,
+                   response["id"] as? String == requestIdentifier,
                    Self.isRetryableAdmissionRejection(code: code, method: method),
                    let delay = Self.pollingRetryDelay(data?["retry_after_ms"]),
                    delay < operationDeadline.timeIntervalSinceNow,
@@ -140,6 +101,109 @@ extension SocketClient {
         default:
             return false
         }
+    }
+
+    func sendV2Envelope(
+        method: String,
+        params: [String: Any] = [:],
+        requestID: String? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
+        validateRawResponse: ((String) -> Bool)? = nil,
+        strictFrameMaximumRawBytes: Int? = nil,
+        waitUntilCompletion: Bool = false
+    ) throws -> [String: Any] {
+        let requestIdentifier = requestID ?? UUID().uuidString
+        guard !requestIdentifier.isEmpty,
+              requestIdentifier.utf8.count <= 128,
+              requestIdentifier.unicodeScalars.allSatisfy({ scalar in
+                  switch scalar.properties.generalCategory {
+                  case .control, .format:
+                      return false
+                  default:
+                      return true
+                  }
+              }) else {
+            throw CLIError(message: "Invalid v2 request id")
+        }
+        var tracedParams = params
+        if method.hasPrefix("vm.") {
+            for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
+                               ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),
+                               ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
+                if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
+            }
+            // Keep the cloud control-plane request inside the CLI's remaining
+            // budget, including when the caller retries an admission rejection.
+            let requestDeadline = min(
+                deadline ?? .distantFuture,
+                Date.now.addingTimeInterval(responseTimeout ?? Self.responseTimeoutSeconds)
+            )
+            let remaining = requestDeadline.timeIntervalSinceNow
+            if remaining.isFinite, remaining > 0, remaining < 86_400 {
+                tracedParams["cloud_client_timeout_ms"] = Int(remaining * 1_000)
+            }
+        }
+        var request: [String: Any] = [
+            "id": requestIdentifier,
+            "method": method,
+            "params": tracedParams
+        ]
+        if includeCapability,
+           let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
+           !ruleID.isEmpty {
+            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
+        }
+        // `method` first, so the app can route a request of any size (#21222).
+        guard let requestLine = try? ControlRequestLine.encode(request) else {
+            throw CLIError(message: "Failed to encode v2 request")
+        }
+
+        let raw: String
+        if let strictFrameMaximumRawBytes {
+            guard !includeCapability else {
+                throw CLIError(message: "Invalid v2 request transport")
+            }
+            raw = try sendSingleFrame(
+                command: requestLine,
+                responseTimeout: responseTimeout
+                    ?? Self.responseTimeoutSeconds,
+                maximumRawBytes: strictFrameMaximumRawBytes
+            )
+        } else {
+            raw = try send(
+                command: requestLine,
+                responseTimeout: responseTimeout,
+                deadline: deadline,
+                includeCapability: includeCapability,
+                capabilityEnvironment: capabilityEnvironment,
+                waitUntilCompletion: waitUntilCompletion
+            )
+        }
+        if let validateRawResponse, !validateRawResponse(raw) {
+            throw CLIError(message: "Invalid v2 response")
+        }
+
+        // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
+        // before the JSON protocol starts. Surface these directly instead of letting
+        // JSONSerialization throw a confusing parse error.
+        if raw.hasPrefix("ERROR:") {
+            throw CLIError(message: raw)
+        }
+
+        guard let responseData = raw.data(using: .utf8) else {
+            throw CLIError(message: "Invalid UTF-8 v2 response")
+        }
+        guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
+            throw CLIError(message: "Invalid v2 response: \(raw)")
+        }
+        if response["id"] as? String != requestIdentifier {
+            throw CLIError(message: "Mismatched v2 response id")
+        }
+
+        return response
     }
 
     private static func pollingRetryDelay(_ value: Any?) -> TimeInterval? {

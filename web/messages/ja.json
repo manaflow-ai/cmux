@@ -112,7 +112,7 @@
     "hostTokens": "アカウントの認証情報: ホストのみ（このマシンには保存されません）",
     "version": "cmux ゲスト CLI（マシン接続）",
     "connected": "OK %s に接続しました socket=%s",
-    "help": "cmux - クラウドワークスペース CLI（cmux Cloud マシン内）\n\nこのマシン（自分のセッション。Mac と同じコマンド）\n  cmux tree [--json]                          ワークスペース・ペイン・端末の一覧\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   任意の端末をヘッドレスで操作（cmux terminal help）\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     このマシンの全シェルとエージェントの環境変数（cmux env help）\n  cmux file receive <path> [--mode <octal>]   cmux vm push の受信側（Mac の --secret、他マシン）。バイト列はリンク経由で入力（cmux file help）\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui のリソース文法（cmux <resource> --help）\n\n自分は誰か\n  cmux self [--json]                          名前・ID・状態・チーム・所有者・プラン（コントロールプレーンの把握内容）\n  cmux self peers|integrations|owner|machine [--json]   到達できるマシンと使える機能（別名: cmux whoami, cmux reflect）\n\n他のマシン（cmux vm <verb> <machine> ...。Mac と同じ文法）\n  cmux vm ls [--json]                         所有者のマシン一覧（このマシンは * 付き）\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   ファイル 1 つをリンク経由で入力（exec API は通さない）\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    （一覧は cmux vm help）\n\n人間に知らせる\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nモデルとエージェント\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   この端末で終了まで実行\n  cmux agent list|report|hook ...\n\n認証\n  cmux auth status [--json]                   デーモン・CodeRouter エッジ・マシン識別の確認\n  cmux auth login|logout                      サインインは Mac で管理します\n\nアカウントの認証情報はマシンにコピーされません。TLS エッジが通信上で認証します。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
+    "help": "cmux - クラウドワークスペース CLI（cmux Cloud マシン内）\n\nこのマシン（自分のセッション。Mac と同じコマンド）\n  cmux tree [--json]                          ワークスペース・ペイン・端末の一覧\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   任意の端末をヘッドレスで操作（cmux terminal help）\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     このマシンの全シェルとエージェントの環境変数（cmux env help）\n  cmux file receive <path> [--mode <octal>]   cmux vm push の受信側（Mac の --secret、他マシン）。バイト列はリンク経由で入力（cmux file help）\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui のリソース文法（cmux <resource> --help）\n\n自分は誰か\n  cmux self [--json]                          名前・ID・状態・チーム・所有者・プラン（コントロールプレーンの把握内容）\n  cmux self peers|integrations|owner|machine [--json]   到達できるマシンと使える機能（別名: cmux whoami, cmux reflect）\n\n他のマシン（cmux vm <verb> <machine> ...。Mac と同じ文法）\n  cmux vm ls [--json]                         所有者のマシン一覧（このマシンは * 付き）\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   ファイル 1 つをリンク経由で入力（exec API は通さない）\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    （一覧は cmux vm help）\n\n人間に知らせる\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nモデルとエージェント\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cr use [own|team|auto] [claude|codex|opencode]   ここでの各エージェントのサインイン: 自分のログインまたはチームのアカウント\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   この端末で終了まで実行\n  cmux agent list|report|hook ...\n\n認証\n  cmux auth status [--json]                   デーモン・CodeRouter エッジ・マシン識別の確認\n  cmux auth login|logout                      サインインは Mac で管理します\n\nアカウントの認証情報はマシンにコピーされません。TLS エッジが通信上で認証します。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
     "peerHelp": "cmux vm - このマシンから、同じ所有者の他の cmux Cloud マシンを操作（Mac と同じ文法）。\n\n  cmux vm ls [--json]                 所有者のマシン一覧: このマシンは * 付き、状態、到達可否、linked/connected\n  cmux vm connect <machine>           リンクを開始（他の操作時にも自動接続）\n  cmux vm exec <machine> -- <cmd…>    そのマシンの永続端末でコマンドを実行\n  cmux vm tree <machine>              そのマシンのワークスペースと端末の状態\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> …   そのマシンの端末を操作\n  cmux vm send|send-key|read-screen <machine> <term> …       Mac と同じコマンド名\n  cmux vm workspace new|rename|close|rm <machine> …          そのマシンのワークスペース（rm は端末も終了）\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]\n                                      ファイル 1 つ（最大 256 KiB）をそのマシンの cmux file receive にリンク経由で入力:\n                                      exec API・argv・コントロールプレーンは通りません\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>\n                                      そのマシンの永続端末でエージェントを開始。--wait は終了まで待機（終了コードはエージェントのもの）、\n                                      --output は端末の出力ストリームを表示、--timeout は待機時間の上限\n  cmux vm layout export|apply <machine> …    そのマシンのレイアウト（cmux layout help を参照）\n  cmux vm env set|ls|rm|path <machine> …     そのマシンの環境変数（値はリンク経由のみ。cmux env help を参照）\n  cmux vm <resource> <machine> …      そのマシンの cmux-tui リソース操作\n\nリンクのないマシンはリフレクション（cmux self peers）で見つかります。現在のイメージでは\nプライベートネットワークのルートだけで接続でき、Mac での操作は不要です。\nローカル操作に接頭辞は不要です：cmux workspace…、cmux terminal…、cmux session…。\n\n名前と既存の配置の操作: cmux workspace help（workspace/tab/terminal rename、tab move、pane split/swap/resize/focus）。",
     "thisMachine": "（このマシン）",
     "selfHelp": "cmux self - 自分は誰か。リフレクションは TLS エッジが保証する、コントロールプレーンから見たこのマシンの情報です（認証情報はマシン内にありません）。\n\n  cmux self [--json]                   名前・ID・状態・チーム・所有者・プラン\n  cmux self peers [--json]             所有者の他のマシン: 状態・プライベートルート・到達可否\n  cmux self integrations [--json]      このマシンで使える機能と、そのヘルプコマンド\n  cmux self owner|machine [--json]     所有者 / このマシンのサイズ・イメージ・ネットワーク・デスクトップ\n  cmux self <path> [--json]            任意のリフレクションパス（peers、/peers など）\n\n別名: cmux whoami = cmux self、cmux reflect [<path>] = cmux self [<path>]。\n探索: cmux vm ls は同じマシン一覧を表示し、cmux vm exec <machine> -- <cmd> は初回に自動でリンクします。",
@@ -124,7 +124,25 @@
     "workspaceReuseNeedsName": "ワークスペースの再利用には空でない --name が必要です。",
     "workspaceReuseUnavailable": "ワークスペースの状態が変更されたか取得できません。再接続して再試行してください。",
     "workspaceReuseAmbiguous": "同じ名前のワークスペースが複数あります。ID を指定するか別の名前を選択してください。",
-    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。"
+    "workspacePreparationChanged": "別のコマンドがこのワークスペースを作成しました。vm dev を再実行して現在のレイアウトを再利用してください。",
+    "useHelp": "使い方: cr use [own|team|auto] [claude|codex|opencode]... [--json]\n  own   エージェントは自分のサインインを使います（Claude Code の /login、codex login、\n        opencode auth login）。CodeRouter には何も送られません\n  team  エージェントはチームの CodeRouter アカウントを使います\n  auto  固定しません: このマシンでサインイン済みなら自分のサインイン、それ以外は\n        チームにそのエージェント用のアカウントがあればチームのアカウント\nエージェントを指定しない場合、変更は Claude Code、Codex、OpenCode に適用されます。\nモードを指定しない場合、このマシンでの各エージェントのサインイン方法を表示します。\n変更は次にエージェントを起動したときに反映されます。",
+    "useUnknown": "不明な cr use の引数「%s」（cr use --help を参照してください）",
+    "useOneMode": "cr use に指定できるモードは 1 つです: own、team、auto（cr use --help を参照してください）",
+    "useUnsupported": "このマシンのイメージはエージェントのサインイン切り替えに対応していません。ここで自分のアカウントを使うには: Claude Code は unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL を実行してから claude を起動して /login、Codex は codex login の後 codex -c model_provider=openai で起動、OpenCode は opencode auth login の後 env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode で起動してください。",
+    "useWriteFailed": "%s に選択を記録できませんでした",
+    "useModeOwn": "%s: 自分のログイン（%s）",
+    "useModeTeam": "%s: チームの CodeRouter アカウント（%s）",
+    "useReasonEnv": "この環境で %s が設定されています",
+    "useReasonChosen": "cr use で選択",
+    "useReasonLogin": "このマシンでサインイン済み",
+    "useReasonTeamAccount": "既定: チームにアカウントがあります",
+    "useReasonNoTeamAccount": "既定: チームにアカウントがありません",
+    "useReasonTeamUnreachable": "既定: このマシンから CodeRouter に接続できません",
+    "useReasonTeamUnknown": "既定: チームのアカウントを確認できませんでした",
+    "useNextLaunch": "次に各エージェントを起動したときに反映されます。実行中のセッションは現在のサインインのままです。",
+    "useEnvOverride": "  この環境には ANTHROPIC_API_KEY または ANTHROPIC_BASE_URL が設定されています。ここから起動した Claude Code はどちらのモードでもなく、その設定を使います。",
+    "useOwnLogin": "  まだの場合は %s でサインインしてください。",
+    "useTeamNoAccount": "  チームにはまだ %s のアカウントがありません。%s で追加するか、cr use own %s で切り替えてください。"
   },
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
@@ -174,7 +192,7 @@
     "guestUnresponsive": {
       "title": "マシンが応答しません",
       "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
-      "action": "マシンを一時停止してから再開し、もう一度お試しください。Mac アプリでは「マシンを一時停止」を選んでから「マシンを再開」を選びます。ターミナルでは cmux vm pause '<machine>' を実行してから cmux vm resume '<machine>' を実行します。"
+      "action": "新しいマシンを作成する前に、トレース ID を添えてサポートに連絡してください。"
     },
     "inProgress": {
       "title": "まだ処理中です",
@@ -185,6 +203,16 @@
       "title": "クラウドプロバイダーの応答が遅れています",
       "message": "クラウドプロバイダーが時間内に応答しませんでした。",
       "action": "しばらくしてからもう一度お試しください。"
+    },
+    "providerCapacity": {
+      "title": "現在 Cloud の空き容量がありません",
+      "message": "Cloud サービスに、このマシンを動かす空きが今ありません。何も変更されていません。",
+      "action": "1 分ほど待ってからもう一度お試しください。"
+    },
+    "stateConflict": {
+      "title": "マシンが処理中です",
+      "message": "このマシンは起動中、一時停止中、または停止しているため、今はこの操作を実行できません。",
+      "action": "少し待ってからもう一度お試しください。cmux vm ls でマシンの状態を確認し、一時停止している場合は先に再開してください。"
     },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",
@@ -252,6 +280,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} のコンピュート枠を使い切りました",
+      "computeMessage": "{plan} プランは、この請求期間の {included} コンピュート時間を使い切りました。1 コンピュート時間は、1 vCPU と 2 GB メモリを 1 時間実行した量です。マシンは {resetDate} から再び起動できます。",
+      "computeAction": "一時停止中のマシンのファイルは保持されます。{resetDate} より前に追加のコンピュートが必要な場合はサポートにお問い合わせください。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} のディスク枠を使い切りました",
+      "storageMessage": "{plan} プランでは、保存済みのすべてのマシンで合計 {included} GB のディスクを使用できます。保存済みマシンは {used} GB を使用しており、このリクエストには {requested} GB が必要です。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Cloud VM のリソースが足りません",
@@ -685,7 +723,7 @@
       "banners": {
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
-        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "nosub": "このアカウントに有効なWebサブスクリプションは見つかりませんでした。",
         "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
         "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。",
         "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
@@ -799,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "変更するには、まずプランを再開してください。",
           "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "grantedNoCancel": "cmux から付与されたプランのため、解約するものはありません。",
+          "paymentFailed": "プランを変更する前に、お支払い方法を更新してください。",
+          "foundersLifetime": "Founder's Edition には Pro が永久に含まれます。",
           "adminOnly": "プランを変更できるのはチーム管理者だけです。"
         },
         "names": {
@@ -841,6 +882,7 @@
       "change": {
         "title": "{plan} に切り替えますか？",
         "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "upgradeBodyYearly": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは年額 {price} です。",
         "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
         "confirm": "{plan} に切り替え",
         "keep": "現在のプランを続ける",
@@ -853,6 +895,8 @@
         "title": "{plan} を解約しますか？",
         "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
         "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "foundersBody": "{plan} のサブスクリプションは {date} に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
+        "foundersBodyNoDate": "{plan} のサブスクリプションはこの請求期間の終了時に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
         "reasonLabel": "解約の理由（任意）",
         "otherPlaceholder": "詳しく教えてください（任意）",
         "confirm": "プランを解約",
@@ -3401,6 +3445,7 @@
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4705,12 +4750,13 @@
       "apiKeyScope": "組織のAPIキーはチームの共有アカウントだけを使います。個人チームのキーは非公開のアカウントも使えます。CodeRouterが提供するのはOpenAI Responses APIで、Chat Completionsではありません。",
       "apiKeyLogin": "ブラウザを開けないマシンでは、cr login --api-keyでキーを使ってcrにサインインし、CODEROUTER_API_KEYで1回のコマンドにキーを渡せます。キーはダッシュボードで失効させるか、そのキーを使うマシンでcr logoutを実行してください。",
       "cloudTitle": "cmux Cloudマシンの場合",
-      "cloudDesc": "Cloudマシンでは設定は不要です。マシンの環境はOPENAI_BASE_URLとANTHROPIC_BASE_URLをCodeRouterの非公開アドレスに向けており、シェルまたはエージェントの初回起動時にcmuxが各エージェントの設定を書き込みます：",
-      "cloudClaude": "Claude Codeは環境からANTHROPIC_BASE_URLとプレースホルダーのANTHROPIC_API_KEYを読み取ります。初回起動時の質問にはすでに回答済みです。",
+      "cloudDesc": "Cloudマシンでは設定は不要です。各エージェントはCodeRouterの非公開アドレスを通じてチームのCodeRouterアカウントを使い、シェルまたはエージェントの初回起動時にcmuxがその設定を書き込みます：",
+      "cloudClaude": "Claude Codeには、すべてのシェルではなく起動のたびにANTHROPIC_BASE_URLとプレースホルダーのANTHROPIC_API_KEYが渡されるため、自分のサインインより優先されることはありません。初回起動時の質問にはすでに回答済みです。",
       "cloudCodex": "Codexには~/.codex/config.tomlにcmuxモデルプロバイダーが設定されます。",
       "cloudPi": "Piには~/.pi/agent/models.jsonにプロバイダーの上書きが設定されます。",
-      "cloudOpencode": "OpenCodeは初回起動時にCodeRouterからプロバイダーリストをダウンロードし、~/.config/opencode/opencode.jsonに保存します。",
+      "cloudOpencode": "OpenCodeは初回起動時にCodeRouterからプロバイダーリストをダウンロードして~/.config/cmux/opencode-team.jsonに保存し、実行のたびに自分の設定に追加します。",
       "cloudYours": "cmuxは各ファイルが存在しないときだけ書き込むため、自分で編集した内容は保持されます。すでに別のモデルプロバイダーを指定しているCodexの設定は変更しません。",
+      "cloudOwnLogin": "代わりに自分のアカウントを使うには、マシンでcr use ownを実行し、エージェントの通常の方法でサインインします：Claude Codeでは/login、またはcodex login、opencode auth login。cr use teamでチームに戻し、cr use own codexで1つのエージェントだけを切り替え、cr useで各エージェントのサインイン方法を確認できます。選択しない場合、マシンでサインイン済みのエージェントは自分のアカウントを使い、チームにアカウントがないエージェントは通常のサインインを表示します。変更はエージェントの次回起動時に適用されます。",
       "cloudRun": "エージェントは通常どおり実行します。cmux coderouter agentは単独のプロンプトをエージェントの単発実行形式に変換します。マシン内では現在のターミナルで実行し、Macではcmux vm agentと同様に、指定したマシン上でエージェントを起動します。",
       "cloudAccounts": "Cloudマシンは、そのマシンを所有するチームのアカウントを使います。利用可能なアカウントがないとエージェントが報告した場合は、アカウントを追加するか、既存のアカウントをそのチームと共有してください。",
       "modelsTitle": "モデル",
@@ -4781,11 +4827,11 @@
       "metaDescription": "cmux Cloudマシンの分離方法、認証情報の保管場所、送信ネットワークポリシーでマシンの接続先を制限する方法を説明します。",
       "intro": "このページでは、cmux Cloudマシンのセキュリティモデルを説明します。マシンを分離するもの、認証情報の保管場所、ネットワーク上でマシンが接続できる宛先を制限する方法です。",
       "isolationTitle": "分離",
-      "isolationVm": "各マシンは、専用のLinuxカーネルを持つFreestyleのmicroVMです。共有カーネル上のコンテナではありません。",
+      "isolationVm": "各マシンは、専用のLinuxカーネルを持つmicroVMです。共有カーネル上のコンテナではありません。",
       "isolationRoot": "マシン内では、設計上パスワードなしでrootになれます。セキュリティ境界はVMであり、VM内のユーザーアカウントではありません。エージェントを含め、マシン内のすべてのプロセスはrootと同じ操作ができます。",
       "isolationHome": "マシンを再作成すると、ホームディレクトリがリセットされます。既知の状態に戻すには、マシンを再作成してください。",
       "credentialsTitle": "認証情報",
-      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、FreestyleのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
+      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、cmux CloudのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
       "credentialsAttach": "クライアントがマシン上でセッションを開くためのアタッチ認証情報は短時間だけ有効で、1台のマシンと1つのセッションに限定されます。",
       "previewsTitle": "ポートプレビュー",
       "previewsDesc": "ポートプレビューは、あなたのプライベートWireGuardネットワークを通ります。公開URLはありません。プライベートネットワーク上のデバイスだけが開けます。",
@@ -4930,6 +4976,16 @@
       "title": "cmux のオープンルール",
       "intro": "このページでは、現在の cmux ワークスペースのルールが開きます。",
       "fallback": "cmux は最初にルールを表示し、現在のワークスペースに貼り付ける前に質問します。 cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。"
+    },
+    "agent": {
+      "metaTitle": "cmux でエージェントセッションを開く",
+      "metaDescription": "cmux が使用できない場合はインストールの案内を表示して、Web から cmux のエージェントセッションのディープリンクを開きます。",
+      "title": "エージェントセッションを開く",
+      "intro": "この Mac がすでにアクセスできる場合、このリンクは cmux でエージェントのセッションを開きます。リンク自体はアクセス権を付与しません。",
+      "fallback": "cmux が開かない場合は、cmux をインストールし、もう一度 cmux で開くをクリックします。cmux は、この Mac がすでにアクセスできるセッションのみを開きます。",
+      "nameLabel": "名前: {value}",
+      "hostLabel": "ホスト: {value}",
+      "harnessLabel": "ハーネス: {value}"
     }
   },
   "download": {
@@ -4963,7 +5019,10 @@
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "rateLimitedTitle": "サインインが混み合っています",
+    "rateLimitedBody": "サインインサービスへのリクエストが集中しています。数秒待ってから続行してください。もう一度サインインする必要はありません。",
+    "retryButton": "サインインを続ける"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro が有効になりました",
@@ -7177,7 +7236,10 @@
     "switchFailed": "サインアウトできませんでした。もう一度お試しください。",
     "invalidTitle": "この招待はもう有効ではありません",
     "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
-    "goToTeams": "チーム一覧へ"
+    "goToTeams": "チーム一覧へ",
+    "unavailableTitle": "サインインを確認できませんでした",
+    "unavailableBody": "サインインサービスが混み合っています。数秒待ってから、もう一度招待を開いてください。もう一度サインインする必要はありません。",
+    "retry": "再試行"
   },
   "mobile": {
     "agentFeed": {
@@ -7248,5 +7310,89 @@
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "スタッフ · 運用",
+    "title": "VM ヘルス",
+    "description": "オペレーターの対応が必要な Cloud VM があるかを示します。プロバイダーアカウントの読み取り専用スイープが 5 分ごとに実行され、このページは最新の結果を表示します。",
+    "noSnapshotTitle": "スイープはまだありません",
+    "noSnapshotBody": "ヘルス cron はまだスイープを保存していません。デプロイとマイグレーションの後、5 分ごとに実行されます。",
+    "attentionYes": "対応が必要: はい",
+    "attentionNo": "対応が必要: いいえ",
+    "sweptAt": "スイープ: {age}（所要 {seconds} 秒）。",
+    "coverage": "実行中の VM {running} 台のうち {probed} 台をプローブしました。未プローブ: 時間予算超過 {skippedBudget} 台、アイドルタイムアウト設定あり {skippedIdle} 台。プローブエラー {probeErrors} 件。",
+    "reason": {
+      "stale": "最新のスイープは {age} のものです。ヘルス cron が失敗している可能性があります。",
+      "hung_vms": "実行中の VM {count} 台が制御経路に応答しません",
+      "stuck_transitions": "VM {count} 台が状態遷移の途中で止まっています",
+      "drift": "VM {count} 台でデータベースとプロバイダーの状態が一致しません",
+      "tls_over_limit": "TLS ルールがアカウント上限に達しているか超えています: {limit} 件中 {count} 件。ネットワークポリシーのドメイン追加は失敗します。",
+      "tls_near_limit": "TLS ルールがアカウント上限に近づいています: {limit} 件中 {count} 件。",
+      "sweep_incomplete": "スイープが不完全です。実行中の VM {unprobed} 台がプローブされなかったか、VM 一覧が部分的でした。",
+      "sweep_errors": "スイープの {count} 段階が失敗しました。"
+    },
+    "hung": {
+      "title": "応答しない VM（{count}）",
+      "body": "プロバイダー上の状態は running ですが、10 秒のファイルシステムプローブがタイムアウトしたか、プロバイダーが 409 または 5xx を返しました。"
+    },
+    "stuck": {
+      "title": "止まった状態遷移（{count}）",
+      "body": "プロバイダーで starting または pausing のまま、またはデータベースで provisioning のまま 15 分を超えた VM です。"
+    },
+    "drift": {
+      "title": "データベースとプロバイダーの不一致（{count}）",
+      "body": "データベースの状態がプロバイダーと 10 分以上一致しない cmux Cloud VM です。修復は reconcile cron が行い、このページは報告のみです。"
+    },
+    "tls": {
+      "title": "TLS ルールの予算",
+      "body": "アカウント全体の TLS ルールは、プロバイダーアカウント上のすべてのワークロードで共有される 1 つの上限に数えられます。",
+      "unavailable": "スイープは TLS ルールを読み取れませんでした。",
+      "usage": "{limit} 件中 {count} 件を使用中。",
+      "over": "{over, plural, =0 {上限ちょうどです。} other {上限を # 件超えています。}}",
+      "partial": "一覧できたルールは {listed} 件のみのため、内訳は部分的です。",
+      "pausedTitle": "{days} 日以上一時停止中の VM が保持: VM {vms} 台で {rules} 件"
+    },
+    "tlsOwner": {
+      "account_level": "アカウントレベル（VM なし）",
+      "vpc_unattributed": "プライベートネットワーク（VM なし）",
+      "unknown_vm": "削除済みまたは一覧にない VM",
+      "managed": "プロバイダー管理"
+    },
+    "errors": {
+      "title": "スイープのエラー",
+      "body": "前回のスイープで失敗した段階です。それに依存するセクションは空の場合があります。"
+    },
+    "driftKind": {
+      "provider_missing": "プロバイダーに存在しない",
+      "db_running_provider_paused": "データベースでは実行中、プロバイダーでは一時停止",
+      "db_paused_provider_running": "データベースでは一時停止、プロバイダーでは実行中",
+      "db_destroyed_provider_present": "データベースでは削除済み、プロバイダーには存在",
+      "provider_untracked": "プロバイダーに存在し、データベースの行がない"
+    },
+    "source": {
+      "provider": "プロバイダー",
+      "db": "データベース"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "ワークロード",
+      "owner": "所有者",
+      "image": "イメージとサイズ",
+      "firstSeenHung": "初回検出",
+      "updated": "最終更新",
+      "detail": "プローブ結果",
+      "state": "状態",
+      "source": "出所",
+      "since": "開始",
+      "drift": "不一致",
+      "dbStatus": "データベース",
+      "providerState": "プロバイダー",
+      "pausedSince": "一時停止開始",
+      "rules": "ルール"
+    },
+    "size": "{cpu} vCPU · メモリ {memory} GiB · ディスク {disk} GB",
+    "dbUpdated": "データベース: {time}",
+    "noOwner": "cmux の所有者なし",
+    "none": "なし。"
   }
 }

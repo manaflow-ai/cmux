@@ -84,6 +84,12 @@ enum SettingsSearchIndex {
         ),
         setting(
             .app,
+            "always-confirm-workspace-close",
+            String(localized: "settings.app.alwaysConfirmWorkspaceClose", defaultValue: "Always Confirm Closing Workspaces"),
+            "always confirm close workspace idle protect confirmation"
+        ),
+        setting(
+            .app,
             "warn-before-closing-window",
             String(localized: "settings.app.warnBeforeClosingWindow", defaultValue: "Warn Before Closing Window"),
             "cmd ctrl w close window confirmation running process"
@@ -120,7 +126,6 @@ enum SettingsSearchIndex {
         setting(.terminal, "reflow-hard-wrap-on-copy", String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"), "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         setting(.terminal, "password-input-indicator", String(localized: "settings.terminal.showPasswordInputIndicator", defaultValue: "Password Input Indicator"), "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         setting(.terminal, "password-input-dots", String(localized: "settings.terminal.showPasswordInputDots", defaultValue: "Show Typed Password Dots"), "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
-        setting(.terminal, "jump-to-bottom-button", String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"), "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
         setting(.terminal, "predictive-local-echo", String(localized: "settings.terminal.predictiveLocalEcho", defaultValue: "Predictive Local Echo"), "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
@@ -235,6 +240,7 @@ enum SettingsSearchIndex {
         setting(.workspaceColors, "indicator", String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), "tab color indicator"),
         setting(.workspaceColors, "subtle-selection", String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), "calm selected workspace tint"),
         setting(.workspaceColors, "brighten-dark-mode", String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"), "lighten dark mode workspace color fill"),
+        setting(.workspaceColors, "unselected-fill-opacity", String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"), "workspace color fill opacity unselected rows"),
         setting(.workspaceColors, "selection", String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), "selected workspace background"),
         setting(.workspaceColors, "badge", String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), "unread notification color"),
         setting(.workspaceColors, "palette", String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"), "named colors palette"),
@@ -298,6 +304,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingAgentSession": settingID(for: .app, idSuffix: "warn-before-closing-agent-session"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.warnBeforeClosingWorkspace": settingID(for: .app, idSuffix: "warn-before-closing-workspace"),
+        "app.alwaysConfirmWorkspaceClose": settingID(for: .app, idSuffix: "always-confirm-workspace-close"),
         "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
@@ -350,7 +357,6 @@ enum SettingsSearchIndex {
         "terminal.confirmUnsafePaste": settingID(for: .terminal, idSuffix: "confirm-unsafe-paste"),
         "terminal.showPasswordInputIndicator": settingID(for: .terminal, idSuffix: "password-input-indicator"),
         "terminal.showPasswordInputDots": settingID(for: .terminal, idSuffix: "password-input-dots"),
-        "terminal.showJumpToBottomButton": settingID(for: .terminal, idSuffix: "jump-to-bottom-button"),
         "terminal.predictiveLocalEcho": settingID(for: .terminal, idSuffix: "predictive-local-echo"),
         "terminal.sessionContentMaxWidth": settingID(for: .terminal, idSuffix: "session-content-width"),
         "terminal.sessionContentAlignment": settingID(for: .terminal, idSuffix: "session-content-alignment"),
@@ -365,6 +371,7 @@ enum SettingsSearchIndex {
         "workspaceColors.selectionColor": settingID(for: .workspaceColors, idSuffix: "selection"),
         "workspaceColors.subtleSelection": settingID(for: .workspaceColors, idSuffix: "subtle-selection"),
         "workspaceColors.brightenInDarkMode": settingID(for: .workspaceColors, idSuffix: "brighten-dark-mode"),
+        "workspaceColors.unselectedFillOpacity": settingID(for: .workspaceColors, idSuffix: "unselected-fill-opacity"),
         "workspaceColors.notificationBadgeColor": settingID(for: .workspaceColors, idSuffix: "badge"),
         "sidebarAppearance.matchTerminalBackground": settingID(for: .sidebarAppearance, idSuffix: "match-terminal"),
         "customSidebars.renderer": settingID(for: .customSidebars, idSuffix: "renderer"),

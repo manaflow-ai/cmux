@@ -123,6 +123,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(userFacing: catalog.app.warnBeforeClosingAgentSession),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
+            .init(userFacing: catalog.app.alwaysConfirmWorkspaceClose),
             .init(userFacing: catalog.app.warnBeforeClosingWindow),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
@@ -250,14 +251,6 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.terminal.showPasswordInputDots.subtitle", defaultValue: "Shows one dot in the badge per typed character. cmux keeps only a count, never the characters. Pasted text is not counted."),
                 paths: ["terminal.showPasswordInputDots"],
                 synonyms: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"
-            ),
-            .init(
-                section: .terminal,
-                id: "jump-to-bottom-button",
-                title: String(localized: "settings.terminal.showJumpToBottomButton", defaultValue: "Jump to Bottom Button"),
-                detailText: String(localized: "settings.terminal.showJumpToBottomButton.subtitle", defaultValue: "Shows a Jump to Bottom button while you scroll a terminal up into its scrollback. Full-screen programs such as vim, less, or an agent's fullscreen mode handle their own scrolling and never show it."),
-                paths: ["terminal.showJumpToBottomButton"],
-                synonyms: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"
             ),
             .init(
                 section: .terminal,
@@ -582,6 +575,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .workspaceColors, id: "indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), synonyms: "Workspace Color Indicator workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "subtle-selection", title: String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), synonyms: "Subtle Selection Highlight workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
             .init(section: .workspaceColors, id: "brighten-dark-mode", title: String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"), synonyms: "Brighten Colors in Dark Mode workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
+            .init(section: .workspaceColors, id: "unselected-fill-opacity", title: String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"), synonyms: "Unselected Fill Opacity workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"),
             .init(section: .workspaceColors, id: "selection", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), synonyms: "Selection Highlight workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), synonyms: "Notification Badge workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(

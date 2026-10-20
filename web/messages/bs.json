@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "Mašina ne odgovara",
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
-      "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
+      "action": "Obratite se podršci s ID-om praćenja prije nego što napravite novu mašinu."
     },
     "inProgress": {
       "title": "Još je u toku",
@@ -44,6 +44,16 @@
       "title": "Cloud provajder je spor",
       "message": "Cloud provajder nije odgovorio na vrijeme.",
       "action": "Pokušajte ponovo za trenutak."
+    },
+    "providerCapacity": {
+      "title": "Trenutno nema Cloud kapaciteta",
+      "message": "Cloud servis trenutno nema mjesta za ovu mašinu. Ništa nije promijenjeno.",
+      "action": "Pokušajte ponovo za minutu."
+    },
+    "stateConflict": {
+      "title": "Mašina je zauzeta",
+      "message": "Ova mašina se pokreće, pauzira ili ne radi, pa to sada ne može uraditi.",
+      "action": "Sačekajte trenutak i pokušajte ponovo. Provjerite status mašine pomoću cmux vm ls i prvo je nastavite ako je pauzirana."
     },
     "networkRuleCapacity": {
       "title": "Mrežna pravila su na kapacitetu",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go podržava 2 vCPU, 4 GiB RAM-a i 16 GiB diska.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Kvota računanja za {plan} je potrošena",
+      "computeMessage": "Vaš {plan} plan je potrošio svojih {included} računskih sati za ovaj obračunski period. Jedan računski sat je 1 vCPU sa 2 GB memorije tokom jednog sata. Vaše mašine se ponovo mogu pokrenuti {resetDate}.",
+      "computeAction": "Pauzirane mašine zadržavaju svoje datoteke. Kontaktirajte podršku ako vam treba više računanja prije {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Kvota diska za {plan} je potrošena",
+      "storageMessage": "Vaš {plan} plan uključuje ukupno {included} GB diska za sve sačuvane mašine. Sačuvane mašine koriste {used} GB, a ovaj zahtjev treba {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Nema dovoljno Cloud VM resursa",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -558,6 +582,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -2232,6 +2258,7 @@
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
         },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3264,12 +3291,13 @@
       "apiKeyScope": "API ključ organizacije koristi samo dijeljene račune tima. Ključ u vašem ličnom timu može koristiti i vaše privatne račune. CodeRouter služi OpenAI Responses API, a ne Chat Completions.",
       "apiKeyLogin": "Na mašini koja ne može otvoriti preglednik, cr login --api-key prijavljuje cr pomoću ključa, a CODEROUTER_API_KEY daje ključ za jednu komandu. Opozovite ključ na kontrolnoj tabli ili pokrenite cr logout na mašini koja ga koristi.",
       "cloudTitle": "Na cmux Cloud mašinama",
-      "cloudDesc": "Cloud mašine ne trebaju podešavanje. Okruženje mašine usmjerava OPENAI_BASE_URL i ANTHROPIC_BASE_URL na privatnu CodeRouter adresu, a cmux piše konfiguraciju svakog agenta kada se prvi put pokrene shell ili agent:",
-      "cloudClaude": "Claude Code čita ANTHROPIC_BASE_URL i zamjenski ANTHROPIC_API_KEY iz okruženja. Njegovi upiti pri prvom pokretanju već su odgovoreni.",
+      "cloudDesc": "Cloud mašine ne trebaju podešavanje. Svaki agent koristi CodeRouter račune vašeg tima preko privatne CodeRouter adrese, a cmux piše njegovu konfiguraciju kada se prvi put pokrene shell ili agent:",
+      "cloudClaude": "Claude Code dobija ANTHROPIC_BASE_URL i zamjenski ANTHROPIC_API_KEY pri svakom pokretanju, a ne iz svakog shella, pa nikad ne nadjačavaju vašu vlastitu prijavu. Njegovi upiti pri prvom pokretanju već su odgovoreni.",
       "cloudCodex": "Codex dobija cmux provajdera modela u ~/.codex/config.toml.",
       "cloudPi": "Pi dobija nadjačavanje provajdera u ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode preuzima svoju listu provajdera s CodeRoutera pri prvom pokretanju i sprema je u ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode preuzima svoju listu provajdera s CodeRoutera pri prvom pokretanju, sprema je u ~/.config/cmux/opencode-team.json i dodaje je vašoj vlastitoj konfiguraciji pri svakom pokretanju.",
       "cloudYours": "cmux piše svaku datoteku samo kada nedostaje, pa se vaše izmjene čuvaju. Codex konfiguracija koja već navodi drugog provajdera modela ostaje netaknuta.",
+      "cloudOwnLogin": "Da biste umjesto toga koristili vlastiti račun, pokrenite cr use own na mašini, a zatim se prijavite kako se agent inače prijavljuje: /login u Claude Code, codex login ili opencode auth login. cr use team vraća na tim, cr use own codex mijenja jednog agenta, a cr use prikazuje kako se svaki agent prijavljuje. Bez izbora, agent u koji ste se prijavili na mašini koristi vaš vlastiti račun, a agent za koji vaš tim nema račun prikazuje svoju uobičajenu prijavu. Promjena se primjenjuje pri sljedećem pokretanju agenta.",
       "cloudRun": "Pokrećite agente kao i obično. cmux coderouter agent pretvara goli prompt u jednokratni oblik agenta; unutar mašine radi u trenutnom terminalu, a na vašem Mac računaru pokreće agenta na mašini koju navedete, kao cmux vm agent.",
       "cloudAccounts": "Cloud mašine koriste račune tima koji ih posjeduje. Ako agent javi da nijedan račun nije dostupan, dodajte račun ili podijelite postojeći s tim timom.",
       "modelsTitle": "Modeli",
@@ -3439,6 +3467,16 @@
       "title": "Otvorite pravila u cmux",
       "intro": "Ova stranica otvara pravila u trenutnom cmux radnom prostoru.",
       "fallback": "cmux prvo prikazuje pravila i pita prije nego što ih zalijepi u trenutni radni prostor. Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmux."
+    },
+    "agent": {
+      "metaTitle": "Otvori sesiju agenta u cmuxu",
+      "metaDescription": "Otvorite cmux deeplink do sesije agenta s weba, uz opciju instalacije kada cmux nije dostupan.",
+      "title": "Otvori sesiju agenta",
+      "intro": "Ovaj link otvara sesiju agenta u cmuxu ako ovaj Mac već može pristupiti toj sesiji. Sam link ne daje nikakav pristup.",
+      "fallback": "Ako se cmux ne otvori, instalirajte cmux i ponovo kliknite Otvori u cmuxu. cmux otvara sesiju samo ako joj ovaj Mac već može pristupiti.",
+      "nameLabel": "Naziv: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Okruženje: {value}"
     }
   },
   "download": {
@@ -3472,7 +3510,10 @@
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "rateLimitedTitle": "Prijava je zauzeta",
+    "rateLimitedBody": "Naš servis za prijavu obrađuje previše zahtjeva. Sačekajte nekoliko sekundi, pa nastavite. Ne morate se ponovo prijaviti.",
+    "retryButton": "Nastavi prijavu"
   },
   "landing": {
     "bestTerminal": {
@@ -5507,6 +5548,9 @@
     "switchFailed": "Odjava nije uspjela. Pokušajte ponovo.",
     "invalidTitle": "Ova pozivnica više nije važeća",
     "invalidBody": "Istekla je, opozvana je ili je već iskorištena. Zamolite administratora tima za novu.",
-    "goToTeams": "Idi na svoje timove"
+    "goToTeams": "Idi na svoje timove",
+    "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
+    "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
+    "retry": "Pokušaj ponovo"
   }
 }

@@ -17,10 +17,11 @@ fn main() -> ExitCode {
     }
     // These Cloud extensions predate the official CLI. Keep their existing
     // implementation behind the same dispatcher, across all alias spellings.
+    // `use` is machine-only: how Claude Code signs in on this machine.
     let extension = router
         && matches!(
             tail.first().and_then(|s| s.to_str()),
-            Some("status" | "machines" | "models" | "agent" | "run")
+            Some("status" | "machines" | "models" | "agent" | "run" | "use")
         );
     if extension {
         tail.insert(0, OsString::from("coderouter"));

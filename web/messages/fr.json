@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La machine ne répond pas",
       "message": "Cette machine n'a pas répondu à temps, la requête n'a donc pas pu aboutir.",
-      "action": "Mettez la machine en pause, reprenez-la, puis réessayez. Dans l'app Mac, choisissez Mettre la machine en pause, puis Reprendre la machine. Dans un terminal, exécutez cmux vm pause '<machine>', puis cmux vm resume '<machine>'."
+      "action": "Contactez le support avec l’ID de trace avant de créer une autre machine."
     },
     "inProgress": {
       "title": "Toujours en cours",
@@ -44,6 +44,16 @@
       "title": "Le fournisseur cloud est lent",
       "message": "Le fournisseur cloud n'a pas répondu à temps.",
       "action": "Réessayez dans un instant."
+    },
+    "providerCapacity": {
+      "title": "Pas de capacité Cloud pour le moment",
+      "message": "Le service Cloud n'a pas de place pour cette machine en ce moment. Rien n'a été modifié.",
+      "action": "Réessayez dans une minute."
+    },
+    "stateConflict": {
+      "title": "La machine est occupée",
+      "message": "Cette machine démarre, se met en pause ou ne tourne pas, elle ne peut donc pas faire cela pour le moment.",
+      "action": "Patientez un instant et réessayez. Vérifiez l'état de la machine avec cmux vm ls et reprenez-la d'abord si elle est en pause."
     },
     "networkRuleCapacity": {
       "title": "Règles réseau à saturation",
@@ -103,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go prend en charge 2 vCPU, 4 Gio de RAM et 16 Gio de disque.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Quota de calcul {plan} épuisé",
+      "computeMessage": "Votre forfait {plan} a utilisé ses {included} heures de calcul pour cette période de facturation. Une heure de calcul correspond à 1 vCPU avec 2 Go de mémoire pendant une heure. Vos machines pourront redémarrer le {resetDate}.",
+      "computeAction": "Les machines en pause conservent leurs fichiers. Contactez le support si vous avez besoin de plus de calcul avant le {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota de disque {plan} épuisé",
+      "storageMessage": "Votre forfait {plan} inclut {included} Go de disque pour l'ensemble des machines enregistrées. Les machines enregistrées utilisent {used} Go, et cette demande nécessite {requested} Go.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Ressources Cloud VM insuffisantes",
@@ -504,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Reprenez votre forfait pour le modifier.",
           "granted": "Accordé par cmux. Il n'y a rien à modifier.",
+          "grantedNoCancel": "Accordé par cmux, il n'y a donc rien à résilier.",
+          "paymentFailed": "Mettez à jour votre moyen de paiement avant de changer de forfait.",
+          "foundersLifetime": "Founder's Edition inclut Pro à vie.",
           "adminOnly": "Seuls les administrateurs de l'équipe peuvent modifier le forfait."
         },
         "names": {
@@ -546,6 +569,7 @@
       "change": {
         "title": "Basculer vers {plan} ?",
         "upgradeBody": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par mois.",
+        "upgradeBodyYearly": "{plan} démarre maintenant. Vous payez {amount} aujourd'hui pour le reste de cette période de facturation. À partir du {date}, vous payez {price} par an.",
         "downgradeBody": "{plan} démarre maintenant. La partie non utilisée de votre forfait actuel, {credit}, est créditée sur vos prochaines factures. Votre prochaine facture, le {date}, est de {amount}.",
         "confirm": "Basculer vers {plan}",
         "keep": "Garder le forfait actuel",
@@ -558,6 +582,8 @@
         "title": "Résilier {plan} ?",
         "body": "Vous gardez {plan} jusqu'au {date}. Ensuite, vous perdez :",
         "bodyNoDate": "Vous gardez {plan} jusqu'à la fin de cette période de facturation. Ensuite, vous perdez :",
+        "foundersBody": "Votre abonnement {plan} se termine le {date}. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
+        "foundersBodyNoDate": "Votre abonnement {plan} se termine à la fin de cette période de facturation. Ensuite, vous avez Pro, que Founder's Edition inclut à vie.",
         "reasonLabel": "Pourquoi résiliez-vous ? (facultatif)",
         "otherPlaceholder": "Dites-nous-en plus (facultatif)",
         "confirm": "Résilier le forfait",
@@ -2232,6 +2258,7 @@
           "currentLineHighlight": "Colore la ligne qui contient le curseur de texte tant que rien n’est sélectionné.",
           "tabWidth": "Nombre de colonnes couvertes par une tabulation. Les guides d’indentation utilisent le même espacement."
         },
+        "actions": "Actions réutilisables pour la palette de commandes, les raccourcis, les boutons de la barre d’onglets et le menu du bouton plus. Prend en charge builtin, command, agent, workspaceCommand, workspace, setting, settingPreset et text. Les actions de texte collent dans le terminal actif en conservant les sauts de ligne ; submit: true appuie sur Enter. Les actions de réglage nécessitent une configuration globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3266,12 +3293,13 @@
       "apiKeyScope": "La clé API d'une organisation utilise seulement les comptes partagés de l'équipe. Une clé de votre équipe personnelle peut aussi utiliser vos comptes privés. CodeRouter sert l'OpenAI Responses API, pas Chat Completions.",
       "apiKeyLogin": "Sur une machine qui ne peut pas ouvrir de navigateur, cr login --api-key connecte cr avec une clé, et CODEROUTER_API_KEY en fournit une pour une seule commande. Révoquez une clé dans le tableau de bord, ou lancez cr logout sur la machine qui l'utilise.",
       "cloudTitle": "Sur les machines cmux Cloud",
-      "cloudDesc": "Les machines Cloud ne nécessitent aucune configuration. L'environnement de la machine dirige OPENAI_BASE_URL et ANTHROPIC_BASE_URL vers une adresse CodeRouter privée, et cmux écrit la configuration de chaque agent la première fois qu'un shell ou l'agent démarre :",
-      "cloudClaude": "Claude Code lit ANTHROPIC_BASE_URL et un ANTHROPIC_API_KEY factice dans l'environnement. Ses questions de premier lancement sont déjà répondues.",
+      "cloudDesc": "Les machines Cloud ne nécessitent aucune configuration. Chaque agent utilise les comptes CodeRouter de votre équipe via une adresse CodeRouter privée, et cmux écrit sa configuration la première fois qu'un shell ou l'agent démarre :",
+      "cloudClaude": "Claude Code reçoit ANTHROPIC_BASE_URL et un ANTHROPIC_API_KEY factice à chaque démarrage, et non depuis chaque shell, afin qu'ils ne prennent jamais le pas sur votre propre connexion. Ses questions de premier lancement sont déjà répondues.",
       "cloudCodex": "Codex reçoit un fournisseur de modèles cmux dans ~/.codex/config.toml.",
       "cloudPi": "Pi reçoit une surcharge de fournisseur dans ~/.pi/agent/models.json.",
-      "cloudOpencode": "OpenCode télécharge sa liste de fournisseurs depuis CodeRouter au premier démarrage et l'enregistre dans ~/.config/opencode/opencode.json.",
+      "cloudOpencode": "OpenCode télécharge sa liste de fournisseurs depuis CodeRouter au premier démarrage, l'enregistre dans ~/.config/cmux/opencode-team.json et l'ajoute à votre propre configuration à chaque exécution.",
       "cloudYours": "cmux n'écrit chaque fichier que s'il est absent, donc vos modifications sont conservées. Une configuration Codex qui nomme déjà un autre fournisseur de modèles n'est pas modifiée.",
+      "cloudOwnLogin": "Pour utiliser plutôt votre propre compte, exécutez cr use own sur la machine, puis connectez-vous comme l'agent le fait habituellement : /login dans Claude Code, codex login ou opencode auth login. cr use team revient aux comptes de l'équipe, cr use own codex modifie un seul agent, et cr use indique comment chaque agent se connecte. Sans choix, un agent auquel vous vous êtes connecté sur la machine utilise votre propre compte, et un agent pour lequel votre équipe n'a pas de compte affiche sa connexion habituelle. Un changement s'applique au prochain démarrage de l'agent.",
       "cloudRun": "Lancez les agents comme d'habitude. cmux coderouter agent transforme un simple prompt en forme ponctuelle de l'agent ; dans une machine, il s'exécute dans le terminal actuel, et sur votre Mac, il démarre l'agent sur la machine que vous indiquez, comme cmux vm agent.",
       "cloudAccounts": "Les machines Cloud utilisent les comptes de l'équipe qui les possède. Si un agent signale qu'aucun compte n'est disponible, ajoutez-en un ou partagez un compte existant avec cette équipe.",
       "modelsTitle": "Modèles",
@@ -3441,6 +3469,16 @@
       "title": "Règles ouvertes dans cmux",
       "intro": "Cette page ouvre les règles dans l'espace de travail cmux actuel.",
       "fallback": "cmux affiche d'abord les règles et demande avant de les coller dans l'espace de travail actuel. Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux."
+    },
+    "agent": {
+      "metaTitle": "Ouvrir une session d'agent dans cmux",
+      "metaDescription": "Ouvrez depuis le web un lien profond cmux vers une session d'agent, avec une solution d'installation si cmux n'est pas disponible.",
+      "title": "Ouvrir une session d'agent",
+      "intro": "Ce lien ouvre la session de l'agent dans cmux si ce Mac peut déjà y accéder. Le lien lui-même n'accorde aucun accès.",
+      "fallback": "Si cmux ne s'ouvre pas, installez cmux et cliquez à nouveau sur Ouvrir dans cmux. cmux n'ouvre la session que si ce Mac peut déjà y accéder.",
+      "nameLabel": "Nom : {value}",
+      "hostLabel": "Hôte : {value}",
+      "harnessLabel": "Harnais : {value}"
     }
   },
   "download": {
@@ -3474,7 +3512,10 @@
     "title": "Connecté à cmux",
     "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
     "button": "Retourner à cmux",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "rateLimitedTitle": "La connexion est saturée",
+    "rateLimitedBody": "Notre service de connexion reçoit trop de requêtes. Patientez quelques secondes, puis continuez. Vous n'avez pas besoin de vous reconnecter.",
+    "retryButton": "Continuer la connexion"
   },
   "landing": {
     "bestTerminal": {
@@ -5509,6 +5550,9 @@
     "switchFailed": "Impossible de se déconnecter. Réessayez.",
     "invalidTitle": "Cette invitation n’est plus valide",
     "invalidBody": "Elle a expiré, a été révoquée ou a déjà été utilisée. Demandez-en une nouvelle à un admin de l’équipe.",
-    "goToTeams": "Accéder à vos équipes"
+    "goToTeams": "Accéder à vos équipes",
+    "unavailableTitle": "Impossible de confirmer votre connexion",
+    "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
+    "retry": "Réessayer"
   }
 }

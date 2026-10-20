@@ -15,7 +15,38 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
+`gh-merge-green` is optional. On `feat-cmux-next` a plain
+`gh pr merge --squash --match-head-commit <sha>` under that branch's merge rules
+is fine. When used there, the helper applies a fast gate by default. It waits up to
+`--wait` seconds (2400 by default) for path routing, the fast tier and the
+touched compiles on the exact head, then merges. Whether the change needs the
+routing wait follows the base's `cmux-next.yml` paths filter, not the head's, so a
+pull request can't drop itself from it. It also waits for god-file,
+l10n and concurrency lint and `risk evidence`, and refuses a red one with no
+override or base excuse, as the full gate does. It refuses a completed red in
+the fast lanes, in the web, app size and crash families, or in `ci-status`,
+the Release compile or the swift test, unless the base has the same red. A
+cancelled, timed-out or skipped fast tier refuses even with `--override`. It
+refuses conflict markers and frozen paths, and a pull request from an untrusted
+fork, before it waits for anything, unless `--trust-fork-head <sha>` names its reviewed head. React-apps-check is waited for when
+`detect_ci_change_areas.py` routes a changed file to ci.yml's `web` job, or
+when that job is running. The gate keys on job names, so it refuses when one
+it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
+`ci-web.yml`. It skips the merged-tree checks (merge cleanliness, the god-file
+check and `vp check`), except for a pull request that changes a path listed in
+`scripts/ci/merge-fast-gate-protected-paths.txt` on the base: workflows, shared CI
+scripts and `gh-merge-green` itself. That one gets every merged-tree check. The full
+suites run after the merge. It prints one `gh-merge-green:` line saying what
+it checked and how long it waited.
+
+On both gates the helper re-reads the pull request just before merging and
+refuses if its head or base changed, since `--match-head-commit` pins only the
+head.
+
+`--full` keeps the wait for every check, as below; every base other than
+`feat-cmux-next` (main and classic) always gets it.
+
+With `--full`, `gh-merge-green` requires a completed, successful `ci-status` check on the
 exact pull-request head. App diffs also require the completed
 `macos / macOS compile admission` check. A missing, queued, stale, or
 unsuccessful check is a refusal, and the helper prints the repair pointer.
@@ -835,6 +866,16 @@ never holds the canonical root a seed on the same mini waits for. Signing and
 notarization are not on it: no signing run on an owned Mac has been proven,
 and the retired self-hosted fleet failed `codesign` with
 `errSecInternalComponent` (#6264).
+
+NEXT nightly routing has separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
+`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables, restricted to the same trusted-pool
+and runner-name shapes as main's pair. Main's rescue watches attempt 1 of
+same-repository `nightly-next` pushes, moves refused or stalled jobs to their
+hosted retry, and compares newer pending runs only within that branch.
+A schedule on `nightly-next` is never admitted. These variables must remain
+unset until the NEXT workflow supports the route and an eligible worker's hook
+admits exactly its workflow, job and ref. They authorize no PR-pool or signing
+work on the trusted worker. Main's nightly runner selection is unchanged.
 
 | Jobs | Route | Why |
 | --- | --- | --- |

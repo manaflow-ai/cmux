@@ -7,8 +7,8 @@ import Foundation
 // The CLI is presentation only; each verb maps to one `coderouter.*` socket
 // method handled by the app's `CoderouterClient`, which holds the Stack
 // session. Every other `cmux coderouter ...` verb, and all of `cmux cr ...`,
-// is exec'd into the CodeRouter CLI before any socket is opened
-// (CMUXCLI+CoderouterPassthrough.swift, which also installs it when missing).
+// runs the CodeRouter CLI through the shared launch path, including native
+// handoff for routed providers and installation when missing.
 extension CMUXCLI {
     static let coderouterUsage = """
         Usage: cmux coderouter <status|machines|claude|agent> [options]
@@ -401,12 +401,21 @@ extension CMUXCLI {
         guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
             return nil
         }
+        // Mint with the Claude the user pinned through
+        // `integrations.claudeCode.customClaudePath`, so the token belongs to
+        // the install cmux runs. A cmux terminal exports the setting; outside
+        // one, read it the way `claude-teams` does. Without one, `claude`
+        // comes from PATH as before.
+        let claudeCommand = configuredClaudeExecutable([
+            ProcessInfo.processInfo.environment["CMUX_CUSTOM_CLAUDE_PATH"],
+            UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
+        ]).map { [$0] } ?? ["/usr/bin/env", "claude"]
         cliWriteStderr("Running `claude setup-token`; finish the sign-in in your browser.\n")
 
         let outputPipe = Pipe()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: scriptPath)
-        process.arguments = ["-q", "/dev/null", "/usr/bin/env", "claude", "setup-token"]
+        process.arguments = ["-q", "/dev/null"] + claudeCommand + ["setup-token"]
         process.standardInput = FileHandle.standardInput
         process.standardOutput = outputPipe
         process.standardError = FileHandle.standardError
