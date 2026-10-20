@@ -14,12 +14,20 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     static let attributeName = "com.cmux.markdown.tables"
     /// The largest value kept; the page's own cap keeps far below it.
     static let valueLimit = 16 * 1024
+    /// The attribute of a file's viewer comments (``ViewerCommentList``).
+    static let commentsAttributeName = "com.cmux.markdown.comments"
+    /// The largest comments value kept: under ``DarwinExtendedAttributes/readLimit``.
+    static let commentsValueLimit = 60 * 1024
     /// How many files the app-side copy remembers.
     static let fallbackLimit = 1000
     /// The copy is pruned on the first write and then every this many writes.
     static let pruneEvery = 32
 
     private let attributes: any ExtendedAttributeAccess
+    /// This store's attribute (``attributeName`` for table widths, ``commentsAttributeName`` for viewer comments).
+    let name: String
+    /// The largest value this store keeps.
+    let maxBytes: Int
     private let fallback: URL?
     private let fileManager: FileManager
     private let limit: Int
@@ -29,9 +37,15 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     ///   - attributes: The extended attribute access (tests pass one that refuses).
     ///   - fallback: The folder of the app-side copy; nil keeps no copy.
     ///   - fallbackLimit: How many files the copy remembers.
+    ///   - name: The extended attribute; the same store keeps a file's viewer comments under
+    ///     ``commentsAttributeName`` (viewer-comments-DESIGN.md "Comments in the viewer").
+    ///   - maxBytes: The largest value kept.
     init(attributes: any ExtendedAttributeAccess = DarwinExtendedAttributes(), fallback: URL?,
-         fallbackLimit: Int = MarkdownTableWidthRepository.fallbackLimit) {
+         fallbackLimit: Int = MarkdownTableWidthRepository.fallbackLimit,
+         name: String = MarkdownTableWidthRepository.attributeName, maxBytes: Int = MarkdownTableWidthRepository.valueLimit) {
         self.attributes = attributes
+        self.name = name
+        self.maxBytes = maxBytes
         self.fallback = fallback
         self.limit = fallbackLimit
         // FileManager.default is documented thread-safe for these calls.
@@ -39,14 +53,14 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     }
 
     /// `~/Library/Application Support/<bundle id>/MarkdownTableWidths` (per tagged build).
-    static func defaultFallbackDirectory(bundle: Bundle = .main) -> URL? {
+    static func defaultFallbackDirectory(bundle: Bundle = .main, folder: String = "MarkdownTableWidths") -> URL? {
         guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         return support.appending(path: bundle.bundleIdentifier ?? "cmux-next", directoryHint: .isDirectory)
-            .appending(path: "MarkdownTableWidths", directoryHint: .isDirectory)
+            .appending(path: folder, directoryHint: .isDirectory)
     }
 
     func read(_ path: String) async -> Data? {
-        if let value = attributes.read(Self.attributeName, at: path), value.count <= Self.valueLimit { return value }
+        if let value = attributes.read(name, at: path), value.count <= maxBytes { return value }
         guard let url = copyURL(for: path), let data = try? Data(contentsOf: url),
               let copy = try? JSONDecoder().decode(Copy.self, from: data), copy.path == path else { return nil }
         // Reading counts as use for the oldest-first pruning.
@@ -56,11 +70,11 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
 
     @discardableResult
     func write(_ path: String, _ value: Data?) async -> MarkdownTableWidthWrite {
-        if let value, value.count > Self.valueLimit { return MarkdownTableWidthWrite(attribute: false, fallback: false) }
+        if let value, value.count > maxBytes { return MarkdownTableWidthWrite(attribute: false, fallback: false) }
         let attribute = if let value {
-            attributes.write(Self.attributeName, value, at: path)
+            attributes.write(name, value, at: path)
         } else {
-            attributes.remove(Self.attributeName, at: path)
+            attributes.remove(name, at: path)
         }
         return MarkdownTableWidthWrite(attribute: attribute, fallback: writeCopy(path, value))
     }

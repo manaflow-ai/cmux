@@ -280,7 +280,7 @@ public final class AgentCursorLayer {
         for layer in [caption, glassCaption] {
             layer.opacity = 1
             layer.removeAnimation(forKey: Self.captionHideKey)
-            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
+            layer.add(Motion.cursor.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: Self.captionHideDelay, on: layer),
                       forKey: Self.captionHideKey)
         }
     }
@@ -330,7 +330,7 @@ public final class AgentCursorLayer {
     /// it again, which shows the cursor at once. No timer.
     func armIdleHide(after delay: CFTimeInterval) {
         for layer in roots {
-            layer.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
+            layer.add(Motion.cursor.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: layer), forKey: Self.idleHideKey)
         }
     }
 
@@ -340,13 +340,13 @@ public final class AgentCursorLayer {
     /// 0.25 s at the fast speed, cmux-cua timing). Reduce Motion keeps only
     /// the fade, at the ring's full size; speed "off" shows no ripple.
     func pulse() {
-        if Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
+        if Motion.cursor.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             ripple.transform = CATransform3DMakeScale(1.6, 1.6, 1)
             CATransaction.commit()
         }
-        Motion.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
+        Motion.cursor.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
     }
 }
 

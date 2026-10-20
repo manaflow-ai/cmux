@@ -130,16 +130,27 @@ def measure(label):
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
     hangs = rpc("debug.hangs") or {}
-    work = (motion.get("work") or {}).get("layout", {}) if isinstance(motion, dict) else {}
+    # The display-link tick is the per-frame work MotionTrace measures ("clock"); layout.travel samples
+    # above zero are the frames the layout springs moved in (no moving frame: the zoom never ran).
+    work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
+    moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
+        if isinstance(motion, dict) else 0
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "reply_error": reply.get("error") if isinstance(reply, dict) else None,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
+        "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
+        "moving_frames": moving,
         "refresh_ms": frames.get("refresh_ms"),
-        "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_frames": work.get("frames"),
+        "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
+        "layout_frames": work.get("frames"),
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
+    print(f"  {label:<18} moved {moving} frames  frame p50 {result['frames_p50_ms']} p95 {result['frames_p95_ms']} "
+          f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms missed {result['missed']}  "
+          f"tick p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} ms  grids {result['grid_reports']}/{result['resizes_sent']}  "
+          f"err {result['reply_error']}", flush=True)
     print(f"  {label:<18} missed {result['missed']} max {result['frames_max_ms']} p99 {result['frames_p99_ms']} ms  "
           f"layout max {result['layout_max_ms']} p95 {result['layout_p95_ms']} ms  grids {result['grid_reports']}/"
           f"{result['resizes_sent']}  hangs {result['hangs']}", flush=True)
@@ -193,6 +204,8 @@ def main():
                 report["runs"].append(run)
                 if index == 0 and direction == "zoom":
                     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-zoomed.png")})
+                row(f"{name} {direction} #{index}: the zoom animated (layout springs moved)", "> 0 frames",
+                    str(run["moving_frames"]), run["moving_frames"] > 0)
                 sent = run["resizes_sent"]
                 row(f"{name} {direction} #{index}: grids sent to the PTY owner" + ("" if opts.gate else " (info)"),
                     "<= 1", str(sent), sent is not None and sent <= 1 or not opts.gate)
@@ -210,6 +223,8 @@ def main():
             def med(key):
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
+            print(f"  {name:<4} {direction:<6} moved {med('moving_frames')} frame p50 {med('frames_p50_ms')} "
+                  f"p95 {med('frames_p95_ms')} ms  tick p50 {med('layout_p50_ms')} p95 {med('layout_p95_ms')} ms")
             print(f"  {name:<4} {direction:<6} missed {med('missed')} max {med('frames_max_ms')} p99 {med('frames_p99_ms')} ms  "
                   f"layout max {med('layout_max_ms')} ms  grids {med('grid_reports')}/{med('resizes_sent')}  "
                   f"hangs {med('hangs')}", flush=True)

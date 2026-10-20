@@ -46,7 +46,13 @@ extension FilePageService {
             }
             guard askComment else { return deliver(quote) }
             guard let window = page.window else { return }
-            ViewerCommentPrompt(quote: quote).run(in: window, completion: deliver)
+            ViewerCommentPrompt(quote: quote).run(in: window) { [weak self] quote in
+                deliver(quote)
+                // The comment also stays in the Markdown viewer, as a margin marker on its lines.
+                guard let provider = self?.provider(key) else { return }
+                // task-owner: one store write per added comment; ends when the write does.
+                Task { @MainActor in await provider.addComment(quote) }
+            }
         }
     }
 }
