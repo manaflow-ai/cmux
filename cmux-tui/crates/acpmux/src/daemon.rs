@@ -923,7 +923,9 @@ async fn notify_loop(hub: Arc<Hub>) {
                     .unwrap_or("another agent");
                 match ev.record.msg.get("reason").and_then(Value::as_str) {
                     Some("cap") => format!("{name} paused: too many messages with {peer}"),
-                    Some("release_failed") => format!("{name} paused: a message to {peer} failed"),
+                    Some("release_failed") => {
+                        format!("{name} paused: a held message with {peer} failed")
+                    }
                     _ => format!("{name} paused: it kept messaging {peer} without progress"),
                 }
             }

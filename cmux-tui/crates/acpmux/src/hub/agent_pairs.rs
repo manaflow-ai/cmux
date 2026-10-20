@@ -43,8 +43,10 @@
 //! a restart mid-release keeps the rest held. One that fails before acceptance stays held and
 //! pauses the pair again (`release_failed`); failing a second time it is dropped
 //! (`agent_pair_dropped`, in both logs).
-//! A cmux-subsessions `send_message` with `interrupt` stops the receiver's turn only once the
-//! message is accepted, so a held one stops nothing (`subsessions.rs`).
+//! A released message neither steers into nor interrupts the receiver's turn, whatever it was
+//! sent with: it waits its turn. A cmux-subsessions `send_message` with `interrupt` stops the
+//! receiver's turn only once the message is accepted, so a held one stops nothing
+//! (`subsessions.rs`).
 //!
 //! The guard and its thresholds are read at daemon start (`PairGuard::from_env`); the app's
 //! Debug Settings toggle `agent.pairGuard` turns it off (`ACPMUX_AGENT_PAIR_GUARD=0`), and
@@ -599,7 +601,7 @@ impl Hub {
         let progressed = last.as_ref().is_some_and(|l| {
             self.progressed_since(&l.to, l.to_mark) || self.progressed_since(&l.from, l.from_mark)
         });
-        let held = Held {
+        let mut held = Held {
             from: from.clone(),
             to: to.clone(),
             blocks: blocks.to_vec(),
@@ -611,12 +613,14 @@ impl Hub {
             provenance: opts.provenance.clone().unwrap_or(Value::Null),
             control: opts.control,
             trust_gate: opts.trust_gate,
-            order: self.next_held_order(),
+            order: 0,
             failures: 0,
         };
         let now = std::time::Instant::now();
         let hold = {
             let mut state = self.pairs_state();
+            // Under the lock, so the order held here is the order a restart restores.
+            held.order = self.next_held_order();
             let pair = state.pairs.entry(key.clone()).or_default();
             if let Some(paused) = pair.paused.as_mut() {
                 if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
@@ -909,14 +913,15 @@ impl Hub {
                 resend: true,
                 control: h.control,
                 trust_gate: h.trust_gate,
-                // The moment to steer has passed: a released message waits its turn.
+                // The moment to steer has passed: a released message waits its turn, and
+                // stops nothing (the turn running now may be the person's own prompt).
                 steer_only: false,
-                interrupt: h.interrupt,
+                interrupt: false,
                 provenance: Some(h.provenance.clone()),
                 ..PromptOptions::default()
             };
             let hub = self.clone();
-            let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), h.steer);
+            let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
             tokio::spawn(async move {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
@@ -1120,6 +1125,8 @@ mod tests {
             held("h3"),
             held("h4"),
             rec("agent_pair_dropped", json!({"peer": "a", "promptId": "h2"})),
+            held("h5"),
+            rec("agent_pair_released", json!({"peer": "a", "promptId": "h5"})),
         ];
         let recorded: HashSet<String> = ["h1".to_owned()].into();
         let owed = still_held("b", records, &recorded);
