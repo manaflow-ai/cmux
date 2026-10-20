@@ -175,8 +175,9 @@ public final class SidebarDocStore {
     }
 
     /// What a drop of `items` may do beside each row (one FFI call per drag).
+    /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? mirror?.acceptance(dragging: items) ?? [:] : [:]
+        isActive ? records.keepingPinned(mirror?.acceptance(dragging: items) ?? [:], dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
