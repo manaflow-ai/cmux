@@ -15,6 +15,14 @@ extension ChatController {
         return ReplyQuote(selection: ranges, messageId: hit.row.ref.messageId, partIndex: hit.row.ref.partIndex)
     }
 
+    /// The quote of the transcript selection wherever it is (the keyboard and palette path): nil
+    /// when nothing is selected or the selection spans messages.
+    func selectionQuote() -> ReplyQuote? {
+        guard !selection.isEmpty, let first = selection.selectedRanges().first,
+              case let .part(row)? = rowSpec(first.key)?.kind else { return nil }
+        return ReplyQuote(selection: selection.selectedRanges(), messageId: row.ref.messageId, partIndex: row.ref.partIndex)
+    }
+
     /// Reply to Selection: the thread composer opens as Reply… does, with the quote on the field.
     func replyToSelection(_ quote: ReplyQuote) {
         dispatch(.reply(quote.source))
