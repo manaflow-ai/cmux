@@ -1539,6 +1539,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rquickjs",
  "rusqlite",
  "rustls",

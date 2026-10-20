@@ -127,6 +127,8 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true
+# Signs the test flag documents (tests/feature_flags.rs).
+ring.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"
 rusqlite.workspace = true
