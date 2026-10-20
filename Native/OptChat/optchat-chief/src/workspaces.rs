@@ -51,6 +51,32 @@ pub trait Workspaces: Send + Sync {
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
+    /// The public id (`ws_…`) and session name of workspace `key`, so the
+    /// Chief and the user can list, move and pin it with the cmux CLI
+    /// (`cmux --session <session> workspace <ws_…> move --index 0`); None
+    /// when this place cannot name it.
+    fn locate(&self, _key: &str) -> Option<WorkspaceRef> {
+        None
+    }
+}
+
+/// A subagent workspace as the cmux CLI and MCP address it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceRef {
+    /// The workspace's public id (`ws_…`).
+    pub id: String,
+    /// The name of the cmux session that holds it (`cmux --session NAME`).
+    pub session: String,
+}
+
+impl WorkspaceRef {
+    /// The CLI command that moves this workspace to the top of its session.
+    pub fn move_to_top(&self) -> String {
+        format!(
+            "cmux --session {} workspace {} move --index 0",
+            self.session, self.id
+        )
+    }
 }
 
 /// A subagent's workspace name: its id and a short title of its task.
