@@ -5,22 +5,7 @@ extension SettingDescriptor {
     /// key that is absent reads its old key, as the parser does, so Settings
     /// shows the value the app applies.
     public func storedValue(in root: JSONValue) -> JSONValue? {
-        root.value(at: path) ?? legacyValue(in: root)
-    }
-
-    /// The old key's value as this key would name what it applies (nil when it is absent).
-    private func legacyValue(in root: JSONValue) -> JSONValue? {
-        guard let old = legacyPath, let value = root.value(at: old) else { return nil }
-        guard path == BackdropSelectionSetting().configPath else { return value }
-        return BackdropSelectionSetting.selection(forLegacy: value)
-    }
-
-    /// The old key this one renamed, which applies while this key is absent
-    /// (`sidebar.showCounts` for `sidebar.workspaceRow.tabCount`,
-    /// `appearance.backdropArt` for `appearance.background`); a write or a
-    /// reset of this key removes it. Nil for a key that renamed nothing.
-    var legacyPath: [String]? {
-        WorkspaceRowSetting.legacyPath(for: path) ?? BackdropSelectionSetting.legacyPath(for: path)
+        root.value(at: path) ?? RenamedSettingKeys.legacyValue(for: path, in: root)
     }
 
     /// The stored value when it is valid, else the default (what the app

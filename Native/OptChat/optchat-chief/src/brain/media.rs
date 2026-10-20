@@ -41,8 +41,33 @@ pub fn media_type(path: &Path) -> Option<&'static str> {
     })
 }
 
+/// The owner's type of any file the Chief attaches with `send` (send.rs):
+/// its picture or video type (shown inline), else a file type by extension,
+/// else `application/octet-stream`.
+pub fn attachment_type(path: &Path) -> &'static str {
+    if let Some(t) = media_type(path) {
+        return t;
+    }
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match extension.as_str() {
+        "pdf" => "application/pdf",
+        "txt" | "log" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "csv" => "text/csv",
+        "json" => "application/json",
+        "html" | "htm" => "text/html",
+        "zip" => "application/zip",
+        "gz" | "tgz" => "application/gzip",
+        _ => "application/octet-stream",
+    }
+}
+
 /// The local path a Markdown link target names: `/abs`, `~/rel`, `file:///abs`, in `<…>` or not.
-fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
     let target = target.trim();
     let target = target
         .strip_prefix('<')

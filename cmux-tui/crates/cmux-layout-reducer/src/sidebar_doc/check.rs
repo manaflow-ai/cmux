@@ -118,6 +118,9 @@ fn check_sections(doc: &Doc) -> Result<(), Refusal> {
         if !order_key::is_valid(&section.order) {
             return Err(Refusal::InvalidValue);
         }
+        if section.host_group && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
         if let Some(title) = &section.title {
             validate_title(title)?;
         }
@@ -294,6 +297,9 @@ pub fn repair(doc: &mut Doc) -> bool {
         }
         if section.gap.is_some_and(|gap| !GAP_RANGE.contains(&gap)) {
             section.gap = None;
+        }
+        if section.kind.machine().is_none() {
+            section.host_group = false;
         }
     }
     if sections.iter().any(|section| !order_key::is_valid(&section.order)) {

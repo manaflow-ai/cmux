@@ -38,7 +38,7 @@ struct ServerApproverView: View {
         }
         .padding(Metrics.space6)
         .frame(width: ServerMetrics.cardWidth, alignment: .leading)
-        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: Self.layoutKey(step))
+        .animation(reduceMotion ? nil : Motion.overlays.animation(.crossfade), value: Self.layoutKey(step))
         .onGeometryChange(for: CGSize.self) { $0.size } action: { resized($0) }
     }
 

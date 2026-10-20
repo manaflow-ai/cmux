@@ -13,7 +13,9 @@ use anyhow::{Context as _, anyhow, bail};
 use serde_json::{Value, json};
 
 use super::admit::{self, Decision};
+use super::audit;
 use super::config::{self, Config};
+use super::grant::{self, Scope};
 use super::preface::{self, Op};
 use super::tailnet::{self, Tailnet};
 
@@ -34,6 +36,47 @@ pub(crate) struct Host {
     exe: PathBuf,
     socket: Mutex<Option<PathBuf>>,
     pending: Mutex<HashMap<IpAddr, usize>>,
+    /// Open teammate (guest) connections, mirrored to `active.json` for
+    /// `cmux host status` and the app's indicator.
+    guests: Mutex<Vec<(u64, Value)>>,
+}
+
+/// `<host dir>/active.json`: the open teammate connections.
+pub(crate) const ACTIVE_FILE: &str = "active.json";
+
+static NEXT_GUEST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl Host {
+    fn write_guests(&self, guests: &[(u64, Value)]) {
+        let list: Vec<&Value> = guests.iter().map(|(_, v)| v).collect();
+        let result = config::ensure_dir().and_then(|dir| {
+            let path = dir.join(ACTIVE_FILE);
+            let tmp = dir.join(format!(".{ACTIVE_FILE}.{}", std::process::id()));
+            std::fs::write(&tmp, serde_json::to_vec(&list)?)?;
+            cmux_tui_core::platform::restrict_file(&tmp)?;
+            std::fs::rename(&tmp, &path)?;
+            Ok(())
+        });
+        if let Err(e) = result {
+            eprintln!("cmux host: cannot record teammate connections: {e:#}");
+        }
+    }
+
+    fn guest_opened(&self, entry: Value) -> u64 {
+        let id = NEXT_GUEST.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Ok(mut guests) = self.guests.lock() {
+            guests.push((id, entry));
+            self.write_guests(&guests);
+        }
+        id
+    }
+
+    fn guest_closed(&self, id: u64) {
+        if let Ok(mut guests) = self.guests.lock() {
+            guests.retain(|(g, _)| *g != id);
+            self.write_guests(&guests);
+        }
+    }
 }
 
 /// One pending connection; released when the connection is answered.
@@ -121,7 +164,10 @@ pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
         exe,
         socket: Mutex::new(None),
         pending: Mutex::new(HashMap::new()),
+        guests: Mutex::new(Vec::new()),
     });
+    // A listener that died left no one connected.
+    host.write_guests(&[]);
     let owner = config.owner.as_deref().unwrap_or("(none)");
     for listener in &listeners {
         eprintln!(
@@ -175,25 +221,66 @@ fn serve_one(
     // `not_allowed`, never whether its preface was well formed. The config
     // is reread for every connection, so allow/deny/disable apply at once.
     let config = config::load()?;
-    let decision = admit::decide(&config, &host.self_ips, peer, host.tailnet.whois(peer));
-    let identity = match &decision {
-        Decision::Owner(identity) | Decision::Allowed(identity) => identity.clone(),
+    let whois = host.tailnet.whois(peer);
+    let seen = whois.as_ref().ok().cloned();
+    let decision = admit::decide(&config, &host.self_ips, peer, whois);
+    let record = |op: &str, outcome: &str, reason: Option<&str>| {
+        let scopes: Vec<&str> = match &decision {
+            Decision::Guest(_, scopes) => scopes.iter().map(|s| s.name()).collect(),
+            _ => Vec::new(),
+        };
+        audit::append(&json!({
+            "peer": peer.to_string(),
+            "login": seen.as_ref().and_then(|i| i.login.clone()),
+            "node": seen.as_ref().map(|i| i.node.clone()),
+            "decision": decision.access().unwrap_or("refused"),
+            "op": op,
+            "outcome": outcome,
+            "reason": reason,
+            "scopes": scopes,
+        }));
+    };
+    let (identity, scopes) = match &decision {
+        Decision::Owner(identity) | Decision::Allowed(identity) => (identity.clone(), None),
+        Decision::Guest(identity, scopes) => (identity.clone(), Some(scopes.clone())),
         Decision::Refused(reason) => {
             eprintln!("cmux host: refused {peer}: {reason}");
+            record("admit", "refused", Some(*reason));
             preface::write_value(&mut stream, &preface::refusal("not_allowed"))?;
             return Ok(());
         }
     };
     let Some(line) = preface::read_line(&mut stream, deadline)? else { return Ok(()) };
     let Some(op) = preface::parse_request(&line) else {
+        record("preface", "refused", Some("bad preface"));
         preface::write_value(&mut stream, &preface::refusal("bad_preface"))?;
         return Ok(());
     };
     let access = decision.access().unwrap_or_default();
     let who = format!("{} ({})", identity.login.as_deref().unwrap_or_default(), identity.node);
+    // A teammate grant opens only what its scopes name (design 4).
+    if let Some(scopes) = &scopes {
+        let allowed = match op {
+            Op::Probe => scopes.contains(&Scope::Status),
+            Op::Connect => grant::may_connect(scopes),
+        };
+        if !allowed {
+            let op_name = if op == Op::Probe { "probe" } else { "connect" };
+            eprintln!("cmux host: refused {who} {op_name}: scope not granted");
+            record(op_name, "refused", Some("scope not granted"));
+            preface::write_value(&mut stream, &preface::refusal("scope_not_granted"))?;
+            return Ok(());
+        }
+    }
     match op {
         Op::Probe => {
-            preface::write_value(&mut stream, &probe_reply(host, &config, access))?;
+            record("probe", "ok", None);
+            let mut reply = probe_reply(host, &config, access);
+            if let Some(scopes) = &scopes {
+                reply["host"]["scopes"] =
+                    json!(scopes.iter().map(|s| s.name()).collect::<Vec<_>>());
+            }
+            preface::write_value(&mut stream, &reply)?;
             Ok(())
         }
         Op::Connect => {
@@ -211,9 +298,24 @@ fn serve_one(
             stream.set_write_timeout(None)?;
             keepalive(&stream);
             eprintln!("cmux host: connected {who} as {access}");
-            splice(stream, daemon)?;
+            record("connect", "connected", None);
+            let guest = scopes.as_ref().map(|scopes| {
+                host.guest_opened(json!({
+                    "login": identity.login,
+                    "node": identity.node,
+                    "peer": peer.to_string(),
+                    "scopes": scopes.iter().map(|s| s.name()).collect::<Vec<_>>(),
+                    "since": grant::now_rfc3339(),
+                    "listener_pid": std::process::id(),
+                }))
+            });
+            let result = splice(stream, daemon);
+            if let Some(id) = guest {
+                host.guest_closed(id);
+            }
+            record("connect", "closed", None);
             eprintln!("cmux host: closed {who}");
-            Ok(())
+            result.map_err(Into::into)
         }
     }
 }

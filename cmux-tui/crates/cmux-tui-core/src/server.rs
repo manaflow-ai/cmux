@@ -222,6 +222,7 @@ mod session_stream;
 mod split_kind;
 mod split_respawn;
 mod tab_column;
+mod tab_park;
 mod tab_restart;
 mod websocket_listener;
 #[cfg(test)]
@@ -392,6 +393,9 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `terminal-resume-command`: a person's resume command for one
+/// terminal, typed on the new prompt when the terminal is respawned.
+pub const RESUME_COMMAND_CAPABILITY: &str = "resume-command";
 /// Advertised only while this owner's unplaced-terminal reaper runs (the
 /// owner was started with `--terminal-reap-grace-seconds`). Without it a
 /// detached terminal lives until it is ended or the session ends, so a
@@ -447,6 +451,9 @@ pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
 /// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
 /// (null is automatic) and the workspace snapshot's `extra.task_status`.
 pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
+/// `workspace.create` takes `focus`: a created workspace becomes the focused
+/// one only with `focus: true` (the app sends it for the person's creations).
+pub const WORKSPACE_CREATE_FOCUS_CAPABILITY: &str = "workspace-create-focus-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -683,6 +690,8 @@ impl DetachNotice {
     }
 }
 
+// Variant names are the wire command names (`terminal-resume-command`).
+#[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
@@ -1069,6 +1078,18 @@ enum Command {
         terminal_id: Option<String>,
         keep: bool,
     },
+    /// Read, set (a string) or clear (null) the resume command of one hosted
+    /// terminal, named by exactly one of a PTY `surface` or a stable
+    /// `terminal_id`. A respawn of the terminal types the command on its new
+    /// prompt without a newline. An absent `command` only reads it.
+    TerminalResumeCommand {
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        terminal_id: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        command: Option<Option<String>>,
+    },
     /// New tab in a pane (default: the active pane).
     NewTab {
         #[serde(default)]
@@ -1099,6 +1120,7 @@ enum Command {
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     RestartTab(tab_restart::Params),
+    ParkTabs(tab_park::Params),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),

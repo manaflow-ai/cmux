@@ -40,7 +40,7 @@ extension Motion {
 /// windows in a full screen transition (`willEnterFullScreen` to
 /// `didEnterFullScreen`, and the exit pair; a failed one ends through
 /// ``Motion/fullScreenTransitionFailed(_:)``, AppKit posts nothing for it).
-/// Observes every window from the first read of `Motion.policy`, long before
+/// Observes every window from the first read of `Motion.basePolicy`, long before
 /// a person can drag an edge.
 final class LiveResizeWindows {
     static let shared = LiveResizeWindows()
