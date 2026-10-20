@@ -68,8 +68,9 @@ pairs = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NE
 subprocess.run(["open", "-n", APP, *[arg for pair in pairs for arg in ("--env", pair)]], check=True)
 code = 1
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180):
-        sys.exit("the tagged app did not come up")
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
+        sys.exit(f"the tagged app did not come up (socket {SOCKET} exists: {os.path.exists(SOCKET)}; "
+                 f"debug.windows: {json.dumps(rpc('debug.windows'))[:300]})")
     print("home.show", rpc("action.run", {"action": "home.show", "focus": True}), flush=True)
     time.sleep(3)
     rpc("debug.appearance", {"mode": "dark"})
