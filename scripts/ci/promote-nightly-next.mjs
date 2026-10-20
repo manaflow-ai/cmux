@@ -281,6 +281,10 @@ async function pushActors(github, owner, repo, compare, wanted, rangeSet, bounda
 async function landersOf(github, owner, repo, commit, actors) {
   const logins = new Set();
   const add = (login) => { if (login && !BOT_LOGINS.has(login)) logins.add(login); };
+  // GitHub leaves these users null when an email is not linked to an account.
+  // Silently omitting that identity would let a release approver approve their
+  // own commit while the non-lander policy appears to be enabled.
+  if (!commit.author?.login || !commit.committer?.login) return null;
   add(commit.author?.login);
   add(commit.committer?.login);
   const pushers = actors.get(commit.sha);
@@ -291,12 +295,15 @@ async function landersOf(github, owner, repo, commit, actors) {
   });
   for (const pull of pulls || []) {
     if (!pull.merged_at) continue;
+    if (!pull.user?.login) return null;
     add(pull.user?.login);
     const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pull.number });
+    if (!full.merged_by?.login) return null;
     add(full.merged_by?.login);
     // Anyone whose commits are in the merged PR counts as a lander too.
     const prCommits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pull.number, per_page: 100 });
     for (const prCommit of prCommits) {
+      if (!prCommit.author?.login || !prCommit.committer?.login) return null;
       add(prCommit.author?.login);
       add(prCommit.committer?.login);
     }
@@ -421,7 +428,7 @@ export async function decide({
     else logins.forEach((login) => landers.add(login));
   });
   if (unresolved.length && policy.require_non_lander_approver) {
-    return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
+    return refuse(`an author, committer, pull-request lander, or push actor is unknown for ${unresolved.join(', ')}; the landers of the release surface change cannot be established`, { sha, current, surfaceFiles });
   }
   return {
     action: 'needs-ack',
