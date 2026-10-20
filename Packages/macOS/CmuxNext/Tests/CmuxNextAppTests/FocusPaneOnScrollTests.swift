@@ -23,7 +23,7 @@ struct FocusPaneOnScrollTests {
         var secondsSinceKeyDown: TimeInterval = 60
         var windowIsKey = true
 
-        init(focusOnScroll: Bool = true) {
+        init(focusOnScroll: Bool? = true) {
             var signals = ScrollFocusSignals()
             let box = Box()
             signals.secondsSinceKeyDown = { box.window?.secondsSinceKeyDown ?? 60 }
@@ -102,6 +102,15 @@ struct FocusPaneOnScrollTests {
         let w = Window()
         w.windowIsKey = false
         w.gesture(at: try w.center("p2"))
+        #expect(w.model.focusedPane == "p1")
+    }
+
+    /// The default (no override, no cmux.json key): scrolling another pane keeps focus where the
+    /// person is typing (the user, Oct 20).
+    @Test func byDefaultAScrollOverAnotherPaneKeepsFocus() throws {
+        let w = Window(focusOnScroll: nil)
+        w.gesture(at: try w.center("p2"))
+        w.scroll(at: try w.center("p2"), dy: -1, units: .line)
         #expect(w.model.focusedPane == "p1")
     }
 
