@@ -62,65 +62,6 @@
    ]
   },
   {
-   "id": "goya-saturn",
-   "title": "Saturn Devouring His Son",
-   "titles": {
-    "de": "Saturn verschlingt seinen Sohn",
-    "fr": "Saturne dévorant un de ses fils",
-    "ar": "زحل يلتهم ابنه",
-    "es": "Saturno devorando a su hijo",
-    "zh-Hant": "農神吞噬其子",
-    "zh-Hans": "农神吞噬其子",
-    "ko": "자식을 잡아먹는 사투르누스",
-    "ja": "我が子を食らうサトゥルヌス",
-    "bs": "Saturn proždire svog sina",
-    "da": "Saturn fortærer sin søn",
-    "it": "Saturno che divora un figlio",
-    "km": "សាទូរ៉នស៊ីកូនប្រុសរបស់ខ្លួន",
-    "nb": "Saturn fortærer sin sønn",
-    "pl": "Saturn pożerający swego syna",
-    "pt-BR": "Saturno Devorando um Filho",
-    "ru": "Сатурн, пожирающий своего сына",
-    "th": "แซตเทิร์นกินบุตรของตน",
-    "tr": "Oğlunu Yiyen Satürn",
-    "uk": "Сатурн, що пожирає свого сина",
-    "vi": "Saturn ăn thịt con trai"
-   },
-   "fullTitle": "Saturn Devouring His Son",
-   "artist": "Francisco Goya",
-   "year": "1819–1823",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "source": "https://commons.wikimedia.org/wiki/File:Francisco_de_Goya%2C_Saturno_devorando_a_su_hijo_%281819-1823%29.jpg",
-   "original": "https://upload.wikimedia.org/wikipedia/commons/8/82/Francisco_de_Goya%2C_Saturno_devorando_a_su_hijo_%281819-1823%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]",
-   "artistDied": 1828,
-   "firstPublished": 1874,
-   "bundled": true,
-   "sha256": "956bd637cccda2fa2e6bcfb681928fbed81e579317146105733de97fec9d59cc",
-   "bytes": 39208,
-   "focal": [
-    0.807,
-    0.45
-   ],
-   "quiet": "left",
-   "tone": "dark",
-   "palette": [
-    "#0A0B0E",
-    "#191A1A",
-    "#3F3B31"
-   ],
-   "darkest": "#000002",
-   "lightest": "#FAF5CB",
-   "tint": 0.3,
-   "subject": [
-    0.66,
-    0.04,
-    0.985,
-    0.7
-   ]
-  },
-  {
    "id": "velde-small-ship-storm",
    "title": "A Small Dutch Ship Riding Out a Storm",
    "titles": {

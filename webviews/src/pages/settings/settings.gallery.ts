@@ -4,7 +4,6 @@ import type { AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import GOYA_SATURN from "../../gallery/fixtures/art/goya-saturn.jpg?inline";
 import BOCKLIN_ISLE_OF_THE_DEAD from "../../gallery/fixtures/art/bocklin-isle-of-the-dead.jpg?inline";
 import FUSELI_NIGHTMARE from "../../gallery/fixtures/art/fuseli-nightmare.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -265,8 +264,8 @@ Object.assign(variants, {
     ],
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
-  // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
-  // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
+  // The curated backdrop art (cx-t2x.7): the real thumbnails of two or three works from each
+  // picker collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
@@ -274,14 +273,6 @@ Object.assign(variants, {
     host: {
       ...host,
       backdrops: [
-        {
-          id: "goya-saturn",
-          title: "Saturn Devouring His Son — Francisco Goya",
-          attribution:
-            "Saturn Devouring His Son · Francisco Goya · 1819–1823 · Museo del Prado, Madrid · Public domain",
-          collection: "darkArt",
-          collection_title: "Dark Art",
-        },
         {
           id: "bocklin-isle-of-the-dead",
           title: "Isle of the Dead — Arnold Böcklin",
@@ -367,7 +358,6 @@ Object.assign(variants, {
       ],
     },
     backdropImages: {
-      "goya-saturn": GOYA_SATURN,
       "bocklin-isle-of-the-dead": BOCKLIN_ISLE_OF_THE_DEAD,
       "fuseli-nightmare": FUSELI_NIGHTMARE,
       "van-gogh-starry-night": VAN_GOGH_STARRY_NIGHT,

@@ -23,8 +23,8 @@ import Testing
         #expect(window.backdropSelection == nil)
         #expect(app.backdropSelection == Self.work)
 
-        window.pinBackdrop(.selection(.art(.goyaSaturn)))
-        #expect(window.backdropSelection == .art(.goyaSaturn))
+        window.pinBackdrop(.selection(.art(.bocklinIsleOfTheDead)))
+        #expect(window.backdropSelection == .art(.bocklinIsleOfTheDead))
 
         window.pinBackdrop(.inherit)
         #expect(window.backdropSelection == Self.work)
@@ -47,8 +47,8 @@ import Testing
         room.show(plain)
         #expect(room.backdropSelection == Self.work)
         room.show(pinned)
-        pinned.pinBackdrop(.selection(.art(.goyaSaturn)))
-        #expect(room.backdropSelection == .art(.goyaSaturn))
+        pinned.pinBackdrop(.selection(.art(.bocklinIsleOfTheDead)))
+        #expect(room.backdropSelection == .art(.bocklinIsleOfTheDead))
     }
 
     /// A workspace's own Opacity over art: its window draws that tint, a top page the work's own,
@@ -111,6 +111,8 @@ import Testing
         #expect(WorkspaceBackgroundStore.pin("daily", now: now) == .selection(.art(.daily(on: now))))
         #expect(WorkspaceBackgroundStore.pin(Self.work.id, now: now) == .selection(Self.work))
         #expect(WorkspaceBackgroundStore.pin("__gone__", now: now) == .inherit)
+        // A workspace pinned to a work since removed from the set follows the app's background.
+        #expect(WorkspaceBackgroundStore.pin("goya-saturn", now: now) == .inherit)
     }
 
     /// The picker's This Workspace choice: read, preview, end, save, clear; refused without a

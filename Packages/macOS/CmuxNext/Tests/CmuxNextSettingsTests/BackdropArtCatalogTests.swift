@@ -51,6 +51,20 @@ import Testing
         }
     }
 
+    /// A cmux.json that still names a work taken out of the set (Goya's Saturn Devouring His Son) shows
+    /// the default background on either key, with no invalid-value diagnostic, and the picker no
+    /// longer offers it.
+    @Test(arguments: [["appearance", "background"], ["appearance", "backdropArt"]])
+    func aRemovedWorkFallsBackToTheDefaultBackground(path: [String]) {
+        #expect(BackdropArt(id: "goya-saturn") == nil)
+        #expect(!BackdropCatalog.bundled.contains { $0.id == "goya-saturn" })
+        let root = JSONValue.object([path[0]: .object([path[1]: .string("goya-saturn")])])
+        let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+        #expect(snapshot.backdropSelection == BackdropSelectionSetting.defaultSelection)
+        #expect(snapshot.backdropArt == BackdropSelectionSetting.defaultArt)
+        #expect(!snapshot.diagnostics.contains { $0.path.hasPrefix("appearance.") }, "\(snapshot.diagnostics)")
+    }
+
     /// Every work ships a small thumbnail (the picker and the first frame); only the starter set
     /// ships its full image, and the rest download on first pick (``BackdropArtDownloads``).
     @MainActor @Test(arguments: BackdropArt.allCases)

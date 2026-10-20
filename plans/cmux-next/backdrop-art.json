@@ -53,39 +53,6 @@
    "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-1923, PD-old-auto-expired, PD-old-text]"
   },
   {
-   "id": "goya-saturn",
-   "title": "Saturn Devouring His Son",
-   "artist": "Francisco Goya",
-   "year": "1819–1823",
-   "museum": "Museo del Prado, Madrid",
-   "collection": "darkArt",
-   "bundled": true,
-   "focal": {
-    "x": 0.807,
-    "y": 0.45
-   },
-   "subject": {
-    "minX": 0.66,
-    "minY": 0.04,
-    "maxX": 0.985,
-    "maxY": 0.7
-   },
-   "tint": 0.3,
-   "darkest": "#000002",
-   "lightest": "#FAF5CB",
-   "thumbnail": {
-    "url": "https://files.cmux.com/cmux-art/0b277d85df337f14b56dcf1b2f642985bf763f1a5ff6ea0e4a687a1b7fc6db4a.avif",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-saturn.thumb.avif"
-   },
-   "full": {
-    "url": "https://files.cmux.com/cmux-art/956bd637cccda2fa2e6bcfb681928fbed81e579317146105733de97fec9d59cc.avif",
-    "sha256": "956bd637cccda2fa2e6bcfb681928fbed81e579317146105733de97fec9d59cc",
-    "resource": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/goya-saturn.avif"
-   },
-   "source": "https://commons.wikimedia.org/wiki/File:Francisco_de_Goya%2C_Saturno_devorando_a_su_hijo_%281819-1823%29.jpg",
-   "license": "Public domain [PD-Art, PD-US-expired-text, PD-art-category, PD-art-category/core, PD-old-X-expired, PD-old-auto-expired, PD-old-text]"
-  },
-  {
    "id": "velde-small-ship-storm",
    "title": "A Small Dutch Ship Riding Out a Storm",
    "artist": "Willem van de Velde the Younger",

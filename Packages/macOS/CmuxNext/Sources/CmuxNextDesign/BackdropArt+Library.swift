@@ -30,6 +30,11 @@ public nonisolated extension BackdropArt {
         }
     }
 
+    /// Ids of works taken out of the set without a stand-in (Goya's Saturn Devouring His Son, too
+    /// grim for a backdrop). A cmux.json or workspace that still names one shows the default
+    /// background, with no invalid-value diagnostic.
+    static let removedIDs: Set<String> = ["goya-saturn"]
+
     /// Each retired id and the work that now stands in for it.
     static let retiredIDs: [String: BackdropArt] = [
         "wheat-field-with-cypresses": .vanGoghWheatFieldCypresses,

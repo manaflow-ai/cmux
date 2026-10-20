@@ -1,6 +1,5 @@
 /// The works Shuffle Daily turns through, in catalog order. Listed by hand rather than taken from
-/// `allCases`, so a newly added work joins the rotation only when someone lists it here. Goya's
-/// Saturn Devouring His Son is left out (too scary for a daily backdrop) but can still be chosen.
+/// `allCases`, so a newly added work joins the rotation only when someone lists it here.
 extension BackdropArt {
     public nonisolated static let dailyRotation: [BackdropArt] = [
         .davidDeathOfMarat, .veldeSmallShipStorm, .boschGardenRight, .boschAscentBlessed, .goyaWitchesFlight,

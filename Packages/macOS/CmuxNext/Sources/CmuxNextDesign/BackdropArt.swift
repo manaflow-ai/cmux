@@ -7,7 +7,6 @@ public import Foundation
 /// and the work was published before 1931). Sources and licenses: art/manifest.json.
 public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     case davidDeathOfMarat = "david-death-of-marat"
-    case goyaSaturn = "goya-saturn"
     case veldeSmallShipStorm = "velde-small-ship-storm"
     case boschGardenRight = "bosch-garden-right"
     case boschAscentBlessed = "bosch-ascent-blessed"
@@ -185,7 +184,6 @@ public nonisolated enum BackdropArt: String, CaseIterable, Sendable {
     public var title: String {
         switch self {
         case .davidDeathOfMarat: String(localized: "backdrop.david-death-of-marat.title", defaultValue: "The Death of Marat", bundle: .module)
-        case .goyaSaturn: String(localized: "backdrop.goya-saturn.title", defaultValue: "Saturn Devouring His Son", bundle: .module)
         case .veldeSmallShipStorm: String(localized: "backdrop.velde-small-ship-storm.title", defaultValue: "A Small Dutch Ship Riding Out a Storm", bundle: .module)
         case .boschGardenRight: String(localized: "backdrop.bosch-garden-right.title", defaultValue: "The Garden of Earthly Delights: Hell", bundle: .module)
         case .boschAscentBlessed: String(localized: "backdrop.bosch-ascent-blessed.title", defaultValue: "Ascent of the Blessed", bundle: .module)
