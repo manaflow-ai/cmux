@@ -1379,7 +1379,7 @@ impl Brain {
         if self.stop_wanted
             || self.owner_stopped
             || self.cuts >= MAX_CUTS
-            || !self.state.turn.as_ref().is_some_and(|t| t.key == key)
+            || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {
             return None;
         }
