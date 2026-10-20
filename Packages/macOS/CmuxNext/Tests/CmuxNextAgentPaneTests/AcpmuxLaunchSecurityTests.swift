@@ -67,6 +67,23 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
     }
 
+    @Test func signedComputerUseEnrollmentCarriesOnlyTheAgentCredential() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = false
+        environment.computerUse = [
+            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
+            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
+            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
+            "CMUX_NEXT_CUA_V2_DIR": "/private/v2",
+        ]
+
+        let parameters = AcpmuxComputerUse.enrollmentParameters(environment)
+
+        #expect(parameters["socket"] as? String == "/private/helper.sock")
+        #expect(parameters["agentToken"] as? String == "fixture-secret")
+        #expect(parameters.count == 2)
+    }
+
     @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {
         var environment = try Self.environment()
         environment.passesPersonKeyAtSpawn = false

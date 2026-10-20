@@ -4,6 +4,22 @@ import Testing
 @testable import CmuxNextComputerUse
 
 struct ComputerUseHelperV2PeerTests {
+    @Test func signedAdmissionUsesALiveTeamRequirementInsteadOfAPathHash() {
+        let executable = URL(fileURLWithPath: "/mutable/acpmux")
+        let signed = ComputerUseHelperV2.acpmuxAdmission(
+            executable: executable, teamIdentifier: "TEAM123", identifier: { _ in "cmux-cli" },
+            hash: { _ in Data([1, 2, 3]) }
+        )
+        #expect(signed.hashes.isEmpty)
+        #expect(signed.requirement == "identifier \"cmux-cli\" and anchor apple generic and certificate leaf[subject.OU] = \"TEAM123\"")
+
+        let development = ComputerUseHelperV2.acpmuxAdmission(
+            executable: executable, teamIdentifier: nil, identifier: { _ in nil }, hash: { _ in Data([1, 2, 3]) }
+        )
+        #expect(development.hashes == ["010203"])
+        #expect(development.requirement == nil)
+    }
+
     @Test func daemonRegistrationRejectsAConnectedPeerOutsideTheAppsTeam() async throws {
         let socketPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cua-peer-\(UUID().uuidString.prefix(8)).sock").path

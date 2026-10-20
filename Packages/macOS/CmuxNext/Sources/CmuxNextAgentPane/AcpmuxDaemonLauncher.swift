@@ -55,8 +55,10 @@ nonisolated enum AcpmuxDaemonLauncher {
                     || key.hasPrefix("LC_"))
         }
         var variables = safeInherited.merging(environment.childEnvironment) { $1 }
-        for (key, value) in environment.computerUse where !computerUse.contains(key) && !value.isEmpty {
-            variables[key] = value
+        for (key, value) in environment.computerUse where !value.isEmpty {
+            let developmentCredential = environment.passesPersonKeyAtSpawn
+                && AcpmuxEnvironment.computerUseKeys.contains(key)
+            if !computerUse.contains(key) || developmentCredential { variables[key] = value }
         }
         if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
