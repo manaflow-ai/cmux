@@ -42,7 +42,8 @@ struct ClassicUpgradeSimulationTests {
         #expect(launch.failure == nil, "\(String(describing: launch.failure))")
         #expect(launch.outcome?.decision == .firstRun, "\(String(describing: launch.outcome))")
         #expect(launch.firstWindow < Self.firstWindowBudget, "first window after \(launch.firstWindow)")
-        #expect(launch.migration < .seconds(max(20, Double(profile.expectedCount) * 0.5)), "migration took \(launch.migration)")
+        // About 0.35 s a workspace on an idle Mac mini, up to 0.75 s on a busy one.
+        #expect(launch.migration < .seconds(max(20, Double(profile.expectedCount) * 1.0)), "migration took \(launch.migration)")
         await sim.settle()
         try sim.verify(profile, classicBefore: before)
 

@@ -61,8 +61,15 @@ struct ClassicUpgradeHugeSimulationTests {
             }
             let outcome = try #require(run.outcome, "the migration of 512 workspaces did not finish in 10 minutes (\(run.sim.made().count) made)")
             print("CLASSIC-SIM huge opened=\(outcome.opened.count) failed=\(outcome.failures.count) first=\(outcome.failures.values.first ?? "-")")
+            // Known limit: macOS hands out at most kern.tty.ptmx_max (511) PTYs, shared with
+            // every other process; past it a terminal cannot start. Any other failure is a hitch.
+            let ptys = Set(outcome.failures.filter { $0.value.contains("PTY capacity exhausted") }.keys)
+            #expect(outcome.failures.count == ptys.count, "\(outcome.failures.values.filter { !$0.contains("PTY capacity") }.prefix(3))")
+            withKnownIssue("macOS PTY limit: one terminal per workspace stops near 500 (kern.tty.ptmx_max)", isIntermittent: true) {
+                #expect(ptys.isEmpty, "\(ptys.count) workspaces found no free PTY")
+            }
             await run.sim.settle()
-            try run.sim.verify(profile, classicBefore: run.before)
+            try run.sim.verify(profile, classicBefore: run.before, excusing: ptys)
             let clock = ContinuousClock()
             let start = clock.now
             let again = try await run.sim.relaunch()

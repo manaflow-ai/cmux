@@ -309,15 +309,16 @@ final class ClassicUpgradeSimulator {
     /// Checks `profile`'s promise against the tree after the run(s).
     /// - Parameter source: the classic file the run read (default: the session file).
     ///   - ignoring: cmux-next workspaces that are not classic's (one the person made before).
+    ///   - excusing: classic keys whose workspace is allowed not to have opened (a declared known limit).
     func verify(_ profile: ClassicUpgradeProfile, classicBefore: [String: String], source: URL? = nil, ignoring: Set<String> = [],
-                sourceLocation: SourceLocation = #_sourceLocation) throws {
+                excusing: Set<String> = [], sourceLocation: SourceLocation = #_sourceLocation) throws {
         let label = profile.name
         // The file on disk: panel ids (and so older snapshots' keys) are made when it is written.
         let file = source ?? mac.session()
         let decoded = try ClassicSessionImporter(fileURL: file).decodeSnapshot(Data(contentsOf: file))
         let ledger = try mac.readLedger()
         let made = made().filter { !ignoring.contains($0.key) }
-        if let outcome = lastOutcome, let failure = outcome.failures.first {
+        if let outcome = lastOutcome, let failure = outcome.failures.first(where: { !excusing.contains($0.key) }) {
             Issue.record("\(label): \(outcome.failures.count) workspaces failed, first: \(failure.value)", sourceLocation: sourceLocation)
         }
         let windows = windows()
@@ -327,7 +328,7 @@ final class ClassicUpgradeSimulator {
         for (window, saved) in zip(profile.windows, decoded.windows) {
             var ids: [String] = []
             for (workspace, read) in zip(window.workspaces, saved.workspaces) {
-                guard workspace.comesOver, seen.insert(read.key).inserted else { continue }
+                guard workspace.comesOver, seen.insert(read.key).inserted, !excusing.contains(read.key) else { continue }
                 let entry = ledger.workspaces[read.key]
                 guard entry?.stage == .done, let id = entry?.nextWorkspace, let here = made[id] else {
                     Issue.record("\(label): \(read.name) was lost (ledger \(String(describing: entry)))", sourceLocation: sourceLocation)
@@ -358,7 +359,7 @@ final class ClassicUpgradeSimulator {
         // Nothing twice, nothing extra.
         let all = expectedIDs.flatMap { $0 }
         #expect(Set(all).count == all.count, "\(label): one workspace recorded twice", sourceLocation: sourceLocation)
-        #expect(made.count == profile.expectedCount,
+        #expect(made.count == profile.expectedCount - excusing.count,
                 "\(label): \(made.count) workspaces, classic had \(profile.expectedCount): \(made.values.map(\.name).sorted())",
                 sourceLocation: sourceLocation)
         // Each classic window is one cmux-next window; in each of its sidebar

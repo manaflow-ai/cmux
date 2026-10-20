@@ -270,49 +270,76 @@ extension AppOnboardingServices {
 
     /// Puts the workspaces this run made at their classic place in each
     /// window's sidebar, through the row-drag path (`SidebarBridge.place`):
-    /// a resumed or merged run makes them last. Each goes right below the
-    /// nearest classic workspace before it in its classic container (its
-    /// group, or the loose rows) that is here, else right above the nearest
-    /// one after it. A workspace already there does not move, so a first run
-    /// moves nothing and the person's own order of earlier ones stays.
+    /// a resumed or merged run makes them last. In each sidebar container
+    /// (the pinned rows, the loose rows, a group) each one goes right below
+    /// the nearest classic workspace before it there, else right above the
+    /// next one. One already in place does not move, so a first run moves
+    /// nothing and the person's own order of earlier ones stays.
     private func placeClassicWorkspaces(_ plan: ClassicMigrationPlan, made: [Int: Set<String>], ledger: ClassicMigrationLedger,
                                         targets: [String]) async {
-        let local = services.machines.local
-        let section = SectionID.machine(MachineID(local.machineID))
+        let machines = services.machines
+        let registry = services.windows.registry
         for (index, window) in plan.windows.enumerated() {
             guard let fresh = made[index], !fresh.isEmpty,
                   let bridge = services.windows.controller(for: targets[index])?.sidebar else { continue }
-            let shown: @MainActor @Sendable () -> [String] = {
-                SidebarRowSection.withoutPlaceholders(bridge.model.sections).flatMap(\.nodes).flatMap { node -> [String] in
-                    switch node {
-                    case .workspace(let workspace): [workspace.id.rawValue]
-                    case .group(let group): group.workspaces.map(\.id.rawValue)
-                    case .item: []
-                    }
-                }
+            let target = targets[index]
+            // The window's sidebar as the store has it now (the same rows the person's sidebar draws).
+            let sections: @MainActor @Sendable () -> [SidebarRowSection] = {
+                SidebarBridge.sections(machines, members: registry.members(of: target), profile: .defaultProfile)
             }
-            // The rows of what this run made, once the sidebar lists them.
-            guard await Self.awaitStore({ fresh.isSubset(of: shown()) }) else { continue }
-            // Classic's window as it is here (what earlier runs made too), with each one's classic container.
-            let here = window.workspaces.compactMap { saved in
-                ledger.workspaces[saved.key]?.nextWorkspace.map { (id: $0, group: saved.groupID) }
+            let listed: @MainActor @Sendable () -> Set<String> = {
+                Set(sections().flatMap(\.nodes).flatMap(Self.workspaceIDs))
             }
-            for entry in here where fresh.contains(entry.id) {
-                let listed = Set(shown())
-                let mates = here.filter { $0.group == entry.group && listed.contains($0.id) }
-                guard let at = mates.firstIndex(where: { $0.id == entry.id }) else { continue }
-                let order = shown().filter { id in mates.contains { $0.id == id } }
-                let before = at > 0 ? mates[at - 1].id : nil
-                let after = at + 1 < mates.count ? mates[at + 1].id : nil
-                let current = order.firstIndex(of: entry.id)
-                let inPlace = before.map { order.firstIndex(of: $0).map { $0 + 1 } == current } ?? (after.map { order.firstIndex(of: $0).map { $0 - 1 } == current } ?? true)
+            guard await Self.awaitStore({ fresh.isSubset(of: listed()) }) else { continue }
+            // Classic's window as it is here, in classic's order (what earlier runs made too).
+            let classic = window.workspaces.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
+            for id in classic where fresh.contains(id) {
+                let now = sections()
+                guard let (section, container) = Self.container(of: id, in: now) else { continue }
+                let mates = classic.filter(container.contains)
+                guard let at = mates.firstIndex(of: id) else { continue }
+                let shown = container.filter(mates.contains)
+                let before = at > 0 ? mates[at - 1] : nil
+                let after = at + 1 < mates.count ? mates[at + 1] : nil
+                let current = shown.firstIndex(of: id)
+                let inPlace = before.map { shown.firstIndex(of: $0).map { $0 + 1 } == current }
+                    ?? after.map { shown.firstIndex(of: $0).map { $0 - 1 } == current } ?? true
                 guard !inPlace else { continue }
                 let slot: WorkspaceSlot? = before.map { .below($0) } ?? after.map { .above($0) }
-                let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
-                guard let slot, let drop = slot.position(moving: [entry.id], section: section, in: sections) else { continue }
-                bridge.place([SidebarWorkspaceID(entry.id)], at: drop, in: sections)
+                guard let slot, let drop = slot.position(moving: [id], section: section, in: now) else { continue }
+                bridge.place([SidebarWorkspaceID(id)], at: drop, in: now)
+                // The next one is placed against the sidebar with this one moved.
+                _ = await Self.awaitStore({ Self.container(of: id, in: sections()).map { _, rows in
+                    before.map { b in rows.firstIndex(of: b).map { $0 + 1 } == rows.firstIndex(of: id) }
+                        ?? after.map { a in rows.firstIndex(of: a).map { $0 - 1 } == rows.firstIndex(of: id) } ?? true
+                } ?? false })
             }
         }
+    }
+
+    /// The workspace ids a sidebar node lists.
+    private nonisolated static func workspaceIDs(_ node: SidebarNode) -> [String] {
+        switch node {
+        case .workspace(let workspace): [workspace.id.rawValue]
+        case .group(let group): group.workspaces.map(\.id.rawValue)
+        case .item: []
+        }
+    }
+
+    /// The section and the container (its loose rows, or one group's rows) that list `id`, rows in order.
+    private nonisolated static func container(of id: String, in sections: [SidebarRowSection]) -> (SectionID, [String])? {
+        for section in sections {
+            let loose = section.nodes.compactMap { node -> String? in
+                if case .workspace(let workspace) = node { return workspace.id.rawValue }
+                return nil
+            }
+            if loose.contains(id) { return (section.id, loose) }
+            for case .group(let group) in section.nodes {
+                let rows = group.workspaces.map(\.id.rawValue)
+                if rows.contains(id) { return (section.id, rows) }
+            }
+        }
+        return nil
     }
 
     /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
