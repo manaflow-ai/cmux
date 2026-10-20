@@ -64,6 +64,16 @@ enum CmuxStrings {
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item on my "Not Delivered" message that sends it again.
+    static var tryAgain: String {
+        String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item on my "Not Delivered" message that drops it.
+    static var deleteFailed: String {
+        String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
+    }
+
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", table: "CmuxHome", bundle: .module) }
     static var openInDefaultApp: String {

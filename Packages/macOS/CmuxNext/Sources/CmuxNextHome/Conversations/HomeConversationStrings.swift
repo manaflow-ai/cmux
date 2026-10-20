@@ -142,6 +142,80 @@ enum HomeConversationStrings {
         }
     }
 
+    // MARK: Group info
+
+    static var infoGroupTitle: String { String(localized: "home.info.title.group", defaultValue: "Group Info", bundle: .module) }
+    static var infoDirectTitle: String { String(localized: "home.info.title.direct", defaultValue: "Info", bundle: .module) }
+    /// The Home row menu's item that opens the sheet for a group.
+    static var infoGroupMenu: String { String(localized: "home.info.menu.group", defaultValue: "Group Info…", bundle: .module) }
+    static var infoName: String { String(localized: "home.info.name", defaultValue: "Group name", bundle: .module) }
+    static var infoRename: String { String(localized: "home.info.rename", defaultValue: "Rename", bundle: .module) }
+    static var infoMembers: String { String(localized: "home.info.members", defaultValue: "Members", bundle: .module) }
+    static var infoYou: String { String(localized: "home.info.you", defaultValue: "You", bundle: .module) }
+    static var infoInvited: String { String(localized: "home.info.invited", defaultValue: "Invited", bundle: .module) }
+    static var infoAgent: String { String(localized: "home.info.agent", defaultValue: "Agent", bundle: .module) }
+    static var infoRemove: String { String(localized: "home.info.remove", defaultValue: "Remove", bundle: .module) }
+    static var infoAddPeople: String { String(localized: "home.info.addPeople", defaultValue: "Add People…", bundle: .module) }
+    static var infoAdd: String { String(localized: "home.info.add", defaultValue: "Add", bundle: .module) }
+    static var infoAddSearch: String { String(localized: "home.info.addSearch", defaultValue: "Search people", bundle: .module) }
+    static var infoNoOneToAdd: String {
+        String(localized: "home.info.noOneToAdd", defaultValue: "Everyone you can message is already here.", bundle: .module)
+    }
+    static var infoHideAlerts: String { String(localized: "home.info.hideAlerts", defaultValue: "Hide Alerts", bundle: .module) }
+    static var infoLeave: String { String(localized: "home.info.leave", defaultValue: "Leave Group…", bundle: .module) }
+    static var infoDone: String { String(localized: "home.info.done", defaultValue: "Done", bundle: .module) }
+    static func leaveTitle(_ name: String) -> String {
+        String(format: String(localized: "home.info.leave.title", defaultValue: "Leave “%@”?", bundle: .module), name)
+    }
+    static var leaveBody: String {
+        String(localized: "home.info.leave.body",
+               defaultValue: "You stop getting its messages. Someone in the group can add you again.", bundle: .module)
+    }
+    static var leaveButton: String { String(localized: "home.info.leave.button", defaultValue: "Leave", bundle: .module) }
+
+    /// What a group action's outcome says; nil when it worked.
+    static func groupOutcome(_ outcome: HomeGroupOutcome) -> String? {
+        switch outcome {
+        case .done, .queued, .left: nil
+        case .notReachable(let name):
+            String(format: String(localized: "home.group.outcome.notReachable",
+                                  defaultValue: "You can’t add %@ yet. Invite them by email instead.", bundle: .module), name)
+        case .ownerOnly:
+            String(localized: "home.group.outcome.ownerOnly", defaultValue: "Only the group’s owner can remove people.", bundle: .module)
+        case .forbidden:
+            String(localized: "home.group.outcome.forbidden", defaultValue: "You can’t change this group.", bundle: .module)
+        case .notAGroup:
+            String(localized: "home.group.outcome.notAGroup", defaultValue: "Only a group has a name and members to change.",
+                   bundle: .module)
+        case .unknownConversation:
+            String(localized: "home.group.outcome.unknownConversation", defaultValue: "That conversation isn’t in your list.",
+                   bundle: .module)
+        case .unknownPerson(let name):
+            String(format: String(localized: "home.group.outcome.unknownPerson", defaultValue: "No one named “%@” is in your contacts.",
+                                  bundle: .module), name)
+        case .notAMember(let name):
+            String(format: String(localized: "home.group.outcome.notAMember", defaultValue: "%@ isn’t in this conversation.",
+                                  bundle: .module), name)
+        case .cannotMute:
+            String(localized: "home.group.outcome.cannotMute", defaultValue: "Alerts can be hidden only in Cloud conversations.",
+                   bundle: .module)
+        case .emptyText:
+            String(localized: "home.group.outcome.emptyText", defaultValue: "Type a message first.", bundle: .module)
+        case .noPeople:
+            String(localized: "home.group.outcome.noPeople", defaultValue: "Choose at least one person.", bundle: .module)
+        case .offline:
+            String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .module)
+        case .rateLimited:
+            String(localized: "home.group.outcome.rateLimited", defaultValue: "Too many changes at once. Try again later.",
+                   bundle: .module)
+        case .tooMany:
+            String(localized: "home.group.outcome.tooMany", defaultValue: "A group can have up to 64 people.", bundle: .module)
+        case .refused:
+            // A raw owner code is never shown.
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
+        }
+    }
+
     /// A refused invite's reason as the user reads it (the owner's codes). A code with no
     /// sentence of its own reads as the generic failure: a raw code is never shown.
     static func inviteRefusal(_ code: String) -> String {
@@ -157,6 +231,16 @@ enum HomeConversationStrings {
         default:
             String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         }
+    }
+}
+
+extension HomeGroupInfo {
+    /// The Home row menu's "Group Info…" item.
+    public static var groupInfoMenuTitle: String { HomeConversationStrings.infoGroupMenu }
+
+    /// The question Leave Group asks first: its title, its text and the button that leaves.
+    public var leavePrompt: (title: String, body: String, button: String) {
+        (HomeConversationStrings.leaveTitle(displayTitle), HomeConversationStrings.leaveBody, HomeConversationStrings.leaveButton)
     }
 }
 
