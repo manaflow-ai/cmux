@@ -128,11 +128,11 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     var dwellDeadline: CFTimeInterval? { touched?.tabDragDwellDeadline }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
-        proposal(screenPoint: screenPoint, dragKey: payload.dragID) { controller in
-            // A tab dropped on its own pane keeps its tab group (the end of
-            // its own strip is not a group change).
-            guard case .tab(let id, _) = payload else { return nil }
-            return controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
+        // A terminal tab's own pane: the facing edge of the pane beside it joins that pane (bonsplit, #22287).
+        let source = window?.content?.panes.values.first { $0.pane.tabs.contains { $0.id == payload.dragID && $0.kind == .pty } }
+        return proposal(screenPoint: screenPoint, dragKey: payload.dragID, joinsFrom: source?.layoutPaneID) {
+            // A drop on the tabs' own pane body leaves them where they are (bonsplit, #22287).
+            payload.ownPlace(in: $0.stripModel.orderedTabs)
         }
     }
 
@@ -147,9 +147,10 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     }
 
     /// The layout's target under `screenPoint` for a drag keyed `dragKey`;
-    /// `ownGroup` is the group a center drop on `controller` keeps.
-    private func proposal(screenPoint: CGPoint, dragKey: String,
-                          ownGroup: (PaneController) -> String?) -> TabDropProposal? {
+    /// `ownPlace` is the dragged tabs' display index and group in
+    /// `controller` when they are in it: a center drop there keeps them.
+    private func proposal(screenPoint: CGPoint, dragKey: String, joinsFrom: LayoutPaneID? = nil,
+                          ownPlace: (PaneController) -> (index: Int, group: String?)?) -> TabDropProposal? {
         guard let content = window?.content, case let layout = content.layoutView, let nsWindow = layout.window,
               !layout.bounds.isEmpty else { return nil }
         let local = layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)
@@ -159,7 +160,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
         guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane,
-                                                edgeDwell: DragTunables.splitDwell.value) else {
+                                                joinsFrom: joinsFrom, edgeDwell: DragTunables.splitDwell.value) else {
             return nil
         }
         // The ghost lands on the rect the layout's preview shows (R47).
@@ -167,8 +168,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count,
-                                                groupID: ownGroup(controller)),
+            let own = ownPlace(controller) ?? (controller.pane.tabs.count, nil)
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: own.index, groupID: own.group),
                                    highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
@@ -206,18 +207,6 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
 
     func dropEnded(committed: TabDropProposal?) {
         dropExited()
-    }
-}
-
-extension PaneDropZone {
-    var edge: TabDropEdge? {
-        switch self {
-        case .left: .left
-        case .right: .right
-        case .top: .top
-        case .bottom: .bottom
-        case .center: nil
-        }
     }
 }
 

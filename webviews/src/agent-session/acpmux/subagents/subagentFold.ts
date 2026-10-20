@@ -28,6 +28,8 @@ export type Subagent = {
   toolUses?: number;
   /// A Claude workflow's agents: how many returned of how many started.
   agents?: { done: number; started: number };
+  /// The harness runs it in the background: it outlives its turn's stop.
+  background?: boolean;
 };
 
 export type Event = { seq: number; at: number; msg?: any };
@@ -50,12 +52,16 @@ export class SubagentFold {
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
+  /// The subagents spawned since the current turn started, which its stop ends.
+  private turn = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
-    for (const change of events) this.apply(change, event);
+    // Met first through its progress, its spawn is older than what this fold read: not this turn's.
+    const spawn = update?.sessionUpdate !== "subagent_progress";
+    for (const change of events) this.apply(change, event, spawn);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
@@ -78,6 +84,28 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// A turn starts: its stop ends the subagents spawned from here on.
+  startTurn(): void {
+    this.turn = new Set();
+  }
+
+  /// Ends the subagents still running that nothing will end any more (``subagentsLeft``): the
+  /// current turn's foreground ones at its stop, or every one when the agent process behind the
+  /// chat went away. One that reports again (a `running` state) runs again. Returns whether any
+  /// changed.
+  stopRunning(left: SubagentsLeft, at: number): boolean {
+    let changed = false;
+    for (const agent of this.agents.values()) {
+      if (agent.state !== "running") continue;
+      if (left.turn && (!this.turn.has(agent.id) || agent.background)) continue;
+      agent.state = left.state;
+      agent.endedAt = at;
+      this.touch(agent);
+      changed = true;
+    }
+    return changed;
   }
 
   /// Ends the current batch: the next subagent the session spawns starts a new group.
@@ -130,7 +158,7 @@ export class SubagentFold {
     this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
   }
 
-  private apply(change: any, event: Event): void {
+  private apply(change: any, event: Event, spawn = true): void {
     if (typeof change?.id !== "string") return;
     if (typeof change.toolCallId === "string") this.spawnCalls.add(change.toolCallId);
     let agent = this.agents.get(change.id);
@@ -147,6 +175,7 @@ export class SubagentFold {
         startedAt: event.at,
       };
       this.agents.set(agent.id, agent);
+      if (spawn) this.turn.add(agent.id);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);
@@ -160,6 +189,7 @@ export class SubagentFold {
     agent.action = text(change.action) ?? agent.action;
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
     if (done !== undefined && started !== undefined) agent.agents = { done, started };
@@ -180,6 +210,22 @@ export class SubagentFold {
     this.changed.add(group);
   }
 }
+
+/// Which running subagents nothing will end any more, and how they read: `turn` only the
+/// current turn's foreground ones, else every one.
+export type SubagentsLeft = { state: "cancelled" | "disconnected"; turn: boolean };
+
+/// Whom acpmux's record `kind` leaves running with no one to end them: a stopped turn's
+/// foreground subagents (`cancelled`; the harness keeps background ones running), a turn the
+/// daemon lost (`outcome_unknown`), or, when the agent process behind the chat went away or
+/// started again (an exit or stop, a reopen or resume, a new or ended host), every one, as
+/// acpmux's own process table reads those records (hub/processes.rs).
+export function subagentsLeft(kind: string, msg: any): SubagentsLeft | undefined {
+  if (kind === "turn_result" && msg?.detail === "outcome_unknown") return { state: "disconnected", turn: true };
+  if (kind === "turn_result" && msg?.status === "cancelled") return { state: "cancelled", turn: true };
+  return HARNESS_GONE.has(kind) ? { state: "disconnected", turn: false } : undefined;
+}
+const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const count = (value: unknown) =>
