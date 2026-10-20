@@ -329,6 +329,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneEnvironmentRequest.methods.contains(method):
+            self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:

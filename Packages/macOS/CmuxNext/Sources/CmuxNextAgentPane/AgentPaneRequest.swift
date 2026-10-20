@@ -94,6 +94,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChatInTerminal(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of

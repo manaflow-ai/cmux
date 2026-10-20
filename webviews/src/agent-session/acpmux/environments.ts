@@ -47,3 +47,88 @@ export function environmentDigit(
   const match = /^Digit([1-9])$/.exec(event.code);
   return match ? Number(match[1]) : undefined;
 }
+
+type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/// A saved environment as the page edits it (New Tab page, preview): a name for where a chat
+/// starts. This computer or an SSH machine (an acpmux peer), a folder on it and, on this computer,
+/// a new git worktree of that folder for each chat. The host keeps them (`environment.list`,
+/// `environment.save`, `environment.remove`; AgentPaneEnvironmentRequest.swift); the page never
+/// stores them itself. No id before its first save.
+export type SavedEnvironmentDraft = {
+  id?: string;
+  name: string;
+  kind: "local" | "ssh";
+  /// Kind `ssh`: the peer's name.
+  host?: string;
+  folder?: string;
+  /// Kind `local` with a folder: each chat starts in a new worktree of it.
+  worktree?: boolean;
+};
+
+/// A saved environment: the host assigned its id and time.
+export type SavedEnvironment = SavedEnvironmentDraft & { id: string; updatedAt: number };
+
+export type SavedEnvironmentHost = {
+  list(): Promise<SavedEnvironment[]>;
+  save(environment: SavedEnvironmentDraft): Promise<SavedEnvironment>;
+  remove(id: string): Promise<void>;
+};
+
+/// The host's caps (AgentPaneEnvironment.swift).
+export const SAVED_ENVIRONMENT_NAME_LIMIT = 80;
+
+/// The host's environment methods over the page's native call.
+export function savedEnvironmentHost(callNative: Native): SavedEnvironmentHost {
+  return {
+    list: () =>
+      callNative("environment.list", {}).then((reply) =>
+        ((reply as { environments?: unknown[] } | undefined)?.environments ?? []).filter(isSavedEnvironment),
+      ),
+    save: (environment) =>
+      callNative("environment.save", { environment }).then((reply) => {
+        const saved = (reply as { environment?: unknown } | undefined)?.environment;
+        if (!isSavedEnvironment(saved)) throw new Error("environment.save");
+        return saved;
+      }),
+    remove: (id) => callNative("environment.remove", { id }).then(() => undefined),
+  };
+}
+
+function isSavedEnvironment(value: unknown): value is SavedEnvironment {
+  const environment = value as Partial<SavedEnvironment> | null;
+  return (
+    typeof environment?.id === "string" &&
+    typeof environment.name === "string" &&
+    (environment.kind === "local" || environment.kind === "ssh") &&
+    typeof environment.updatedAt === "number"
+  );
+}
+
+/// What the host gets for a draft: the name trimmed, a blank folder dropped, and only the fields
+/// the kind uses (an SSH machine's host; a worktree only of a folder on this computer).
+export function savedEnvironmentToSave(draft: SavedEnvironmentDraft): SavedEnvironmentDraft {
+  const folder = draft.folder?.trim();
+  return {
+    ...(draft.id ? { id: draft.id } : {}),
+    name: draft.name.trim(),
+    kind: draft.kind,
+    ...(draft.kind === "ssh" && draft.host ? { host: draft.host } : {}),
+    ...(folder ? { folder } : {}),
+    ...(draft.kind === "local" && folder && draft.worktree ? { worktree: true } : {}),
+  };
+}
+
+/// Whether a draft can be saved as it is: a name within the cap, an SSH machine for an SSH one,
+/// and a folder the host takes (absolute, or from the home folder).
+export function savedEnvironmentReady(draft: SavedEnvironmentDraft): boolean {
+  const saved = savedEnvironmentToSave(draft);
+  if (!saved.name || saved.name.length > SAVED_ENVIRONMENT_NAME_LIMIT) return false;
+  if (saved.kind === "ssh" && !saved.host) return false;
+  return saved.folder === undefined || /^(\/|~$|~\/)/.test(saved.folder);
+}
+
+/// The list after a save: the saved one first (the host sorts by `updatedAt`), replacing itself.
+export function withSavedEnvironment(list: readonly SavedEnvironment[], saved: SavedEnvironment): SavedEnvironment[] {
+  return [saved, ...list.filter((environment) => environment.id !== saved.id)];
+}

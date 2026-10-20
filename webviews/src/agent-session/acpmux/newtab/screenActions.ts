@@ -2,6 +2,7 @@
 // row starts the chat in this page; everything else asks the host to replace the tab.
 import type { AllChatsPage } from "./AllChatsList";
 import type { NewTabScreenActions } from "./NewTabScreen";
+import { savedEnvironmentHost } from "../environments";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -27,7 +28,7 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject, attachments) {
+    onAsk(harness, text, picked, model, noProject, attachments, peer) {
       remember(harness);
       deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -39,6 +40,7 @@ export function newTabScreenActions(deps: {
           callNative("chat.new", {
             harness,
             ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
+            ...(peer ? { peer } : {}),
             ...(model ? { model } : {}),
           }),
         );
@@ -50,12 +52,15 @@ export function newTabScreenActions(deps: {
       // pick, so the chat starts in its start folder (the host named it). A real pick goes through
       // the host first (cx-nn3e).
       // Do not work in a project: no folder at all, so the host starts it in its private folder.
+      // A saved SSH environment's folder is the machine's own: this Mac's folder checks don't apply.
       if (noProject) start();
+      else if (peer) start(picked);
       else if (picked && picked !== cwd) {
         if (deps.requestFolder) deps.requestFolder(picked, start);
         else start(picked);
       } else start(deps.chatCwd);
     },
+    savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
       if (url.startsWith("file://"))
         return ignore(callNative("file.open", { path: decodeURIComponent(new URL(url).pathname), where: "tab" }));
