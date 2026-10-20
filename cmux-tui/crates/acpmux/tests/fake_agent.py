@@ -23,6 +23,9 @@ long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 
+FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
+exits 1 without answering, as a harness wrapper that refuses to start does.
+
 FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
@@ -46,6 +49,8 @@ cancelled = set()
 failed_once = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
+# Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
+net_flaky = set()
 next_id = 100
 pending = {}
 # Sessions this process created or finished loading.
@@ -239,6 +244,19 @@ def handle_prompt(rid, params):
                 cancelled.discard(sid)
                 break
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-flaky: X" streams a moment, then fails with that transport error; the session's next
+    # prompt fails the same way, and later ones are answered as usual. The wait leaves a test
+    # time to queue a prompt behind it on a loaded machine.
+    if text.startswith("net-flaky:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "flaky "}})
+        time.sleep(3.0)
+        net_flaky.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if sid in net_flaky:
+        net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
     if text.startswith("net-down"):
@@ -692,6 +710,10 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
+            sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
+            sys.stderr.flush()
+            sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model

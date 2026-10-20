@@ -50,6 +50,7 @@ import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./ha
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
+import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
@@ -142,6 +143,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
   SessionEditsContext,
@@ -714,6 +716,12 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+const SessionStartRow = memo(
+  function SessionStartRow({ row }: RowProps) {
+    return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 const NoticeRow = memo(
   function NoticeRow({ row }: RowProps) {
     return <div className="acpmux-muted">{row.text}</div>;
@@ -809,6 +817,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
   typing: NoticeRow,
@@ -1027,13 +1036,14 @@ const RowFrame = React.memo(function RowFrame({
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
 const rowKind = (row: AcpmuxRow) => (isEditRow(row) ? "editedFiles" : row.kind);
-/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction or a
-/// failover note.
+/// A row drawn as tool rows: tool calls and thoughts, a background task's end, a compaction, a
+/// failover or a session start note.
 const isStepRow = (row: AcpmuxRow | undefined) =>
   row !== undefined &&
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
 const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string | undefined => {
@@ -2506,7 +2516,7 @@ function DefaultComposerChips({
       }}
       onMode={(modeId) => {
         start();
-        void callNative("chat.mode", { modeId });
+        return callNative("chat.mode", { modeId });
       }}
       onEffort={(configId, value) => {
         start();
@@ -2875,8 +2885,10 @@ function AcpmuxPane() {
     handoff.target.sessionId === snapshot.sessionId &&
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt;
-  const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
-  const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
+  // Until the chat's handoff is read the pane draws no review (reviews are rare): the composer and
+  // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
+  // composer left for the read on every open, switch and reconnect).
+  const freshChat = !reviewing && isNewChat(snapshot, newSession);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -3446,8 +3458,20 @@ function AcpmuxPane() {
   };
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   const [newTab, setNewTab] = useState<NewTabHost | undefined>(injectedNewTabContext);
+  // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
+  const showsNewTabRef = useRef(newTab !== undefined);
+  showsNewTabRef.current = newTab !== undefined;
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
-  const newTabGeneration = useNewTabAdoption(setNewTab);
+  // The spare's own handshake named the spare's start folder: the adopting tab's folder replaces it
+  // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
+  // project on its first frame instead of "Choose folder".
+  const adoptNewTab = useCallback((host: NewTabHost) => {
+    setNewTab(host);
+    const cwd = host.cwd;
+    const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
+    setProjectDraft(named);
+  }, []);
+  const newTabGeneration = useNewTabAdoption(adoptNewTab);
   useNewTabPlaces(setNewTab);
   const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
@@ -3893,7 +3917,7 @@ function AcpmuxPane() {
             // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
-            // Search Files… (Cmd-P): the composer opens its file search.
+            // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
         ) {
@@ -4185,7 +4209,15 @@ function AcpmuxPane() {
             harnessProfiles.observe(summary, started);
             // The next New Tab page names the project used last on its first frame
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-            if (!mock) rememberRecentFolders(next);
+            if (!mock) {
+              rememberRecentFolders(next);
+              // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+              publishWarmNewTab(
+                next,
+                (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                showsNewTabRef.current,
+              );
+            }
             setSnapshot((previous) => {
               if (
                 next.canHandoff &&
@@ -5117,8 +5149,17 @@ function AcpmuxPane() {
   }, [freshChat, onNewTab, newTabGeneration, loadNewTabProjects]);
   // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
   const canMove = Boolean(snapshot.sessionId) && composerSnapshot.summary?.hostKind !== "cloud";
+  // The chats the page's context carried, while its own list has not arrived (newtab/warmSnapshot.ts):
+  // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
+  const warmSessions = useWarmNewTabSessions();
+  const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  const newTabSnapshot = useMemo(
+    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
+    [composerSnapshot, carriedSessions],
+  );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
+    !carriedSessions &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
     composerSnapshot.connection !== "disconnected" &&
@@ -5421,7 +5462,7 @@ function AcpmuxPane() {
         : {})}
     />
   );
-  const composer = !reviewing && !handoffLoading && (
+  const composer = !reviewing && (
     <>
       <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
       {recapCard.recap && (
@@ -5701,7 +5742,7 @@ function AcpmuxPane() {
             if (running) shellRuns.stop(running.id);
             return running !== undefined;
           }}
-          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          onMode={(modeId) => callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
           capture={captureScreen}
@@ -5862,7 +5903,7 @@ function AcpmuxPane() {
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}

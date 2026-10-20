@@ -105,7 +105,8 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+             .hideNowPlayingCard:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .layout(let op):

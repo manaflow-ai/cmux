@@ -63,7 +63,8 @@ Source of truth, step 1: `SettingsSchema.all` in Swift, exported to
 xcstrings key (descriptors carry keys through `SettingText` / `SettingsText.keyed`), kind, choices,
 range, default, `accepts`/`refuses` samples (the conformance corpus the Rust validator must match),
 `validation` (`portable` or `domain:<name>`), `agent_settable` + `agent_refusal`,
-`kept_on_reset_all`, and the document's `schema_hash`. The catalog lane's surface parity reads the
+`kept_on_reset_all`. The document commits no `schema_hash`: the Rust owner hashes the rows it
+loads (#21946). The catalog lane's surface parity reads the
 same file.
 
 End state (step 2, after parity): the schema is authored once in
