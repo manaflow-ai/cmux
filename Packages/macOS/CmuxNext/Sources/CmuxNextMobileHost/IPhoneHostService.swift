@@ -61,9 +61,9 @@ public final class IPhoneHostService {
         /// The app's acpmux, for the phones' approval keys; nil without agents.
         var acpmuxEnvironment: AcpmuxEnvironment?
         /// The app's browser hosts for the phone's streamed browser tabs; nil when this build has none.
-        var browserHosts: (any CnxBrowserHosting)? = nil
+        var browserHosts: (any CnxBrowserHosting)?
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
-        var pairingSeed: IPhonePairingSeed? = nil
+        var pairingSeed: IPhonePairingSeed?
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.

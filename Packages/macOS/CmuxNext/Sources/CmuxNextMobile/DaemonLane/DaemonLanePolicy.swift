@@ -249,7 +249,7 @@ public struct DaemonLanePolicy: Sendable {
             return "set-personal-workspace does not take \(key) from a phone"
         }
         func short(_ key: String) -> Bool {
-            guard let text = object[key] as? String, (1...128).contains(text.utf8.count) else { return false }
+            guard let text = object.first(where: { $0.key == key })?.value as? String, (1...128).contains(text.utf8.count) else { return false }
             return text.utf8.allSatisfy { b in
                 (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x2D || b == 0x5F || b == 0x2E || b == 0x3A
             }
@@ -269,7 +269,7 @@ public struct DaemonLanePolicy: Sendable {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
               let type = String(validatingCString: number.objCType), ["c", "s", "i", "l", "q", "C", "S", "I", "L", "Q"].contains(type)
         else { return false }
-        if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(Int.max) }
+        if ["C", "S", "I", "L", "Q"].contains(type) { return number.uint64Value <= UInt64(clamping: Int.max) }
         return number.int64Value >= 0
     }
 
@@ -307,7 +307,8 @@ public struct DaemonLanePolicy: Sendable {
         if let key = params.keys.sorted().first(where: { !allowed.contains($0) }) {
             return "\(operation) does not take \(key) from a phone"
         }
-        for key in ["machine", "session"] where params[key] != nil && params[key] as? String != "current" {
+        for key in ["machine", "session"] {
+            guard let value = params.first(where: { $0.key == key })?.value, value as? String != "current" else { continue }
             return "\(key) must be current"
         }
         if operation != "sidebar_layout.get" {
@@ -360,7 +361,7 @@ public struct DaemonLanePolicy: Sendable {
             if let room = params["room"], !shortID(room, max: 64) { return "workspace_group.create room is a room id" }
         case "workspace_group.update", "workspace_group.delete":
             guard shortID(params["workspace_group"], max: 64) else { return "\(operation) needs a workspace_group" }
-            if operation == "workspace_group.update", !["name", "color", "collapsed"].contains(where: { params[$0] != nil }) {
+            if operation == "workspace_group.update", !["name", "color", "collapsed"].contains(where: params.keys.contains) {
                 return "workspace_group.update needs a name, color or collapsed"
             }
         default:
