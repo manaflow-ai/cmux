@@ -13,7 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 
-use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello};
 use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_brain_identity};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
