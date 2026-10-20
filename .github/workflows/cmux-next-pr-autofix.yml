@@ -540,6 +540,10 @@ jobs:
 
   push:
     name: push the repairs
+    # The contents-write App key is never exposed to PR-controlled workflow
+    # code. A main-only environment intentionally leaves PR repairs as an
+    # artifact until this push is moved behind a trusted workflow_run broker.
+    environment: cmux-pr-autofix
     needs: [action-areas, action-exports, repair]
     # Explicit status checks: the implicit success() would fail on the
     # action-exports job, which most pull requests skip. The areas must have
@@ -547,7 +551,7 @@ jobs:
     # Autofix-Run trailer, action-areas skips the exports for such a head, so a
     # push after a cancelled areas job (its fetch timing out) or failed exports
     # would leave the exports stale for every later run (#21814, run 39315375602).
-    if: ${{ !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name != 'pull_request' && !cancelled() && needs.action-areas.result == 'success' && (needs.action-exports.result == 'success' || needs.action-exports.result == 'skipped') && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
