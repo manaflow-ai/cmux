@@ -341,14 +341,18 @@ An instance selector accepts:
 or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
 app's `system.identify` reports. The CLI resolves it to ids before it sends the
 request. It fails with `selector.not_found` when no caller is known and with
-`selector.invalid` under `--socket` or `--session`, which name another session.
+`selector.invalid` under `--socket`, `--session` or `--machine`, which name
+another session or machine.
 
 `current` is the caller's object as well when a caller is known and the
 request routes to the caller's own session, so an agent never acts on the
 workspace or pane the person is looking at. It is the session's focused object
-when no caller is known (a shell outside cmux), under `--socket` or
-`--session`, below an explicit parent that is not the caller's, and for a
-browser target. The daemon itself only knows `current` as focused.
+when no caller is known or the caller cannot be found (a shell outside cmux, a
+stale terminal id, an app that does not answer), under `--socket`, `--session`
+or `--machine`, below an explicit parent that is not the caller's, above an
+explicit id or name, and for a browser target. The daemon itself only knows
+`current` as focused. `cmux agents` and the MCP tools keep `current` focused
+and do not take `caller`.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to

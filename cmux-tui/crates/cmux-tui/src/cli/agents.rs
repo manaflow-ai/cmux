@@ -356,7 +356,16 @@ fn run_resource<B: Backend>(
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
     // The MCP transport sends plain unary requests: its `current` is still
-    // the focused object, as for every MCP tool.
+    // the focused object, as for every MCP tool, and it has no `caller`.
+    let caller = json!("caller");
+    if plan.params.as_object().is_some_and(|params| {
+        super::command::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
+    }) {
+        return Err(AgentFailure::Usage(
+            "cmux agents takes ids, current or names; `caller` is for the cmux resource commands"
+                .into(),
+        ));
+    }
     plan.resolve.retain(|step| *step != Resolve::Caller);
     if plan.operation.class() == OperationClass::Mutation {
         plan.idempotency_key = Some(change_key(idempotency_key)?);

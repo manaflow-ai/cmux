@@ -75,7 +75,7 @@ impl Params {
         let resolve = std::mem::take(&mut self.resolve);
         let mut plan = request(operation, selectors, flags, self.fields)?;
         if let CommandPlan::Protocol(plan) = &mut plan {
-            plan.resolve.splice(0..0, resolve);
+            plan.resolve.extend(resolve);
         }
         Ok(plan)
     }

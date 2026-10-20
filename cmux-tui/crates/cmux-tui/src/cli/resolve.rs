@@ -325,9 +325,9 @@ fn next_event(events: &mut Reader, deadline: Instant) -> bool {
 /// selectors above it name the caller's own path, so an agent or a script in
 /// a cmux terminal acts on its own workspace and pane, never on the one the
 /// person is looking at. `current` stays the focused object when the request
-/// routes to another session (`--socket`, `--session`), when no caller is
-/// known, below a parent that is not the caller's, and for a browser target,
-/// which a caller never is.
+/// routes to another session or machine, when no caller is known or it
+/// cannot be found, below a parent that is not the caller's, above an
+/// explicit id or name, and for a browser target, which a caller never is.
 fn caller_scopes(
     params: &mut Map<String, Value>,
     caller_route: bool,
@@ -336,6 +336,8 @@ fn caller_scopes(
     let value = |params: &Map<String, Value>, scope: &str| {
         params.get(scope).and_then(Value::as_str).map(str::to_owned)
     };
+    let caller_route = caller_route
+        && params.get("machine").and_then(Value::as_str).is_none_or(|machine| machine == "current");
     let named = |selector: &str| {
         CALLER_SCOPES.iter().any(|scope| value(params, scope).as_deref() == Some(selector))
     };
@@ -347,13 +349,14 @@ fn caller_scopes(
     if explicit && !caller_route {
         return Err(lookup_error(
             "selector.invalid",
-            "`caller` names the caller's own objects, which are not in a session named with \
-             --socket or --session; name an id instead"
+            "`caller` names the caller's own objects, which are not in a session or machine \
+             named with --socket, --session or --machine; name an id instead"
                 .into(),
         ));
     }
-    let Some(path) = path()? else {
-        if explicit {
+    let path = match path() {
+        Ok(Some(path)) => path,
+        Ok(None) if explicit => {
             return Err(lookup_error(
                 "selector.not_found",
                 "`caller` needs a caller: run it in a cmux terminal or agent session \
@@ -361,23 +364,43 @@ fn caller_scopes(
                     .into(),
             ));
         }
-        return Ok(());
+        Err(failure) if explicit => return Err(failure),
+        // A caller that cannot be found leaves `current` the focused object.
+        Ok(None) | Err(_) => return Ok(()),
     };
+    // An explicit id or name below a `current` keeps that `current` the
+    // daemon's, so the id is still checked against the focused parents.
+    let selectors: Vec<Option<String>> =
+        CALLER_SCOPES.iter().map(|scope| value(params, scope)).collect();
+    let keyword = |selector: &str| selector == "caller" || selector == "current";
+    let deepest_named = selectors
+        .iter()
+        .rposition(|selector| selector.as_deref().is_some_and(|selector| !keyword(selector)))
+        .map_or(0, |index| index + 1);
+    let mut updates = Vec::new();
     let mut on_caller_path = true;
-    for scope in CALLER_SCOPES {
-        let Some(selector) = value(params, scope) else { continue };
+    for (index, scope) in CALLER_SCOPES.into_iter().enumerate() {
+        let Some(selector) = &selectors[index] else { continue };
         let own = path.get(scope).and_then(Value::as_str);
-        if selector == "caller" || (selector == "current" && current && on_caller_path) {
-            let own = own.ok_or_else(|| {
-                lookup_error(
-                    "selector.not_found",
-                    format!("the caller has no {scope}; name one by id"),
-                )
-            })?;
-            params.insert(scope.into(), Value::String(own.to_owned()));
+        let follows =
+            selector == "current" && current && on_caller_path && index >= deepest_named;
+        if selector == "caller" || follows {
+            let Some(own) = own else {
+                if explicit {
+                    return Err(lookup_error(
+                        "selector.not_found",
+                        format!("the caller has no {scope}; name one by id"),
+                    ));
+                }
+                return Ok(());
+            };
+            updates.push((scope, own.to_owned()));
         } else {
             on_caller_path = own == Some(selector.as_str());
         }
+    }
+    for (scope, id) in updates {
+        params.insert(scope.into(), Value::String(id));
     }
     Ok(())
 }
@@ -771,11 +794,35 @@ mod tests {
         // A browser is never the caller: its `current` chain stays focused.
         let browser = json!({"workspace": "current", "tab": "current", "browser": "current"});
         assert_eq!(scoped(browser.clone(), true, mine.clone()), Ok(browser));
-        // An agent chat has no terminal of its own.
+        // An agent chat has no terminal of its own: `caller` refuses,
+        // `current` stays the focused terminal.
         let mut chat = caller_path_fixture();
         chat.remove("terminal");
         let terminal = json!({"workspace": "current", "terminal": "caller"});
-        assert_eq!(scoped(terminal, true, Some(chat)), Err("selector.not_found".into()));
+        assert_eq!(scoped(terminal, true, Some(chat.clone())), Err("selector.not_found".into()));
+        let focused = json!({"workspace": "current", "terminal": "current"});
+        assert_eq!(scoped(focused.clone(), true, Some(chat)), Ok(focused));
+        // An explicit id below `current` keeps its focused parents.
+        let below = json!({"workspace": "current", "screen": "current", "pane": "pane_x"});
+        assert_eq!(scoped(below.clone(), true, mine.clone()), Ok(below));
+        // Another machine is never the caller's.
+        let remote = json!({"machine": "m2", "workspace": "current", "pane": "current"});
+        assert_eq!(scoped(remote.clone(), true, mine.clone()), Ok(remote));
+        let remote_caller = json!({"machine": "m2", "workspace": "current", "pane": "caller"});
+        assert_eq!(scoped(remote_caller, true, mine), Err("selector.invalid".into()));
+    }
+
+    #[test]
+    fn a_caller_that_cannot_be_found_leaves_current_focused() {
+        let current = json!({"workspace": "current", "pane": "current"});
+        let mut params = current.as_object().unwrap().clone();
+        let lost = || Err(Failure::Transport("app did not answer".into()));
+        assert!(caller_scopes(&mut params, true, lost).is_ok());
+        assert_eq!(Value::Object(params), current);
+        let caller = json!({"workspace": "current", "pane": "caller"});
+        let mut params = caller.as_object().unwrap().clone();
+        let lost = || Err(Failure::Transport("app did not answer".into()));
+        assert!(caller_scopes(&mut params, true, lost).is_err());
     }
 
     #[test]

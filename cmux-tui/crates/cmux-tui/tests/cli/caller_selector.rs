@@ -112,8 +112,23 @@ fn current_selector_follows_the_caller_and_stays_focused_without_one() {
         state_cli(&server, None, &["screen", placed["screen_id"].as_str().unwrap(), "show"]);
     assert_eq!(screen["workspace_id"], alpha.as_str(), "split landed in {screen}");
 
-    // Without a caller, `current` is still the focused workspace's pane.
-    let outside = state_cli(&server, None, &["pane", "current", "show"]);
+    // Without a caller in the environment (a shell outside cmux on this
+    // session's socket), `current` is still the focused workspace's pane.
+    let output = Command::new(bin())
+        .args(["--json", "pane", "current", "show"])
+        .env("LC_ALL", "C")
+        .env("CMUX_TUI_SOCKET", &server.socket)
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("CMUX_SOCKET_PATH")
+        .env_remove("CMUX_BUNDLE_ID")
+        .env_remove("CMUX_TAG")
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let outside = json_output(&output);
+    let routed = state_cli(&server, None, &["pane", "current", "show"]);
+    assert_eq!(routed["id"], outside["id"], "--socket: {routed}");
     let outside_screen =
         state_cli(&server, None, &["screen", outside["screen_id"].as_str().unwrap(), "show"]);
     assert_eq!(outside_screen["workspace_id"], beta.as_str(), "{outside_screen}");
