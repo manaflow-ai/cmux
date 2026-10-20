@@ -423,7 +423,8 @@
       "promptId": 1,
       "steer": 1,
       "interrupt": 1,
-      "context": 1
+      "context": 1,
+      "surface": 1
      }
     }
    }
