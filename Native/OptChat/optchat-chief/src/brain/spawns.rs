@@ -187,6 +187,7 @@ impl Brain {
         tasks: &[String],
         peers: &[String],
     ) -> Result<SpawnPlan, String> {
+        self.guard_private_turn_scope("spawn")?;
         if self.state.turn.is_some() && !self.turn_shared_memory {
             return Err(
                 "spawn is unavailable in a shared conversation; ask the owner in the private Chief chat"
@@ -886,6 +887,7 @@ impl Brain {
         key: Option<&str>,
         queue: bool,
     ) -> Result<String, String> {
+        self.guard_private_turn_scope("tell")?;
         let Some((_, sub)) = self.state.sub(id) else {
             return Err(format!("no subagent {id}"));
         };
@@ -1209,6 +1211,12 @@ impl Brain {
     /// same next prompt. One that ended meanwhile gets it as a new turn;
     /// when the cancel fails it waits after the turn, as a `queue` tell.
     pub(super) fn tell_unsteered(&mut self, id: &str, session: &str, message: &str) {
+        if let Err(error) = self.guard_private_turn_scope("tell") {
+            (self.log)(&format!(
+                "subagent {id}: dropping a stale private-context tell: {error}"
+            ));
+            return;
+        }
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };

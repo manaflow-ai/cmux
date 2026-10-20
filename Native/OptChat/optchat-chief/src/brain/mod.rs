@@ -1108,7 +1108,11 @@ impl Brain {
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::TurnView { reply } => {
-                let _ = reply.send(self.turn_view.clone());
+                let view = self
+                    .guard_private_turn_scope("spawn")
+                    .ok()
+                    .and(self.turn_view.clone());
+                let _ = reply.send(view);
             }
             Input::SubSession { id, reply } => {
                 let session = self.state.sub(&id).and_then(|(_, s)| s.session_id.clone());

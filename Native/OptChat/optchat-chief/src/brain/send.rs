@@ -19,6 +19,7 @@ use crate::tools::SendCall;
 impl Brain {
     /// The `send` tool.
     pub(super) fn send(&mut self, call: SendCall) -> Result<String, String> {
+        self.guard_private_turn_scope("send")?;
         let home = std::env::var_os("HOME").map(PathBuf::from);
         // Every attachment is checked before anything is posted, so a bad
         // call can be fixed and sent again whole.
