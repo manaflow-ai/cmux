@@ -65,4 +65,40 @@ import Testing
         #expect(first == second)
         #expect(first.lastPathComponent == "frame-sim-6A05764C-FFD1-4B40-AA2E-AD27ADAC7A56.png")
     }
+
+    @Test func anExplicitScreenshotPathNeverReplacesAnExistingFile() async throws {
+        let phones = try service(FakePhoneRunner())
+        let phone = try await phones.defaultDevice()
+        let file = temporaryFolder().appendingPathComponent("keep.txt")
+        let original = Data("keep me".utf8)
+        try original.write(to: file)
+
+        await #expect(throws: (any Error).self) {
+            _ = try await phones.screenshot(phone.id, to: file)
+        }
+        #expect(try Data(contentsOf: file) == original)
+    }
+
+    @Test func anExplicitScreenshotPathDoesNotCreateParentFolders() async throws {
+        let phones = try service(FakePhoneRunner())
+        let phone = try await phones.defaultDevice()
+        let parent = temporaryFolder().appendingPathComponent("missing/parents", isDirectory: true)
+        let file = parent.appendingPathComponent("phone.png")
+
+        await #expect(throws: (any Error).self) {
+            _ = try await phones.screenshot(phone.id, to: file)
+        }
+        #expect(!FileManager.default.fileExists(atPath: parent.path))
+    }
+
+    @Test func aNewExplicitScreenshotIsPrivate() async throws {
+        let phones = try service(FakePhoneRunner())
+        let phone = try await phones.defaultDevice()
+        let file = temporaryFolder().appendingPathComponent("phone.png")
+
+        _ = try await phones.screenshot(phone.id, to: file)
+
+        let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber
+        #expect(permissions?.intValue == 0o600)
+    }
 }
