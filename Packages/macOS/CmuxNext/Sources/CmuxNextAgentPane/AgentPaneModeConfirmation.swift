@@ -17,6 +17,17 @@ public nonisolated enum AgentPaneModeConfirmation: Equatable, Sendable, CustomSt
         }
     }
 
+    /// The markers of cmux-tui/spec/full-access-modes.json, which acpmux applies too
+    /// (FullAccessModeRuleTests keeps the two the same).
+    static let fullAccessMarkers = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"]
+
+    /// A mode or option value that skips approvals (bypass permissions, full access, yolo), by the
+    /// rule acpmux enforces: lowercased, without `-`, `_` or spaces, it contains a marker.
+    public static func isFullAccess(_ mode: String) -> Bool {
+        let folded = String(mode.lowercased().filter { !"-_ ".contains($0) })
+        return fullAccessMarkers.contains { folded.contains($0) }
+    }
+
     /// For logs and tests: the mode, or `id = value`.
     public var description: String {
         switch self {
