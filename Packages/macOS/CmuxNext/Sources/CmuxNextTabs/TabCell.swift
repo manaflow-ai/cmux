@@ -432,7 +432,7 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = max(0, m.cornerRadius - Metrics.space1)
+            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.
