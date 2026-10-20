@@ -21,6 +21,10 @@ final class LiveResizeWindows {
     private var resizing: Set<ObjectIdentifier> = []
 
     var isActive: Bool { !resizing.isEmpty }
+    /// Some window is entering or leaving full screen (scaffold; fullscreen-lag).
+    var isFullScreenTransitionActive: Bool { false }
+    /// Ends a transition AppKit gave up on (scaffold; fullscreen-lag).
+    func endTransition(of window: NSWindow) {}
 
     init(center: NotificationCenter = .default) {
         let changes: [(Notification.Name, Bool)] = [

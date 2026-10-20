@@ -28,8 +28,12 @@ public final class ResizeCoordinator {
     private var settle = ResizeSettle<ObjectIdentifier, CellSize>(stableFrames: 1)
     private var targets: [ObjectIdentifier: any ResizeTarget] = [:]
     private var waited: [ObjectIdentifier: Int] = [:]
+    /// Whether sizes wait (scaffold; fullscreen-lag).
+    private let holds: () -> Bool
     /// Pane sizes span windows, so the frames run on the app scheduler.
-    public init() {}
+    public init(holds: @escaping () -> Bool = { false }) {
+        self.holds = holds
+    }
 
     private lazy var frames = FrameClient(owner: "ResizeCoordinator.settle", isAnimation: false, on: .app) { [weak self] _ in
         self?.tick() ?? false
