@@ -29,7 +29,7 @@ final class SplitPreviewRenderer: DropOverlayRenderer {
         let incomingRect = frame.zone.splits ? split.incoming : frame.target
         incoming.frame = incomingRect
         incoming.cornerRadius = frame.cornerRadius
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             if let rect = split.existing {
                 existing.path = DropOverlayGeometry.roundedRect(rect.insetBy(dx: 0.5, dy: 0.5), frame.cornerRadius)
                 existing.opacity = Float(DropOverlayTunables.splitExistingOpacity.value)
@@ -87,7 +87,7 @@ final class TabGhostRenderer: DropOverlayRenderer {
     func pinMaterial(_ material: OverlayMaterial?) { pill.materialOverride = material }
 
     func update(_ frame: DropOverlayFrame) {
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             tint.path = DropOverlayGeometry.roundedRect(frame.target, frame.cornerRadius)
             tint.opacity = Float(DropOverlayTunables.ghostRegionOpacity.value)
         }

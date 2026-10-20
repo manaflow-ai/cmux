@@ -71,7 +71,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             // The cmux-cua path, played short (user, 2026-10-20: "quick:
             // short, snappy motion"), through the Motion gate: at once under
             // Reduce Motion or with animations off.
-            let played = Motion.agentCursorGlideDuration(plan.duration) ?? 0
+            let played = Motion.cursor.agentCursorGlideDuration(plan.duration) ?? 0
             cursor.lastGlideDuration = played
             if played > 0 {
                 let position = plan.positionAnimation()
