@@ -53,7 +53,17 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
+        // An update asked for a handoff: no new turn starts here; the next
+        // host takes the queue.
+        if self.handoff_if_idle() {
+            return;
+        }
         if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
+            return;
+        }
+        // An adopted turn session still runs (an update relaunch): it ends
+        // first, then its resume runs.
+        if self.orphan_wait.is_some() {
             return;
         }
         // A turn an upstream error cut waits out its backoff first; a new

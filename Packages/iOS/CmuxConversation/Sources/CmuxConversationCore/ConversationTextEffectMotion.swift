@@ -4,6 +4,7 @@ import Foundation
 /// Each effect plays once per `cycle`, then rests; bubbles loop it while
 /// visible. Times are seconds, distances are in units of the font size so
 /// the same motion reads the same in a 17 pt iOS bubble and a 13 pt Mac one.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTextEffectMotion {
     public struct Pose: Sendable, Hashable {
         public var dx: Double = 0
