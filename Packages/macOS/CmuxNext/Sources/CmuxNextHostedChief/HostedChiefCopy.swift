@@ -67,7 +67,7 @@ final class HostedChiefCopy {
     // MARK: Brain
 
     /// A well-formed agent id no account owns: the brain route answers it 403
-    /// where Chief brains run and 404 where they do not (cnx-ios lookUp).
+    /// where Chief brains run and 404 where they do not (cmux-next-ios lookUp).
     nonisolated static let probeAgent = "agent_00000000000000000000000000"
 
     /// Whether this service runs Cloud Chief brains (nil: unknown, the probe failed).

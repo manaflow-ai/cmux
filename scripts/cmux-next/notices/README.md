@@ -66,8 +66,8 @@ binary (`remote-browser-host.pin.json`) and four helper copies of it. Its Rust s
 `source_commit` (checked against `crate_tree`), which the permanent tag
 `cmux-rbh-src-<commit, 11 characters>` holds (publish-remote-browser-host.sh pushes it). It links
 CEF's libcef_dll wrapper and loads the app's CEF (same `cef_sha256`, embed-remote-browser-host.sh),
-so it needs the CEF framework's CREDITS.html and LICENSE.txt. `bin/cnx-hostd` (cnx-ios) has its
-own section from `cnx-ios/rust/Cargo.lock`.
+so it needs the CEF framework's CREDITS.html and LICENSE.txt. `bin/cmux-mobile-host` (cmux-next-ios) has its
+own section from `cmux-next-ios/rust/Cargo.lock`.
 
 Ghostty's Zig packages: `cmux-tui/build-support/notices/ghostty/`
 (collect-ghostty-licenses.py, verify-ghostty-license-bundle.py, pinned-licenses/),

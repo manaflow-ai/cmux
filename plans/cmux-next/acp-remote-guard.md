@@ -56,8 +56,8 @@ approval `untrusted`, workspace-write: Codex asks before every command that is
 not a known-safe read and before every file change), also as a new handoff
 target, and `_acpmux/harnesses` reports per profile what a remote device may start
 (`remote: {startable, modes}` or a reason). The cmux-next iOS app's link
-(cnx-hostd) narrows further: a phone sets only asking modes and drives only
-sessions whose current mode asks (cnx-ios/SECURITY.md, round 2). Tests:
+(cmux-mobile-host) narrows further: a phone sets only asking modes and drives only
+sessions whose current mode asks (cmux-next-ios/SECURITY.md, round 2). Tests:
 `tests/remote_guard_codex_bridge.rs`.
 
 #### Codex and opencode are refused (D10, 2026-10-06)
