@@ -23,8 +23,10 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order.
-  const CODEX = ["idle", "waiting", "shieldLine", "dot", "info"];
+  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order (working, waiting,
+  // permission, done, error). A wait is the attention dot (no talk bubble, Lawrence 2026-10-20), so
+  // waiting and done share the dot and differ by color.
+  const CODEX = ["idle", "dot", "shieldLine", "dot", "info"];
   const url = (variant: string, scheme: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
 
@@ -121,14 +123,12 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       [10, 10, 1],
     ],
     waiting: [
-      [10, 1, 0],
-      [10, 2, 1],
-      [10, 3, 1],
-      [10, 4, 0],
-      [0, 8, 0],
-      [1, 8, 1],
-      [2, 8, 1],
-      [3, 8, 0],
+      [10, 3, 0],
+      [10, 4, 1],
+      [3, 10, 0],
+      [4, 10, 1],
+      [10, 15, 1],
+      [10, 16, 0],
     ],
     permission: [
       [1, 6, 0],
@@ -166,7 +166,7 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
     ["codex-wallpaper", "dark"],
   ] as const) {
     for (const scale of [1, 2]) {
-      test(`${variant} ${scheme} @${scale}x: Codex-like line glyphs, a blue done dot, still, apart by shape`, async () => {
+      test(`${variant} ${scheme} @${scale}x: Codex-like line glyphs, a blue done dot, still, apart by shape or color`, async () => {
         const { pixels, glyphs: drawn } = await glyphs(variant, scheme, scale);
         expect(drawn.map((glyph) => glyph.name)).toEqual(CODEX);
         for (const glyph of drawn) {
@@ -177,15 +177,19 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
           const inked = ink(glyph.alpha).length / (pixels * pixels);
           if (glyph.name !== "dot") expect(`${glyph.name} ink ${inked < 0.4}`).toBe(`${glyph.name} ink true`);
         }
-        // Codex's blue for done; the error's red is the theme's danger color, never the waiting grey.
-        const color = (name: string) => drawn.find((glyph) => glyph.name === name)!.color;
-        expect(color("dot")).toBe("rgb(57, 130, 245)");
-        expect(color("info")).not.toBe(color("waiting"));
+        // Codex's blue for done, and the wait's attention dot is not that blue; the error's red is the
+        // theme's danger color, never the permission grey.
+        const [, waiting, permission, done, error] = drawn.map((glyph) => glyph.color);
+        expect(done).toBe("rgb(57, 130, 245)");
+        expect(waiting).not.toBe(done);
+        expect(error).not.toBe(permission);
         // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x, 16 at 2x (a
         // 2x2 dot and a 2x6 stem), and the two differ in color too (grey and red). Other pairs: 10 and 30.
         const least = (a: string, b: string) => (scale === 1 ? 10 : [a, b].sort().join("/") === "idle/info" ? 16 : 30);
         for (let i = 0; i < drawn.length; i++) {
           for (let j = i + 1; j < drawn.length; j++) {
+            // The waiting and done dots share a shape; their colors differ (above).
+            if (drawn[i]!.name === drawn[j]!.name) continue;
             const count = differ(drawn[i]!.alpha, drawn[j]!.alpha);
             expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least(drawn[i]!.name, drawn[j]!.name)}`).toBe(
               `${drawn[i]!.name}/${drawn[j]!.name} true`,
