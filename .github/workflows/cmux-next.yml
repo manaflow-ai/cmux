@@ -1081,6 +1081,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # Every web view goes through the engine decision (browser.defaultEngine,
+      # browser.siteEngines): PageWebView for cmux pages, BrowserTab for tabs.
+      - name: One web view factory
+        id: webview-factory
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: Crash safety
         id: crash-safety
         continue-on-error: true
@@ -1460,6 +1467,7 @@ jobs:
             ${{ steps.state-roots.outcome }}|No literal state roots (per-build isolation S7, cx-is1kf.8)
             ${{ steps.dialog-key-hints.outcome }}|Dialog buttons show their keys (u2647)
             ${{ steps.concurrency.outcome }}|Main-thread concurrency
+            ${{ steps.webview-factory.outcome }}|One web view factory
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
             ${{ steps.l10n.outcome }}|String tables (21 languages)
