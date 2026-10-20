@@ -255,7 +255,9 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     );
     let file = std::fs::read_to_string(dir.join("local-oai.toml")).unwrap();
     assert!(
-        file.contains(r#"CMUX_BYO_API_KEY = { keychain = "cmux-harness/local-oai/CMUX_BYO_API_KEY" }"#),
+        file.contains(
+            r#"CMUX_BYO_API_KEY = { keychain = "cmux-harness/local-oai/CMUX_BYO_API_KEY" }"#
+        ),
         "{file}"
     );
 
@@ -276,7 +278,8 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     assert!(!dir.join("plain.toml").exists());
 
     // The endpoint flags go only with an endpoint example.
-    let out = user.run(&["harness", "add", "x", "--command", "x", "--base-url", "https://a.example"]);
+    let out =
+        user.run(&["harness", "add", "x", "--command", "x", "--base-url", "https://a.example"]);
     assert!(!out.status.success(), "{}", text(&out));
 
     // The help names both kinds, in English and in Japanese.
@@ -285,7 +288,12 @@ fn byo_endpoint_cli_adds_an_endpoint_profile_with_keychain_refs() {
     for want in ["anthropic-endpoint", "openai-endpoint", "--base-url", "--keychain-item"] {
         assert!(help.contains(want), "{want} missing: {help}");
     }
-    let out = user.cmd().env("LC_ALL", "ja_JP.UTF-8").args(["harness", "add", "--help"]).output().unwrap();
+    let out = user
+        .cmd()
+        .env("LC_ALL", "ja_JP.UTF-8")
+        .args(["harness", "add", "--help"])
+        .output()
+        .unwrap();
     let help = text(&out);
     assert!(help.contains("キーチェーン"), "no Japanese help: {help}");
 }
