@@ -6,6 +6,8 @@
 // pull request changes, a name on a line it adds or removes in a pending or allow list, or any
 // finding when it changes the check's own code. The rest print as warnings and pass. Without
 // CMUX_PR_CHANGED_FILES (locally, base pushes) every finding counts.
+// CMUX_NEXT_STYLE_GUARDS=warn (ci-web.yml sets it for feat-cmux-next, Leo 2026-10-19) makes every
+// finding a warning: these are style and structure rules, and they no longer fail a run there.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -35,6 +37,24 @@ export interface PrScope {
  * lists or gallery entries' covers: a line the pull request adds or removes owns the names quoted on it.
  */
 export function prScope(options: { rules: readonly string[]; lists?: readonly (string | RegExp)[] }): PrScope {
+  const scope = changedScope(options);
+  return process.env.CMUX_NEXT_STYLE_GUARDS === "warn" ? warnOnly(scope) : scope;
+}
+
+/** Every finding prints as a warning and none fails the run. */
+function warnOnly(scope: PrScope): PrScope {
+  return {
+    scoped: scope.scoped,
+    changed: scope.changed,
+    owns: () => false,
+    owned(findings, _place, text) {
+      for (const finding of findings) console.log(`::warning title=Style rule (warn-only)::${text(finding)}`);
+      return [];
+    },
+  };
+}
+
+function changedScope(options: { rules: readonly string[]; lists?: readonly (string | RegExp)[] }): PrScope {
   const listed = process.env.CMUX_PR_CHANGED_FILES;
   if (!listed) return everyFinding;
   const changed = new Set(fs.readFileSync(listed, "utf8").split("\n").filter(Boolean));

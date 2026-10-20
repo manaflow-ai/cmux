@@ -32,5 +32,10 @@ rm "$src/bad.rs"
 printf 'pub const E: &str = "x";\n#[cfg(test)]\nmod tests {\n    const T: &str = "update the app";\n}\n' >"$src/inline.rs"
 python3 "$check" --root "$tmp" >/dev/null || fail "an inline #[cfg(test)] module must be skipped"
 
-python3 "$check" --root "$repo" || fail "the repository has capability texts that say update"
+# The repository's own texts: a copy lint, so a warning while CMUX_NEXT_STYLE_GUARDS is
+# `warn` (cmux-next.yml, Leo 2026-10-19). The fixture cases above always fail.
+if ! python3 "$check" --root "$repo"; then
+  [[ "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] || fail "the repository has capability texts that say update"
+  echo "::warning title=capability text (warn-only)::the repository has capability texts that say update"
+fi
 echo "capability-text tests: ok"

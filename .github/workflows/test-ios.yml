@@ -98,6 +98,13 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # The package conventions lint (namespace types, free functions, singletons,
+  # ...) is a style guard. For pull requests and merge groups into
+  # feat-cmux-next it prints its findings as warnings and passes (Leo,
+  # 2026-10-19), and the iOS suites and the ios-tests gate never wait on it.
+  # Everywhere else it still fails. Change `warn` to `fail` to make it block
+  # feat-cmux-next again.
+  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
 
 
 # A newer push to the same pull request replaces its run; dispatches never
@@ -282,6 +289,8 @@ jobs:
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
+      style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}
       device_families: ${{ steps.families.outputs.json }}
     steps:
@@ -407,9 +416,16 @@ jobs:
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: |
+          # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
-          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
+          rc=0
+          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]
@@ -417,6 +433,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
@@ -611,6 +628,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
@@ -984,6 +1002,12 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["IOS_NEEDS"])
+          # A warn-only conventions lint is a style finding, not an iOS
+          # result: it never fails this gate (its own job reports it).
+          if os.environ.get("CMUX_NEXT_STYLE_GUARDS") == "warn":
+              lint = needs.pop("package-conventions-lint", None)
+              if lint and lint["result"] not in ("success", "skipped"):
+                  print(f"::warning title=package conventions (warn-only)::package-conventions-lint: {lint['result']}")
 
           # A cancelled job reaches this gate as a `cancelled` result, and the
           # routing verdict below would report it as though the pull request had

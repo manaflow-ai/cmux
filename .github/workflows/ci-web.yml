@@ -355,12 +355,30 @@ jobs:
         continue-on-error: true
         run: ./scripts/check-webviews-react-compiler.mjs
 
+      # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
+      # layer, type-scale, glyph, system-blue, text-focus and protocol-codegen checks each
+      # run and only warn; the type check and the browser test-lane check still fail.
+      # Elsewhere `bun run check` gates as before.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
         if: matrix.shard == 1
         continue-on-error: true
         working-directory: webviews
-        run: bun run check
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+        run: |
+          if [ "$CMUX_NEXT_STYLE_GUARDS" != warn ]; then
+            exec bun run check
+          fi
+          status=0
+          bun run check:browser-lanes || status=1
+          bun run typecheck || status=1
+          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus acpmux-protocol:check; do
+            bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
+          done
+          # Lint, format and types together; a type error already failed `typecheck` above.
+          ./node_modules/.bin/vp check || echo "::warning title=webviews lint and format (warn-only)::vp check found lint or format issues; see the step log"
+          exit "$status"
 
       # The browser-lane suites (test/support/requireBrowserLane.ts) fail in CI
       # without these engines; before, they skipped themselves and passed.
@@ -376,9 +394,13 @@ jobs:
 
       # One bun process per test file with a per-file timeout: a single
       # `bun test` stalled in a different file each run (scripts/ci/run-webviews-tests.sh).
+      # ui-rules, gallery coverage, hairline rims, tooltip rules, theme colors and
+      # system blue report through test/support/prScope.ts, which only warns
+      # under CMUX_NEXT_STYLE_GUARDS=warn (feat-cmux-next).
       - name: Test webviews
         working-directory: webviews
         env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
         run: ../scripts/ci/run-webviews-tests.sh
@@ -391,6 +413,10 @@ jobs:
           REACT_COMPILER: ${{ steps.react-compiler.outcome }}
           WEBVIEWS_CHECK: ${{ steps.webviews-check.outcome }}
           PR_SCOPED_RULES: ${{ steps.pr-scoped-rules.outcome }}
+          # The eager JS budget (a size cap) and the React Compiler coverage are
+          # structural: for feat-cmux-next they warn (Leo 2026-10-19).
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
+          STYLE_GATES: EAGER_JS_BUDGET REACT_COMPILER
         run: |
           failed=0
           for gate in \
@@ -401,6 +427,10 @@ jobs:
             "PR_SCOPED_RULES|Check PR-scoped webview rules"; do
             var="${gate%%|*}"
             if [ "${!var}" = "failure" ]; then
+              if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ] && [[ " $STYLE_GATES " == *" $var "* ]]; then
+                echo "::warning::Style gate reported findings (warn-only); see the step '${gate#*|}'."
+                continue
+              fi
               echo "::error::Gate failed; see the step '${gate#*|}'."
               failed=1
             fi
@@ -530,9 +560,17 @@ jobs:
           CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
         run: ./scripts/benchmark-diff-viewer.sh
 
+      # fmt and clippy are style for feat-cmux-next (Leo 2026-10-19): a warning there. The
+      # sidecar tests above still compile and fail on their own.
       - name: Fail on the Rust sidecar lint
         if: ${{ !cancelled() && steps.sidecar-lint.outcome == 'failure' }}
+        env:
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
         run: |
+          if [ "$CMUX_NEXT_STYLE_GUARDS" = warn ]; then
+            echo "::warning::Rust sidecar fmt or clippy found issues (warn-only); see the step 'Lint Rust sidecar (fmt, clippy)'."
+            exit 0
+          fi
           echo "::error::Rust sidecar fmt or clippy failed; see the step 'Lint Rust sidecar (fmt, clippy)'."
           exit 1
 

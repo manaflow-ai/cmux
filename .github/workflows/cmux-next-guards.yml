@@ -21,6 +21,13 @@ on:
 permissions:
   contents: read
 
+# The CmuxNextApp size cap and the defaults snapshot freshness are structural
+# guards: while this is `warn` they print their findings as warnings and pass
+# (Leo, 2026-10-19). Set it to `fail` to make them block again. The crash
+# ratchet, the guard self-tests and the menu check still fail.
+env:
+  CMUX_NEXT_STYLE_GUARDS: warn
+
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -100,7 +107,8 @@ jobs:
   # feat-cmux-next and runs on pull requests only for its path filter, so GitHub
   # merges grew the App past the cap. This workflow has no path filter, so the
   # check can be a required one.
-  # Only the size cap runs here: the god-file checks stay warn-only. A pull
+  # Only the size cap runs here: the god-file checks stay warn-only, and the
+  # size cap warns too while CMUX_NEXT_STYLE_GUARDS is `warn`. A pull
   # request fails on real source growth against its merge commit's first parent
   # (the base); comment/blank-line-only merge noise is ignored. A push compares
   # against event.before, so a push that went around safe-push still turns red.
@@ -132,7 +140,14 @@ jobs:
             # No previous tip to compare with: the plain cap check.
             echo "::warning::no previous tip to compare with; checking the plain cap"
           fi
-          scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+          rc=0
+          scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE" || rc=$?
+          # Exit 1 is over the cap (warn-only); any other code is a broken check and fails.
+          if (( rc == 1 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=CmuxNextApp size cap (warn-only)::the App target is over its size cap; see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
   # The crash ratchet (plans/cmux-next/crash-elimination.md) for pull requests into feat-cmux-next and
   # pushes to it. safe-push runs it before a direct push, but a GitHub merge skips safe-push, so
@@ -211,7 +226,14 @@ jobs:
         run: python3 tests/test_defaults_guard.py
 
       - name: The defaults snapshot matches the exports
-        run: python3 scripts/ci/defaults_guard.py check-fresh
+        run: |
+          rc=0
+          python3 scripts/ci/defaults_guard.py check-fresh || rc=$?
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=defaults snapshot (warn-only)::schemas/defaults/cmux-next.json or the settings exports are stale; regenerate with python3 scripts/ci/defaults_guard.py snapshot"
+            exit 0
+          fi
+          exit "$rc"
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").

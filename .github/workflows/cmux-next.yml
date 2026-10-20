@@ -442,6 +442,13 @@ env:
   # HQ's public cache edge serves read-only restores from every runner; writes
   # use the controller-owned R2 credentials in the seed steps below.
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Structural, style, size and drift guards (god files, size caps, package
+  # conventions, motion tokens, type scale, scrollbars, icons, copy lints,
+  # generated-doc drift) still run and print their findings, but only warn
+  # (Leo, 2026-10-19: they failed pull requests for reasons unrelated to the
+  # change). Correctness and safety checks still fail. Set to `fail` to make
+  # the style guards block again.
+  CMUX_NEXT_STYLE_GUARDS: warn
   # The label attempt 1's macOS jobs take when macos-placement finds an idle
   # owned runner for them: a glaeda-* label means a mini. Each macOS job's
   # runs-on, and its own CMUX_NEXT_RUNNER, restate it with the placement.
@@ -966,6 +973,9 @@ jobs:
     # this job, and never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
+    # Since 2026-10-19 (Leo) every structural, style, size and drift step named
+    # in the aggregate's STYLE_CHECKS only warns while CMUX_NEXT_STYLE_GUARDS
+    # (workflow env) is `warn`; the correctness and safety steps still fail.
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1408,9 +1418,28 @@ jobs:
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
+      # STYLE_CHECKS are the structural, style, size and drift guards: while
+      # CMUX_NEXT_STYLE_GUARDS is `warn` (workflow env) a red one is a warning
+      # annotation and does not fail the job. A style check that never ran
+      # (an empty outcome) still fails: that is a broken workflow, not a finding.
       - name: Fail on any red check
         if: always()
         env:
+          STYLE_CHECKS: |
+            God files and types (Swift)
+            God files (cmux-tui Rust)
+            CmuxNextApp size cap
+            No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
+            No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
+            No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
+            Scrollbars thin, one style
+            Motion tokens
+            Type scale
+            Protected-folder copies
+            Settings source copies
+            Backdrop art export
+            Package conventions lint
+            Browser chrome icons
           OUTCOMES: |
             ${{ steps.godfiles-swift.outcome }}|God files and types (Swift)
             ${{ steps.godfiles-rust.outcome }}|God files (cmux-tui Rust)
@@ -1449,13 +1478,31 @@ jobs:
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
         run: |
           failed=()
+          warned=()
           # `outcome|name`: an empty outcome (a check that never ran) still names its step.
           while IFS='|' read -r outcome name; do
             [[ -n "$outcome$name" ]] || continue
-            [[ "$outcome" == success ]] || failed+=("$name (${outcome:-not run})")
+            [[ "$outcome" == success ]] && continue
+            if [[ "$outcome" == failure && "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] \
+              && grep -qxF -- "$name" <<<"${STYLE_CHECKS:-}"; then
+              warned+=("$name")
+              continue
+            fi
+            failed+=("$name (${outcome:-not run})")
           done <<<"$OUTCOMES"
+          for name in "${warned[@]+"${warned[@]}"}"; do
+            echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"
+          done
+          if (( ${#warned[@]} > 0 )); then
+            {
+              echo "### ${#warned[@]} style guard(s) reported findings (warn-only)"
+              echo
+              printf -- '- %s\n' "${warned[@]}"
+              echo
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           if (( ${#failed[@]} == 0 )); then
-            echo "All cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "All blocking cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
           # One annotation per red check: the red-checks line compares them with the base's run, so a
@@ -2598,6 +2645,14 @@ jobs:
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          # The action catalog and settings exports are generated docs and
+          # snapshots: drift is a warning while CMUX_NEXT_STYLE_GUARDS is
+          # `warn`. A stale CI target graph still fails, since it routes the
+          # package tests and a stale one can skip a changed target's tests.
+          if [[ "${CMUX_NEXT_STYLE_GUARDS:-}" == warn && "${{ steps.graph.outcome }}" != failure ]]; then
+            echo "::warning title=generated files (warn-only)::Generated cmux-next files are stale. Regenerate them as the step summary says."
+            exit 0
+          fi
           echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
           exit 1
 

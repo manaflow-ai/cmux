@@ -119,7 +119,17 @@ jobs:
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
+      # Formatting is a style guard: for pull requests into feat-cmux-next it warns
+      # (Leo 2026-10-19); elsewhere it still fails.
       - name: cargo fmt --check on changed cmux-tui packages
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA"
+          CMUX_NEXT_STYLE_GUARDS: ${{ github.base_ref == 'feat-cmux-next' && 'warn' || 'fail' }}
+        run: |
+          rc=0
+          python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
+          if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            exit 0
+          fi
+          exit "$rc"

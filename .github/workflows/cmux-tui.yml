@@ -38,6 +38,11 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # The Rust god-file ratchet and rustfmt are structural and style guards:
+  # while this is `warn` they print their findings as warnings and pass (Leo,
+  # 2026-10-19). clippy -D warnings stays blocking: it is also this gate's
+  # all-targets compile check. Set to `fail` to make the style guards block again.
+  CMUX_NEXT_STYLE_GUARDS: warn
 
 jobs:
   validate-inputs:
@@ -268,7 +273,14 @@ jobs:
             && git fetch --quiet --no-tags --depth=1 origin "$merge_base"; then
             base=(--base "$merge_base")
           fi
-          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          # Exit 1 is a god file (warn-only while CMUX_NEXT_STYLE_GUARDS is warn); any other code is a broken check.
+          rc=0
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" || rc=$?
+          if (( rc == 1 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=god files (rust)::over the hard ceiling; warn-only (Leo 2026-10-19), see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
       - name: Init ghostty submodule
         shell: bash
@@ -355,10 +367,15 @@ jobs:
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
-        run: cargo fmt --check
+        run: |
+          if ! cargo fmt --check; then
+            echo "unformatted=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
 
       - name: Prepare hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         working-directory: cmux-tui
         run: |
           cargo fmt
@@ -366,7 +383,7 @@ jobs:
           test -s "$RUNNER_TEMP/rustfmt.patch"
 
       - name: Upload hosted rustfmt patch
-        if: ${{ failure() && steps.rustfmt-check.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.rustfmt-check.outputs.unformatted == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rustfmt-${{ matrix.os }}-${{ github.sha }}
@@ -384,7 +401,7 @@ jobs:
       - name: cmux-rd-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
-          cargo fmt --check
+          cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
@@ -395,7 +412,7 @@ jobs:
       - name: cmux-layout-reducer-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
         run: |
-          cargo fmt --check
+          cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; }
           cargo clippy --all-targets -- -D warnings
           cargo test
           cd ../cmux-app-ffi
@@ -954,7 +971,12 @@ jobs:
       - name: cargo fmt
         id: rustfmt-check
         working-directory: cmux-tui
-        run: cargo fmt --check
+        run: |
+          if ! cargo fmt --check; then
+            echo "unformatted=true" >> "$GITHUB_OUTPUT"
+            echo "::warning title=cmux-tui rustfmt::cmux-tui is not rustfmt-clean; run cargo fmt in cmux-tui"
+            [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1
+          fi
 
       - name: userland agent plugin package tests
         working-directory: cmux-tui
