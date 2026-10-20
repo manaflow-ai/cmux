@@ -4030,15 +4030,16 @@ jobs:
       # its cmux-tui and acpmux daemons by design). On a hosted runner the
       # runner then spends 3 to 5 minutes in "Cleaning up orphan processes"
       # before the job ends (run 39395352101: two `cmux` orphans,
-      # 09:27:36-09:31:01). List what is left, then stop the daemons of this
-      # job's bundle through their own commands. Ephemeral runner only.
+      # 09:27:36-09:31:01). List what is left, stop the acp daemon through its
+      # command, then signal what still runs from this job's bundle.
+      # Ephemeral runner only.
       - name: Stop the daemons the smokes left
         if: always() && env.TRACK == 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         run: |
           set -uo pipefail
-          # Every stop request has its own limit: a request to an owner that
+          # The acp shutdown request has its own limit: a stop request that
           # never answers held the whole step to its 2-minute timeout (run
           # 39438045034), and the step then printed nothing about which one.
           bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$s" "$@"; }
@@ -4048,25 +4049,9 @@ jobs:
           bin="$app/Contents/Resources/bin"
           [ -d "$bin" ] || exit 0
           bin="$(cd -P "$bin" && pwd)"
-          # Ask every cmux-tui owner of the signed app to stop through its socket
-          # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
-          # that exact owner PID if the request fails, takes over 10 s, or the
-          # step is past its 70 s budget. Terminal hosts are never matched.
-          deadline=$((SECONDS + 70))
-          ps -axww -o pid= -o args= | while read -r pid args; do
-            case "$args" in
-              */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
-              *) continue ;;
-            esac
-            socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
-            echo "stopping owner $pid"
-            if [ "$SECONDS" -lt "$deadline" ] && [ -n "$socket" ] \
-              && bounded 10 "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1 </dev/null; then
-              continue
-            fi
-            echo "server stop of owner $pid failed, took more than 10 s, or the budget ran out; SIGTERM to that PID only"
-            kill -TERM "$pid" 2>/dev/null || true
-          done
+          # The cmux-tui owners are not asked to stop through their sockets:
+          # that request failed after its 10 s limit for every owner in runs
+          # 39467338152 and 39473493290, so the SIGTERM below stops them.
           # `cmux acp` finds the bundle's own acpmux build home (a bare
           # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
           if [ -x "$bin/cmux" ]; then
@@ -4085,7 +4070,7 @@ jobs:
           # (run 39440747033: owners, the Chief host and the browser host
           # outlived the requests above; the job's tail took 2 min). The runner
           # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
-          # then SIGKILL the ones still alive after 5 s.
+          # then SIGKILL the ones still alive after at most 5 s.
           app_name="$(basename "$app")"
           left() {
             ps -ww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
@@ -4099,15 +4084,25 @@ jobs:
             echo "SIGTERM to the processes still running from $app_name: $(echo $pids)"
             # shellcheck disable=SC2086 # one PID per word
             kill -TERM $pids 2>/dev/null || true
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-              [ -n "$(left)" ] || break
-              sleep 0.5
+            # kill -0 on the listed PIDs, not a new ps per check: while the
+            # processes stop, each ps took about 7 s, and 10 checks took 73 s
+            # (run 39473493290). The limit is 5 s of clock time.
+            grace=$((SECONDS + 5))
+            while [ "$SECONDS" -lt "$grace" ]; do
+              alive=""
+              for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive="$alive $pid"; done
+              [ -n "$alive" ] || break
+              sleep 0.2
             done
-            pids="$(left)"
-            if [ -n "$pids" ]; then
-              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+            # SIGKILL only a listed PID that still runs from the app path.
+            survivors=""
+            for pid in $(left); do
+              case " $(echo $pids) " in *" $pid "*) survivors="$survivors $pid" ;; esac
+            done
+            if [ -n "$survivors" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM:$survivors"
               # shellcheck disable=SC2086
-              kill -KILL $pids 2>/dev/null || true
+              kill -KILL $survivors 2>/dev/null || true
             fi
           fi
           echo "cmux processes after the stop:"
@@ -4236,7 +4231,7 @@ jobs:
       # app in the DMG) running; the runner then spends minutes in "Cleaning up
       # orphan processes" (run 39440747033). The runner is ephemeral and the
       # smoke is done: SIGTERM the exact PIDs that run from that app name, then
-      # SIGKILL the ones still alive after 5 s.
+      # SIGKILL the ones still alive after at most 5 s.
       - name: Stop the daemons the smoke left
         if: always() && env.TRACK == 'nightly-next'
         continue-on-error: true
@@ -4259,15 +4254,25 @@ jobs:
             echo "SIGTERM to the processes still running from $APP_NAME: $(echo $pids)"
             # shellcheck disable=SC2086 # one PID per word
             kill -TERM $pids 2>/dev/null || true
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-              [ -n "$(left)" ] || break
-              sleep 0.5
+            # kill -0 on the listed PIDs, not a new ps per check: while the
+            # processes stop, each ps took about 7 s, and 10 checks took 73 s
+            # (run 39473493290). The limit is 5 s of clock time.
+            grace=$((SECONDS + 5))
+            while [ "$SECONDS" -lt "$grace" ]; do
+              alive=""
+              for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive="$alive $pid"; done
+              [ -n "$alive" ] || break
+              sleep 0.2
             done
-            pids="$(left)"
-            if [ -n "$pids" ]; then
-              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+            # SIGKILL only a listed PID that still runs from the app path.
+            survivors=""
+            for pid in $(left); do
+              case " $(echo $pids) " in *" $pid "*) survivors="$survivors $pid" ;; esac
+            done
+            if [ -n "$survivors" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM:$survivors"
               # shellcheck disable=SC2086
-              kill -KILL $pids 2>/dev/null || true
+              kill -KILL $survivors 2>/dev/null || true
             fi
           fi
           echo "cmux processes after the stop:"
