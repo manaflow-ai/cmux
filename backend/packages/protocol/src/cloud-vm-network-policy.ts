@@ -11,7 +11,8 @@ export const CloudVmReceiverPeer = Schema.Struct({
   authority_version: Version, services: Schema.Array(Schema.Literals(["daemon", "ssh"])).check(Schema.isMinLength(1), Schema.isMaxLength(2))
 }).annotate({ identifier: "CloudVmReceiverPeer" })
 export const CloudVmNetworkPolicyView = Schema.Struct({
-  schema_version: Schema.Literal(1), machine: MachineId, host: HostId, epoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  schema_version: Schema.Literal(2), machine: MachineId, host: HostId, epoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  receiver_generation: Schema.NullOr(Version),
   user: UserId, install: InstallId, team: TeamId, origin: Schema.String, tenant: NativeTenantId, mesh: NativeMeshId, vm: NativeVmId,
   ipv4: Schema.NullOr(Schema.String), wg_public_key: WgPublicKey, install_public_key: Point,
   authority_version: Version, checked_at: Schema.Int, expires_at: Schema.Int,

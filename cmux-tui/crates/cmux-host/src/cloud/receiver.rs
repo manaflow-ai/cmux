@@ -204,6 +204,7 @@ fn validate(p: &CloudVmNetworkPolicyView, b: &ReceiverBinding) -> Result<(), Str
         || p.expires_at - p.checked_at > 30_000
         || !hex(&p.policy_digest, 64)
         || !hex(&p.authority_version, 64)
+        || p.receiver_generation.as_ref().is_some_and(|generation| !hex(generation, 64))
         || !native_id(&p.mesh, "mesh_")
         || !native_id(&p.vm, "vm_")
         || p.tenant.is_empty()

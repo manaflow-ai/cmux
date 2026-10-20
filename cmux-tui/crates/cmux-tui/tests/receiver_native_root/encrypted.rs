@@ -24,7 +24,7 @@ fn vector() -> Value {
     serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json")).unwrap()
 }
 
-fn token(public: [u8; 32], nonce: u8) -> String {
+fn token(public: [u8; 32], nonce: u8, generation: &str) -> String {
     // The signing seed is published contract-vector material, never a deployment key.
     let keys: Value =
         serde_json::from_str(include_str!("../../../../../schemas/link-token/vectors.json"))
@@ -37,9 +37,11 @@ fn token(public: [u8; 32], nonce: u8) -> String {
     claims["iat"] = (now - 1).into();
     claims["exp"] = (now + 120).into();
     claims["jti"] = URL_SAFE_NO_PAD.encode([nonce; 16]).into();
+    claims["receiver"] = json!({"version":2,"generation":generation});
     claims["network"]["wg_public_key"] = STANDARD.encode(public).into();
     let header = URL_SAFE_NO_PAD.encode(
-        serde_json::to_vec(&json!({"alg":"EdDSA","typ":"cmux-link+jwt","kid":"test-k1"})).unwrap(),
+        serde_json::to_vec(&json!({"alg":"EdDSA","typ":"cmux-native-link-v2+jwt","kid":"test-k1"}))
+            .unwrap(),
     );
     let body = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
     let signed = format!("{header}.{body}");
@@ -58,7 +60,7 @@ fn public_reply(frame: &[u8], public: [u8; 32]) -> Vec<u8> {
         "issuer":"cmux:cloud:development","issuer_time_ms":checked,"remaining_ms":30_000,
         "keyset":header["keyset"],
         "policy":{
-            "schema_version":1,"machine":binding.machine,"host":binding.host,"epoch":binding.epoch,
+            "schema_version":2,"receiver_generation":bootstrap.generation(),"machine":binding.machine,"host":binding.host,"epoch":binding.epoch,
             "user":binding.user,"install":binding.install,"team":binding.team,
             "origin":"https://native.example.com","tenant":network["tenant"],"mesh":network["mesh"],
             "vm":"vm_00000000000000000000000004","ipv4":"10.2.0.4",
@@ -148,7 +150,7 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         let address = SocketAddr::new(IpAddr::V6(destination), cmux_link::LINK_PORT);
         let hello = format!(
             "{}\n",
-            json!({"service":"daemon","epoch":binding.epoch,"link_token":token(public, 1)})
+            json!({"service":"daemon","epoch":binding.epoch,"link_token":token(public, 1, "a".repeat(64).as_str())})
         );
         let mut stream = within(mesh.connect(address)).await.unwrap();
         stream.write_all(hello.as_bytes()).await.unwrap();
@@ -191,7 +193,16 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         // timeout cannot masquerade as a JWT replay refusal.
         let listener = agent.listener.try_clone().unwrap();
         let process = daemon.child.clone();
-        let source_frame = bytes.clone();
+        let mut header: Value = serde_json::from_slice(&bytes[4..bytes.len() - 32]).unwrap();
+        header["generation"] = "b".repeat(64).into();
+        let encoded = serde_json::to_vec(&header).unwrap();
+        let mut replacement_frame = Zeroizing::new((encoded.len() as u32).to_be_bytes().to_vec());
+        replacement_frame.extend_from_slice(&encoded);
+        replacement_frame.extend_from_slice(&bytes[bytes.len() - 32..]);
+        let replacement = NativeBootstrap::decode(&replacement_frame).unwrap();
+        assert_eq!(replacement.binding(), &binding, "replacement rotated the original identity");
+        assert_eq!(replacement.keys(), NativeBootstrap::decode(&bytes).unwrap().keys());
+        let source_frame = replacement_frame.clone();
         let (reported, report) = std::sync::mpsc::sync_channel(1);
         let source = std::thread::spawn(move || {
             let (mut reader, pid) = policy_reader(&listener, &process);
@@ -200,7 +211,7 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         });
         let ticket = host.new_ticket().unwrap();
         assert!(host.offer(&ticket));
-        assert!(host.publish_native(host.prepare_native(&ticket).unwrap(), bytes.clone()));
+        assert!(host.publish_native(host.prepare_native(&ticket).unwrap(), replacement_frame));
         drive_until(&host, |sent| sent);
         let replacement_pid = report.recv_timeout(Duration::from_secs(15)).unwrap();
         source.join().unwrap();
@@ -208,7 +219,7 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         let mesh = client_mesh(private, &binding).await;
         let fresh_hello = format!(
             "{}\n",
-            json!({"service":"daemon","epoch":binding.epoch,"link_token":token(public, 2)})
+            json!({"service":"daemon","epoch":binding.epoch,"link_token":token(public, 2, "b".repeat(64).as_str())})
         );
         let mut fresh = within(mesh.connect(address)).await.unwrap();
         fresh.write_all(fresh_hello.as_bytes()).await.unwrap();

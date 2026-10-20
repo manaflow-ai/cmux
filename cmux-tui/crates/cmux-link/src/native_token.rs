@@ -110,6 +110,7 @@ pub struct NativeTokenVerifier {
     state: Mutex<State>,
     clock: Arc<Clock>,
     replay_capacity: usize,
+    receiver_generation: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +134,14 @@ struct Claims {
     jti: String,
     team: String,
     network: NativeBinding,
+    receiver: Option<ReceiverGeneration>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiverGeneration {
+    version: u8,
+    generation: String,
 }
 
 impl NativeTokenVerifier {
@@ -158,7 +167,26 @@ impl NativeTokenVerifier {
             }),
             clock: Arc::new(clock),
             replay_capacity,
+            receiver_generation: None,
         })
+    }
+
+    /// A v2 receiver pins its generation from the original private root frame.
+    /// The pin never comes from a JWT and cannot change within this owner.
+    pub fn new_for_receiver(
+        keys: Keyset,
+        generation: String,
+        clock: impl Fn() -> Option<ReceiverTime> + Send + Sync + 'static,
+        replay_capacity: usize,
+    ) -> Result<Self, TokenRefused> {
+        if generation.len() != 64
+            || !generation.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(TokenRefused::Invalid);
+        }
+        let mut verifier = Self::new(keys, clock, replay_capacity)?;
+        verifier.receiver_generation = Some(generation);
+        Ok(verifier)
     }
 
     /// The production clock; construction still installs no policy or listener.
@@ -300,7 +328,12 @@ impl TokenVerifier for NativeTokenVerifier {
         }
         let header: Header =
             serde_json::from_slice(&decode(h)?).map_err(|_| TokenRefused::Invalid)?;
-        if header.alg != "EdDSA" || header.typ != "cmux-link+jwt" || !kid(&header.kid) {
+        let typ = if self.receiver_generation.is_some() {
+            "cmux-native-link-v2+jwt"
+        } else {
+            "cmux-link+jwt"
+        };
+        if header.alg != "EdDSA" || header.typ != typ || !kid(&header.kid) {
             return Err(TokenRefused::Invalid);
         }
         let key = state.keys.keys.get(&header.kid).ok_or(TokenRefused::UnknownKey)?;
@@ -313,7 +346,15 @@ impl TokenVerifier for NativeTokenVerifier {
             .verify(signed.as_bytes(), &sig)
             .map_err(|_| TokenRefused::Invalid)?;
         let c: Claims = serde_json::from_slice(&decode(p)?).map_err(|_| TokenRefused::Invalid)?;
+        let receiving = match (&self.receiver_generation, &c.receiver) {
+            (None, None) => true,
+            (Some(expected), Some(receiver)) => {
+                receiver.version == 2 && receiver.generation == *expected
+            }
+            _ => false,
+        };
         if c.iss != policy.issuer
+            || !receiving
             || c.aud != policy.host
             || c.epoch != policy.epoch
             || c.team != policy.team

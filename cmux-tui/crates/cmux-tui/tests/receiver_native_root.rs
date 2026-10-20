@@ -147,7 +147,7 @@ fn frame() -> Zeroizing<Vec<u8>> {
     let vector: serde_json::Value =
         serde_json::from_str(include_str!("../../../../schemas/link-token/native.json")).unwrap();
     let header = serde_json::to_vec(&json!({
-        "version":1,
+        "version":2,"generation":"a".repeat(64),
         "binding": {
             "machine":"vm_00000000000000000004", "host":"host_00000000000000000002",
             "epoch":4, "user":"user_00000000000000000004", "install":"inst_00000000000000000004",

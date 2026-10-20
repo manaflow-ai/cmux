@@ -1,6 +1,8 @@
 use super::*;
 use std::time::Duration;
 
+mod generation;
+
 const HEADER: &str = r#"{"alg":"EdDSA","kid":"test-k1","typ":"cmux-link+jwt"}"#;
 
 fn sign_bytes(claims: &[u8], header: &str) -> String {

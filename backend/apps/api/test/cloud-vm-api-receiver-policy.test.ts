@@ -6,6 +6,32 @@ afterEach(() => vi.restoreAllMocks())
 const nativePeer = (f: Parameters<Parameters<typeof withReceiver>[0]>[0], allow: Allow[] = [{ protocol: "tcp", port: 22 }]) =>
   ({ deviceId: f.client.device, wgPublicKey: f.client.wg, installPublicKey: f.client.point, allow })
 
+it("publishes only the active receiving generation and fences policy across attempts", async () => withReceiver(async (f) => {
+  const initial = await f.read()
+  expect(initial).toMatchObject({ ok: true, value: { schema_version: 2, receiver_generation: null } })
+  const observed = await f.lifecycleHttp({ phase: "read" })
+  const first = await f.lifecycleHttp({ phase: "begin", expected: observed.json.value.generation, attempt: "e".repeat(32) })
+  expect(first.json.ok).toBe(true)
+  const starting = await f.read()
+  expect(starting).toMatchObject({ ok: true, value: { receiver_generation: first.json.value.generation } })
+  expect(starting.value.authority_version).not.toBe(initial.value.authority_version)
+  expect((await f.lifecycleHttp({ phase: "ready", expected: first.json.value.generation })).json.ok).toBe(true)
+  const ready = await f.read()
+  expect(ready.value.receiver_generation).toBe(first.json.value.generation)
+  expect(ready.value.authority_version).toBe(starting.value.authority_version)
+  expect(JSON.stringify(ready.value)).not.toContain(f.principal.grant)
+  expect((await f.lifecycleHttp({ phase: "end", expected: first.json.value.generation })).json.ok).toBe(true)
+  const stopped = await f.read()
+  expect(stopped.value.receiver_generation).toBeNull()
+  expect(stopped.value.authority_version).not.toBe(ready.value.authority_version)
+  const second = await f.lifecycleHttp({ phase: "begin", expected: first.json.value.generation, attempt: "f".repeat(32) })
+  expect(second.json.ok).toBe(true)
+  const replacement = await f.read()
+  expect(replacement.value.receiver_generation).toBe(second.json.value.generation)
+  expect(replacement.value.receiver_generation).not.toBe(first.json.value.generation)
+  expect(replacement.value.authority_version).not.toBe(starting.value.authority_version)
+}))
+
 it("reads through HTTP using the VM's actual challenge-issued credential and the catalog read envelope", async () => {
   await withReceiver(async (f) => {
     const read = await f.readHttp()
@@ -206,7 +232,7 @@ it("audits the bound VM and outcome without credentials or raw Native policy", a
 
 it("returns an empty current policy when Native grants no client services", async () => {
   await withReceiver(async (f) => {
-    expect(await f.read()).toMatchObject({ ok: true, value: { schema_version: 1, machine: f.machine, host: f.host, install: f.principal.install,
+    expect(await f.read()).toMatchObject({ ok: true, value: { schema_version: 2, receiver_generation: null, machine: f.machine, host: f.host, install: f.principal.install,
       team: f.team, tenant: f.tenant, mesh: f.native.meshId, vm: f.native.vmId, peers: [] } })
   })
 })

@@ -201,5 +201,6 @@ pub(super) fn bootstrap<H: Http>(
         binding,
         snapshot.keys().clone(),
         identity.wg_private,
+        snapshot.policy().receiver_generation.clone().ok_or(UNAVAILABLE)?,
     )
 }

@@ -37,6 +37,10 @@ fn server(
 /// TEST ONLY key material already published in the shared contract vectors.
 /// No deployment key or machine credential is used by this signer.
 fn development_token() -> String {
+    development_token_for(None)
+}
+
+fn development_token_for(generation: Option<&str>) -> String {
     let f: Value =
         serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
             .unwrap();
@@ -48,12 +52,60 @@ fn development_token() -> String {
     let key = ring::signature::Ed25519KeyPair::from_seed_unchecked(&seed).unwrap();
     let mut claims = f["claims"].clone();
     claims["iss"] = "cmux:cloud:development".into();
-    let head = URL_SAFE_NO_PAD.encode(
-        serde_json::to_vec(&json!({"alg":"EdDSA","typ":"cmux-link+jwt","kid":"test-k1"})).unwrap(),
-    );
+    if let Some(generation) = generation {
+        claims["receiver"] = json!({"version":2,"generation":generation});
+    }
+    let typ = if generation.is_some() { "cmux-native-link-v2+jwt" } else { "cmux-link+jwt" };
+    let head = URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&json!({"alg":"EdDSA","typ":typ,"kid":"test-k1"})).unwrap());
     let body = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap());
     let signed = format!("{head}.{body}");
     format!("{signed}.{}", URL_SAFE_NO_PAD.encode(key.sign(signed.as_bytes()).as_ref()))
+}
+
+#[test]
+fn receiver_owner_agent_generation_is_pinned_and_changed_policy_drains_streams() {
+    let (binding, keys, bytes) = public_fixture();
+    let generation = "a".repeat(64);
+    let receiver = AgentReceiver::for_receiver(binding.clone(), keys, generation.clone()).unwrap();
+    let verifier = receiver.verifier();
+    let expected = Expected {
+        host: &binding.host,
+        epoch: binding.epoch,
+        service: Service::Daemon,
+        peer_key: &[b'a'; 32],
+    };
+    let (_dir, path, task) = server([bytes.clone(), b"\n".to_vec()].concat());
+    receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).unwrap();
+    task.join().unwrap();
+    assert!(verifier.verify(&development_token(), &expected).is_err());
+    let token = development_token_for(Some(&generation));
+    let lease = verifier.verify(&token, &expected).unwrap().lease.unwrap();
+    let mut changed: Value = serde_json::from_slice(&bytes).unwrap();
+    changed["value"]["policy"]["receiver_generation"] = "b".repeat(64).into();
+    let (_dir, path, task) =
+        server([serde_json::to_vec(&changed).unwrap(), b"\n".to_vec()].concat());
+    assert!(receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).is_err());
+    task.join().unwrap();
+    assert!(lease.deadline().is_none(), "changed generation retained an admitted stream");
+    assert!(verifier.verify(&token, &expected).is_err());
+}
+
+#[test]
+fn receiver_owner_agent_generation_refuses_closed_or_missing_policy_generation() {
+    for missing in [false, true] {
+        let (binding, keys, bytes) = public_fixture();
+        let receiver = AgentReceiver::for_receiver(binding, keys, "a".repeat(64)).unwrap();
+        let mut body: Value = serde_json::from_slice(&bytes).unwrap();
+        body["value"]["policy"]["receiver_generation"] = Value::Null;
+        if missing {
+            body["value"]["policy"].as_object_mut().unwrap().remove("receiver_generation");
+        }
+        let (_dir, path, task) =
+            server([serde_json::to_vec(&body).unwrap(), b"\n".to_vec()].concat());
+        assert!(receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).is_err());
+        task.join().unwrap();
+    }
 }
 
 #[test]

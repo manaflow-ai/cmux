@@ -141,7 +141,7 @@ fn setup_tweaked(
     record(&key, &bound, &wg);
     let peer_key = InstallKey::generate(&SystemRandom::new()).unwrap();
     let mut policy = json!({ "op":"cloud.vm.network_policy", "stream":format!("cloud:{TEAM}"),"revision":"1","value":{
-        "schema_version":1,"machine":MACHINE,"host":bound.host,"epoch":4,"user":USER,"install":INSTALL,"team":TEAM,
+        "schema_version":2,"receiver_generation":"a".repeat(64),"machine":MACHINE,"host":bound.host,"epoch":4,"user":USER,"install":INSTALL,"team":TEAM,
         "origin":"https://native.example.com","tenant":network["tenant"],"mesh":network["mesh"],
         "vm":"vm_00000000000000000000000004","ipv4":"10.2.0.4","wg_public_key":wg,
         "install_public_key":install_point(&key.public_jwk()).unwrap(), "authority_version":"a".repeat(64),

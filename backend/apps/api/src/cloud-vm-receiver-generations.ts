@@ -15,6 +15,9 @@ export interface ReceiverTransitionAudit { phase: ReceiverTransition["phase"]; m
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 const version = (s: string) => /^[0-9a-f]{64}$/.test(s)
 const conflict = (): Reply => ({ ok: false, code: "revision.conflict", message: "the receiving incarnation changed or is no longer live" })
+const viewOf = (machine: string, scope: string, stored: Saved | undefined): ReceiverGeneration => stored?.scope === scope
+  ? { machine, generation: stored.generation, phase: stored.phase }
+  : { machine, generation: hash(["cmux-vm-receiver-generation-v1", scope, "idle", ...(stored ? [stored.generation] : [])]), phase: "idle" }
 
 /** One private row per machine. Recreating the owner never resets an attempt.
  * Call only after authenticating and rechecking the original live VM scope.
@@ -33,6 +36,12 @@ export class VmReceiverGenerations {
     if (stored && (!version(stored.scope) || !version(stored.generation) || !version(stored.previous)
       || !/^[0-9a-f]{32}$/.test(stored.attempt) || !["starting", "ready", "stopped"].includes(stored.phase))) throw new Error("receiving incarnation unavailable")
     return stored
+  }
+
+  current(machine: string, scope: string): ReceiverGeneration {
+    if (!version(scope)) throw new Error("receiving incarnation unavailable")
+    this.ensure()
+    return viewOf(machine, scope, this.saved(machine))
   }
 
   /** Private lookup context, never permission. The caller must revalidate the
@@ -57,9 +66,7 @@ export class VmReceiverGenerations {
       const current = stored?.scope === scope ? stored : undefined
       // Closed scopes still observe the machine's latest stored incarnation.
       // A delayed initial request must not reset a newer authority scope.
-      const view: ReceiverGeneration = current
-        ? { machine, generation: current.generation, phase: current.phase }
-        : { machine, generation: hash(["cmux-vm-receiver-generation-v1", scope, "idle", ...(stored ? [stored.generation] : [])]), phase: "idle" }
+      const view = viewOf(machine, scope, stored)
       let changed = false
       const finish = (reply: Reply): Reply => {
         audit({ phase: request.phase, machine, changed, outcome: reply.ok ? "ok" : "refused", ...(reply.ok ? { generation: reply.value.generation } : {}) })

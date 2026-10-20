@@ -101,11 +101,25 @@ impl Owner {
         keys: Keyset,
         clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
     ) -> Result<Self, TokenRefused> {
-        let verifier = NativeTokenVerifier::new(
-            keys,
-            move || Some(ReceiverTime { unix_ms: 0, monotonic: clock()? }),
-            MAX_REPLAY,
-        )?;
+        Self::with_mode(keys, None, clock)
+    }
+
+    pub fn for_receiver(keys: Keyset, generation: String) -> Result<Self, TokenRefused> {
+        Self::with_mode(keys, Some(generation), || Some(Instant::now()))
+    }
+
+    fn with_mode(
+        keys: Keyset,
+        generation: Option<String>,
+        clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
+    ) -> Result<Self, TokenRefused> {
+        let clock = move || Some(ReceiverTime { unix_ms: 0, monotonic: clock()? });
+        let verifier = match generation {
+            Some(generation) => {
+                NativeTokenVerifier::new_for_receiver(keys, generation, clock, MAX_REPLAY)
+            }
+            None => NativeTokenVerifier::new(keys, clock, MAX_REPLAY),
+        }?;
         verifier.state.lock().map_err(|_| TokenRefused::Invalid)?.receiver =
             Some(ReceiverState { identity: Arc::new(()), serial: 0, anchor: None });
         Ok(Self { verifier: Arc::new(verifier) })

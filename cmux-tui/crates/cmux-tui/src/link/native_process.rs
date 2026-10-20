@@ -87,9 +87,10 @@ async fn initialize(
     bootstrap: NativeBootstrap,
     session: PathBuf,
 ) -> anyhow::Result<(Authority, NativeReceiver, ReceiverSnapshot)> {
-    let (binding, keys, private) = bootstrap.into_parts();
+    let (binding, keys, private, generation) = bootstrap.into_parts();
     let authority = Authority(Arc::new(
-        AgentReceiver::new(binding.clone(), keys).map_err(|error| anyhow!(error))?,
+        AgentReceiver::for_receiver(binding.clone(), keys, generation)
+            .map_err(|error| anyhow!(error))?,
     ));
     let snapshot = refresh(&authority.0).await?;
     // Native VM routes use the original IPv4 VPC endpoint. The host's inner
