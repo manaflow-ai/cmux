@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextMobileHost
 import Observation
 
@@ -41,6 +42,11 @@ extension AppServices {
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
                     newChatPicks: { [weak self] in
                         NewChatPicks(lastAgent: self?.newTabChoices.agent, picks: self?.newTabChoices.picks)
+                    },
+                    // hostd serves phones this build's own Chief (a DEV or tagged build's is not the default home).
+                    chief: { [weak self] in
+                        guard let owner = self?.home.chief else { return nil }
+                        return IPhoneHostService.ChiefPlacement(session: owner.home.session, socket: await owner.socketPath())
                     },
                     settings: { [weak self] in self?.settings },
                     bundleID: environment.launch.bundleID, computerName: { await MacName.computerName() })

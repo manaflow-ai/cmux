@@ -64,6 +64,37 @@ public final class IPhoneHostService {
         var browserHosts: (any CnxBrowserHosting)? = nil
         /// Test-only (DEBUG): phones this tagged test instance trusts without the prompt.
         var pairingSeed: IPhonePairingSeed? = nil
+        /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
+        /// and its socket once connected. hostd's `chief` service dials it; without it hostd
+        /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
+        var chief: @MainActor () async -> ChiefPlacement? = { nil }
+    }
+
+    /// Where this app's Chief owner listens (``Dependencies/chief``).
+    public struct ChiefPlacement: Equatable, Sendable {
+        /// `ChiefHome.session` of the app's Chief home.
+        public var session: String
+        /// The owner's socket, once the app is connected to it.
+        public var socket: String?
+
+        public init(session: String, socket: String?) {
+            self.session = session
+            self.socket = socket
+        }
+    }
+
+    /// hostd's launch for `account`: the app's daemon, chat roots, agent tab host and its own Chief.
+    static func launch(_ dependencies: Dependencies, executable: URL, account: Account, deviceID: String,
+                       deviceName: String, daemonSocket: String, chief: ChiefPlacement?) -> CnxHostLaunch {
+        var launch = CnxHostLaunch(
+            executable: executable, baseURL: dependencies.baseURL, teamID: account.teamID, userID: account.userID,
+            deviceID: deviceID, deviceName: deviceName, daemonSocket: daemonSocket,
+            stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
+            stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
+        launch.browserHosts = dependencies.browserHosts != nil
+        launch.chiefSession = chief?.session
+        launch.chiefSocket = chief?.socket
+        return launch
     }
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
@@ -351,13 +382,10 @@ public final class IPhoneHostService {
                 // task-owner: one Keychain read per hostd start; awaited here
                 let identity = try await Task.detached { try store.loadOrCreate() }.value
                 let name = await dependencies.computerName()
+                let chief = await dependencies.chief()
                 guard !Task.isCancelled, self?.running == key else { return }
-                var launch = CnxHostLaunch(
-                    executable: executable, baseURL: dependencies.baseURL, teamID: want.teamID, userID: want.userID,
-                    deviceID: deviceID, deviceName: name, daemonSocket: socket,
-                    stateDirectory: dependencies.stateDirectory, fileRoots: dependencies.fileRoots(),
-                    stackProjectID: dependencies.stackProjectID, agentTabHost: dependencies.agentTabHost())
-                launch.browserHosts = dependencies.browserHosts != nil
+                let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
+                                         deviceName: name, daemonSocket: socket, chief: chief)
                 await supervisor.start(.init(
                     launch: launch, accessToken: dependencies.accessToken, acpmux: dependencies.acpmux,
                     log: dependencies.stateDirectory.appendingPathComponent("cnx-hostd.log", isDirectory: false),
