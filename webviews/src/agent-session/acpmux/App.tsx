@@ -493,6 +493,11 @@ const postStartInBackground = (sessionId: string, cwd: string | undefined, name:
   }).catch(() => undefined);
 
 /// Folder trust lives with acpmux (or the mock daemon), else the native host.
+/// Each harness's last health answer on this page (signed out, outdated, fine), drawn at once for
+/// the next chat on that harness while it is read again (Leo 2026-10-19: the notice popped in late
+/// and pushed the composer on each switch and reconnect).
+const knownHarnessHealth = new Map<string, HarnessHealth | undefined>();
+
 const trustSource: TrustSource = {
   get: (cwd) => callNative("acp.trust.get", { cwd }),
   set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
@@ -2686,7 +2691,7 @@ function AcpmuxPane() {
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
-  const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
+  const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
   /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
@@ -2730,21 +2735,35 @@ function AcpmuxPane() {
     };
   }, []);
   useEffect(() => {
-    if (!connected || !healthHarness || !healthLocal) {
+    if (!healthHarness || !healthLocal) {
       setHarnessHealth(undefined);
       return;
     }
+    // Reconnecting keeps the last answer on screen; the read follows the connect.
+    if (!connected) return;
     let live = true;
     // Only the fetch a recheck started asks acpmux to check again.
     const refresh = healthRecheck !== healthRechecked.current;
     healthRechecked.current = healthRecheck;
     void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
-      .then((reply) => live && setHarnessHealth(reply.health ?? undefined))
+      .then((reply) => {
+        knownHarnessHealth.set(healthHarness, reply.health ?? undefined);
+        if (live) setHarnessHealth(reply.health ?? undefined);
+      })
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
+  // Another chat's harness draws its last known health in this render (no notice popping in late).
+  const harnessHealth =
+    healthHarness && healthLocal
+      ? readHealth?.id === healthHarness
+        ? readHealth
+        : knownHarnessHealth.has(healthHarness)
+          ? knownHarnessHealth.get(healthHarness)
+          : readHealth
+      : undefined;
   // Every harness this Mac's acpmux last found signed out, for the model picker's rail (cx-ae9eb):
   // read once the pane's direct client connects (a restored pane connects after its first render),
   // and again when a Log In comes back.

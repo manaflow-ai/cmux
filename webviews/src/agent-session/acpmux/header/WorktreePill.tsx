@@ -29,6 +29,11 @@ export function worktreeOf(value: unknown): HeaderWorktree | undefined {
   return { branch, base: text(raw.base), mainRoot };
 }
 
+/// The last worktree read for each folder on this page: a chat in a folder read before draws its
+/// pill in the first render and the read only refreshes it, instead of the pill leaving and coming
+/// back (pushing the header tools) on every chat switch (Leo 2026-10-19).
+const knownWorktrees = new Map<string, HeaderWorktree | undefined>();
+
 /// The worktree of the chat's folder (a new chat's picked folder too), read again when the folder
 /// changes and when `refresh` does (the chat starts or ends a turn, which may switch its branch). A
 /// reply for a folder the chat has left is dropped.
@@ -42,15 +47,20 @@ export function useWorktree(
     if (!folder || !readStatus) return;
     let current = true;
     readStatus(folder).then(
-      (value) => current && setFound({ folder, worktree: worktreeOf(value) }),
-      () => current && setFound({ folder, worktree: undefined }),
+      (value) => {
+        const worktree = worktreeOf(value);
+        knownWorktrees.set(folder, worktree);
+        if (current) setFound({ folder, worktree });
+      },
+      () => current && setFound({ folder, worktree: knownWorktrees.get(folder) }),
     );
     return () => {
       current = false;
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the status is the folder's: a new reader asks nothing new
   }, [folder, refresh]);
-  return folder && readStatus && found?.folder === folder ? found.worktree : undefined;
+  if (!folder || !readStatus) return undefined;
+  return found?.folder === folder ? found.worktree : knownWorktrees.get(folder);
 }
 
 export function WorktreePill({
