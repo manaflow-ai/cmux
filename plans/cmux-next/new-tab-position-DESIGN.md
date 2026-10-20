@@ -25,7 +25,7 @@ new tab at start and new tab at end (think of what other users would like)".
 
   No default keys; Settings > Keyboard Shortcuts
   can assign them.
-- The tab menu's New Tab to the Right stays (Chrome's name for it) and is the same as
+- Right-click a tab: New > New Tab at Start and New Tab at End. New Tab to the Right stays (Chrome's name) and is the same as
   New Tab After Current Tab on that tab.
 
 ## How
