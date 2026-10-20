@@ -103,8 +103,9 @@ enum WorkspaceGroupHandlers {
 
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
-            let group = try context.group(invocation)
-            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+            // On the sidebar document a pinned group is one in Pinned.
+            let group = try context.group(invocation), id = sidebarID(group), doc = SidebarDocWiring.isActive ? SidebarDocStore.current : nil
+            try context.sidebar().handle(.setGroupPinned(id, !(doc?.records.isPinned(group: id.rawValue) ?? group.pinned)))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
@@ -157,8 +158,12 @@ enum WorkspaceGroupHandlers {
         }
     }
 
+    /// The group's sidebar id: on the sidebar document its group item (`itm_g_<id>` for a group
+    /// from the personal store), else its personal id.
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
-        CmuxNextSidebar.GroupID(group.id.rawValue)
+        let id = group.id.rawValue
+        let item = SidebarDocWiring.isActive ? SidebarDocStore.current?.records.groupItem(personal: id) : nil
+        return CmuxNextSidebar.GroupID(item ?? id)
     }
 
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {

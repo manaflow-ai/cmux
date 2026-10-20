@@ -262,4 +262,23 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         }
         if let revision = batch.revision?.value { self.revision = revision }
     }
+
+    /// The group item of personal group `id`: `itm_g_<id>` (migrated or
+    /// synced from the personal store), else `id` itself (a group the
+    /// document made); nil when neither is a group.
+    public func groupItem(personal id: String) -> String? {
+        [Self.groupItemPrefix + id, id].first { items[$0]?.body.isGroup == true }
+    }
+
+    /// The personal group of group item `item` (the daemon's `legacy_group_id`).
+    public static func personalGroupID(item: String) -> String {
+        item.hasPrefix(groupItemPrefix) ? String(item.dropFirst(groupItemPrefix.count)) : item
+    }
+
+    /// Group item `item` sits in Pinned.
+    public func isPinned(group item: String) -> Bool {
+        items[item].map { $0.body.isGroup && $0.section == SidebarDocStore.pinnedSection } ?? false
+    }
+
+    static let groupItemPrefix = "itm_g_"
 }
