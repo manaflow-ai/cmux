@@ -7,7 +7,8 @@ graded them, in about a minute, alongside the rest of CI.
 
 `.github/workflows/risk-tier.yml` sets the label and runs the `risk evidence` check. The
 classifier is `scripts/ci/risk_tier.py`, and its tests are in `tests/test_risk_tier.py`.
-`gh-merge-green` won't merge while that check is red on the exact head.
+Nothing merges while that check is red on the exact head: `next-autoland` (`scripts/ci/next_batch.py`)
+into `feat-cmux-next` and `gh-merge-green` both refuse it.
 
 ## Tiers
 
