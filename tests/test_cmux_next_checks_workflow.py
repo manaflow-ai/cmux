@@ -589,17 +589,21 @@ class PathRoutingStructure(unittest.TestCase):
         # scripts/ci/next_batch.py validates a stack of pull requests by
         # dispatching this workflow on a next-batch/* branch. Every job that
         # dispatch gates to feat-cmux-next must also run there, or the batch
-        # would pass with its macOS tiers skipped.
+        # would pass with its macOS tiers skipped. A job that runs only for
+        # a dev_daily dispatch publishes a DEV build; a batch never sets that
+        # input, so it stays out of this set (asserted below).
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         gated = {name: job for name, job in jobs.items()
                  if "refs/heads/feat-cmux-next" in str(job.get("if", ""))
-                 and "workflow_dispatch" in str(job.get("if", ""))}
+                 and "workflow_dispatch" in str(job.get("if", ""))
+                 and "inputs.dev_daily == true" not in str(job.get("if", ""))}
         self.assertGreaterEqual(len(gated), 6)
         for name, job in gated.items():
             with self.subTest(job=name):
                 self.assertIn("startsWith(github.ref, 'refs/heads/next-batch/')", job["if"])
         # Nightly promotion and the dogfood artifact stay feat-cmux-next pushes only.
         self.assertNotIn("next-batch", jobs["request-nightly-next"]["if"])
+        self.assertNotIn("next-batch", jobs["request-cmux-next-dev-publish"]["if"])
 
     def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
         for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
@@ -791,8 +795,9 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
+        # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "request-nightly-next", "swift-canary", "swift-test"])
+                                           "release-compile", "swift-canary", "swift-test"])
 
 
 
