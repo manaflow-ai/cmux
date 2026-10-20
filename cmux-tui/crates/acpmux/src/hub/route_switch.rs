@@ -6,7 +6,7 @@
 
 use super::*;
 
-use crate::routes;
+use crate::{route_account, routes};
 
 impl Hub {
     /// The route env of a spawn, applied over `env`: the session's chat
@@ -21,17 +21,21 @@ impl Hub {
         env: &mut std::collections::BTreeMap<String, String>,
     ) -> Result<Option<String>, RpcError> {
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, profile, env).await
+        let started = meta.agent_session_id.is_some();
+        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, started, profile, env).await
     }
 
     /// [`Self::apply_route`] for a spawn of harness `harness` that may not
     /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
-    /// profile's, family's or global route applies.
+    /// profile's, family's or global route applies. `started`: the chat's
+    /// conversation has begun (an inherited account route then does not move
+    /// it, route_account.rs).
     pub(super) async fn apply_route_for(
         &self,
         harness: &str,
         session: Option<&str>,
         workspace: Option<&str>,
+        started: bool,
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
     ) -> Result<Option<String>, RpcError> {
@@ -70,6 +74,16 @@ impl Hub {
             }
             return Ok(None);
         }
+        if let Some(chat) = session {
+            match route_account::inherited(&route, scope, started) {
+                route_account::Inherited::Apply => {}
+                route_account::Inherited::Skip => return Ok(None),
+                route_account::Inherited::Pin => {
+                    routes::set_binding(&state, &format!("chat:{chat}"), Some(id.as_str()))
+                        .map_err(|e| route_error(&e))?;
+                }
+            }
+        }
         let route_env =
             tokio::task::spawn_blocking(move || routes::env_for(&route, &family, &state))
                 .await
@@ -103,6 +117,15 @@ impl Hub {
                 .map_err(|e| RpcError::internal(e.to_string()))?
                 .map_err(|e| route_error(&e))?;
         }
+        if meta.agent_session_id.is_some() {
+            self.check_account_switch(
+                &meta,
+                profile.as_ref(),
+                route.as_deref(),
+                dir.as_deref(),
+                &state,
+            )?;
+        }
         let from = routes::bindings(&state).chats.get(&session.id).cloned();
         routes::set_binding(&state, &format!("chat:{}", session.id), route.as_deref())
             .map_err(|e| route_error(&e))?;
@@ -124,6 +147,35 @@ impl Hub {
         }
         self.restart_on_route(session).await?;
         Ok(json!({"routeId": route, "applied": "now"}))
+    }
+
+    /// A started chat moves only between routes of one account home: its
+    /// conversation is in that account's folder (route_account.rs).
+    fn check_account_switch(
+        &self,
+        meta: &SessionMeta,
+        profile: Option<&HarnessProfile>,
+        to: Option<&str>,
+        dir: Option<&std::path::Path>,
+        state: &std::path::Path,
+    ) -> Result<(), RpcError> {
+        let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
+        let family =
+            profile.map(|p| crate::config::derive_family(&meta.harness, p)).unwrap_or_default();
+        let mut bindings = routes::bindings(state);
+        let home_of = |bound: Option<(String, &'static str)>| {
+            bound.and_then(|(id, scope)| {
+                let route = routes::find(dir, &id).ok()?;
+                route_account::effective_home(Some(&route), scope).map(str::to_owned)
+            })
+        };
+        let from = home_of(routes::bound_route(&bindings, &meta.id, workspace, &family));
+        bindings.chats.remove(&meta.id);
+        let to = match to {
+            Some(id) => home_of(Some((id.to_owned(), "chat"))),
+            None => home_of(routes::bound_route(&bindings, &meta.id, workspace, &family)),
+        };
+        route_account::switch_allowed(from.as_deref(), to.as_deref()).map_err(|e| route_error(&e))
     }
 
     /// Restart the harness on its current binding and resume the same agent
@@ -266,12 +318,12 @@ impl Hub {
                 hub.append(&s, "mux", "route_probe", probe);
             });
         }
-        let next = route
-            .file
-            .fallback
-            .iter()
-            .filter(|f| **f != id)
-            .find_map(|f| routes::find(dir.as_deref(), f).ok().filter(|r| r.serves(&family)));
+        // A fallback keeps the account home: the conversation is in its folder.
+        let next = route.file.fallback.iter().filter(|f| **f != id).find_map(|f| {
+            routes::find(dir.as_deref(), f)
+                .ok()
+                .filter(|r| r.serves(&family) && r.file.account_home == route.file.account_home)
+        });
         let mut out = json!({"route": {"routeId": id, "name": route.name()}});
         if let Some(next) = next {
             out["fallback"] = json!({"routeId": next.id, "name": next.name()});
