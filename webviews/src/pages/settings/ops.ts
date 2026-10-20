@@ -228,13 +228,28 @@ export type AccountsTeams = {
   error: string | null;
 };
 
+/**
+ * cmux's own account row. Button ids are run as actions: `cmux.signIn`, `cmux.cancelSignIn`,
+ * `cmux.continueInBrowser`, `cmux.switchAccount`, `cmux.signOut`.
+ */
+export type AccountsCmux = {
+  title: string;
+  detail: string | null;
+  status: string;
+  statusKind: "success" | "attention" | "neutral" | "quiet";
+  busy: boolean;
+  buttons: AccountsButton[];
+  note: string | null;
+  error: string | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
   teams: AccountsTeams | null;
   refresh: string;
   refreshing: boolean;
-  /** The Sign In to cmux button's title when cmux is signed out. */
-  signIn: string | null;
+  /** cmux's own account: who is signed in, sign in, switch and sign out. */
+  cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };

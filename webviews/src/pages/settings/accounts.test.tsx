@@ -114,3 +114,37 @@ test("a managed device or a single team shows the menu disabled; signed out show
   expect(signedOut.container.querySelector("[data-accounts-teams]")).toBeNull();
   signedOut.unmount();
 });
+
+test("cmux's row shows the signed-in account and Sign Out runs cmux.signOut", async () => {
+  const page = await renderPage({ path: "/settings/accounts" });
+  const row = () => page.container.querySelector<HTMLElement>('[data-account="cmux"]')!;
+  expect(row().textContent).toContain("Signed in");
+  expect(row().textContent).toContain("s…@e…");
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-button="cmux.signOut"]')!.click());
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "cmux.signOut" });
+  expect(row().textContent).toContain("Signed out");
+  expect(row().querySelector('[data-account-button="cmux.signIn"]')).not.toBeNull();
+  page.unmount();
+});
+
+test("a cmux sign-in in progress offers Open in Browser and Cancel", async () => {
+  const page = await renderPage({ path: "/settings/accounts" });
+  const row = () => page.container.querySelector<HTMLElement>('[data-account="cmux"]')!;
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-button="cmux.signOut"]')!.click());
+  await settle();
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-button="cmux.signIn"]')!.click());
+  await settle();
+  expect(row().textContent).toContain("Signing in…");
+  expect(row().querySelector(".accounts-status")?.hasAttribute("data-busy")).toBe(true);
+  expect(row().textContent).toContain("Finish signing in in your browser");
+  await act(async () =>
+    row().querySelector<HTMLButtonElement>('[data-account-button="cmux.continueInBrowser"]')!.click(),
+  );
+  await settle();
+  expect(page.provider.accountRuns.at(-1)).toEqual({ action: "cmux.continueInBrowser" });
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-button="cmux.cancelSignIn"]')!.click());
+  await settle();
+  expect(row().textContent).toContain("Signed out");
+  page.unmount();
+});

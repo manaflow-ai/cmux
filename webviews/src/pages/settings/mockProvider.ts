@@ -14,6 +14,7 @@ import {
   settingsPageActions,
   type BrowserProfile,
   type HostLists,
+  type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
   type AgentsRun,
@@ -77,6 +78,48 @@ export const mockDomains: Domains = {
 export const mockManagedKey = "browser.remoteLocalhost";
 
 type Params = Record<string, unknown>;
+
+const cmuxButton = (id: string, title: string, destructive = false) => ({
+  id,
+  title,
+  disabled: false,
+  help: null,
+  destructive,
+});
+
+/** cmux's own row as the app serves it: signed in, signed out, and a sign-in in progress. */
+export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", AccountsCmux> = {
+  signedIn: {
+    title: "cmux Account",
+    detail: "s…@e…",
+    status: "Signed in",
+    statusKind: "success",
+    busy: false,
+    buttons: [cmuxButton("cmux.switchAccount", "Switch Account…"), cmuxButton("cmux.signOut", "Sign Out", true)],
+    note: null,
+    error: null,
+  },
+  signedOut: {
+    title: "cmux Account",
+    detail: null,
+    status: "Signed out",
+    statusKind: "quiet",
+    busy: false,
+    buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    note: null,
+    error: null,
+  },
+  signingIn: {
+    title: "cmux Account",
+    detail: null,
+    status: "Signing in…",
+    statusKind: "neutral",
+    busy: true,
+    buttons: [cmuxButton("cmux.continueInBrowser", "Open in Browser"), cmuxButton("cmux.cancelSignIn", "Cancel")],
+    note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
+    error: null,
+  },
+};
 
 export class MockSettingsProvider {
   readonly log: Array<{ op: string; params: unknown }> = [];
@@ -535,7 +578,7 @@ export class MockSettingsProvider {
     },
     refresh: "Refresh",
     refreshing: false,
-    signIn: null,
+    cmux: mockCmuxAccount.signedIn,
     removeTitle: "Remove from CodeRouter",
     groups: [
       {
@@ -621,6 +664,10 @@ export class MockSettingsProvider {
       };
     } else if (run.action === "remove") {
       this.accounts = rows((row) => ({ ...row, linked: row.linked.filter((account) => account.id !== run.account) }));
+    } else if (run.action === "cmux.signOut" || run.action === "cmux.cancelSignIn") {
+      this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signedOut };
+    } else if (run.action === "cmux.signIn") {
+      this.accounts = { ...this.accounts, cmux: mockCmuxAccount.signingIn };
     }
     for (const ctx of this.accountsChanged) ctx.emit(this.accounts);
     return error ? { error } : {};

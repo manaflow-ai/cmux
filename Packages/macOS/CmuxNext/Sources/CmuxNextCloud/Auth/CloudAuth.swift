@@ -130,11 +130,36 @@ public final class CloudAuth {
         return (pair.accessToken, pair.refreshToken)
     }
 
+    /// Where a sign-in opens; the App reads its Debug Settings tunable here.
+    @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
+
     /// Hosted browser sign-in; returns whether the app ended signed in.
+    /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
+    /// comes through here, so they all open the same window.
     @discardableResult
-    public func signIn() async -> Bool {
-        await browserSignIn.beginSignIn().value
+    public func signIn(selectAccount: Bool = false) async -> Bool {
+        await beginSignIn(selectAccount: selectAccount).value
     }
+
+    /// Starts a sign-in without waiting for it. `selectAccount` (Switch
+    /// Account) asks the hosted page which account to use.
+    @discardableResult
+    public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
+        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
+        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+    }
+
+    /// Opens the sign-in in progress in the default browser (the person's
+    /// way on when the popup shows nothing); false when none is in progress.
+    @discardableResult
+    public func continueSignInInBrowser() -> Bool {
+        guard let url = browserSignIn.activeAttemptSignInURL else { return false }
+        NSWorkspace.shared.openInBackground(url)
+        return true
+    }
+
+    /// Ends the sign-in in progress.
+    public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
     public func signOut() async { await browserSignIn.signOut() }
 

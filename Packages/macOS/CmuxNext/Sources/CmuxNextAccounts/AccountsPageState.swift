@@ -84,8 +84,8 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
     public let teams: Teams?
     public let refresh: String
     public let refreshing: Bool
-    /// The Sign In to cmux button's title when cmux is signed out.
-    public let signIn: String?
+    /// cmux's own account: who is signed in, sign in, switch and sign out.
+    public let cmux: Cmux
     public let removeTitle: String
     public let groups: [Group]
 }
@@ -93,6 +93,7 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
 /// One gesture on the Accounts part of the Settings page.
 public enum AccountsPageAction: Equatable, Sendable {
     case refresh, signInToCmux
+    case cmux(CmuxAccountAction)
     case reauthenticate(AIProvider), addKey(AIProvider), deleteSavedKey(AIProvider), connect(AIProvider)
     case confirmConnect(AIProvider), cancelConfirm
     case remove(accountID: String)
@@ -108,6 +109,12 @@ public enum AccountsPageAction: Equatable, Sendable {
 
     /// Parses `{action, provider?, account?, secret?, team?}`; nil for an unknown action or provider.
     public init?(action: String, provider: String?, account: String?, secret: String?, team: String? = nil) {
+        // cmux's row: `cmux.<gesture>` (`cmux.signIn`, `cmux.signOut`, …).
+        if action.hasPrefix("cmux.") {
+            guard let gesture = CmuxAccountAction(rawValue: String(action.dropFirst("cmux.".count))) else { return nil }
+            self = .cmux(gesture)
+            return
+        }
         let provider = provider.flatMap(AIProvider.init(rawValue:))
         switch (action, provider) {
         case ("refresh", _): self = .refresh
@@ -143,7 +150,7 @@ extension AccountsModel {
         AccountsPageState(
             teams: pageTeams,
             refresh: AccountsStrings.refresh, refreshing: isRefreshing,
-            signIn: isSignedInToCmux ? nil : AccountsStrings.signInToCmux,
+            cmux: Self.cmuxRow(services.cmuxAccount),
             removeTitle: AccountsStrings.remove,
             groups: AIProvider.Group.allCases.compactMap { group in
                 let rows = rows(in: group)
@@ -157,7 +164,8 @@ extension AccountsModel {
     public func perform(_ action: AccountsPageAction) async -> String? {
         switch action {
         case .refresh: refresh()
-        case .signInToCmux: services.signInToCmux()
+        case .signInToCmux: services.runCmuxAccount(.signIn)
+        case .cmux(let gesture): services.runCmuxAccount(gesture)
         case .reauthenticate(let provider): return await performReauthenticate(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)

@@ -50,6 +50,24 @@ public final class MockAccountsServices: AccountsServices {
         isSignedInToCmux = true
     }
 
+    /// What cmux's row shows while signed out (a sign-in in progress, a failure).
+    public var cmuxSignInState = CmuxAccountState.signedOut
+    public var cmuxAccount: CmuxAccountState {
+        var account = cmuxSignInState
+        if isSignedInToCmux { account.signedIn = true; account.label = "d…@e…" }
+        return account
+    }
+
+    public func runCmuxAccount(_ action: CmuxAccountAction) {
+        calls.append("cmux:\(action.rawValue)")
+        switch action {
+        case .signIn, .switchAccount: signInToCmux()
+        case .signOut: isSignedInToCmux = false
+        case .cancelSignIn: cmuxSignInState = .signedOut
+        case .continueInBrowser: break
+        }
+    }
+
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")
         if let failure = failure ?? linkedFailure { throw failure }
