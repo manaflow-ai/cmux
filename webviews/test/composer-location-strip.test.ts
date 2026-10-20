@@ -414,8 +414,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       await page.close();
       const strip = marks.strip!;
       const tail = marks.tail!;
-      // The head takes the ellipsis ("atl…"); the last word stays whole and inside the strip.
-      expect(marks.head).toEqual({ clipped: cut, text: "atlas-" });
+      // The head takes the ellipsis ("atlas-a…"); the last word stays whole and inside the strip.
+      expect(marks.head).toEqual({ clipped: cut, text: "atlas-api-" });
       expect(marks.tailText).toBe("checkout");
       expect(tail.width).toBeGreaterThan(0);
       expect(tail.right).toBeLessThanOrEqual(strip.right);

@@ -86,9 +86,12 @@ export default agentPaneEntry({
       snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout-service", branch: "main" }),
     },
     "mid-folder": {
+      // Long enough to pass the 340 px step's 128 px cap and short enough to fit a 341 px pane,
+      // with room both ways in either system font (SF Pro on a Mac, Noto Sans in Linux CI):
+      // "atlas-checkout" sat 4 px under the cap in Noto Sans, so CI saw it whole at 340.
       note: "A new chat in a folder that fits a 341 px pane whole and cuts in the middle at 340, the strip's folder step.",
       ready: { newSession: true },
-      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-checkout", branch: "main" }),
+      snapshot: fresh(true, { cwd: "/Users/you/src/atlas-api-checkout", branch: "main" }),
     },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
