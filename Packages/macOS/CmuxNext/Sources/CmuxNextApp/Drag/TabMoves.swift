@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 import enum CmuxNextLayout.DockEdge
 import enum CmuxNextLayout.DockMode
 import enum CmuxNextLayout.DockRole
@@ -228,11 +229,10 @@ enum TabMoves {
     /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
         // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
-        // Tab page dragged to the sidebar named its workspace "about:blank"): it names a
-        // workspace after what the strip shows. An agent chat or New Tab page gives no title here.
+        // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
+        // shows of its own names the workspace.
         if tab.kind == .conversation || tab.appTab != nil {
-            let title = tab.agentSession == nil ? TabTitleResolver(services: services).title(tab) : nil
-            return NewWorkspaceName.Tab(kind: .terminal, userName: tab.name, title: title, pageTitle: nil, url: nil, cwd: nil)
+            return NewWorkspaceName.Tab(kind: .page, userName: tab.name, title: ownName(tab, services: services), pageTitle: nil, url: nil, cwd: nil)
         }
         let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
         case .pty: .terminal
@@ -245,6 +245,21 @@ enum TabMoves {
         let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
+    }
+
+    /// The name a conversation, page or app tab shows of its own: its page's or app's title, its
+    /// Home conversation's title or the Chief's name. Nil for an agent chat or New Tab page (named
+    /// from its chat, `WorkspaceAutoNameReader`), an app with no page, and an untitled Home
+    /// conversation: a generic label ("New Tab", "Home") written now would stay as the user's name.
+    private static func ownName(_ tab: TabModel, services: AppServices) -> String? {
+        if tab.agentSession != nil { return nil }
+        if let app = tab.appTab {
+            guard let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false) else { return nil }
+            return services.pages.storeTabItem(tab, page: provider.page)?.title
+        }
+        if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
+        let title = services.home.tabTitle(for: tab)
+        return title == HomeStrings.title ? nil : title
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,

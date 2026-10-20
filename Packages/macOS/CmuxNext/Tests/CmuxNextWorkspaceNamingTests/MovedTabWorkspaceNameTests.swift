@@ -19,10 +19,22 @@ struct MovedTabWorkspaceNameTests {
         #expect(NewWorkspaceName.forTab(Self.tab(title: "about:blank", cwd: "/Users/me/src/cmux")) == "cmux")
     }
 
-    @Test func whatTheTabShowsNamesIt() {
-        // `nameInput` gives a Home, page or app tab the strip's title in place of the record's.
-        #expect(NewWorkspaceName.forTab(Self.tab(title: "Chief")) == "Chief")
-        #expect(NewWorkspaceName.forTab(Self.tab(title: "Settings")) == "Settings")
+    private static func page(_ title: String?, userName: String? = nil) -> NewWorkspaceName.Tab {
+        NewWorkspaceName.Tab(kind: .page, userName: userName, title: title, pageTitle: nil, url: nil, cwd: "/Users/me/src/cmux")
+    }
+
+    /// `TabMoves.nameInput` reads a conversation, page or app tab as `.page`, with the name it shows of its own.
+    @Test func aPageTabIsNamedByWhatItShows() {
+        #expect(NewWorkspaceName.forTab(Self.page("Chief")) == "Chief")
+        #expect(NewWorkspaceName.forTab(Self.page("Settings")) == "Settings")
+        #expect(NewWorkspaceName.forTab(Self.page("README.md", userName: "Docs")) == "Docs")
+    }
+
+    /// A New Tab page, a chat, an untitled Home tab or an app with no page names nothing, and never its folder.
+    @Test(arguments: [nil, "", "about:blank", "chrome://newtab/"] as [String?])
+    func aPageTabWithNoNameOfItsOwnNamesNothing(_ title: String?) {
+        #expect(NewWorkspaceName.forTab(Self.page(title)) == nil)
+        #expect(NewWorkspaceName.forLastTab(workspaceName: "workspace-9", workspaceTitle: nil, tab: Self.page(title)) == nil)
     }
 
     @Test func aUserNameStillWins() {

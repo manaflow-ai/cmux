@@ -48,7 +48,7 @@ extension RemoteTerminalService {
             guard let path = resourcePath(of: target, in: workspace) else { return completion(false) }
             let known = resource(for: ref, on: destination)
             let index = target.tabs.count
-            let name = tab.name
+            let (name, pinned) = (tab.name, tab.pinned)
             registry.track(Task { [weak self] in
                 do {
                     var resource = known
@@ -57,7 +57,9 @@ extension RemoteTerminalService {
                         completion(false)
                         return ActionWorkFailure(RemoteStrings.machineHasNoTerminal)
                     }
-                    _ = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    let projected = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    // Its pin comes home too (best effort, like the name on the way out).
+                    if pinned { try? await destinationConnection.state.setTabPinned(projected.id, true) }
                     _ = try? await destinationConnection.setTerminalKeep(.terminal(ref.terminalID), keep: false)
                     try await sourceConnection.closeTab(surface)
                     self?.forget(tabID: tab.id)

@@ -10,7 +10,14 @@ public nonisolated struct NewWorkspaceName {
 
     /// What the rule reads from one tab.
     public struct Tab: Equatable, Sendable {
-        public enum Kind: Equatable, Sendable { case terminal, browser, remoteTerminal }
+        public enum Kind: Equatable, Sendable {
+            case terminal, browser, remoteTerminal
+            /// A conversation, page or app tab (a Home conversation, Settings, a file viewer, an
+            /// app): its record's title is the `about:blank` placeholder, so `title` is the name
+            /// the tab shows of its own, nil when it has none (a New Tab page, a chat, an
+            /// untitled Home conversation). It never falls back to a folder.
+            case page
+        }
         public var kind: Kind
         /// The name the user gave the tab.
         public var userName: String?
@@ -47,6 +54,8 @@ public nonisolated struct NewWorkspaceName {
                 return title
             }
             return clean(host)
+        case .page:
+            return clean(tab.title).flatMap { isPlaceholder($0) ? nil : $0 }
         case .terminal, .remoteTerminal:
             if let title = clean(tab.title), !isBareShell(title), !isPlaceholder(title) { return title }
             let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }

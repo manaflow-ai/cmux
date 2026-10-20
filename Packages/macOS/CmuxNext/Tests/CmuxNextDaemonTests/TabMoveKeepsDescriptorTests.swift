@@ -7,6 +7,8 @@ import Testing
 /// a blank agent chat (never a browser at about:blank), a chat keeps its session, a Home tab its
 /// conversation, a page tab its page and route, a browser its address, engine, profile and pin,
 /// a terminal its terminal. The app's views and pages are keyed by that id, so they follow it.
+/// These pass at the base too: they pin down that the move keeps the tab, so a regression there
+/// shows here. The "about:blank" Leo saw was the new workspace's name (`MovedTabWorkspaceNameTests`).
 @MainActor
 struct TabMoveKeepsDescriptorTests {
     struct Kind: CustomTestStringConvertible, Sendable {
