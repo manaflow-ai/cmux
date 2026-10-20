@@ -40,6 +40,17 @@ struct PaneNavigationHintPlan<Pane: Hashable> {
             let digit = index == order.count - 1 && index >= 8 ? 9 : index + 1
             if let text = label("focusPaneByNumber", digit) { texts[pane, default: []].append(text) }
         }
+        let index = order.firstIndex(of: focused)
+        for (id, move) in Self.actions {
+            let target: Pane? = switch move {
+            case .previous, .next:
+                index.flatMap { order.count > 1 ? order[($0 + (move == .next ? 1 : -1) + order.count) % order.count] : nil }
+            case .left, .right, .up, .down:
+                neighbor(move)
+            }
+            guard let target, target != focused, let text = label(id, nil) else { continue }
+            if texts[target]?.contains(text) != true { texts[target, default: []].append(text) }
+        }
         return order.compactMap { pane in texts[pane].map { (pane, $0.joined(separator: " ")) } }
     }
 }

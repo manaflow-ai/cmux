@@ -130,8 +130,7 @@ final class WindowShortcutHints {
         // Typing (no Cmd, Ctrl or Option) never resolves the table: this runs on every key-down.
         guard event.type == .keyDown, KeyRouter.isChord(event.modifierFlags), let controller,
               let candidate = controller.services.keyRouter.candidate(for: event, focus: controller.focus.state) else { return false }
-        _ = candidate
-        return false
+        return PaneNavigationHintPlan<LayoutPaneID>.keepsHintsUp.contains(candidate.id)
     }
 
     /// Focus settled: chips shown for a held modifier move to the new focus.

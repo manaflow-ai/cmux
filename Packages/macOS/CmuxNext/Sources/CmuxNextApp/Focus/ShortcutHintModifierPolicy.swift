@@ -7,7 +7,7 @@ struct ShortcutHintModifierPolicy {
     private var held = false
     /// A key while held suppresses the hints until release, unless it `keepsHints` (a pane-navigation key).
     mutating func keyDown(keepsHints: Bool = false) {
-        suppressed = held
+        if !keepsHints { suppressed = held }
     }
 
     /// The held set a hold may show hints for: Cmd, Ctrl or Option, alone or together, with or without Shift.
