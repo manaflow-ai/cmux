@@ -35,7 +35,7 @@ it.each([{ meshId: "mesh_" + "2".repeat(26) }, { vmId: "vm_" + "2".repeat(26) },
   })
 })
 
-it("coalesces waiting connects and discards a reply after the machine is deleted", async () => {
+it("discards waiting connects after the machine is deleted", async () => {
   await withMeshMachine({}, async (f) => {
     await f.create(); await f.connect()
     const machine = await f.pendingMachine()
@@ -54,5 +54,25 @@ it("coalesces waiting connects and discards a reply after the machine is deleted
     const replies = await Promise.all([first, second])
     expect(reads).toBe(1)
     for (const reply of replies) expect(reply.ok).toBe(false)
+  })
+})
+
+it("shares an address refresh between simultaneous connects", async () => {
+  await withMeshMachine({}, async (f) => {
+    await f.create(); await f.connect()
+    const machine = await f.pendingMachine()
+    await f.owner().fakeControl({ advance_ms: 60_000 })
+    let entered!: () => void, resume!: () => void, reads = 0
+    const ready = new Promise<void>((r) => { entered = r }), release = new Promise<void>((r) => { resume = r })
+    f.setNativeRead(async (r) => {
+      if (new URL(r.url).pathname !== `/v1/meshes/${MESH}/vms/${VM}` || r.method !== "GET") return undefined
+      reads++; entered(); await release
+      return Response.json({ meshId: MESH, vmId: VM, ipv4: "10.128.0.8" })
+    })
+    const read = () => f.owner().readOp(f.team, { identity: `user:${f.user}`, kind: "session", user: f.user, team: f.team }, "cloud.machine.connect_info", { machine })
+    const first = read(); await ready
+    const second = read(); resume()
+    for (const result of await Promise.all([first, second])) expect(result).toMatchObject({ ok: true, value: { network: { ipv4: "10.128.0.8" } } })
+    expect(reads).toBe(1)
   })
 })
