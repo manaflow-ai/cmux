@@ -77,7 +77,7 @@ import Testing
     }
 
     private func temporaryRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory.appending(
+        let root = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().appending(
             path: "cmux-legacy-history-\(UUID().uuidString)",
             directoryHint: .isDirectory
         )
