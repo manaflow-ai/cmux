@@ -45,7 +45,10 @@ TOUR = [  # scripted feature tour run before the random walk (palette titles)
     "Extensions", "Markdown", "New Workspace Group", "Close Tab",
 ]
 SKIP_WORDS = ("quit", "update", "uninstall", "restartsocket", "signout", "logout", "relaunch",
-              "terminate", "cloud", "firewall", "snapshot", "billing", "purchase", "subscribe")
+              "terminate", "cloud", "firewall", "snapshot", "billing", "purchase", "subscribe",
+              # Opens the system's "change your default web browser" dialog, which no app input
+              # answers; its handler then waits for ever (seen on macOS 15).
+              "defaultbrowser")
 TEXT = ["hello", "ls -la\n", "echo $((RANDOM))\n", "https://example.com\n", "# Title\n", "🙂 ünïcødé",
         "x" * 300, "\n\n", "printf '\\e[31mred\\n'\n", "yes | head -2000\n"]
 
@@ -335,6 +338,16 @@ def check_input(g: Guest, vnc: RFB) -> dict:
     return {"ok": False, "tried": tried}
 
 
+def report_kind(name: str) -> str:
+    """A DiagnosticReports file's finding kind: only .ips files are crashes; .diag files are resource
+    reports (disk writes, CPU, wakeups) and .hang files are hang reports."""
+    if name.endswith(".hang"):
+        return "hang-report"
+    if name.endswith(".diag"):
+        return "resource-report"
+    return "crash"
+
+
 def new_reports(g: Guest, since: float, seen: set[str]) -> list[str]:
     """Crash (.ips) and hang reports of the app's processes written since `since` (epoch s)."""
     perl = ("for my $d (glob('~/Library/Logs/DiagnosticReports'), '/Library/Logs/DiagnosticReports') {"
@@ -503,9 +516,11 @@ def main() -> int:
             body = g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout
             name = os.path.basename(path)
             open(os.path.join(o.out, name), "w").write(body)
-            kind = "hang-report" if name.endswith(".hang") else "crash"
+            kind = report_kind(name)
             if kind == "crash":
                 summary["crashes"] += 1
+            elif kind == "resource-report":
+                summary["resource_reports"] = summary.get("resource_reports", 0) + 1
             finding(kind, i, step, {"report": name})
         if pid is None or ms is None:
             if g.sh("true", timeout=20).returncode != 0:
@@ -530,9 +545,9 @@ def main() -> int:
                 seen.add(path)
                 name = os.path.basename(path)
                 open(os.path.join(o.out, name), "w").write(g.sh(f"cat {shlex.quote(path)}", timeout=30).stdout)
-                if not name.endswith(".hang"):
+                if report_kind(name) == "crash":
                     summary["crashes"] += 1
-                finding("crash" if not name.endswith(".hang") else "hang-report", i, step, {"report": name})
+                finding(report_kind(name), i, step, {"report": name})
             # The runtime's fatal-error text (e.g. "freed pointer was not the last allocation")
             # goes to stderr only, never into the .ips.
             open(os.path.join(o.out, f"dead-{i}.stderr.txt"), "w").write(

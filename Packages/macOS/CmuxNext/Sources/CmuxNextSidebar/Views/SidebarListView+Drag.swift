@@ -115,7 +115,7 @@ extension SidebarListViewComponents {
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
-            revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+            revealedActive = selectionRevealKey
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
@@ -133,7 +133,7 @@ extension SidebarListViewComponents {
         self.drag = nil
         // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
         // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
-        revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+        revealedActive = selectionRevealKey
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
@@ -463,7 +463,7 @@ extension SidebarListViewComponents {
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
-        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+        Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
 
     /// An adopting apply's motion: kept rows spring from where they are,
@@ -474,11 +474,11 @@ extension SidebarListViewComponents {
             SidebarDragSpring.move(view, to: target)
             SidebarDragSpring.fade(view, to: 1)
         }
-        Motion.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+        Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
         guard !leaving.isEmpty else { return }
         // The motion probe keeps sampling a fading row until it is gone (a fade is not a pop).
         for (view, _) in leaving { fadingRows[ObjectIdentifier(view)] = view }
-        Motion.animate(.hover, in: self, {
+        Motion.feedback.animate(.hover, in: self, {
             for (view, _) in leaving { view.animator().alphaValue = 0 }
         }, completion: { [weak self, leaving] in
             guard let self else { return }

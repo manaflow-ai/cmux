@@ -75,6 +75,16 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
+            // A PNG of the window as on screen, never focusing or raising it
+            // (agents read the app without Screen Recording; ScreenshotHandlers).
+            ActionDescriptor(
+                id: "window.screenshot",
+                title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .window, symbol: "camera",
+                surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.window],
+                cliName: "window screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "toggleFullScreen",
                 title: String(localized: "action.toggleFullScreen", defaultValue: "Toggle Full Screen", bundle: .module),
@@ -179,6 +189,16 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "arrow.right.square", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.workspaceWorkspace], cliName: "app go-to-workspace", mainMenu: .window
             ),
+            // Cmd-Shift-A: the merged Search window (Cmd-P) with the Chats & agents chip set
+            // (plans/cmux-next/search-everything-DESIGN.md section 10.1). Backspace drops the chip.
+            ActionDescriptor(
+                id: "search.chats",
+                title: String(localized: "action.search.chats", defaultValue: "Search Chats & Agents…", bundle: .module),
+                keywords: ["search", "chats", "agents", "chief", "find", "acp"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]),
+                category: .window, symbol: "bubble.left.and.bubble.right", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.queryString], cliName: "app search-chats", mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "palette.openTaskManager",
                 title: String(localized: "action.palette.openTaskManager", defaultValue: "Task Manager", bundle: .module),
@@ -213,7 +233,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 id: "taskManager.killProcess",
                 title: String(localized: "action.taskManager.killProcess", defaultValue: "Kill Process…", bundle: .module),
                 keywords: ["terminate", "signal"], category: .window, symbol: "xmark.octagon", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.processString], cliName: "app kill-process"
+                arguments: [CatalogArgument.processString], cliName: "app kill-process", destructive: true
             ),
         ]
     }
