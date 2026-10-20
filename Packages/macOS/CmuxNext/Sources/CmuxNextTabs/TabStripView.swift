@@ -121,6 +121,8 @@ public final class TabStripView: NSView {
     var hoveredID: TabID?
     var closeHoveredID: TabID?
     var pressedCloseID: TabID?
+    /// A press on a tab's speaker (`TabCell.audioButtonRect`): its release there mutes or unmutes the tab.
+    var pressedAudioID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
