@@ -31,16 +31,37 @@ const PREVIEW_DWELL_MS = 150;
 /** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
  * only the default there), so the slider's last step fell back to it: the slider stops below. */
 const ART_MAX_OPACITY = 0.95;
-const overArtRows = new WeakMap<SchemaRow, SchemaRow>();
-function overArt(row: SchemaRow): SchemaRow {
+const overArtRows = new WeakMap<SchemaRow, Map<number, SchemaRow>>();
+/**
+ * The Opacity row over a picture: it stops at 95%, and it starts at the legibility floor the app
+ * reports (`derived_min`), rounded up onto the step grid. The window never paints below that floor,
+ * so the slider's travel under it moved nothing (Leo, 10-19: "the slider still doesn't work"). The
+ * summary says where it starts and why.
+ */
+function overArt(row: SchemaRow, floor: number | undefined): SchemaRow {
   const range = row.range;
   if (!range) return row;
-  let capped = overArtRows.get(row);
+  const max = Math.min(range.max, ART_MAX_OPACITY);
+  const min = floor === undefined ? range.min : Math.min(max, onStepGrid(floor, range.min, range.step));
+  let cache = overArtRows.get(row);
+  if (!cache) overArtRows.set(row, (cache = new Map()));
+  let capped = cache.get(min);
   if (!capped) {
-    capped = { ...row, range: { ...range, max: Math.min(range.max, ART_MAX_OPACITY) } };
-    overArtRows.set(row, capped);
+    const summary =
+      min > range.min
+        ? { key: null, text: t("settingsWindow.backdropPicker.opacityFloor", `${Math.round(min * 100)}%`) }
+        : row.summary;
+    capped = { ...row, summary, range: { ...range, min, max } };
+    cache.set(min, capped);
   }
   return capped;
+}
+
+/** `value` rounded up to the next step from `origin`, to two decimals (0.62 is 0.65 in steps of 0.05). */
+function onStepGrid(value: number, origin: number, step: number): number {
+  if (!(step > 0)) return value;
+  const steps = Math.ceil((value - origin) / step - 1e-9);
+  return Math.round((origin + steps * step) * 100) / 100;
 }
 
 /** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
@@ -232,7 +253,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       <div className="rows">
         {!own && opacity && (
           <SettingRow
-            row={current === "none" ? opacity : overArt(opacity)}
+            row={current === "none" ? opacity : overArt(opacity, host?.derived_min?.[BACKGROUND_OPACITY_KEY])}
             focused={focus === BACKGROUND_OPACITY_KEY}
           />
         )}

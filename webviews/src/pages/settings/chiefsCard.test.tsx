@@ -37,7 +37,7 @@ test("a row opens the same editor as Home, and Save goes through the host's rela
   const name = editor!.querySelector<HTMLInputElement>('[aria-label="Name"]')!;
   expect(name.value).toBe("Release Chief");
   expect(editor!.querySelector<HTMLSelectElement>('[aria-label="Backend"]')!.value).toBe("codex");
-  expect(editor!.querySelector<HTMLInputElement>('input[data-chief-lock]')!.checked).toBe(true);
+  expect(editor!.querySelector<HTMLInputElement>("input[data-chief-lock]")!.checked).toBe(true);
   expect(editor!.querySelector("[data-chief-history]")).not.toBeNull();
   await changeValue(name, "Ship Chief");
   await act(async () => {

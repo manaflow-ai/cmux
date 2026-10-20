@@ -973,6 +973,14 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_store_rules.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cnx_ios_test_notes_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
@@ -1523,4 +1531,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_builder.py"
 lane = "linux-guard"

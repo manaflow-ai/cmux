@@ -37,6 +37,7 @@ extension ConversationMenuGlassTint {
 
 /// Where Messages' long-press menu (a UIKit context menu) sits and how much
 /// it dims what is behind it.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum MessageMenuGeometry {
     /// The menu and the lifted bubble keep the system's minimum side margin
     /// from the screen: 16 pt on a 402 pt iPhone 17 Pro (iOS 26.5 and 27.0:
