@@ -18,4 +18,14 @@ public extension ThemeScope {
                                       tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
         return backdrop.isOpaque ? input.backgroundOpacity : backdrop.tintOpacity
     }
+
+    /// The least window opacity this scope's window paints over its background picture (the
+    /// legibility floor, ``WindowBackdrop/legibleTintOpacity``), where Settings' Opacity slider
+    /// starts: below it the slider moved nothing. Nil without a picture or in an opaque window.
+    var shownWindowOpacityFloor: Double? {
+        guard backdropSelection != nil else { return nil }
+        let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
+                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
+        return backdrop.isOpaque ? nil : backdrop.legibleTintOpacity
+    }
 }

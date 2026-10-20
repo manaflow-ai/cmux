@@ -118,6 +118,9 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+  /** Where a slider's travel starts to change anything (over a picture, the window opacity's
+   * legibility floor); absent when the whole range applies. */
+  derived_min?: Record<string, number>;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */

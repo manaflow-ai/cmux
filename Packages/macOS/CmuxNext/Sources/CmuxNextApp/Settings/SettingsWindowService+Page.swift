@@ -46,7 +46,16 @@ extension SettingsWindowService {
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
+            "derived_min": .object(pageDerivedMinimums()),
         ]
+    }
+
+    /// Where a slider's travel starts to change anything, by schema key: over a picture the window
+    /// opacity never goes below the legibility floor (`ThemeScope.shownWindowOpacityFloor`).
+    func pageDerivedMinimums() -> [String: JSONValue] {
+        guard let id = SettingsSchema.descriptor(for: WindowBackgroundSetting.opacityPath)?.id,
+              let floor = (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacityFloor else { return [:] }
+        return [id: .number(floor)]
     }
 
     /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
