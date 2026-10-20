@@ -778,6 +778,8 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
     }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
       inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
       isNotNull(runAttempts.providerVmId),
+      // A promoted attempt's VM belongs to its persistent runtime now; never reap it.
+      isNull(runAttempts.runtimeId),
       isNotNull(runAttempts.terminalRetainUntil),
       lte(runAttempts.terminalRetainUntil, nowAt),
       or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
