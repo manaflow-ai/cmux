@@ -4,7 +4,7 @@
 // metrics (12px on 20px lines), so its height is final as it grows; when it closes, Pierre renders
 // it once underneath, and the highlighted card fades in over the plain one only after Pierre has
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { CodeBrackets } from "./icons";
@@ -68,11 +68,17 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
     check();
     return () => cancelAnimationFrame(frame);
   }, [stage]);
-  // `ui.animationSpeed: off` removes CSS animations globally, so the fading card never emits its
-  // animationend event. Finish on the next render as well as on the event to avoid leaving the
-  // transparent highlighted card permanently mounted when the setting changes mid-handoff.
-  useLayoutEffect(() => {
-    if (stage === "fading" && isAgentMotionOff()) setStage("done");
+  // `ui.animationSpeed: off` removes CSS animations globally, so a card already fading never gets
+  // its animationend event. Finish when the setting turns off mid-fade (the root's
+  // data-agent-motion changes), so the plain card does not stay mounted under the highlighted one.
+  useEffect(() => {
+    if (stage !== "fading" || typeof MutationObserver === "undefined") return;
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      if (isAgentMotionOff()) setStage("done");
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-agent-motion"] });
+    return () => observer.disconnect();
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
