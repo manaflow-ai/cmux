@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 import { fireAlarm } from "./setup/alarm.ts"
@@ -10,6 +11,7 @@ import { fireAlarm } from "./setup/alarm.ts"
  * server install keeps the narrow server grant.
  */
 const runAlarm = fireAlarm as unknown as (stub: unknown) => Promise<boolean>
+const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
 
 /** A paired server of `owner`: its install, host and key (what `optchat-chief cloud pair` holds). */
 const pairServer = async (owner: string) => {
@@ -115,7 +117,7 @@ describe("chief brain place", { timeout: 60_000 }, () => {
     const owner = await sessionToken("brain-place-credits")
     const user = (await op(owner, "user.ensure", {})).json.value.id as string
     const server = await pairServer(owner)
-    const settings = (agent: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as {
+    const settings = (agent: string) => brains.get(brains.idFromName(agent)) as unknown as {
       configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: boolean }>
       admit(agent: string, owner: string, turn: boolean): Promise<{ ok: boolean; reason?: string }>
     }
