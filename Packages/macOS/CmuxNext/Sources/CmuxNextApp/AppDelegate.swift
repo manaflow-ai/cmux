@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
+        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -403,6 +405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
+        // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
+        BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()

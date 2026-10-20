@@ -11,9 +11,13 @@ public nonisolated struct BrowserDesignModeTempFiles: Sendable {
     /// A new, unique folder for one card (not created yet; the writer makes it).
     public func newFolder() -> URL { root.appendingPathComponent(UUID().uuidString, isDirectory: true) }
 
-    /// Removes one card's folder.
-    public func remove(_ folder: URL) {}
+    /// Removes one card's folder; a folder outside ``root`` is left alone.
+    public func remove(_ folder: URL) {
+        let base = root.standardizedFileURL.path + "/"
+        guard folder.standardizedFileURL.path.hasPrefix(base) else { return }
+        try? FileManager.default.removeItem(at: folder)
+    }
 
-    /// Removes every card folder.
-    public func removeAll() {}
+    /// Removes every card folder (at quit, and at launch after a crash).
+    public func removeAll() { try? FileManager.default.removeItem(at: root) }
 }
