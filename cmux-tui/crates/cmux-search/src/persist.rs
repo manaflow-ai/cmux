@@ -42,8 +42,7 @@ fn segment_path(dir: &Path, id: u64) -> PathBuf {
 /// Writes `image` to its file in `dir` and opens it; keeps it in memory
 /// without a directory or when the write fails.
 pub(crate) fn store_image(dir: Option<&Path>, id: u64, image: Vec<u8>) -> Store {
-    // Red: sealed images stay in memory.
-    let Some(dir) = dir.filter(|_| false) else { return Store::Memory(image) };
+    let Some(dir) = dir else { return Store::Memory(image) };
     let path = segment_path(dir, id);
     let written = fs::create_dir_all(dir)
         .and_then(|()| write_atomic(&path, &image))
