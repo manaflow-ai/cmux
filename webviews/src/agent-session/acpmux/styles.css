@@ -732,6 +732,17 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
 .acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-description{color:color-mix(in srgb,currentColor 72%,transparent);font-size:var(--text-caption);line-height:1.3}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity .15s}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
 .acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
+/* Deny with what to do instead (PermissionCard.tsx): a quiet action under the options, then a field in the card. */
+.acpmux-permission-ask .acpmux-permission-feedback-open{all:unset;box-sizing:border-box;margin:4px 8px 0;padding:2px 0;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
+.acpmux-permission-ask .acpmux-permission-feedback-open:hover{color:var(--agent-text)}
+.acpmux-permission-ask .acpmux-permission-feedback-open:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
+.acpmux-permission-feedback{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.acpmux-permission-feedback textarea{box-sizing:border-box;width:100%;min-height:44px;resize:vertical;margin:0;padding:6px 8px;border:1px solid var(--agent-border);border-radius:6px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;line-height:1.4;outline:none}
+.acpmux-permission-feedback textarea:focus{border-color:var(--agent-accent)}
+.acpmux-permission-feedback-actions{display:flex;justify-content:flex-end;gap:6px}
+.acpmux-permission-feedback-actions button{border:1px solid var(--agent-border);border-radius:6px;padding:4px 10px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
+.acpmux-permission-feedback-actions .acpmux-permission-feedback-send{border-color:transparent;background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-permission-feedback-actions button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 
 /* Session row previews float in the shared popup layer, so the 30px row and its gutters never
    change when a last-message card appears. */
