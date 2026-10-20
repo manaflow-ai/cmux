@@ -54,6 +54,11 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
+    public var onForward: ((String) -> Void)? {
+        get { transcript.onForward }
+        set { transcript.onForward = newValue }
+    }
     /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { transcript.onOpenLink }
@@ -228,6 +233,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The person opened this conversation: the message box takes the keyboard now, or once the
     /// first page installs it if nothing else took the keyboard in between.
     public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
+    /// store's draft; an open view takes it here, a new one restores it from the store).
+    public func showDraft(_ text: String) { transcript.setDraft(text) }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the
