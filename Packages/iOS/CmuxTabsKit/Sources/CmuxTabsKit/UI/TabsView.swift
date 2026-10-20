@@ -156,7 +156,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onClose: { id in await closeFromGrid(id) },
                         onNewTab: newTabFromOverview,
                         onDone: { closeOverview(selecting: activeID) },
-                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(count: tabs.count) },
+                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
                         pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
                         onScrolling: { source.overviewScrollingChanged($0) },
                         onQueueSelect: { queuedOpen = $0 },
@@ -168,7 +168,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
                     get: { confirmingCloseAll != nil }, set: { if !$0 { confirmingCloseAll = nil } }
                 ), titleVisibility: .hidden, presenting: confirmingCloseAll) { confirmation in
-                    Button(confirmation.confirmTitle, role: .destructive) { closeAll() }
+                    Button(confirmation.confirmTitle, role: .destructive) { closeAll(confirmation.ids) }
                         .accessibilityIdentifier("tabs.closeAll.confirm")
                     Button("Cancel", role: .cancel) {}
                 } message: { confirmation in
@@ -627,8 +627,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         zoomDriver.openNewTab(spring: newTabZoom.spring)
     }
 
-    private func closeAll() {
-        let ids = tabs.map(\.id)
+    private func closeAll(_ ids: [String]) {
         Task { for id in ids { _ = await source.close(id) } }
         if let option = source.newTabOptions.first { newTabFromOverview(option) }
     }
