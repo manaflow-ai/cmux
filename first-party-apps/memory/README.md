@@ -54,6 +54,10 @@ Owner: the session host of the machine that has the files (V3 document host), wi
 | `fs.trash` | `{root, paths, expected_revisions?}` | `{trashed}` | session host | destructive, origin user | `fs:write` | `memory.watch` | delete must go to the Trash and refuse a changed file |
 | `ui.open` | `{interface, props}` | | shell | mutate-own, gesture | | | open in the user's diff renderer |
 
+### Backing `memory.search` with the agent memory index
+
+The search the user's agents use (`optchat-chief agent-memory`, [cmux-agent-memory](../../skills/cmux-agent-memory/SKILL.md)) is the intended owner of `memory.search`, so people browse the same memory their agents query. `optchat-chief agent-memory search --json --limit N WORDS` answers `[{id, kind, date, source, snippet, text}]`. Each hit maps to `{root: "agent-memory", path: source, line: 0, text: snippet}`, plus `id` and `date`. On a machine whose `agents.memory.owner` names another, the owner answers. Not wired yet: a Mac-side `memory` provider needs `memory` in the daemon's provider family allowlist (`cmux-tui-core` `apps/provider.rs` `FAMILIES`) and the `memory:read` scope on the op. An app that registers a family the daemon does not know loses every family it registered, so the allowlist change lands first.
+
 ## Platform gaps (most important first)
 
 1. No documents (V3) on the session host: no handles, revisions, `document.edit` with `base_revision`, `document.watch`, or `document.propose` as a diff resource.

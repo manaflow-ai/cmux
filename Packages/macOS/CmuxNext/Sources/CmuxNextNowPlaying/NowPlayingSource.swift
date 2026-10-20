@@ -28,14 +28,16 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `sidebar.nowPlaying.enabled`, on by default).
-    /// The source runs while `enabled` (`NowPlayingSource.run`).
+    /// `sidebar.nowPlaying.enabled`, off by default).
+    /// The source runs while `enabled` (`NowPlayingSource.run`), and the New Tab page's player
+    /// shows the same track (`NewTabNowPlaying`).
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
         Task { [weak self] in
             for await followed in ObservationStream({ enabled() ? NowPlayingFollowed.on(source.nowPlaying) : .off }) {
                 guard let self else { return }
                 source.run(followed != .off)
                 if self.nowPlaying != followed.nowPlaying { self.nowPlaying = followed.nowPlaying }
+                NewTabNowPlaying.show(followed.nowPlaying, from: source)
             }
         }
     }

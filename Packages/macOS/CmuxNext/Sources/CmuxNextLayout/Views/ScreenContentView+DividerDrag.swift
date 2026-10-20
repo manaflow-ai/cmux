@@ -37,7 +37,7 @@ extension ScreenContentView {
                                         snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
-                let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
+                let size = layout.columns.first { $0.id == id }.map { $0.minimumSize(style: context.style) } ?? .zero
                 let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
                 let grab: CGFloat = switch edge {
                 case .right?: point.x - frame.minX

@@ -1,8 +1,8 @@
 // Leo 2026-10-18: closing or opening a workspace re-mounts its New Tab page, which read every settled
 // value again and jittered: the Chats list emptied and refilled (a `chats.page` read on each mount),
-// and the machine chip flipped from "This Mac" to the machine's name after the handshake. A list that
-// mounts again draws the rows it last showed on its first frame and reads its first page only when the
-// chat index pushed a change since; the machine's name is known before the handshake.
+// and the machine chip flipped from "This Mac" to the machine's name after the handshake (that half is
+// #22211's, new-tab-first-frame-project.test.ts). A list that mounts again draws the rows it last
+// showed on its first frame and reads its first page only when the chat index pushed a change since.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -96,14 +96,4 @@ test("a chat that changed while no list was mounted is read once by the next lis
   await settle();
   expect(reads).toBe(2);
   expect(host.textContent).toContain("cg-steward-old");
-});
-
-test("a New Tab machine chip names this Mac before the handshake of a page that mounts later", async () => {
-  const { newTabMachineName, rememberMachineName } = await import("../src/agent-session/acpmux/newtab/settledCache");
-  rememberMachineName("cosmic-gray");
-  expect(newTabMachineName(undefined)).toBe("cosmic-gray");
-  // A handshake without a name keeps the last; the page's own handshake wins once it answers.
-  rememberMachineName(undefined);
-  expect(newTabMachineName(undefined)).toBe("cosmic-gray");
-  expect(newTabMachineName("huge-blue")).toBe("huge-blue");
 });

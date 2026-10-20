@@ -35,6 +35,43 @@ export interface AddressHead {
   readonly texted: boolean
   /** Texting Chief: the pending sign-in link and the binding (text-link.ts). Absent in old heads. */
   readonly link?: LinkState
+  /**
+   * Message requests (home-messaging-invites DESIGN 2.3): invites the address owner dismissed
+   * (hidden from their Requests, silent to the sender), at most MAX_DISMISSED. Absent in old heads.
+   */
+  readonly dismissed?: ReadonlyArray<string>
+  /** Senders the address owner blocked: their later invites are recorded `suppressed`, never sent or listed. At most MAX_BLOCKED. */
+  readonly blocked_inviters?: ReadonlyArray<string>
+}
+
+export const MAX_DISMISSED = 100
+export const MAX_BLOCKED = 200
+/** Requests listed at once, newest first (DESIGN 2.4). */
+export const MAX_REQUESTS = 20
+/** A request lives as long as its invite (home-messaging.md section 2: 14 days). */
+export const REQUEST_TTL_MS = 14 * 24 * 3_600_000
+
+/** One message request: an invite to this address that its owner has not dismissed. */
+export interface AddressRequest {
+  readonly invite: string
+  readonly conversation: string
+  readonly inviter: string
+  readonly at: number
+}
+
+/**
+ * The address owner's open message requests: deliveries that are not dismissed, not from a
+ * blocked sender, not suppressed, and younger than the invite's lifetime; newest first, at most
+ * MAX_REQUESTS. Whether each invite is still pending is the conversation's to say.
+ */
+export const openRequests = (head: AddressHead, now: number): ReadonlyArray<AddressRequest> => {
+  const dismissed = new Set(head.dismissed ?? [])
+  const blocked = new Set(head.blocked_inviters ?? [])
+  return head.deliveries
+    .filter((d) => !dismissed.has(d.invite) && !blocked.has(d.inviter) && d.state !== "suppressed" && d.state !== "recipient_limited" && now - d.at < REQUEST_TTL_MS)
+    .sort((a, b) => b.at - a.at)
+    .slice(0, MAX_REQUESTS)
+    .map((d) => ({ invite: d.invite, conversation: d.conversation, inviter: d.inviter, at: d.at }))
 }
 
 export const MAX_DELIVERIES = 50
@@ -92,7 +129,8 @@ export const addressDomain: Domain<AddressHead, Params> = {
         const prior = head.deliveries.find((d) => d.invite === invite)
         if (prior) return { ok: true, state: head, value: { send: false, state: prior.state, first_text: false }, changed: false }
         const base = { invite, conversation, inviter, provider_id: null, at: ctx.now }
-        if (head.suppression) {
+        // A blocked sender's invite is recorded as suppressed: never sent, never listed (DESIGN 2.3).
+        if (head.suppression || (head.blocked_inviters ?? []).includes(inviter)) {
           const r: DeliveryRecord = { ...base, state: "suppressed" }
           return { ok: true, state: { ...head, deliveries: record(head, r) }, value: { send: false, state: r.state }, outbox: report(r) }
         }
@@ -137,6 +175,20 @@ export const addressDomain: Domain<AddressHead, Params> = {
         if (head.linked_user === user) return { ok: true, state: head, value: summary(head), changed: false }
         const next = { ...head, linked_user: user }
         return { ok: true, state: next, value: summary(next) }
+      }
+      case "address.request.dismiss": {
+        // Built by the Worker for the verified owner of this address (home-routes.ts): hides one
+        // request; with `block`, also every later invite from its sender. Silent to the sender.
+        const { invite, block } = params
+        if (!str(invite) || (block !== undefined && typeof block !== "boolean")) return refuse("invalid_params")
+        const delivery = head.deliveries.find((d) => d.invite === invite)
+        if (!delivery) return refuse("unknown_invite")
+        const dismissed = head.dismissed ?? []
+        const blocked = head.blocked_inviters ?? []
+        const nextDismissed = dismissed.includes(invite) ? dismissed : [...dismissed, invite].slice(-MAX_DISMISSED)
+        const nextBlocked = block !== true || blocked.includes(delivery.inviter) ? blocked : [...blocked, delivery.inviter].slice(-MAX_BLOCKED)
+        if (nextDismissed === dismissed && nextBlocked === blocked) return { ok: true, state: head, value: null, changed: false }
+        return { ok: true, state: { ...head, dismissed: nextDismissed, blocked_inviters: nextBlocked }, value: null }
       }
       case "address.text_link.request": {
         // Built by the Worker from the requesting session; the user is the requester.
