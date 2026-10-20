@@ -103,7 +103,7 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
 
     /// Live check (switch row): a browser workspace made on the phone opens
     /// its page under the placeholder tab id; the Mac's real tab id must take
-    /// it over, or the redial reopens the real tab's blank page.
+    /// it over, or the redial reopens a new blank host for the real id.
     @Test func aPlaceholderTabsPageMovesToTheRealTab() async throws {
         let directory = StreamedBrowserDirectory()
         let first = FakeOpener()
@@ -121,8 +121,8 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         directory.opener = { second }
         directory.linkChanged()
         await until { !second.tabs.isEmpty }
-        #expect(second.tabs == ["s108"])
-        #expect(second.lock.withLock { second.opens.first?.url } == "https://example.org/typed")
+        // The same Mac host (its key stays the placeholder's): the page, history and all.
+        #expect(second.tabs == ["new-ab12-t1"])
     }
 
     @Test func tabsTheMacNoLongerListsAreDropped() async throws {

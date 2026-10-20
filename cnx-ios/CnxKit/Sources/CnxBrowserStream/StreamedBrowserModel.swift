@@ -56,9 +56,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         case unavailable
     }
 
-    /// The tab's key on the Mac. A new workspace's placeholder tab gets the
-    /// Mac's real id once it exists (``StreamedBrowserDirectory/rename(tab:to:)``).
-    public private(set) var tab: String
+    /// The tab's key for its Mac browser host (a new workspace's page keeps
+    /// its placeholder tab's key after the Mac names the tab).
+    public let tab: String
     public private(set) var url: URL?
     public private(set) var title = ""
     public private(set) var canGoBack = false
@@ -227,10 +227,6 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// Whether the page is on screen now (and laid out): what opens again on
     /// a new link (``StreamedBrowserDirectory/linkChanged()``).
     public var isShown: Bool { visible && screen != nil }
-
-    /// The Mac's real id for this tab; the stream open now keeps going, and
-    /// the next open uses it.
-    func retab(_ key: String) { tab = key }
 
     /// Tells the Mac again that this tab is shown (another tab's stream
     /// opened, and an open takes the lane).

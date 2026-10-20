@@ -64,9 +64,10 @@ public final class StreamedBrowserDirectory {
         Task { await opener()?.warmMedia() }
     }
 
-    /// A new workspace's placeholder tab became the Mac's real tab: its page
-    /// keeps going under the real id (it opened under the placeholder's, and
-    /// a redial must reopen this page, not the real tab's blank one).
+    /// A new workspace's placeholder tab became the Mac's real tab: the
+    /// phone finds its page under the real id. The page keeps its Mac host's
+    /// key (the placeholder's), so a redial reopens this page, history and
+    /// all, not a new blank host for the real id.
     public func rename(tab old: String, to new: String) {
         guard old != new, let model = models.removeValue(forKey: old) else {
             log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public): no model")
@@ -74,7 +75,6 @@ public final class StreamedBrowserDirectory {
         }
         log.notice("browser rename \(old, privacy: .public) -> \(new, privacy: .public)")
         models.removeValue(forKey: new)?.close()
-        model.retab(new)
         models[new] = model
     }
 
