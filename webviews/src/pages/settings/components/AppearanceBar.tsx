@@ -48,6 +48,7 @@ export function AppearanceBar() {
       data-appearance-bar=""
     >
       {pending ? (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline confirm in the bar's row; a fieldset would bring its own box
         <span className="appearance-bar-confirm" role="group">
           <span className="appearance-bar-question">
             {pending === "opened"

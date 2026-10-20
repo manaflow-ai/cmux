@@ -220,7 +220,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 let live = services.cache.incognitoDisplay(tab)
                 (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
             } else {
-                item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: state?.profileID)
+                // The room's browser profile, not the room: a room switch wakes no tab item (space-switch-fast).
+                item.profileBadge = state.map { services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, roomBrowserProfile: $0.roomBrowserProfileID) }
+                    ?? services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: nil)
                 if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
             }
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
