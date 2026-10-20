@@ -1,0 +1,160 @@
+/* The Mobile Pairing page: a header, three numbered steps, then one panel for the current step on
+   the shared page backdrop (pageBase.css). The QR code stays dark on white in every theme. */
+.pairing {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 24px 16px 32px;
+  user-select: text;
+}
+
+.pairing-header {
+  margin-bottom: 16px;
+}
+
+.pairing-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+}
+
+.pairing-subtitle,
+.pairing-muted {
+  color: var(--page-text-3);
+}
+
+.pairing-subtitle {
+  margin: 2px 0 0;
+}
+
+.pairing-message {
+  margin: 12px 0;
+}
+
+.pairing-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.pairing-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--page-text-3);
+}
+
+.pairing-step.is-current,
+.pairing-step.is-done {
+  color: var(--page-text);
+}
+
+.pairing-step-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--page-separator);
+  border-radius: 50%;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.pairing-step.is-current .pairing-step-mark {
+  border-color: var(--cmux-accent, currentColor);
+}
+
+.pairing-step.is-done .pairing-step-mark {
+  border-color: transparent;
+  background: var(--cmux-accent, currentColor);
+  color: var(--cmux-on-accent, Canvas);
+}
+
+.pairing-panel {
+  padding: 14px 16px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+}
+
+.pairing-body {
+  margin: 0 0 12px;
+}
+
+.pairing-failure-detail {
+  margin: 0 0 12px;
+  color: var(--page-text-3);
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  overflow-wrap: anywhere;
+}
+
+.pairing-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 14px;
+}
+
+.pairing-qr {
+  width: 200px;
+  height: 200px;
+  border-radius: 8px;
+  background: white;
+  image-rendering: pixelated;
+}
+
+.pairing-code .pairing-body {
+  margin: 0;
+  text-align: center;
+}
+
+.pairing-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.pairing-footer p {
+  margin: 0 0 4px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+
+.pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pairing-button {
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  padding: 4px 12px;
+  background: var(--page-elevated);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  cursor: default;
+}
+
+.pairing-button.is-primary {
+  border-color: transparent;
+  background: var(--cmux-accent, ButtonFace);
+  color: var(--cmux-on-accent, ButtonText);
+}
+
+.pairing-button:focus-visible {
+  outline: 2px solid var(--cmux-accent, currentColor);
+  outline-offset: 1px;
+}
+
+output.pairing-body {
+  display: block;
+}
