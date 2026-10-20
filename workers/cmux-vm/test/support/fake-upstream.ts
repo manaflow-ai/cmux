@@ -6,6 +6,7 @@
  */
 
 export interface FakeVm {
+  vpcs?: ReadonlyArray<{ readonly vpc: string; readonly vpcId?: string | null; readonly ipv4?: string | null }>;
   id: string;
   slug?: string | null;
   state: string;
@@ -60,6 +61,7 @@ const VM_PATH = /^\/v5\/vms\/([^/]+)(?:\/(.+))?$/;
 const SNAPSHOT_PATH = /^\/v5\/snapshots\/([^/]+)$/;
 
 const vmBody = (vm: FakeVm) => ({
+  ...(vm.vpcs === undefined ? {} : { vpcs: vm.vpcs }),
   id: vm.id,
   slug: vm.slug ?? `tenant-slug-${vm.id}`,
   snapshotId: vm.snapshotId ?? `sc-${vm.id}`,
