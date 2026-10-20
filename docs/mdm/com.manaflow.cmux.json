@@ -890,6 +890,16 @@
       "title" : "Titlebar Height",
       "type" : "number"
     },
+    "appearance.paneBackgrounds" : {
+      "default" : "shared",
+      "description" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.",
+      "enum" : [
+        "shared",
+        "perPane"
+      ],
+      "title" : "Pane Backgrounds",
+      "type" : "string"
+    },
     "appearance.saturation" : {
       "default" : 1,
       "description" : "Increase or reduce the tint color intensity.",
@@ -1235,6 +1245,14 @@
       },
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
+    },
+    "browser.keepNeighborTabsAwake" : {
+      "default" : 1,
+      "description" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off.",
+      "maximum" : 3,
+      "minimum" : 0,
+      "title" : "Keep Neighbor Tabs Awake",
+      "type" : "number"
     },
     "browser.links.cmdClick" : {
       "default" : "backgroundTab",
