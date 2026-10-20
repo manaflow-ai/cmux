@@ -9,7 +9,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
     public var bottomPadding: CGFloat
     public var sectionHeaderHeight: CGFloat
     public var sectionSpacing: CGFloat
-    public var groupHeaderHeight: CGFloat
+    /// A group or folder header: always the one-line workspace row height, never a number of its own.
+    public var groupHeaderHeight: CGFloat { rowHeight }
     /// Workspace row with one line.
     public var rowHeight: CGFloat
     /// Workspace row with a secondary detail line.
@@ -27,14 +28,13 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
 
     public init(
         topPadding: CGFloat, bottomPadding: CGFloat, sectionHeaderHeight: CGFloat, sectionSpacing: CGFloat,
-        groupHeaderHeight: CGFloat, rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
+        rowHeight: CGFloat, rowHeightWithSubtitle: CGFloat, tabRowHeight: CGFloat, rowSpacing: CGFloat,
         groupBottomPadding: CGFloat, emptySectionHeight: CGFloat
     ) {
         self.topPadding = topPadding
         self.bottomPadding = bottomPadding
         self.sectionHeaderHeight = sectionHeaderHeight
         self.sectionSpacing = sectionSpacing
-        self.groupHeaderHeight = groupHeaderHeight
         self.rowHeight = rowHeight
         self.rowHeightWithSubtitle = rowHeightWithSubtitle
         self.tabRowHeight = tabRowHeight
@@ -43,15 +43,15 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers. A
-    /// group header keeps its solid bar in the group's color, only shorter (Lawrence 2026-10-18).
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
+    /// header follows `rowHeight`). A group header keeps its solid bar in the group's color, only
+    /// shorter (Lawrence 2026-10-18).
     public var minimal: SidebarLayoutMetrics {
         var m = self
         let step = (rowHeight * 0.17).rounded()
         m.rowHeight -= step
         m.rowHeightWithSubtitle -= step
         m.tabRowHeight -= step
-        m.groupHeaderHeight = m.rowHeight
         return m
     }
 

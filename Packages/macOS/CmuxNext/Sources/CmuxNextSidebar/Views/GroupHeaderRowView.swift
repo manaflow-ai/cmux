@@ -228,7 +228,8 @@ final class GroupHeaderRowView: SidebarRowView {
         // One full-width rounded bar (the Chrome tab group header) whose
         // radius, padding, type and glyphs scale with the row height
         // (the sidebar density: compact 24, comfortable 32 pt).
-        let barHeight = SidebarStyle.groupHeaderBarHeight(rowHeight: b.height)
+        // The bar fills the row (as tall as a workspace row); the type and glyphs keep their scale.
+        let barHeight = SidebarStyle.groupHeaderContentHeight(rowHeight: b.height)
         let pad = (barHeight * 0.62).rounded()
         // The name starts where ungrouped rows start (`SidebarStyle.horizontalInset`): an icon
         // on their icon column with the name on their text column, or the name alone on it.
@@ -291,8 +292,8 @@ final class GroupHeaderRowView: SidebarRowView {
         count.isHidden = countWidth == 0
         count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
-        // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
-        pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
+        // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
+        pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
         pill.cornerRadius = (barHeight * 0.23).rounded()
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
