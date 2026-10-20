@@ -28,6 +28,8 @@ parsing, test compilation, executed tests and runtime evidence.
 | User-facing strings and localization | [cmux-localization](cmux-localization/SKILL.md) |
 | CLI/socket implementation, threading and focus | [cmux-socket-policy](cmux-socket-policy/SKILL.md) |
 | Any cmux-next feature, action, setting, op or agent capability (standing rules) | [cmux-next-feature](cmux-next-feature/SKILL.md) |
+| cmux-next web UI, agent-pane, composer, sidebar and gallery styling | [cmux-ui-style](cmux-ui-style/SKILL.md) |
+| Review cmux-next UI work against references, tokens, live gallery and accessibility | [cmux-ui-review](cmux-ui-review/SKILL.md) |
 | Agent session partitioning, ACPM coordination and daemon-local mailbox policy | [cmux-acpmux](cmux-acpmux/SKILL.md) |
 | Run Claude Code or Codex agents in background cmux terminals, detect turn ends (OSC 7501 and fallbacks), read answers, continue them | [cmux-terminal-agents](cmux-terminal-agents/SKILL.md) |
 | Triage tester bug reports (screenshots + notes): split, dedup, score, fix now / batch / skip, spawn tasks | [cmux-bug-triage](cmux-bug-triage/SKILL.md) |

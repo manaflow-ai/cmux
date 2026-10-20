@@ -196,6 +196,28 @@ Use these existing owners instead of duplicating their checklists here:
 | Tests or target wiring | [cmux-testing](skills/cmux-testing/SKILL.md); CmuxNext tests need no wiring; the `cmux` CLI is cmux-tui Rust (tests run with cargo on a Testbox or CI) |
 | Multiple entrypoints or a bug that tests previously missed | [cmux-shared-behavior](skills/cmux-shared-behavior/SKILL.md); share action/mutation paths, verify every entrypoint, and cover the missed repro |
 
+## Web UI and gallery working agreement
+
+The Vite gallery is the canonical visual review surface for cmux-next web UI. Keep gallery work in
+the existing `*.gallery.tsx` entries, use the shared theme tokens and shipped components, and review
+the exact dark/light route at its declared width before calling a treatment complete. The gallery
+shell supplies the window chrome; entries must not add a second simulated titlebar, traffic lights,
+glass gradients, or hard-coded fallback colors. Stable specimens should use the same component path
+as the product surface (for example, `SessionPreviewCard`/`AnchoredCard` for sidebar previews and
+`ComposerPickers`/`EffortTrack` for reasoning controls).
+
+For visual comparison work, preserve `:root[data-borders="none"]`, reduced motion, keyboard focus,
+portal/layer behavior, and light/dark parity. A variant must change a real visual property and be
+visible without a transient hover or unopened menu. Record the route, theme, width, screenshot,
+accessibility tree, focused typecheck, and independent read-only review in the handoff. Reviewers
+should inspect reference fidelity, token/component ownership, gallery reproducibility, and live
+dogfood separately.
+
+Reasoning controls should let the selected level and native scale speak for themselves. Avoid
+recommendation labels and explanatory endpoint slogans such as `Faster` and `Smarter` when the
+model chip, stops, and available level names already communicate the choice; extra copy adds noise
+and talks down to experienced users.
+
 ## Remote CLI relay
 
 For v2 socket methods and remote CLI changes, read [relay authorization](skills/cmux-socket-policy/references/remote-relay-authorization.md).

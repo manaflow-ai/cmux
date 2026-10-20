@@ -760,11 +760,14 @@
   background: var(--acpmux-send-fill);
   color: var(--acpmux-send-ink);
 }
-/* Send and Stop are the bar's 28 px. Stop is a solid disc in the text color with a square in the
-   base color, the theme inverted, so a running turn reads as live and never as an empty draft's
-   faint, off Send (design panel Q4-B: the faint disc read as disabled). Its hover and press steps
-   are composerStates.css's. */
-.acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
+/* Send and Stop share the footer's 30 px optical target. The small-radius square keeps the
+   accent action aligned with the mic's larger hit area while its 16 px arrow stays on the same
+   center line as the other footer glyphs. Stop keeps the same geometry and only swaps the fill. */
+.acpmux-composer-bar .acpmux-send {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--ui-row-radius, 8px);
+}
 .acpmux-composer-bar .acpmux-send.acpmux-cancel {
   background: var(--agent-text);
   color: var(--acpmux-base);
