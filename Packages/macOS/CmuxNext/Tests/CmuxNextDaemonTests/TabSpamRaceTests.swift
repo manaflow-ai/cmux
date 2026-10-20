@@ -129,7 +129,8 @@ private struct SpamRun {
     mutating func closeSelected() {
         guard let tab = shownTabs().last, tab.surface != Self.baseSurface else { return check("Cmd-W (nothing)") }
         let cancelled = store.creations.cancel(tab: tab.id)
-        daemon.log.append("Cmd-W on \(ProvisionalTab.isProvisional(surface: tab.surface) ? "provisional" : "\(tab.surface.rawValue)") cancelled=\(cancelled)")
+        let owner = provisionalIDs.first(where: { $0.value == tab.id })?.key.rawValue.prefix(8) ?? "-"
+        daemon.log.append("Cmd-W on \(ProvisionalTab.isProvisional(surface: tab.surface) ? "provisional tx=\(owner)" : "\(tab.surface.rawValue)") cancelled=\(cancelled)")
         if cancelled {
             closedIDs.insert(tab.id)
             if let transaction = provisionalIDs.first(where: { $0.value == tab.id })?.key {
@@ -171,7 +172,8 @@ private struct SpamRun {
 
     mutating func check(_ step: String) {
         steps += 1
-        daemon.log.append("\(steps) \(step) shown=\(shownTabs().map { ProvisionalTab.isProvisional(surface: $0.surface) ? "p" : "\($0.surface.rawValue)" })")
+        let visible = shownTabs()
+        daemon.log.append("\(steps) \(step) shown=\(visible.filter { !ProvisionalTab.isProvisional(surface: $0.surface) }.map(\.surface.rawValue).suffix(4))+\(visible.filter { ProvisionalTab.isProvisional(surface: $0.surface) }.count)p intents=\(store.pendingIntents.count)")
         guard !failed else { return }
         var problems: [String] = []
         let shown = shownTabs()

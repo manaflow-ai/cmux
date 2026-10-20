@@ -52,9 +52,10 @@ public struct ProvisionalTab: Sendable, Hashable {
         if case .paneAdded(let delta) = event { return echoedSplit(delta, transaction: transaction, in: store) }
         guard case .tabAdded(let delta) = event,
               let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
-              entry.createdSurface != delta.surface, // `matched` paired it already
               let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
+        let paired = entry.createdSurface == delta.surface // `matched` paired it already: now it is sure
         store.intentLog.noteCreated(transaction, surface: delta.surface)
+        guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
@@ -110,7 +111,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         // The newest daemon tab of the pane (daemon surfaces count up; provisional ones live above them).
         let daemonTabs = store.pane(delta.pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= delta.surface.rawValue }) else { return }
-        store.intentLog.noteCreated(entry.transaction, surface: delta.surface)
+        store.intentLog.noteCreated(entry.transaction, surface: delta.surface, confirmed: false)
         guard !entry.closeWhenCreated else { return }
         let id = provisional.tabResourceID?.rawValue ?? ""
         if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }

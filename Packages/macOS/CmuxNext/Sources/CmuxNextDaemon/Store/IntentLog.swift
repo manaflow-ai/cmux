@@ -47,6 +47,9 @@ struct PendingIntent {
     /// A create intent whose reply named the daemon's tab: once the records hold that surface,
     /// the provisional tab is no longer shown.
     var createdSurface: SurfaceID?
+    /// `createdSurface` came from the daemon naming this transaction (its echo or reply), not
+    /// from ``ProvisionalTab/matched(_:in:)``'s guess. Only a confirmed surface is ever closed.
+    var createdConfirmed = false
     /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
     /// it leaves the log once they hold it, or with the next snapshot.
     var awaitsRecords = false
@@ -203,8 +206,20 @@ struct IntentLog {
         entries.modifyFirst(where: { $0.transaction == transaction }) { $0.replySurface = surface }
     }
 
-    mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID) {
-        entries.modifyFirst(where: { $0.transaction == transaction }) { $0.createdSurface = surface }
+    /// `confirmed`: the daemon named `transaction` with `surface`; a guess elsewhere that named
+    /// the same surface is dropped (that create's own echo or reply will name its tab).
+    mutating func noteCreated(_ transaction: ClientTransactionID, surface: SurfaceID, confirmed: Bool = true) {
+        entries.modifyFirst(where: { $0.transaction == transaction }) {
+            $0.createdSurface = surface
+            if confirmed { $0.createdConfirmed = true }
+        }
+        guard confirmed else { return }
+        entries = entries.map { entry in
+            guard entry.transaction != transaction, entry.createdSurface == surface, !entry.createdConfirmed else { return entry }
+            var entry = entry
+            entry.createdSurface = nil
+            return entry
+        }
     }
 
     /// False (nothing set) when `index` is not in the log.

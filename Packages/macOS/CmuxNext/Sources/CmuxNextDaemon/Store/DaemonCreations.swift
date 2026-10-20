@@ -79,6 +79,10 @@ extension CancelledCreation {
     static func requestCloses(in store: DaemonStore) {
         guard !store.overlayLifted else { return }
         for entry in store.intentLog.entries where entry.closeWhenCreated && !entry.closeRequested {
+            // A create's tab paired by a guess (``ProvisionalTab/matched(_:in:)``) is hidden but
+            // closed only once the daemon names it for this transaction: a wrong guess never
+            // closes another create's tab.
+            if case .createTab = entry.kind, !entry.createdConfirmed, entry.replySurface == nil { continue }
             guard let surface = closeSurface(entry) else { continue }
             store.intentLog.noteCloseRequested(entry.transaction)
             store.intentLog.closeCancelled?(entry.transaction, surface)
