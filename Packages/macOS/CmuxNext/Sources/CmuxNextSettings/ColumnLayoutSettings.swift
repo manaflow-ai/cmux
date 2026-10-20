@@ -4,7 +4,7 @@ public import CoreGraphics
 /// Column and split defaults in cmux.json (plans/cmux-next/column-sizing.md):
 /// `layout.splitSizing`, `layout.newColumnWidth`, `layout.dockColumnEdge`,
 /// `layout.dockColumnMode`, `layout.frameOrientation`, `layout.minimumPaneWidth`,
-/// `layout.minimumPaneHeight`, `layout.rows`. A missing key is the default with no
+/// `layout.minimumPaneHeight`, `layout.rows`, `layout.focusPaneOnScroll`. A missing key is the default with no
 /// diagnostic; a bad value is the default plus a diagnostic.
 public nonisolated enum ColumnLayoutSettings {
     public static let splitSizingPath = ["layout", "splitSizing"]
@@ -106,6 +106,16 @@ public nonisolated enum ColumnLayoutSettings {
             }
         } else {
             snapshot.layoutRows = rowsFallback
+        }
+        if let value = root.value(at: focusPaneOnScrollPath) {
+            if let on = value.boolValue {
+                snapshot.focusPaneOnScroll = on
+            } else {
+                snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "layout.focusPaneOnScroll", message: "expected true or false"))
+            }
+        } else {
+            snapshot.focusPaneOnScroll = focusPaneOnScrollFallback
         }
         snapshot.diagnostics += diagnostics
     }
