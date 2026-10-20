@@ -1091,6 +1091,9 @@ impl Brain {
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let owner_stopped = std::mem::take(&mut self.owner_stopped);
+        // A turn the owner stopped posts nothing, even one that ended
+        // normally before it saw the interrupt (the stop was accepted).
+        let quiet = superseded || owner_stopped;
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
         // them as still open, and a later "hi" got the answer to a message
@@ -1102,22 +1105,19 @@ impl Brain {
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
             Some(error)
-                if !(superseded
-                    || owner_stopped && outcome.cancelled
-                    || outcome.orphan.is_some()
-                    || steered_waits) =>
+                if !(quiet || outcome.orphan.is_some() || steered_waits) =>
             {
                 Some(failure_note(error))
             }
             _ => None,
         };
-        if owner_stopped && outcome.cancelled {
+        if owner_stopped {
             (self.log)(&format!("turn {key} stopped by the owner: nothing posted"));
         }
         let text = ended_turn_text(
             outcome.reply,
             outcome.error,
-            superseded || owner_stopped && outcome.cancelled,
+            quiet,
             outcome.refused,
             &failed,
         );
@@ -1175,8 +1175,8 @@ impl Brain {
             .cloned()
             .collect();
         // Work announced as pending that this turn closes: a silent turn
-        // still answers with a done marker.
-        let closes = !superseded
+        // still answers with a done marker, unless the owner stopped it.
+        let closes = !quiet
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
