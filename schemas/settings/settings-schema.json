@@ -138,7 +138,7 @@
               "markdown.font.preset",
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
+              "markdown.code.scale",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -639,7 +639,7 @@
               "markdown.font.preset",
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
-              "markdown.code.blockSize",
+              "markdown.code.scale",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -14439,9 +14439,9 @@
     },
     {
       "accepts" : [
-        40,
-        160,
-        100
+        30,
+        1000,
+        515
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -14456,7 +14456,7 @@
       },
       "help" : {
         "key" : "settings.markdown.width.help",
-        "text" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box."
+        "text" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."
       },
       "kept_on_reset_all" : false,
       "key" : "markdown.layout.width",
@@ -14468,7 +14468,10 @@
         "max width",
         "column",
         "measure",
-        "line length"
+        "line length",
+        "wide",
+        "ultrawide",
+        "monitor"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -14478,15 +14481,15 @@
         "width"
       ],
       "range" : {
-        "max" : 160,
-        "min" : 40,
+        "max" : 1000,
+        "min" : 30,
         "placeholder" : 72,
-        "step" : 2,
+        "step" : 1,
         "unit" : "count"
       },
       "refuses" : [
-        -80,
-        280,
+        -940,
+        1970,
         "1"
       ],
       "section" : "appearance",
@@ -14795,6 +14798,66 @@
     },
     {
       "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0.875,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeScale.help",
+        "text" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.scale",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeSize",
+        "text" : "Code Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         8,
         32,
         20
@@ -14804,7 +14867,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 14,
+      "default" : null,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.markdownViewer",
@@ -14823,7 +14886,7 @@
         "monospace"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "markdown",
         "code",
@@ -14844,8 +14907,8 @@
       "section" : "appearance",
       "summary" : null,
       "title" : {
-        "key" : "settings.markdown.codeSize",
-        "text" : "Code Font Size"
+        "key" : "settings.markdown.codeBlockSize",
+        "text" : "Code Block Size"
       },
       "validation" : "portable"
     },
@@ -19376,7 +19439,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -29497,7 +29560,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c8c1e797a9815762d93ed001c7052b64df6c36b2f96d88190f6c9296ae207871",
+  "schema_hash" : "c51e296d01a0cf71e80d2ac81b856c7a6ae292d8fb69f157e5b5f3510648fb7f",
   "sections" : [
     {
       "id" : "general",
