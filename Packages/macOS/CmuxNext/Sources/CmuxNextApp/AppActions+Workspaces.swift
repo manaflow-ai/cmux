@@ -146,10 +146,8 @@ extension AppActions {
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
         let daemon = services.activeDaemon
-        // A workspace of a machine that is not connected (a paused Cloud VM) cannot close: say so, never hide the row and put it back.
-        guard daemon.connection != nil else {
-            return services.registry.refuse(RemoteStrings.closeMachineNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID))
-        }
+        // A workspace of a machine that is not connected (a paused Cloud VM) leaves now and closes when the machine connects.
+        guard daemon.connection != nil else { return WorkspaceCloseWhenConnected.close(workspace, key: key, on: daemon, services: services) }
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
         let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
