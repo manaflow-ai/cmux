@@ -838,10 +838,12 @@ public final class LiveCoordinator {
             // own `daemon` channel of this link; open ones reattach now. Input-lane
             // channels may ride another stream, so they wait for pairing here.
             self.terminals.removeAll { $0.session == nil }
-            let attach = Set(DaemonTerminalSession.surfacesToReattach(self.terminals.compactMap { $0.session?.surface },
-                                                     tree: self.workspaces.tree.map { Set($0.surfaces.values) }))
-            for terminal in self.terminals where terminal.session.map({ attach.contains($0.surface) }) == true {
-                terminal.session?.reconnect()
+            let tree = self.workspaces.tree
+            for terminal in self.terminals {
+                guard let session = terminal.session,
+                      DaemonTerminalSession.shouldReattach(surface: session.surface, terminalID: session.terminalID, tree: tree)
+                else { continue }
+                session.reconnect()
             }
             // Streamed browser tabs that dropped open again on this link.
             StreamedBrowserDirectory.shared.linkChanged()
@@ -1049,7 +1051,8 @@ public final class LiveCoordinator {
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
         let info = ["name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": identity.link]
-        let session = DaemonTerminalSession(surface: surface, programName: program, clientInfo: info, open: { [weak self] in
+        let terminalID = workspaces.tree?.terminals[tabID].map { $0.resourceID ?? $0.id }
+        let session = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
             guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
@@ -1216,6 +1219,11 @@ public final class LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        // Streamed browser tabs of workspaces closed on the Mac go: a redial
+        // must not open them again (transport-verify-20261019.md defect 7).
+        // This phone's pending workspaces keep theirs.
+        StreamedBrowserDirectory.shared.retain(
+            tabs: Set(tree.surfaces.keys).union(store.workspaces.flatMap { $0.tabs.map(\.id) }))
         ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
@@ -1252,6 +1260,7 @@ public final class LiveCoordinator {
     private func observeLink() {
         withObservationTracking {
             _ = link.phase
+            _ = link.media
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.phaseChanged()
@@ -1295,7 +1304,7 @@ public final class LiveCoordinator {
         updateMacState(phase, target: target)
         var status = store.macLinkStatus
         status = [:]
-        if let target, let line = phase.statusLine(macName: target.name) {
+        if let target, let line = phase.statusLine(macName: target.name, media: link.media) {
             var parts = [line]
             if phase.isConnected, let chatsError { parts.append("Chats: \(chatsError)") }
             if outdatedMacs.contains(target.macID) { parts.append("Update cmux on this Mac") }

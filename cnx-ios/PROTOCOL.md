@@ -116,7 +116,10 @@ with 4001 `moved`.
   overwriting any client value. `cnx-hostd` admits a dial only when `fromUserId` equals the Mac's
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
-  - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
+  - `webrtc-offer` `{sdp, lanes?, mediaFor?}`, `webrtc-answer` `{sdp, lanes?}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`.
+    An offer with `mediaFor` (added 2026-10-19) opens a media session for
+    the WireGuard link with that session id, not a link of its own ("Media
+    session" below).
   - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
     `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
     `relayed` (optional) lists which of the sender's endpoints are its TURN
@@ -333,6 +336,67 @@ channel its own SCTP stream:
   because the daemon gives geometry authority to the attaching client.
   Output, attach streams, `acpmux` and `file` stay bulk.
 
+### Media session (`webrtc-media`; added 2026-10-19, backward compatible)
+
+WireGuard carries the link, and a WebRTC peer connection to the same Mac
+carries browser video beside it (verify/hybrid-link.md). WebRTC is used only
+where it is the better path for latency: a media stack with its own ICE
+candidates (direct or TURN over UDP), SRTP and congestion feedback, and a
+path chosen without waiting on the tunnel's.
+
+- **Negotiation.** The phone lists `"webrtc-media"` in `wg-init` `lanes`
+  next to `video`; a Mac that will answer media sessions for the link lists
+  it back in `wg-resp`, and only when it also attached the tunnel's media
+  lane (`video`), which stays the floor. Older peers leave it out and video
+  rides RTP in the tunnel as before.
+- **Opening.** The phone opens the session on demand: when a browser tab is
+  shown, or ahead of it when the shown workspace has browser tabs (a
+  warm-up that lasts a minute). The link and the terminal never wait for
+  it. Its first signal is a `webrtc-offer` on a new session id with
+  `lanes: ["video"]`, `mediaFor: <the WireGuard link's session id>` and one
+  `recvonly` H.264 m-line (the media lane's codec, feedback and TWCC
+  extension, below); there is no data channel. Candidates trickle through
+  `webrtc-ice` as for a WebRTC link, with the same `GET /v1/ice` servers.
+- **Admission (no new trust path).** The TeamHub forwards the offer like any
+  first signal (the Mac's owner's own phone, `fromUserId` stamped by the
+  hub). cnx-hostd answers only when `fromUserId` is its owner (as for a
+  dial), `mediaFor` names a live WireGuard link that listed `webrtc-media`,
+  the offer's `from` is that link's phone device, and, with pairing on, that
+  link passed `auth`. Otherwise it answers `bye {reason}` with
+  `unknown_link` or `unpaired`. Its answer has one `sendonly` track and
+  `lanes: ["video"]`. A newer session for the same link replaces the older;
+  every session ends with its link.
+- **Video.** The session's track is a second route of the link's media lane
+  (the same RTP stream format, NACK, PLI, FIR and TWCC as "Media lane"
+  below). The Mac sends each frame on one route: the session's track while
+  its peer connection is connected, else RTP in the tunnel. A route that is
+  current, has packets out and hears no TWCC feedback for 500 ms counts as
+  stalled: video leaves it and it is tried again after 1 s, doubling to
+  16 s (back to 1 s after 10 s of feedback). Video changes route only at a
+  keyframe (the Mac asks its encoder for one, at most every 250 ms); while
+  the old route still works its frames keep going until then, and while it
+  does not the frames in between are dropped, so the phone keeps showing
+  the last frame. The phone takes frames from every route and passes a
+  route's frames only after its keyframe, so a late frame from the old route
+  never reaches the decoder. `video_tag` and the channel fallback are
+  unchanged (with no lane at all, video rides the `browser` channel).
+- **Liveness.** The session's ICE reports disconnected after 3 s without
+  consent answers and failed after 8 s (1 s keepalives). The phone redials a
+  failed or closed session after 1, 2, 4, 8, 16, then every 30 s while video
+  is wanted (back to 1 s after a session that lasted 30 s), and closes it
+  with `bye` 30 s after the last browser tab was hidden.
+- **Input** stays on the WireGuard link's input lane: the session carries no
+  data channel (verify/hybrid-link.md "Input path" has the measurements).
+- **UDP blocked.** webrtc-rs cannot reach TURN over TCP or TLS, so on a
+  network without UDP the session never connects and video stays in the
+  tunnel (which rides TURN over TLS). The phone's Block UDP debug setting
+  gives the session no candidates, so it fails the same way.
+- **Labels.** The phone's link line adds the session: "Connected ·
+  WireGuard direct · video WebRTC (TURN) · 14 ms" ("video in the tunnel"
+  while a failed session waits for its retry). cnx-hostd reports
+  `{"type":"phone_media","session_id":<the link's>,"media_path":"direct"|"turn"|"none"}`
+  and the Mac's iPhone card adds "Video over WebRTC (TURN)".
+
 ### Media lane (`video`; added 2026-10-14, backward compatible)
 
 Browser video as RTP beside the link's reliable streams
@@ -410,7 +474,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
-  `replaced`. `url` must be http, https or `about:blank` (`forbidden`), and
+  `replaced`. At most a host limit of hosts run (`CNX_RB_MAX_TABS`, 4);
+  opening another stops an idle host first, then a hidden tab's, then the
+  least recently used, and that viewer's channel closes `evicted`
+  (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
+  it is shown (at its current address), and on a new link it opens only the
+  tab on screen, never every tab it holds (transport-verify-20261019.md
+  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
   a Mac with no browser host refuses with `unavailable`. Under
   `CNX_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
@@ -422,7 +492,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   rides the link's media lane instead of the channel, on either carrier;
   rd control, input, clock probes and secondary surfaces stay on the
   channel. A newer `browser` channel that asks for the lane takes it, and the
-  older tab's video returns to its channel with a keyframe. A hostd without
+  older tab's video returns to its channel with a keyframe. The phone sends
+  `rb.visibility {visible}` when a tab is shown or hidden (hostd forwards it
+  to the host); `visible: true` on a channel that asked for the lane and lost
+  it takes the lane back, starting at a keyframe (2026-10-20). An older hostd
+  forwards it without moving the lane. A hostd without
   the lane, or an older one, ignores the field and streams on the channel.
   `"video_tag": N` (u32, random per channel): hostd appends it to each of
   this tab's lane access units as an H.264 SEI NAL unit after the slices
@@ -532,8 +606,13 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
 
 ## Transport switch
 
-The app exposes Settings → Connection → Transport: `WebRTC` or `WireGuard`.
-Both produce the same `Link`; switching tears the link down and redials.
+The app exposes Settings → Connection → Transport: "WireGuard (recommended)"
+or "WebRTC only" (2026-10-19). Both produce the same `Link`; switching tears
+the link down and redials. WireGuard is the default for an install with no
+saved choice (it was WebRTC); a saved choice stays. With WireGuard the link
+rides the tunnel and browser video a WebRTC media session beside it ("Media
+session"); "WebRTC only" is the earlier behavior unchanged: the link and
+browser video share one peer connection.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
 network)" and "Block UDP". Both are phone-side dial policies with no wire
@@ -546,8 +625,15 @@ change, and changing either redials.
 - Block UDP (WireGuard; WebRTC ignores it): no plain UDP in or out and no
   TURN over UDP, as on a network that passes only TCP. The link rides TURN
   over TLS on 443 (path `turn-tls`); without a `turns:` or TCP `turn:`
-  server the dial fails at once. The rig sets it without the app's
-  settings: simulator `SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1`.
+  server the dial fails at once. The media session gets no candidates and
+  fails, so browser video stays in the tunnel. The rig sets it without the
+  app's settings: simulator `SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1`.
+- No media session (measurement): simulator
+  `SIMCTL_CHILD_CNX_DEV_NO_WEBRTC_MEDIA=1` leaves `webrtc-media` out of
+  `wg-init`, so browser video rides RTP in the tunnel ("WireGuard only").
+  cnx-hostd: `CNX_WEBRTC_MEDIA=0`, or the test signals `SIGUSR1` (toggle a
+  black hole under every media session's track) and `SIGUSR2` (close every
+  media session).
 
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's

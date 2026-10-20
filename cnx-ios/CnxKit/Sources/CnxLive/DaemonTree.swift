@@ -36,6 +36,10 @@ public struct DaemonTree: Sendable {
     public struct TerminalRef: Hashable, Sendable {
         public var id: String
         public var incarnation: String?
+        /// The terminal's public id (`terminal_resource_id`, `term_…`): it
+        /// stays when the daemon restarts and adopts the terminal, while `id`
+        /// (its host id) does not. What `resolve-terminal` is asked with.
+        public var resourceID: String?
     }
 
     /// The terminal to end with `tab`: its own `pty` terminal, unless another
@@ -158,7 +162,8 @@ public struct DaemonTree: Sendable {
                         surfaces[id] = surface
                         if let paneID = pane["id"] as? Int { places[id] = TabPlace(pane: paneID, index: index) }
                         if tab["kind"] as? String == "pty", let terminal = tab["terminal_id"] as? String, !terminal.isEmpty {
-                            terminals[id] = TerminalRef(id: terminal, incarnation: tab["terminal_incarnation"] as? String)
+                            terminals[id] = TerminalRef(id: terminal, incarnation: tab["terminal_incarnation"] as? String,
+                                                        resourceID: tab["terminal_resource_id"] as? String)
                         }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
                             markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)

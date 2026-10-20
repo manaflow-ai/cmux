@@ -187,6 +187,22 @@ impl SendCarrier {
     }
 }
 
+/// Test and measurement support (Mac side): while set, every WebRTC track
+/// drops its outgoing RTP and the RTCP it receives, as a path that died
+/// under a connected peer connection would. The media lane's route then
+/// stalls and video moves to the WireGuard tunnel (media/routes.rs).
+static BLACKHOLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[doc(hidden)]
+pub fn set_blackhole(on: bool) {
+    BLACKHOLE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[doc(hidden)]
+pub fn blackhole() -> bool {
+    BLACKHOLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 impl MediaCarrier for SendCarrier {
     fn kind(&self) -> CarrierKind {
         CarrierKind::WebRtcTrack
@@ -198,6 +214,9 @@ impl MediaCarrier for SendCarrier {
 
     fn send_rtp<'a>(&'a self, packet: &'a rtp::packet::Packet) -> BoxFuture<'a, Result<(), MediaError>> {
         Box::pin(async move {
+            if blackhole() {
+                return Ok(());
+            }
             match self.track.write_rtp(packet).await {
                 Ok(_) => Ok(()),
                 Err(webrtc::Error::ErrClosedPipe) => Err(MediaError::Closed),
@@ -217,7 +236,14 @@ impl MediaCarrier for SendCarrier {
     }
 
     fn recv_rtcp(&self) -> BoxFuture<'_, Option<RtcpPackets>> {
-        Box::pin(async move { self.sender.read_rtcp().await.ok().map(|(packets, _)| packets) })
+        Box::pin(async move {
+            loop {
+                let packets = self.sender.read_rtcp().await.ok().map(|(packets, _)| packets)?;
+                if !blackhole() {
+                    return Some(packets);
+                }
+            }
+        })
     }
 }
 

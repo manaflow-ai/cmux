@@ -22,11 +22,48 @@ public enum LinkPathKind: String, Sendable {
     case noPath
 }
 
+/// The WebRTC media session beside a WireGuard link, which carries browser
+/// video while it works (verify/hybrid-link.md). Links over WebRTC, and Macs
+/// without media sessions, stay `off`.
+public enum VideoMediaState: Equatable, Sendable {
+    /// No session: no browser tab is shown (or this link has none).
+    case off
+    case connecting
+    /// Up over `path`; `rttMillis` is its ICE pair's round trip.
+    case up(LinkPathKind, rttMillis: UInt32?)
+    /// It failed or dropped: browser video rides the WireGuard tunnel until a retry works.
+    case failed(reason: String)
+
+    /// The status line's part ("video WebRTC (TURN)"), nil when there is
+    /// nothing to add (video then rides the link itself).
+    public var statusLabel: String? {
+        switch self {
+        case .off, .connecting: nil
+        case .up(let path, _): "video WebRTC (\(path == .direct ? "direct" : path.shortName))"
+        case .failed: "video in the tunnel"
+        }
+    }
+}
+
+extension LinkPathKind {
+    /// "TURN", "TURN over TLS" or "no path".
+    var shortName: String {
+        switch self {
+        case .direct: "direct"
+        case .turn: "TURN"
+        case .turnTLS: "TURN over TLS"
+        case .noPath: "no path"
+        }
+    }
+}
+
 /// Connection state shown in banners and Settings.
 public enum LinkState: Equatable, Sendable {
     case idle
     case connecting(TransportKind)
     case connected(TransportKind, LinkPathKind, rttMillis: UInt32?)
+    /// The media session beside a WireGuard link changed.
+    case media(VideoMediaState)
     case disconnected(reason: String)
 }
 

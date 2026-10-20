@@ -10,16 +10,21 @@ public struct CnxPhoneLink: Sendable, Equatable, Identifiable {
     public var transport: String
     /// `direct`, `relay` or `turn`.
     public var path: String
+    /// The WebRTC media session beside a WireGuard link, which carries the
+    /// phone's browser video: its path (`direct`, `turn`), nil when none.
+    public var mediaPath: String?
     /// When the app saw the link come up; set by ``CnxHostState``.
     public var since: Date?
 
     public var id: String { sessionID }
 
-    public init(sessionID: String, phoneDeviceID: String, transport: String, path: String, since: Date? = nil) {
+    public init(sessionID: String, phoneDeviceID: String, transport: String, path: String, mediaPath: String? = nil,
+                since: Date? = nil) {
         self.sessionID = sessionID
         self.phoneDeviceID = phoneDeviceID
         self.transport = transport
         self.path = path
+        self.mediaPath = mediaPath
         self.since = since
     }
 }

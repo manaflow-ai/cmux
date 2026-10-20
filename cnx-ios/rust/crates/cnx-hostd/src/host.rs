@@ -54,7 +54,7 @@ impl IceSource {
     }
 
     /// The servers and whether they came from the cache.
-    async fn servers(&self) -> (Vec<IceServer>, bool) {
+    pub(crate) async fn servers(&self) -> (Vec<IceServer>, bool) {
         match self {
             Self::Fixed(servers) => (servers.clone(), true),
             Self::Api { base_url, tokens, cache } => {
@@ -134,6 +134,7 @@ pub async fn run(config: HostConfig) -> Result<()> {
     }
     // Phones keep their WireGuard sessions when the Mac changes networks.
     tokio::spawn(crate::netwatch::run());
+    crate::media_session::spawn_test_signals();
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
@@ -268,7 +269,11 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
             },
         };
         let envelope = session.first;
-        let Some(kind) = TransportKind::for_first_signal(&envelope.payload) else { continue };
+        let media_for = dial::media_session_for(&envelope.payload).map(str::to_owned);
+        let kind = TransportKind::for_first_signal(&envelope.payload);
+        if kind.is_none() && media_for.is_none() {
+            continue;
+        }
         if !admitted(&envelope, &context.owner_user_id) {
             tracing::warn!(from = envelope.from, user = ?envelope.from_user_id, "refusing a dial from another user");
             signaling.unsubscribe(&envelope.session_id);
@@ -284,7 +289,27 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
             backend: signaling.events(),
             session_id: envelope.session_id.clone(),
         };
-        tokio::spawn(answer_session(signaling.clone(), envelope, session_events, kind, context.clone()));
+        match (kind, media_for) {
+            (Some(kind), _) => {
+                tokio::spawn(answer_session(
+                    signaling.clone(),
+                    envelope,
+                    session_events,
+                    kind,
+                    context.clone(),
+                ));
+            }
+            (None, Some(link)) => {
+                tokio::spawn(crate::media_session::answer(
+                    signaling.clone(),
+                    envelope,
+                    session_events,
+                    link,
+                    context.clone(),
+                ));
+            }
+            (None, None) => {}
+        }
     }
 }
 
@@ -293,7 +318,7 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
 /// `CNX_VIDEO_DROP_PERMILLE` or the file `$CNX_STATE_DIR/video-drop-permille`
 /// (the app starts hostd with its own environment; the file applies to the
 /// next link without a restart).
-fn video_drop_permille() -> u32 {
+pub(crate) fn video_drop_permille() -> u32 {
     measurement_knob("CNX_VIDEO_DROP_PERMILLE", "video-drop-permille").unwrap_or(0).min(500) as u32
 }
 
@@ -305,7 +330,7 @@ fn video_cap_bps() -> u64 {
 }
 
 /// A number from the environment, else from a file in `$CNX_STATE_DIR`.
-fn measurement_knob(variable: &str, file: &str) -> Option<u64> {
+pub(crate) fn measurement_knob(variable: &str, file: &str) -> Option<u64> {
     let from_file = std::env::var_os("CNX_STATE_DIR")
         .and_then(|dir| std::fs::read_to_string(std::path::Path::new(&dir).join(file)).ok());
     std::env::var(variable).ok().or(from_file).and_then(|v| v.trim().parse().ok())
@@ -345,6 +370,10 @@ async fn answer_session(
         video_lane: std::env::var("CNX_VIDEO_LANE").map_or(true, |v| v != "0"),
         video_drop_permille: video_drop_permille(),
         video_cap_bps: video_cap_bps(),
+        // A WebRTC media session beside a WireGuard link carries browser
+        // video while it works (media_session.rs; CNX_WEBRTC_MEDIA=0 turns
+        // it off).
+        webrtc_media: std::env::var("CNX_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
@@ -380,6 +409,18 @@ async fn answer_session(
         }
     });
     let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // The phone may open a WebRTC media session for this link's video.
+    let _hybrid = match (&peer.video, connected.webrtc_media) {
+        (Some(video), true) => Some(crate::media_session::register(
+            &session_id,
+            &peer.device_id,
+            video.clone(),
+            Arc::clone(&auth),
+            context.services.pairing.is_some(),
+            connected.link.closed_state(),
+        )),
+        _ => None,
+    };
     // The owner removed this phone (Settings > Mobile > Remove): end its link now.
     let mut drops = control::drops();
     let removable = connected.link.clone();

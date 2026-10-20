@@ -169,6 +169,7 @@ final class ShellModel {
                 live.terminalFeed.cleared()
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
+            creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             FeedRouting.shared.clearAllNotifications = nil

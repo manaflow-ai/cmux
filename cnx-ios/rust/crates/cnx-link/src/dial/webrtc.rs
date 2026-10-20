@@ -49,17 +49,43 @@ fn transport_error(error: impl std::fmt::Display) -> DialError {
     DialError::Transport(error.to_string())
 }
 
+/// A peer connection and its connection state as it changes.
+type NewPeerConnection = (Arc<RTCPeerConnection>, watch::Receiver<RTCPeerConnectionState>);
+
 async fn new_peer_connection(
     options: &super::DialOptions,
     video: bool,
-) -> Result<Arc<RTCPeerConnection>, DialError> {
+) -> Result<NewPeerConnection, DialError> {
+    new_peer_connection_for(options, video, false).await
+}
+
+/// `media`: a media session's peer connection (PROTOCOL.md "Media session"):
+/// it notices a dead path sooner, and under Block UDP it gets no candidate
+/// at all, as on a network that passes only TCP (webrtc-rs has no TURN over
+/// TCP or TLS), so it fails like it would there.
+async fn new_peer_connection_for(
+    options: &super::DialOptions,
+    video: bool,
+    media: bool,
+) -> Result<NewPeerConnection, DialError> {
     let mut settings = SettingEngine::default();
+    if media {
+        settings.set_ice_timeouts(
+            Some(MEDIA_ICE_DISCONNECTED),
+            Some(MEDIA_ICE_FAILED),
+            Some(MEDIA_ICE_KEEPALIVE),
+        );
+    }
+    let udp_blocked = media && options.block_udp;
+    if udp_blocked {
+        settings.set_ip_filter(Box::new(|_| false));
+    }
     settings.detach_data_channels();
     settings.set_ice_multicast_dns_mode(MulticastDnsMode::Disabled);
     if options.include_loopback {
         settings.set_include_loopback_candidate(true);
     }
-    if options.exclude_cgnat {
+    if options.exclude_cgnat && !udp_blocked {
         settings.set_ip_filter(Box::new(|ip| !super::is_cgnat(ip)));
     }
     // Nominate the first working pair. webrtc-rs holds a valid srflx pair
@@ -86,9 +112,9 @@ async fn new_peer_connection(
     } else {
         APIBuilder::new().with_setting_engine(settings).build()
     };
+    let ice_servers: &[crate::api::IceServer] = if udp_blocked { &[] } else { &options.ice_servers };
     let config = RTCConfiguration {
-        ice_servers: options
-            .ice_servers
+        ice_servers: ice_servers
             .iter()
             .map(|server| RTCIceServer {
                 urls: server.urls.clone(),
@@ -104,12 +130,14 @@ async fn new_peer_connection(
         ..Default::default()
     };
     let pc = Arc::new(api.new_peer_connection(config).await.map_err(transport_error)?);
-    instrument(&pc, &options.timeline);
-    Ok(pc)
+    let state = instrument(&pc, &options.timeline);
+    Ok((pc, state))
 }
 
-/// Record ICE, DTLS and candidate steps on `timeline`.
-fn instrument(pc: &RTCPeerConnection, timeline: &Timeline) {
+/// Record ICE, DTLS and candidate steps on `timeline`; returns the peer
+/// connection's state as it changes.
+fn instrument(pc: &RTCPeerConnection, timeline: &Timeline) -> watch::Receiver<RTCPeerConnectionState> {
+    let (state_tx, state_rx) = watch::channel(RTCPeerConnectionState::New);
     timeline.mark("pc_created");
     let ice = timeline.clone();
     pc.on_ice_connection_state_change(Box::new(move |state: RTCIceConnectionState| {
@@ -127,6 +155,7 @@ fn instrument(pc: &RTCPeerConnection, timeline: &Timeline) {
         if state == RTCPeerConnectionState::Connected {
             peer.mark("dtls_connected");
         }
+        state_tx.send_replace(state);
         Box::pin(async {})
     }));
     let gathering = timeline.clone();
@@ -136,6 +165,7 @@ fn instrument(pc: &RTCPeerConnection, timeline: &Timeline) {
         }
         Box::pin(async {})
     }));
+    state_rx
 }
 
 fn candidate_kind(typ: RTCIceCandidateType) -> &'static str {
@@ -405,6 +435,7 @@ async fn finish(
         }),
         lane: lane.map(lane_stream),
         media,
+        webrtc_media: false,
     })
 }
 
@@ -422,7 +453,7 @@ impl Dialer for WebRtcDialer {
         options: &'a super::DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let pc = new_peer_connection(options, options.video_lane).await?;
+            let (pc, _) = new_peer_connection(options, options.video_lane).await?;
             let init = RTCDataChannelInit { ordered: Some(true), ..Default::default() };
             let channel = pc.create_data_channel(LABEL, Some(init)).await.map_err(transport_error)?;
             // The media lane's receiving transceiver goes into the offer; an
@@ -456,7 +487,8 @@ impl Dialer for WebRtcDialer {
                     session_id,
                     SignalPayload::WebrtcOffer {
                         sdp: offer.sdp,
-                        lanes: super::offered_lanes(options, receiver.is_some()),
+                        lanes: super::offered_lanes(options, receiver.is_some(), false),
+                        media_for: None,
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -516,14 +548,14 @@ impl Dialer for WebRtcDialer {
         options: &'a super::DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
-            let SignalPayload::WebrtcOffer { sdp, lanes } = first.payload else {
+            let SignalPayload::WebrtcOffer { sdp, lanes, .. } = first.payload else {
                 return Err(DialError::Unexpected("expected webrtc-offer".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
             // The media lane: the phone offered it and its SDP has the video
             // m-line. The sending track must exist before the offer applies.
             let video = options.video_lane && super::video_lane_listed(&lanes) && sdp.contains("m=video");
-            let pc = new_peer_connection(options, video).await?;
+            let (pc, _) = new_peer_connection(options, video).await?;
             let sending = if video {
                 match crate::media::track::add_sender(&pc).await {
                     Ok(sending) => Some(sending),
@@ -565,7 +597,7 @@ impl Dialer for WebRtcDialer {
                     &first.session_id,
                     SignalPayload::WebrtcAnswer {
                         sdp: answer.sdp,
-                        lanes: super::offered_lanes(options, sending.is_some()),
+                        lanes: super::offered_lanes(options, sending.is_some(), false),
                     },
                 )
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -602,6 +634,391 @@ impl Dialer for WebRtcDialer {
             finish(pc, opened, lane, media, events, remote, signaling, &first.session_id, timeline).await
         })
     }
+}
+
+// MARK: Media session (PROTOCOL.md "Media session")
+
+/// A media session's peer connection reports Disconnected after this long
+/// without an answer to its consent checks, and Failed after this; webrtc-rs
+/// defaults to 5 and 25 s with a 2 s keepalive. Video moves to the tunnel on
+/// Disconnected (or sooner, on missing feedback: media/routes.rs).
+const MEDIA_ICE_DISCONNECTED: Duration = Duration::from_secs(3);
+const MEDIA_ICE_FAILED: Duration = Duration::from_secs(8);
+const MEDIA_ICE_KEEPALIVE: Duration = Duration::from_secs(1);
+
+/// A WebRTC peer connection that carries only the media lane, beside a
+/// WireGuard link to the same peer.
+pub struct MediaSession {
+    pub session_id: String,
+    /// The phone's receiving or the Mac's sending carrier.
+    pub carrier: Arc<dyn crate::media::MediaCarrier>,
+    pub path: watch::Receiver<LinkPath>,
+    /// True while the peer connection is connected (ICE consent holds).
+    pub up: watch::Receiver<bool>,
+    /// Some once the session ended (failed, closed, or the peer said `bye`).
+    pub ended: watch::Receiver<Option<String>>,
+    pc: Arc<RTCPeerConnection>,
+    _guard: MediaGuard,
+}
+
+impl std::fmt::Debug for MediaSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaSession").field("session_id", &self.session_id).finish_non_exhaustive()
+    }
+}
+
+impl MediaSession {
+    /// The nominated candidate pair's round trip (ICE consent checks).
+    pub async fn rtt(&self) -> Option<Duration> {
+        let report = self.pc.get_stats().await;
+        report.reports.values().find_map(|report| match report {
+            webrtc::stats::StatsReportType::CandidatePair(pair)
+                if pair.nominated && pair.current_round_trip_time > 0.0 =>
+            {
+                Some(Duration::from_secs_f64(pair.current_round_trip_time))
+            }
+            _ => None,
+        })
+    }
+
+    /// Resolves once the session ended, with why.
+    pub async fn wait_ended(&self) -> String {
+        let mut ended = self.ended.clone();
+        match ended.wait_for(Option::is_some).await {
+            Ok(reason) => reason.clone().unwrap_or_default(),
+            Err(_) => "closed".into(),
+        }
+    }
+
+    /// Closes the peer connection at once without telling the peer (test and
+    /// measurement support: the path died).
+    #[doc(hidden)]
+    pub async fn kill(&self) {
+        let _ = self.pc.close().await;
+    }
+}
+
+/// Closes the media session's peer connection and says `bye` once.
+struct MediaGuard {
+    pc: Arc<RTCPeerConnection>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    signaling: SignalingClient,
+    peer: String,
+    session_id: String,
+}
+
+impl Drop for MediaGuard {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+        let _ = self.signaling.send_signal(
+            &self.peer,
+            &self.session_id,
+            SignalPayload::Bye { reason: "closed".into() },
+        );
+        self.signaling.unsubscribe(&self.session_id);
+        let pc = Arc::clone(&self.pc);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = pc.close().await;
+            });
+        }
+    }
+}
+
+/// Waits until the peer connection is connected, feeding it the peer's
+/// trickled candidates (and, on the phone, its answer).
+async fn media_connect(
+    pc: &Arc<RTCPeerConnection>,
+    state: &mut watch::Receiver<RTCPeerConnectionState>,
+    events: &mut SessionEvents,
+    remote: &mut RemoteCandidates,
+    mut answered: Option<&mut Option<Vec<String>>>,
+) -> Result<(), DialError> {
+    let mut signaling_up = true;
+    loop {
+        if *state.borrow_and_update() == RTCPeerConnectionState::Connected {
+            return Ok(());
+        }
+        if matches!(*state.borrow(), RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
+            return Err(DialError::Transport("the media session's peer connection failed".into()));
+        }
+        tokio::select! {
+            changed = state.changed() => {
+                if changed.is_err() {
+                    return Err(DialError::Transport("the media session's peer connection went away".into()));
+                }
+            }
+            event = events.next(), if signaling_up => {
+                let described = answered.as_ref().is_none_or(|a| a.is_some());
+                let Some(event) = signaling_outage(event, &remote.timeline, described)? else {
+                    signaling_up = false;
+                    continue;
+                };
+                let SessionEvent::Signal(envelope) = event else { continue };
+                match envelope.payload {
+                    SignalPayload::WebrtcAnswer { sdp, lanes } if answered.as_ref().is_some_and(|a| a.is_none()) => {
+                        remote.timeline.mark("answer_received");
+                        let answer = RTCSessionDescription::answer(sdp).map_err(transport_error)?;
+                        pc.set_remote_description(answer).await.map_err(transport_error)?;
+                        remote.ready(pc).await;
+                        if let Some(slot) = answered.as_mut() {
+                            **slot = Some(lanes);
+                        }
+                    }
+                    SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                    payload => {
+                        if let Some(init) = ice_init(payload) {
+                            remote.add(pc, init).await;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A connected media session's watches and the tasks behind them.
+struct Followed {
+    path: watch::Receiver<LinkPath>,
+    up: watch::Receiver<bool>,
+    ended: watch::Receiver<Option<String>>,
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+}
+
+/// After connecting: the session's path, health and end, and late candidates.
+fn media_follow(
+    pc: Arc<RTCPeerConnection>,
+    mut state: watch::Receiver<RTCPeerConnectionState>,
+    mut events: SessionEvents,
+    mut remote: RemoteCandidates,
+    path: LinkPath,
+) -> Followed {
+    let (path_tx, path_rx) = watch::channel(path);
+    let (up_tx, up_rx) = watch::channel(true);
+    let (ended_tx, ended_rx) = watch::channel(None);
+    let ended = Arc::new(ended_tx);
+    let signals_pc = Arc::clone(&pc);
+    let signals_ended = Arc::clone(&ended);
+    let signals = tokio::spawn(async move {
+        loop {
+            match events.session.recv().await {
+                Some(SessionEvent::Signal(envelope)) => match envelope.payload {
+                    SignalPayload::Bye { reason } => {
+                        signals_ended.send_replace(Some(format!("bye: {reason}")));
+                        let _ = signals_pc.close().await;
+                        return;
+                    }
+                    payload => {
+                        if let Some(init) = ice_init(payload) {
+                            remote.add(&signals_pc, init).await;
+                        }
+                    }
+                },
+                // A signaling outage does not end an established session.
+                Some(SessionEvent::Disconnected) | None => return,
+            }
+        }
+    });
+    let watcher_pc = Arc::clone(&pc);
+    let watcher = tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(2));
+        loop {
+            tokio::select! {
+                changed = state.changed() => {
+                    let current = if changed.is_ok() { *state.borrow_and_update() } else { RTCPeerConnectionState::Closed };
+                    up_tx.send_replace(current == RTCPeerConnectionState::Connected);
+                    if matches!(current, RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed) {
+                        ended.send_if_modified(|reason| {
+                            if reason.is_some() {
+                                return false;
+                            }
+                            *reason = Some(format!("{current}"));
+                            true
+                        });
+                        return;
+                    }
+                }
+                _ = ticker.tick() => {
+                    let path = selected_path(&watcher_pc).await;
+                    path_tx.send_if_modified(|current| {
+                        let changed = *current != path;
+                        *current = path;
+                        changed
+                    });
+                }
+            }
+        }
+    });
+    Followed { path: path_rx, up: up_rx, ended: ended_rx, tasks: vec![signals, watcher] }
+}
+
+/// Phone side: opens a media session to `mac` for the WireGuard link
+/// `link_session` (which both sides agreed on with [`super::WEBRTC_MEDIA_LANE`])
+/// and returns it once its peer connection is connected. Bounded by
+/// `options.timeout`.
+pub async fn dial_media(
+    signaling: &SignalingClient,
+    mac: &str,
+    link_session: &str,
+    options: &super::DialOptions,
+) -> Result<MediaSession, DialError> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let mut events = SessionEvents::subscribe(signaling, &session_id);
+    // Made before the bound, so every way out closes it: webrtc-rs does not
+    // close a dropped peer connection (its ICE agent and sockets would stay).
+    let (pc, mut state) = match new_peer_connection_for(options, true, true).await {
+        Ok(made) => made,
+        Err(error) => {
+            signaling.unsubscribe(&session_id);
+            return Err(error);
+        }
+    };
+    let timeline = &options.timeline;
+    let result = tokio::time::timeout(options.timeout, async {
+        let receiver = crate::media::track::add_receiver(&pc).await.map_err(transport_error)?;
+        trickle(&pc, signaling, mac, &session_id, timeline);
+        let offer = pc.create_offer(None).await.map_err(transport_error)?;
+        pc.set_local_description(offer.clone()).await.map_err(transport_error)?;
+        signaling
+            .send_signal(
+                mac,
+                &session_id,
+                SignalPayload::WebrtcOffer {
+                    sdp: offer.sdp,
+                    lanes: vec![crate::media::VIDEO_LANE.to_owned()],
+                    media_for: Some(link_session.to_owned()),
+                },
+            )
+            .map_err(|e| DialError::Signaling(e.to_string()))?;
+        timeline.mark("media_offer_sent");
+        let mut remote = RemoteCandidates {
+            timeline: timeline.clone(),
+            exclude_cgnat: options.exclude_cgnat,
+            ready: false,
+            pending: Vec::new(),
+        };
+        let mut answered = None;
+        media_connect(&pc, &mut state, &mut events, &mut remote, Some(&mut answered)).await?;
+        if !answered.as_deref().is_some_and(super::video_lane_listed) {
+            return Err(DialError::Transport("the Mac attached no video track".into()));
+        }
+        receiver.bind(Arc::clone(&pc)).await;
+        timeline.mark("media_connected");
+        Ok((receiver, remote))
+    })
+    .await
+    .unwrap_or(Err(DialError::Timeout));
+    let (receiver, remote) = match result {
+        Ok(parts) => parts,
+        Err(error) => {
+            let _ = pc.close().await;
+            media_refused(signaling, mac, &session_id, &error);
+            return Err(error);
+        }
+    };
+    let path = selected_path(&pc).await;
+    let Followed { path, up, ended, tasks } = media_follow(Arc::clone(&pc), state, events, remote, path);
+    Ok(MediaSession {
+        session_id: session_id.clone(),
+        carrier: receiver,
+        path,
+        up,
+        ended,
+        pc: Arc::clone(&pc),
+        _guard: MediaGuard { pc, tasks, signaling: signaling.clone(), peer: mac.to_owned(), session_id },
+    })
+}
+
+/// A media session that did not come up: stop following it and tell the peer.
+fn media_refused(signaling: &SignalingClient, peer: &str, session_id: &str, error: &DialError) {
+    signaling.unsubscribe(session_id);
+    let reason = if *error == DialError::Timeout { "timeout".to_owned() } else { error.to_string() };
+    let _ = signaling.send_signal(peer, session_id, SignalPayload::Bye { reason });
+}
+
+/// Mac side: answers a media session's first signal (`webrtc-offer` with
+/// `mediaFor`) with a sending video track and returns it once its peer
+/// connection is connected. The caller checked that `mediaFor` names a live
+/// WireGuard link of the same phone. Bounded by `options.timeout`.
+pub async fn answer_media(
+    signaling: &SignalingClient,
+    first: SignalEnvelope,
+    mut events: SessionEvents,
+    options: &super::DialOptions,
+) -> Result<MediaSession, DialError> {
+    let session_id = first.session_id.clone();
+    let peer = first.from.clone();
+    let SignalPayload::WebrtcOffer { sdp, lanes, media_for: Some(_) } = first.payload else {
+        let error = DialError::Unexpected("expected a media session's webrtc-offer".into());
+        media_refused(signaling, &peer, &session_id, &error);
+        return Err(error);
+    };
+    if !super::video_lane_listed(&lanes) || !sdp.contains("m=video") {
+        let error = DialError::Unexpected("a media session without video".into());
+        media_refused(signaling, &peer, &session_id, &error);
+        return Err(error);
+    }
+    // Made before the bound, so every way out closes it (see dial_media).
+    let (pc, mut state) = match new_peer_connection_for(options, true, true).await {
+        Ok(made) => made,
+        Err(error) => {
+            media_refused(signaling, &peer, &session_id, &error);
+            return Err(error);
+        }
+    };
+    let timeline = &options.timeline;
+    let result = tokio::time::timeout(options.timeout, async {
+        let (track, sender) = crate::media::track::add_sender(&pc).await.map_err(transport_error)?;
+        trickle(&pc, signaling, &peer, &session_id, timeline);
+        let offer = RTCSessionDescription::offer(sdp).map_err(transport_error)?;
+        pc.set_remote_description(offer).await.map_err(transport_error)?;
+        let answer = pc.create_answer(None).await.map_err(transport_error)?;
+        pc.set_local_description(answer.clone()).await.map_err(transport_error)?;
+        signaling
+            .send_signal(
+                &peer,
+                &session_id,
+                SignalPayload::WebrtcAnswer {
+                    sdp: answer.sdp,
+                    lanes: vec![crate::media::VIDEO_LANE.to_owned()],
+                },
+            )
+            .map_err(|e| DialError::Signaling(e.to_string()))?;
+        timeline.mark("media_answer_sent");
+        let mut remote = RemoteCandidates {
+            timeline: timeline.clone(),
+            exclude_cgnat: options.exclude_cgnat,
+            ready: true,
+            pending: Vec::new(),
+        };
+        media_connect(&pc, &mut state, &mut events, &mut remote, None).await?;
+        let carrier = crate::media::track::SendCarrier::new(track, sender).await;
+        timeline.mark("media_connected");
+        Ok((carrier, remote))
+    })
+    .await
+    .unwrap_or(Err(DialError::Timeout));
+    let (carrier, remote) = match result {
+        Ok(parts) => parts,
+        Err(error) => {
+            let _ = pc.close().await;
+            media_refused(signaling, &peer, &session_id, &error);
+            return Err(error);
+        }
+    };
+    let path = selected_path(&pc).await;
+    let Followed { path, up, ended, tasks } = media_follow(Arc::clone(&pc), state, events, remote, path);
+    Ok(MediaSession {
+        session_id: session_id.clone(),
+        carrier,
+        path,
+        up,
+        ended,
+        pc: Arc::clone(&pc),
+        _guard: MediaGuard { pc, tasks, signaling: signaling.clone(), peer, session_id },
+    })
 }
 
 /// The detached data channel as a byte stream with bounded message size.
