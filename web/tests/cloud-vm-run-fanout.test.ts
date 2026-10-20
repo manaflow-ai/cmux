@@ -93,7 +93,7 @@ test("fan-out submits every lane at once and reports each outcome, including adm
   expect(receipt.outcomes).toEqual({ succeeded: 2, failed: 1, rejected: 2 });
   expect(receipt.agentReplies).toBe(2);
   expect(receipt.stats.queueWaitMs).toMatchObject({ n: 3, p50: 1000 });
-  const failed = receipt.lanes.find((lane: any) => lane.status === "failed");
+  const failed: any = receipt.lanes.find((lane: any) => lane.status === "failed");
   expect(failed.error).toContain("cloud-origin");
   const rejected = receipt.lanes.filter((lane: any) => lane.status === "rejected");
   expect(rejected.every((lane: any) => lane.httpStatus === 429 && lane.error.includes("16 queued or running"))).toBe(true);
