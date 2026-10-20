@@ -914,6 +914,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/protocol",
+      "params": {
+        "$ref": "#/types/ProtocolParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/shutdown",
       "params": true,
       "result": true
@@ -1977,6 +1985,11 @@
       "type": "object"
     },
     "PermissionRespondResult": {
+      "type": "object"
+    },
+    "ProtocolParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/protocol` takes no params.",
       "type": "object"
     },
     "PurgedSession": {
