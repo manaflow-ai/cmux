@@ -142,6 +142,5 @@ extension PaneHandlers {
         registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
         registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
         registry.bindUnavailable("palette.openVaultPane", reason: RefusalStrings.vaultPaneUnported)
-        registry.bindUnavailable("palette.openCloudPane", reason: RefusalStrings.cloudPaneUnported)
     }
 }
