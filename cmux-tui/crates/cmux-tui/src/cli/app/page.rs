@@ -141,6 +141,14 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("text".into(), json!(text));
             if verb == "fill" { "browser.page.fill" } else { "browser.page.type" }
         }
+        // An agent at a passkey step asks the person: the app brings the tab forward on
+        // their click, then clicks SELECTOR (plans/cmux-next/agent-browser-passkey-DESIGN.md).
+        ("passkey", [] | [_]) => {
+            if let [selector] = words.as_slice() {
+                params.insert("selector".into(), json!(selector));
+            }
+            "browser.page.passkey"
+        }
         ("tabs", []) => {
             if Options::parse(rest, &[], &["all"])?.flag("all") {
                 params.insert("all".into(), json!(true));
@@ -230,6 +238,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
 /// The page methods an agent's input goes through: they take `agent`, the
 /// name its cursor shows.
 const AGENT_METHODS: &[&str] = &[
+    "browser.page.passkey",
     "browser.page.click",
     "browser.page.focus",
     "browser.page.fill",

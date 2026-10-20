@@ -67,7 +67,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         defer { view.stop() }
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
