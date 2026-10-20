@@ -548,15 +548,18 @@ and the bake installs the pinned static-musl build at `/home/cmux/.cmux/bin/cmux
 TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
 the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
 daemon with a fresh identity
-the platform instance id). Neither create nor attach installs, heals or upgrades cmux-tui:
+keyed on the platform instance id. Neither create nor attach installs, heals or upgrades cmux-tui:
 a new machine runs the build its image baked (the manifest entry's `cmuxTuiCommit`), and a
 running machine changes build only through `web/scripts/upgrade-fleet-cmux-tui.ts`
 (docs/cloud-guest-upgrades.md). The build and its digest come from the artifacts manifest
 published by `.github/workflows/cmux-tui-artifacts.yml`, nothing is pinned by hand, and a new
-build reaches new machines through a rebake and promotion. Public `vm exec` commands use the
-image work user (uid 1000), resolve its passwd home before running, and leave privileged work
-to `sudo`, so snapshots with the former `/home/ubuntu` uid-1000 home do not leak a stale
-`HOME`. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`);
+build reaches new machines through a rebake and promotion. Public `vm exec` commands leave
+the provider account unset, so Freestyle selects its uid-1000 work account (usually `cmux`,
+with a legacy root fallback when that account is absent) and resolves its passwd home before
+running. That often matches the terminal work user, but the daemon can fall back to root when
+the work user's home is unusable; exec still uses the provider-selected account. Commands that
+need root should use `sudo`, and snapshots with the former `/home/ubuntu` uid-1000 home do not
+leak a stale `HOME`. Config: `FREESTYLE_API_KEY` (or `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`);
 optionally `FREESTYLE_API_URL` to point at a non-default edge. `CMUX_VM_CMUX_TUI_MANIFEST_URL`
 is read only by the bake, verify, reachability-check and BusyBox-probe scripts, to pin one
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
@@ -601,9 +604,11 @@ edge-injected (see "Model plane" below).
 
 Driver maintenance commands run with `linuxUser: "root"`. Public `vm exec` leaves the
 provider account unset so Freestyle selects uid 1000 (the `cmux` work user on current
-images, with its legacy root fallback), then derives `HOME` from that account's passwd
-entry. This keeps exec credentials and paths aligned with Cloud terminals while
-preserving an explicit root boundary for maintenance.
+images, with a legacy root fallback when that account is absent), then derives `HOME` from
+that account's passwd entry. This often aligns exec credentials and paths with Cloud
+terminals, but the daemon can fall back to root when its work-user layout is unavailable;
+exec still uses the provider-selected account. Explicit root remains a separate boundary
+for maintenance.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
