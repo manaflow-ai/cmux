@@ -1001,6 +1001,26 @@ impl Brain {
     }
 }
 
+/// How often the host checks its cloud VMs for idle ones: a VM pauses at
+/// most this long after `cloud.autoPauseIdleSeconds`.
+pub(super) const CLOUD_TICK: Duration = Duration::from_secs(5);
+
+/// Sends `CloudTick` to the brain every [`CLOUD_TICK`] until it is gone.
+pub(super) fn start_cloud_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
+    let _ = std::thread::Builder::new()
+        .name("cloud-tick".into())
+        .spawn(move || {
+            loop {
+                // A fixed, intended interval (idle VM check), not a poll for
+                // a result.
+                std::thread::sleep(CLOUD_TICK);
+                if tx.send(super::Input::CloudTick).is_err() {
+                    return;
+                }
+            }
+        });
+}
+
 /// Sends `SubTick` to the brain every [`TICK`] until the brain is gone.
 pub(super) fn start_ticker(tx: std::sync::mpsc::Sender<super::Input>) {
     let _ = std::thread::Builder::new()

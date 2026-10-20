@@ -11,6 +11,8 @@ import Foundation
 struct ClassicMigrationOutcome: Equatable {
     var decision: ClassicMigrationPlanner.Decision
     var summary = ClassicImportSummary()
+    /// False when the person declined the exact plan before it wrote anything.
+    var confirmed = true
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
     /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
@@ -58,7 +60,8 @@ extension AppOnboardingServices {
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace)
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
+                                                   confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -67,17 +70,25 @@ extension AppOnboardingServices {
     }
 
     /// One migration run. Runs never overlap: a second one waits for the first.
-    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil) async throws -> ClassicMigrationOutcome {
+    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
             _ = await previous?.result
-            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace)
+            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation)
         }
         owner.classicMigrationRun = run
         return try await run.value
     }
 
-    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?) async throws -> ClassicMigrationOutcome {
+    /// The one confirmation path for launch and manual migration.
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+        if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
+        return await ClassicImportConfirmation(plan: plan, services: services).ask()
+    }
+
+    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
         let planner = ClassicMigrationPlanner()
@@ -135,6 +146,12 @@ extension AppOnboardingServices {
             ledger.state = .completed
             ledger.source = read.source
             try await save(ledger, to: repository)
+            return outcome
+        }
+
+        let preview = ClassicImportPlan(source: read.source, migration: plan)
+        guard await confirmation(preview) else {
+            outcome.confirmed = false
             return outcome
         }
 

@@ -11799,137 +11799,6 @@
         }
       }
     },
-    "settings.choice.shuffleDaily": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shuffle Daily"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "毎日シャッフル"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تبديل يومي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Svaki dan drugačije"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bland dagligt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Täglich wechseln"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cambiar a diario"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Changer chaque jour"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cambia ogni giorno"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្ដូររាល់ថ្ងៃ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "매일 바꾸기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bytt daglig"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zmieniaj codziennie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trocar diariamente"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Менять ежедневно"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "สลับทุกวัน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Her gün değiştir"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Змінювати щодня"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đổi mỗi ngày"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每日轮换"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每日輪換"
-          }
-        }
-      }
-    },
     "settings.choice.normal": {
       "extractionState": "manual",
       "localizations": {
@@ -38912,6 +38781,923 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Background"
+          }
+        }
+      }
+    },
+    "settings.choice.everyDay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every Day"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden Tag"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les jours"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل يوم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada día"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每天"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매일"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎日"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki dan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver dag"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni giorno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀងរាល់ថ្ងៃ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codziennie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os dias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый день"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกวัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her gün"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щодня"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi ngày"
+          }
+        }
+      }
+    },
+    "settings.choice.everyHour": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every Hour"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Stunde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les heures"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل ساعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada hora"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每小時"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每小时"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1시간마다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1時間ごと"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svaki sat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver time"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni ora"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀងរាល់ម៉ោង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hver time"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co godzinę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada hora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждый час"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกชั่วโมง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saatte bir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щогодини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi giờ"
+          }
+        }
+      }
+    },
+    "settings.choice.every15Minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every 15 Minutes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle 15 Minuten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les 15 minutes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل 15 دقيقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada 15 minutos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 15 分鐘"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每 15 分钟"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15분마다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15分ごと"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svakih 15 minuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvert 15. minut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni 15 minuti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រៀងរាល់ 15 នាទី"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvert 15. minutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Co 15 minut"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cada 15 minutos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Каждые 15 минут"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุก 15 นาที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "15 dakikada bir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кожні 15 хвилин"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mỗi 15 phút"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRotation.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How often Shuffle changes the picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie oft das Mischen das Bild wechselt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fréquence de changement d’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد مرات تغيير الصورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frecuencia de cambio de imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨機播放更換圖片的頻率"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随机播放更换图片的频率"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "섞기가 그림을 바꾸는 간격"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャッフルで画像を変える間隔"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko često se slika mijenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor ofte billedet skiftes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni quanto cambia l’immagine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ញឹកញាប់នៃការប្ដូររូបភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor ofte bildet byttes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak często zmienia się obraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frequência de troca da imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как часто меняется изображение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความถี่ในการเปลี่ยนรูป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resmin ne sıklıkla değiştiği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як часто змінюється зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tần suất đổi ảnh"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRotation.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How often a shuffled background turns to its next picture."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie oft ein gemischter Hintergrund zum nächsten Bild wechselt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fréquence à laquelle un fond aléatoire passe à l’image suivante."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد مرات انتقال الخلفية المخلوطة إلى صورتها التالية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con qué frecuencia un fondo aleatorio pasa a la siguiente imagen."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨機背景多久換到下一張圖片。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随机背景多久换到下一张图片。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "섞인 배경이 다음 그림으로 바뀌는 간격입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャッフルした背景が次の画像に切り替わる間隔。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koliko često nasumična pozadina prelazi na sljedeću sliku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor ofte en blandet baggrund skifter til næste billede."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni quanto uno sfondo casuale passa all’immagine successiva."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ញឹកញាប់ប៉ុណ្ណាដែលផ្ទៃខាងក្រោយចៃដន្យប្ដូរទៅរូបភាពបន្ទាប់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor ofte en blandet bakgrunn bytter til neste bilde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak często losowe tło przechodzi do następnego obrazu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com que frequência um fundo aleatório passa para a próxima imagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как часто случайный фон переходит к следующему изображению."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความถี่ที่พื้นหลังแบบสุ่มเปลี่ยนไปรูปถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karıştırılan arka planın bir sonraki resme ne sıklıkla geçtiği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як часто випадковий фон переходить до наступного зображення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tần suất hình nền xáo trộn chuyển sang ảnh tiếp theo."
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundRotation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change Picture"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild wechseln"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer d’image"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تغيير الصورة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar imagen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更換圖片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更换图片"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 변경"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を変更"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeni sliku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift billede"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambia immagine"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្ដូររូបភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bytt bilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmieniaj obraz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Смена изображения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนรูปภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resmi Değiştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зміна зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đổi ảnh"
+          }
+        }
+      }
+    },
+    "settings.choice.shufflePaintings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shuffle Paintings"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemälde mischen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peintures aléatoires"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خلط اللوحات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinturas aleatorias"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隨機播放畫作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随机播放画作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림 섞기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絵画をシャッフル"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasumične slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bland malerier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dipinti casuali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាក់ផ្ទាំងគំនូរដោយចៃដន្យ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bland malerier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Losowe obrazy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinturas aleatórias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Случайные картины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สุ่มภาพวาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabloları karıştır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Випадкові картини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xáo trộn tranh"
           }
         }
       }
@@ -99692,133 +100478,133 @@
       }
     },
     "settings.home.chiefPetEnabled.help": {
-      "comment": "Settings > Home: help under the Show Chief Pet toggle. Chief is a product name; a session is an agent or terminal session.",
+      "comment": "Settings > Home: help under the Show Chief Pet toggle. Chief is a product name; a session is an agent or terminal session. ⌃⌥⌘C is the default key of Message the Chief from Any App; keep the symbols as they are.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+            "value": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يطفو Chief صغير فوق كل التطبيقات ويعرض أحداث الوكلاء فوقه. اسحبه إلى أي مكان؛ انقر عليه لمراسلة Chief أو الرد على جلسة."
+            "value": "يطفو Chief صغير فوق كل التطبيقات ويعرض أحداث الوكلاء فوقه. اسحبه إلى أي مكان؛ انقر عليه لمراسلة Chief أو الرد على جلسة. أثناء ظهوره، يفتح ⌃⌥⌘C مربع الرد الخاص به من أي تطبيق."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mali Chief lebdi iznad svih aplikacija i prikazuje događaje agenata iznad sebe. Prevucite ga bilo gdje; kliknite ga da pošaljete poruku Chiefu ili odgovorite sesiji."
+            "value": "Mali Chief lebdi iznad svih aplikacija i prikazuje događaje agenata iznad sebe. Prevucite ga bilo gdje; kliknite ga da pošaljete poruku Chiefu ili odgovorite sesiji. Dok je prikazan, ⌃⌥⌘C otvara njegovo polje za odgovor iz bilo koje aplikacije."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En lille Chief svæver over alle apps og viser agenthændelser over sig. Træk den hvorhen du vil; klik på den for at skrive til Chief eller svare en session."
+            "value": "En lille Chief svæver over alle apps og viser agenthændelser over sig. Træk den hvorhen du vil; klik på den for at skrive til Chief eller svare en session. Mens den vises, åbner ⌃⌥⌘C dens svarfelt fra enhver app."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ein kleiner Chief schwebt über allen Apps und zeigt Agent-Ereignisse über sich an. Zieh ihn an eine beliebige Stelle; klick ihn an, um Chief zu schreiben oder einer Sitzung zu antworten."
+            "value": "Ein kleiner Chief schwebt über allen Apps und zeigt Agent-Ereignisse über sich an. Zieh ihn an eine beliebige Stelle; klick ihn an, um Chief zu schreiben oder einer Sitzung zu antworten. Solange er angezeigt wird, öffnet ⌃⌥⌘C sein Antwortfeld aus jeder App."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un pequeño Chief flota sobre todas las apps y muestra encima los eventos de los agentes. Arrástralo a cualquier sitio; haz clic para escribir a Chief o responder a una sesión."
+            "value": "Un pequeño Chief flota sobre todas las apps y muestra encima los eventos de los agentes. Arrástralo a cualquier sitio; haz clic para escribir a Chief o responder a una sesión. Mientras se muestra, ⌃⌥⌘C abre su cuadro de respuesta desde cualquier app."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un petit Chief flotte au-dessus de toutes les apps et affiche au-dessus de lui les événements des agents. Faites-le glisser où vous voulez ; cliquez dessus pour écrire à Chief ou répondre à une session."
+            "value": "Un petit Chief flotte au-dessus de toutes les apps et affiche au-dessus de lui les événements des agents. Faites-le glisser où vous voulez ; cliquez dessus pour écrire à Chief ou répondre à une session. Tant qu’il est affiché, ⌃⌥⌘C ouvre sa zone de réponse depuis n’importe quelle app."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Un piccolo Chief fluttua sopra tutte le app e mostra sopra di sé gli eventi degli agenti. Trascinalo ovunque; fai clic per scrivere a Chief o rispondere a una sessione."
+            "value": "Un piccolo Chief fluttua sopra tutte le app e mostra sopra di sé gli eventi degli agenti. Trascinalo ovunque; fai clic per scrivere a Chief o rispondere a una sessione. Mentre è visibile, ⌃⌥⌘C apre la sua casella di risposta da qualsiasi app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "小さな Chief がすべてのアプリの上に浮かび、エージェントのイベントをその上に表示します。好きな場所にドラッグでき、クリックすると Chief にメッセージを送ったりセッションに返信したりできます。"
+            "value": "小さな Chief がすべてのアプリの上に浮かび、エージェントのイベントをその上に表示します。好きな場所にドラッグでき、クリックすると Chief にメッセージを送ったりセッションに返信したりできます。表示中は、どのアプリからでも ⌃⌥⌘C で返信ボックスを開けます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief តូចមួយអណ្ដែតលើកម្មវិធីទាំងអស់ ហើយបង្ហាញព្រឹត្តិការណ៍ភ្នាក់ងារពីលើវា។ អូសវាទៅកន្លែងណាក៏បាន ចុចវាដើម្បីផ្ញើសារទៅ Chief ឬឆ្លើយតបវគ្គមួយ។"
+            "value": "Chief តូចមួយអណ្ដែតលើកម្មវិធីទាំងអស់ ហើយបង្ហាញព្រឹត្តិការណ៍ភ្នាក់ងារពីលើវា។ អូសវាទៅកន្លែងណាក៏បាន ចុចវាដើម្បីផ្ញើសារទៅ Chief ឬឆ្លើយតបវគ្គមួយ។ ពេលវាបង្ហាញ ⌃⌥⌘C បើកប្រអប់ឆ្លើយតបរបស់វាពីកម្មវិធីណាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작은 Chief가 모든 앱 위에 떠 있고 그 위에 에이전트 이벤트를 보여 줍니다. 원하는 곳으로 드래그하고, 클릭하면 Chief에게 메시지를 보내거나 세션에 답장할 수 있습니다."
+            "value": "작은 Chief가 모든 앱 위에 떠 있고 그 위에 에이전트 이벤트를 보여 줍니다. 원하는 곳으로 드래그하고, 클릭하면 Chief에게 메시지를 보내거나 세션에 답장할 수 있습니다. 표시되는 동안에는 어떤 앱에서든 ⌃⌥⌘C로 답장 상자를 열 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En liten Chief svever over alle apper og viser agenthendelser over seg. Dra den hvor du vil; klikk på den for å skrive til Chief eller svare en økt."
+            "value": "En liten Chief svever over alle apper og viser agenthendelser over seg. Dra den hvor du vil; klikk på den for å skrive til Chief eller svare en økt. Mens den vises, åpner ⌃⌥⌘C svarfeltet fra hvilken som helst app."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mały Chief unosi się nad wszystkimi aplikacjami i pokazuje nad sobą zdarzenia agentów. Przeciągnij go w dowolne miejsce; kliknij, aby napisać do Chief lub odpowiedzieć sesji."
+            "value": "Mały Chief unosi się nad wszystkimi aplikacjami i pokazuje nad sobą zdarzenia agentów. Przeciągnij go w dowolne miejsce; kliknij, aby napisać do Chief lub odpowiedzieć sesji. Gdy jest widoczny, ⌃⌥⌘C otwiera jego pole odpowiedzi z dowolnej aplikacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Um pequeno Chief flutua sobre todos os apps e mostra acima dele os eventos dos agentes. Arraste-o para qualquer lugar; clique para escrever ao Chief ou responder a uma sessão."
+            "value": "Um pequeno Chief flutua sobre todos os apps e mostra acima dele os eventos dos agentes. Arraste-o para qualquer lugar; clique para escrever ao Chief ou responder a uma sessão. Enquanto ele aparece, ⌃⌥⌘C abre a caixa de resposta de qualquer app."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Маленький Chief парит над всеми приложениями и показывает над собой события агентов. Перетащите его куда угодно; нажмите, чтобы написать Chief или ответить сеансу."
+            "value": "Маленький Chief парит над всеми приложениями и показывает над собой события агентов. Перетащите его куда угодно; нажмите, чтобы написать Chief или ответить сеансу. Пока он показан, ⌃⌥⌘C открывает его поле ответа из любого приложения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief ตัวเล็กลอยอยู่เหนือทุกแอปและแสดงเหตุการณ์ของเอเจนต์ไว้ด้านบน ลากไปวางที่ใดก็ได้ คลิกเพื่อส่งข้อความถึง Chief หรือตอบกลับเซสชัน"
+            "value": "Chief ตัวเล็กลอยอยู่เหนือทุกแอปและแสดงเหตุการณ์ของเอเจนต์ไว้ด้านบน ลากไปวางที่ใดก็ได้ คลิกเพื่อส่งข้อความถึง Chief หรือตอบกลับเซสชัน ขณะที่แสดงอยู่ ⌃⌥⌘C จะเปิดช่องตอบกลับจากแอปใดก็ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Küçük bir Chief tüm uygulamaların üzerinde süzülür ve aracı olaylarını üstünde gösterir. İstediğiniz yere sürükleyin; Chief'e yazmak ya da bir oturuma yanıt vermek için tıklayın."
+            "value": "Küçük bir Chief tüm uygulamaların üzerinde süzülür ve aracı olaylarını üstünde gösterir. İstediğiniz yere sürükleyin; Chief'e yazmak ya da bir oturuma yanıt vermek için tıklayın. Görünürken ⌃⌥⌘C, yanıt kutusunu herhangi bir uygulamadan açar."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Маленький Chief ширяє над усіма застосунками й показує над собою події агентів. Перетягніть його куди завгодно; натисніть, щоб написати Chief або відповісти сеансу."
+            "value": "Маленький Chief ширяє над усіма застосунками й показує над собою події агентів. Перетягніть його куди завгодно; натисніть, щоб написати Chief або відповісти сеансу. Поки він показаний, ⌃⌥⌘C відкриває його поле відповіді з будь-якого застосунку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Một Chief nhỏ nổi trên mọi ứng dụng và hiện các sự kiện của tác tử phía trên. Kéo nó đến bất cứ đâu; bấm vào để nhắn cho Chief hoặc trả lời một phiên."
+            "value": "Một Chief nhỏ nổi trên mọi ứng dụng và hiện các sự kiện của tác tử phía trên. Kéo nó đến bất cứ đâu; bấm vào để nhắn cho Chief hoặc trả lời một phiên. Khi nó đang hiện, ⌃⌥⌘C mở ô trả lời của nó từ mọi ứng dụng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一个小小的 Chief 浮在所有应用上方，并在其上方显示代理事件。可将它拖到任意位置；点按它即可给 Chief 发消息或回复某个会话。"
+            "value": "一个小小的 Chief 浮在所有应用上方，并在其上方显示代理事件。可将它拖到任意位置；点按它即可给 Chief 发消息或回复某个会话。显示时，可在任意应用中按 ⌃⌥⌘C 打开它的回复框。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一個小小的 Chief 浮在所有 App 上方，並在其上方顯示代理事件。可將它拖到任何位置；點按它即可傳訊息給 Chief 或回覆某個工作階段。"
+            "value": "一個小小的 Chief 浮在所有 App 上方，並在其上方顯示代理事件。可將它拖到任何位置；點按它即可傳訊息給 Chief 或回覆某個工作階段。顯示時，可在任何 App 中按 ⌃⌥⌘C 打開它的回覆框。"
           }
         }
       }

@@ -244,8 +244,16 @@ impl std::error::Error for DaemonError {}
 /// whether the daemon is still running (it dropped us: a restart or an
 /// internal error), died without cleanup (a crash), or was shut down.
 pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error {
+    use std::io::Read as _;
+
     let home = crate::config::home();
-    let pid = std::fs::read_to_string(home.join("daemon.pid"))
+    let pid_path = home.join("daemon.pid");
+    let pid = crate::config::private_state_file(&pid_path)
+        .and_then(|mut file| {
+            let mut text = String::new();
+            file.read_to_string(&mut text)?;
+            Ok(text)
+        })
         .ok()
         .and_then(|s| s.trim().parse::<i32>().ok());
     #[cfg(unix)]

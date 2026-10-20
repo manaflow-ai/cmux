@@ -2213,7 +2213,7 @@
     },
     "home.chiefPetEnabled" : {
       "default" : false,
-      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
       "title" : "Show Chief Pet",
       "type" : "boolean"
     },
