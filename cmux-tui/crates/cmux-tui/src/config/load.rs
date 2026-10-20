@@ -157,6 +157,7 @@ pub fn load() -> Config {
     }
     // An explicit agents.plugin wins; otherwise the bundled screen detector
     // beside this daemon runs unless agents.screen_detection is false.
+    config.agents.resume_runs = raw.agents.resume_runs();
     config.agents.plugin = crate::agent_plugin_config::agent_plugin_for_this_daemon(raw.agents);
     if let Some(enabled) = raw.machine_sidebar.enabled {
         config.machine_sidebar.enabled = enabled;

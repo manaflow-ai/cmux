@@ -53,6 +53,18 @@ impl Mux {
                 "terminal {terminal_id} is not available for agent hook projection"
             )));
         };
+        // How the CLI was started is read once, while it runs, at its session
+        // start; before the fences lock, which serializes every terminal's hooks.
+        let job = (ingress.kind == "agent.session.started")
+            .then(|| self.state.lock().unwrap().terminal_catalog.get(&terminal_id).cloned())
+            .flatten()
+            .and_then(|runtime| runtime.process_id())
+            .and_then(|pid| {
+                crate::platform::foreground_job_launch(
+                    pid,
+                    crate::workspace_registry::relaunch_store::AGENT_JOB_ENV_KEYS,
+                )
+            });
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
@@ -110,7 +122,7 @@ impl Mux {
             format!("cmux-hook-sequence:{sequence}")
         };
         let (harness, ended) = (agent_provider_identity(ingress), state == AgentState::Done);
-        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended);
+        self.note_relaunch_agent(&terminal_id, harness, explicit_session_id, ended, job);
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id,
             applied_sequence: sequence,

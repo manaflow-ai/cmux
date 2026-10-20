@@ -2275,6 +2275,7 @@ fn run_server(
         surface_options.term = term;
     }
     cmux_tui_core::daemon_env::add_daemon_socket_env(&socket_path, &mut surface_options);
+    surface_options.agent_resume_runs = config.agents.resume_runs;
     #[cfg(unix)]
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
