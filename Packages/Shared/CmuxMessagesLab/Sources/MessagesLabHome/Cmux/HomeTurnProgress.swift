@@ -149,11 +149,12 @@ struct HomeTurnProgress: Equatable {
     static func lastSentence(_ line: String) -> String {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         let body = trimmed.last.map { ".!?".contains($0) } == true ? String(trimmed.dropLast()) : trimmed
-        var start = body.startIndex
+        // After the last ". ", then the last "! " after it, then the last "? ": after the last end of any kind.
+        var rest = body
         for end in [". ", "! ", "? "] {
-            if let range = body.range(of: end, options: .backwards), range.upperBound > start { start = range.upperBound }
+            if let range = rest.range(of: end, options: .backwards) { rest = String(rest.suffix(from: range.upperBound)) }
         }
-        let sentence = body[start...].trimmingCharacters(in: .whitespaces)
+        let sentence = rest.trimmingCharacters(in: .whitespaces)
         return sentence.isEmpty ? trimmed : sentence
     }
 }
