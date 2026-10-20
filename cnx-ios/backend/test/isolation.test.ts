@@ -208,6 +208,24 @@ describe("per-user hub: one user's own devices", () => {
     for (const s of [p, p2, again]) s.ws.close()
   })
 
+  it("a phone that moves team keeps its open socket and its link keeps signaling", async () => {
+    const uma = await token("uma")
+    const phone = await register(uma, "phone", TEAM)
+    const mac = await register(uma, "mac", TEAM)
+    const p = await connect(uma, TEAM, phone)
+    const m = await connect(uma, TEAM, mac)
+    for (const s of [p, m]) await hello(s)
+    const sessionId = crypto.randomUUID()
+    p.send(offer(phone, mac, sessionId, "wg-init"))
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    // The app switched team view: the phone re-registers elsewhere while its link is up.
+    expect((await call("POST", "/v1/devices", uma, { deviceId: phone, kind: "phone", name: "Uma iPhone", teamId: "team-u2" })).status).toBe(200)
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-endpoints", generation: 2, endpoints: ["198.51.100.9:5000"] } })
+    await m.until((s) => s.frames.filter((f) => f.type === "signal").length === 2)
+    expect(p.closed).toBe(false)
+    for (const s of [p, m]) s.ws.close()
+  })
+
   it("a new hub lists the user's offline Macs from the database (old registrations)", async () => {
     const owner = "wes"
     const mac = crypto.randomUUID()

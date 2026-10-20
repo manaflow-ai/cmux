@@ -62,7 +62,7 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`membership_unavailable` / `invite_failed` (502).
+`membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
@@ -105,8 +105,9 @@ What the team still scopes (a view, not a trust boundary):
 
 - The path's `teamId` is still checked: the caller must be a member, and
   the socket's device must be registered in that team (else `403
-  wrong_team`). A device that re-registers into another team has its socket
-  closed with 4001 `moved` and reconnects under its new team.
+  wrong_team`). A Mac that re-registers into another team has its socket
+  closed with 4001 `moved` and reconnects under its new team. A phone's open
+  socket stays (as with team hubs), so its links keep signaling.
 - A socket hears about the user's Macs registered in the socket's own team
   only: `hello.macs` and `presence` frames are filtered by team, as the team
   hub did. A Mac that moves team is announced `removed:true` to its old
@@ -135,7 +136,7 @@ registered to the caller in that team (else HTTP 403), in the caller's own
 hub. The server selects
 subprotocol `cnx.v1` when offered (never the bearer entry). One socket per
 device: a newer connection closes the older with code 4000 `replaced` (no
-offline presence in between); a device re-registered into another team is
+offline presence in between); a Mac re-registered into another team is
 closed with 4001 `moved`.
 
 - server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)

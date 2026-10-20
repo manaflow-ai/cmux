@@ -140,9 +140,10 @@ export class TeamHub extends DurableObject<Env> {
 
   /**
    * A device registered (POST /v1/devices): admits its signal socket here later without a database round trip.
-   * A device that changed team has its socket closed with 4001 `moved` (it reconnects for its new team), and a
-   * Mac's sockets of its old team hear it `removed`. A Mac that is new, renamed or moved is announced to the
-   * sockets of its team.
+   * A Mac that changed team has its socket closed with 4001 `moved` (it reconnects for its new team) and the
+   * sockets of its old team hear it `removed`. A phone's open socket stays, as with team hubs: its links keep
+   * signaling (admission is by user), and it hears its old team's presence until it reconnects. A Mac that is
+   * new, renamed or moved is announced to the sockets of its team.
    */
   async register(d: HubDevice): Promise<void> {
     this.bind(d.ownerKey)
@@ -159,7 +160,7 @@ export class TeamHub extends DurableObject<Env> {
       d.teamId
     )
     const moved = oldTeam !== null && oldTeam !== d.teamId
-    if (moved) {
+    if (moved && d.kind === "mac") {
       for (const ws of this.ctx.getWebSockets(d.deviceId)) {
         this.setAttach(ws, { ...this.attach(ws), replaced: true })
         try {
