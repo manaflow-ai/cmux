@@ -2,7 +2,7 @@
 <!-- Glass-to-glass marker page for the cloud browser bench: the cmux-rd marker
      (20 cells of 32x32 px at (0,0); cells 0..15 = bit i of the counter, LSB first;
      cells 16..19 = guard 1,0,1,0; see cmux-tui/crates/cmux-rd-host/src/marker.rs).
-     The counter increments on every keydown and repaints inside the handler, so the
+     The counter increments on every keydown, mousedown and wheel event and repaints inside the handler, so the
      measured time is the browser's real input-to-paint path. Below it: text to scroll. -->
 <html><head><meta charset="utf-8"><title>cmux cloud browser bench</title>
 <style>
@@ -22,7 +22,10 @@ function paint() {
     c.fillRect(i * 32, 0, 32, 32);
   }
 }
-addEventListener('keydown', e => { n = (n + 1) & 0xffff; paint(); });
+const bump = () => { n = (n + 1) & 0xffff; paint(); };
+addEventListener('keydown', bump);
+addEventListener('mousedown', bump);
+addEventListener('wheel', bump, { passive: true });
 paint();
 const t = document.getElementById('t');
 for (let i = 0; i < 400; i++) {
