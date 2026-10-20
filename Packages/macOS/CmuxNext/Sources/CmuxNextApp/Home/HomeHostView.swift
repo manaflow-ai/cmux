@@ -155,6 +155,7 @@ final class HomeHostView: NSView {
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
+            case .togglePet: "home.toggleChiefPet"
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
@@ -337,8 +338,7 @@ final class HomeHostView: NSView {
             guard let self, control.brainHome == home else { return }
             let picture = avatar.picture.flatMap(NSImage.init(data:))
             let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
-            transcript.avatarPicture = picture
-            transcript.avatarText = text
+            transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             settingsView.setAvatar(picture: picture, text: text)
         }
     }

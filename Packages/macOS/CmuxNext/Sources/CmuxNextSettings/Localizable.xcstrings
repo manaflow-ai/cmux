@@ -1,134 +1,134 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.appearance.backgroundBlur.summary": {
-      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+    "chiefPet.hide": {
+      "comment": "View menu and command palette: the Show Chief Pet toggle's title while the floating Chief pet shows; running it hides the pet.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Glass shows the desktop through the wallpaper"
+            "value": "Hide Chief Pet"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+            "state": "needs_review",
+            "value": "إخفاء رفيق Chief"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+            "state": "needs_review",
+            "value": "Sakrij Chief ljubimca"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klart glas viser skrivebordet gennem baggrunden"
+            "state": "needs_review",
+            "value": "Skjul Chief-kæledyr"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+            "state": "needs_review",
+            "value": "Chief-Begleiter ausblenden"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "El vidrio claro muestra el escritorio a través del fondo"
+            "state": "needs_review",
+            "value": "Ocultar mascota Chief"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le verre clair montre le bureau à travers le fond"
+            "state": "needs_review",
+            "value": "Masquer le compagnon Chief"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+            "state": "needs_review",
+            "value": "Nascondi mascotte Chief"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+            "state": "needs_review",
+            "value": "Chief ペットを非表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+            "state": "needs_review",
+            "value": "លាក់សត្វចិញ្ចឹម Chief"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+            "state": "needs_review",
+            "value": "Chief 펫 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+            "state": "needs_review",
+            "value": "Skjul Chief-kjæledyr"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+            "state": "needs_review",
+            "value": "Ukryj zwierzaka Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O vidro claro mostra a mesa através do papel de parede"
+            "state": "needs_review",
+            "value": "Ocultar mascote Chief"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+            "state": "needs_review",
+            "value": "Скрыть питомца Chief"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+            "state": "needs_review",
+            "value": "ซ่อนสัตว์เลี้ยง Chief"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+            "state": "needs_review",
+            "value": "Chief evcil hayvanını gizle"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+            "state": "needs_review",
+            "value": "Сховати улюбленця Chief"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+            "state": "needs_review",
+            "value": "Ẩn thú cưng Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "透明玻璃会透过墙纸显示桌面"
+            "state": "needs_review",
+            "value": "隐藏 Chief 宠物"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "透明玻璃會透過桌布顯示桌面"
+            "state": "needs_review",
+            "value": "隱藏 Chief 寵物"
           }
         }
       }
@@ -131168,6 +131168,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "允許 iPhone 存取這台 Mac"
+          }
+        }
+      }
+    },
+    "settings.appearance.backgroundBlur.summary": {
+      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass shows the desktop through the wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas viser skrivebordet gennem baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vidrio claro muestra el escritorio a través del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre clair montre le bureau à travers le fond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro claro mostra a mesa através do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃会透过墙纸显示桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃會透過桌布顯示桌面"
           }
         }
       }
