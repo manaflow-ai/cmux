@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import SwiftUI
 
 /// One line in the view or search list: its node name, level and text.
@@ -27,7 +28,7 @@ struct ChiefMemoryLineRow: View {
             }
             .padding(.vertical, 4)
             .padding(.horizontal, 8)
-            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.accentColor.opacity(0.15) : .clear))
+            .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color(nsColor: Palette.selectionFill) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

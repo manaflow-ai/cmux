@@ -356,11 +356,6 @@ pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
 ) -> Result<(), RpcError> {
-    let refuse = || {
-        RpcError::invalid_params(
-            "this harness has no reviewed asking mode for a remote WebSocket connection",
-        )
-    };
     // The Codex bridge takes any mode from an authenticated Web connection
     // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
     // that asks before every change (`BRIDGE_ASKING_MODES`), never in the
@@ -376,7 +371,7 @@ pub(super) async fn settle_web_session_mode(
         let start = crate::web_modes::BRIDGE_ASKING_MODES[0];
         if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
             let _ = hub.kill(s, true).await;
-            return Err(refuse());
+            return Err(no_reviewed_asking_mode());
         }
         hub.restore_web_control(s);
         return Ok(());
@@ -386,16 +381,23 @@ pub(super) async fn settle_web_session_mode(
     }
     let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     };
     if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     }
     // The daemon's own move to the asking default clears the flag its
     // starting mode set.
     hub.restore_web_control(s);
     Ok(())
+}
+
+fn no_reviewed_asking_mode() -> RpcError {
+    RpcError::invalid_params(
+        "this harness has no reviewed asking mode for a remote WebSocket connection",
+    )
+    .with_data(serde_json::json!({"reason": "remote.mode_not_asking"}))
 }
 
 /// What a Web (remote-origin) connection may never do; LocalApp and the
@@ -494,6 +496,21 @@ async fn web_starts_asking(
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
     );
+    if m == method::SESSION_NEW {
+        let meta = params.pointer("/_meta/acpmux");
+        let pick = |key: &str| {
+            meta.and_then(|m| m.get(key))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
+        };
+        let cwd = params.get("cwd").and_then(Value::as_str).map(Path::new).map(Path::to_path_buf);
+        let (family, any_mode) =
+            hub.preflight_remote_new(pick("harness"), pick("preset"), pick("model"), cwd).await?;
+        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+            return Err(no_reviewed_asking_mode());
+        }
+    }
     if m == method::SESSION_NEW
         && !vm_host_peer
         && params.get("policy").is_none_or(Value::is_null)
