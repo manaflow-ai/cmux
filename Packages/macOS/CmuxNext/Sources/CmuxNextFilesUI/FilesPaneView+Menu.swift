@@ -8,11 +8,22 @@ extension FilesPaneView {
         let menu = NSMenu()
         if entry != nil {
             menu.addItem(item(FilesStrings.open, "doc", #selector(menuOpen)))
+            if entry?.kind == .package {
+                menu.addItem(item(FilesStrings.showPackageContents, "shippingbox", #selector(menuShowPackage)))
+            }
             menu.addItem(item(FilesStrings.quickLook, "eye", #selector(menuQuickLook)))
+            menu.addItem(item(FilesStrings.getInfo, "info.circle", #selector(menuGetInfo)))
             menu.addItem(.separator())
-            menu.addItem(item(FilesStrings.rename, "pencil", #selector(menuRename)))
+            menu.addItem(item(model.selection.count > 1 ? FilesStrings.renameItems : FilesStrings.rename, "pencil", #selector(menuRename)))
             menu.addItem(item(FilesStrings.duplicate, "plus.square.on.square", #selector(menuDuplicate)))
+            menu.addItem(item(FilesStrings.makeAlias, "arrowshape.turn.up.right", #selector(menuMakeAlias)))
+            menu.addItem(item(FilesStrings.makeSymlink, "link.badge.plus", #selector(menuMakeSymlink)))
+            menu.addItem(item(FilesStrings.compress, "doc.zipper", #selector(menuCompress)))
+            if model.selectedEntries.contains(where: { $0.name.lowercased().hasSuffix(".zip") }) {
+                menu.addItem(item(FilesStrings.expand, "arrow.up.bin", #selector(menuExpand)))
+            }
             menu.addItem(item(FilesStrings.moveToTrash, "trash", #selector(menuTrash)))
+            menu.addItem(item(FilesStrings.deleteImmediately, "xmark.bin", #selector(menuDeleteNow)))
             menu.addItem(.separator())
             menu.addItem(item(FilesStrings.copy, "doc.on.doc", #selector(menuCopy)))
             menu.addItem(item(FilesStrings.copyPath, "link", #selector(menuCopyPath)))
@@ -45,7 +56,14 @@ extension FilesPaneView {
 
     @objc private func menuOpen() { openSelection() }
     @objc private func menuQuickLook() { toggleQuickLook() }
-    @objc private func menuRename() { renameSelection() }
+    @objc private func menuRename() { renameSelectionOrItems() }
+    @objc private func menuShowPackage() { showPackageContents() }
+    @objc private func menuGetInfo() { getInfo() }
+    @objc private func menuMakeAlias() { makeAlias(.alias) }
+    @objc private func menuMakeSymlink() { makeAlias(.symlink) }
+    @objc private func menuCompress() { compress() }
+    @objc private func menuExpand() { expandSelection() }
+    @objc private func menuDeleteNow() { deleteImmediately() }
     @objc private func menuDuplicate() { duplicate() }
     @objc private func menuTrash() { trash() }
     @objc private func menuCopy() { copySelection() }

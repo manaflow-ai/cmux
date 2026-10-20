@@ -116,12 +116,25 @@ extension FilesPaneView {
         let command = flags.contains(.command), shift = flags.contains(.shift), option = flags.contains(.option)
         let control = flags.contains(.control)
         switch (event.keyCode, command, shift, option, control) {
-        case (36, false, false, false, false), (76, false, false, false, false): renameSelection(); return true // Return
+        case (36, false, false, false, false), (76, false, false, false, false): renameSelectionOrItems(); return true // Return
         case (49, false, false, false, false): toggleQuickLook(); return true // Space
         case (125, true, false, _, false): openSelection(); return true // Cmd+Down
         case (126, true, false, _, false): Task { await model.goUp() }; return true // Cmd+Up
         case (51, true, false, false, false): trash(); return true // Cmd+Delete
+        case (51, true, false, true, false): deleteImmediately(); return true // Opt+Cmd+Delete
+        case (48, false, let back, false, false): model.selectAlphabetically(forward: !back); return true // Tab, Shift+Tab
         default: break
+        }
+        if command, shift, !option, !control, let place = GoPlace.place(forShiftCommandKey: chars) {
+            go(to: place)
+            return true
+        }
+        if command, control, !shift, !option {
+            switch chars.lowercased() {
+            case "a": makeAlias(.alias); return true
+            case "s": toggleSidebar(); return true
+            default: break
+            }
         }
         if command, !control {
             switch (chars.lowercased(), shift, option) {
@@ -137,6 +150,7 @@ extension FilesPaneView {
             case ("o", false, false): openSelection(); return true
             case ("f", false, false): window?.makeFirstResponder(filterFieldForFocus); return true
             case ("r", false, false): revealInFinder(); return true
+            case ("i", false, false): getInfo(); return true
             default: return false
             }
         }

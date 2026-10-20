@@ -29,4 +29,19 @@ public protocol FileOperating: Sendable {
     func transfer(_ sources: [URL], to folder: URL, mode: TransferMode,
                   resolve: @escaping @Sendable (FileConflict) async -> ConflictAnswer)
         -> AsyncThrowingStream<TransferEvent, any Error>
+
+    /// Make Alias (Ctrl+Cmd+A): an alias or symlink to each item beside it,
+    /// named "name alias". Returns the new items in order.
+    func makeLinks(_ urls: [URL], kind: LinkKind) async throws -> [URL]
+
+    /// Delete Immediately (Opt+Cmd+Delete): removes the items without the Trash. No Undo.
+    func deleteImmediately(_ urls: [URL]) async throws
+
+    /// Compress: one item becomes "name.zip"; several become `archiveName`.zip
+    /// with the items at its top. The archive goes beside the first item.
+    func compress(_ urls: [URL], archiveName: String) async throws -> URL
+
+    /// Expands a zip beside itself: a single top item comes out as itself,
+    /// several come out in a folder named after the archive. Returns what came out.
+    func expand(_ archive: URL) async throws -> URL
 }

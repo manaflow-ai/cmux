@@ -34,13 +34,13 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | 2.2 | Enclosing folder | Cmd+Up | P0 | [x] |
 | 2.3 | Back / Forward history | Cmd+[ / Cmd+] | P0 | [x] |
 | 2.4 | Go to Folder sheet with path completion (Tab), `~` expansion, recents | Cmd+Shift+G | P0 | [~] |
-| 2.5 | Go menu: Home, Desktop, Documents, Downloads, Applications, Utilities, Computer, Network, iCloud Drive, Recents, AirDrop | Cmd+Shift+H/D/O/L/A/U/C/K/I/F/R | P1 | [ ] |
+| 2.5 | Go menu: Home, Desktop, Documents, Downloads, Applications, Utilities, Computer, Network, iCloud Drive, Recents, AirDrop | Cmd+Shift+H/D/O/L/A/U/C/K/I/F/R | P1 | [~] Home, Desktop, Documents, Downloads, Applications, Utilities, Computer, iCloud Drive; no Recents, Network, AirDrop |
 | 2.6 | Recent Folders | | P2 | [ ] |
 | 2.7 | Path bar (clickable segments, drag targets, Cmd+click opens) | Opt+Cmd+P | P0 | [~] |
 | 2.8 | Title-bar path popup (Cmd+click title) | | P2 | [ ] |
 | 2.9 | Type-select (type the start of a name to select it) | | P0 | [x] |
 | 2.10 | Arrow-key nav in all views, Shift extend, Cmd+A select all, Opt+Cmd+A deselect | | P0 | [x] |
-| 2.11 | Tab / Shift+Tab select next/prev alphabetically | | P1 | [ ] |
+| 2.11 | Tab / Shift+Tab select next/prev alphabetically | | P1 | [x] |
 | 2.12 | Spring-loaded folders on drag hover | | P2 | [ ] |
 | 2.13 | Open in new tab (Cmd+double-click), new window | Cmd+T / Cmd+N | P1 | [ ] (cmux tab model covers it) |
 | 2.14 | Reveal ("Show in Enclosing Folder") from search results | Cmd+R | P1 | [ ] |
@@ -50,11 +50,11 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 | # | Feature | Pri | Status |
 |---|---|---|---|
-| 3.1 | Favorites (Recents, Applications, Desktop, Documents, Downloads, Home, user-added) | P1 | [ ] |
-| 3.2 | Locations (volumes, iCloud Drive, network, external disks with eject) | P1 | [ ] |
+| 3.1 | Favorites (Recents, Applications, Desktop, Documents, Downloads, Home, user-added) | P1 | [~] defaults + user-added, persisted; no Recents |
+| 3.2 | Locations (volumes, iCloud Drive, network, external disks with eject) | P1 | [~] mounted volumes with eject; no iCloud/network rows |
 | 3.3 | Tags section (click to list tagged files via Spotlight) | P2 | [ ] |
-| 3.4 | Drag folder into sidebar to add; drag out to remove; reorder | P1 | [ ] |
-| 3.5 | Show/hide sidebar | Ctrl+Cmd+S | P1 | [ ] |
+| 3.4 | Drag folder into sidebar to add; drag out to remove; reorder | P1 | [~] drop to add and reorder; remove by menu, not by drag out |
+| 3.5 | Show/hide sidebar | Ctrl+Cmd+S | P1 | [x] |
 | 3.6 | Shared favorites with real Finder sidebar (LSSharedFileList is deprecated; read-only import) | P3 | [ ] |
 
 ## 4. Window chrome
@@ -72,9 +72,9 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
 | 5.1 | Quick Look (space), full screen, arrow through selection, index sheet | Space, Opt+Space | P0 | [~] |
-| 5.2 | Get Info (kind, size, where, dates, comments, open with, permissions, locked, stationery, name & extension, preview) | Cmd+I | P1 | [ ] |
+| 5.2 | Get Info (kind, size, where, dates, comments, open with, permissions, locked, stationery, name & extension, preview) | Cmd+I | P1 | [~] kind, size (folder total in background), where, dates, owner, permissions, Locked, Hide extension; no comments, Open with, preview |
 | 5.3 | Inspector (live Get Info for selection) | Opt+Cmd+I | P2 | [ ] |
-| 5.4 | Show Package Contents | | P1 | [ ] |
+| 5.4 | Show Package Contents | | P1 | [x] |
 | 5.5 | Thumbnails (QLThumbnailGenerator, cached, off-main) | | P0 | [~] |
 | 5.6 | Change permissions/owner in Get Info | | P2 | [ ] |
 
@@ -83,22 +83,22 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
 | 6.1 | Rename inline (Return), extension-hide aware, select stem only | Return | P0 | [x] |
-| 6.2 | Batch rename (Replace Text / Add Text / Format with index/counter/date) | | P1 | [ ] |
+| 6.2 | Batch rename (Replace Text / Add Text / Format with index/counter/date) | | P1 | [x] |
 | 6.3 | New Folder / New Folder with Selection | Shift+Cmd+N / Ctrl+Cmd+N | P0 | [x] |
 | 6.4 | Move to Trash, with Put Back and Undo | Cmd+Delete | P0 | [~] |
-| 6.5 | Delete Immediately | Opt+Cmd+Delete | P1 | [ ] |
+| 6.5 | Delete Immediately | Opt+Cmd+Delete | P1 | [x] (with confirmation) |
 | 6.6 | Empty Trash (with confirm) | Shift+Cmd+Delete | P2 | [ ] |
 | 6.7 | Duplicate ("name copy") | Cmd+D | P0 | [x] |
-| 6.8 | Make Alias / Symlink | Ctrl+Cmd+A | P1 | [ ] |
+| 6.8 | Make Alias / Symlink | Ctrl+Cmd+A | P1 | [x] alias and symlink |
 | 6.9 | Copy / Cut-paste (Cmd+C, Cmd+Opt+V moves), Paste | Cmd+C/V, Opt+Cmd+V | P0 | [x] |
 | 6.10 | Copy as Pathname | Opt+Cmd+C | P0 | [x] |
 | 6.11 | Copy/move with progress, cancel, ETA (off-main, cancellable) | | P0 | [~] |
 | 6.12 | Conflict UI: Keep Both / Stop / Replace / Apply to all, merge folders (Opt) | | P0 | [x] |
 | 6.13 | Undo / Redo for rename, move, copy, trash, new folder | Cmd+Z / Shift+Cmd+Z | P0 | [x] |
-| 6.14 | Compress (zip) / expand archives | | P1 | [ ] |
+| 6.14 | Compress (zip) / expand archives | | P1 | [~] zip only (ditto) |
 | 6.15 | Burn / create disk image | | P3 | [ ] |
 | 6.16 | Lock / unlock (uchg) | | P2 | [ ] |
-| 6.17 | Eject volume | Cmd+E | P1 | [ ] |
+| 6.17 | Eject volume | Cmd+E | P1 | [~] sidebar Eject; no Cmd+E |
 | 6.18 | Show in Finder (escape hatch) | | P0 | [x] |
 
 ## 7. Drag and drop
@@ -151,7 +151,7 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 
 ## Count
 
-Rows: 90 (2 n/a). P0: 33. Progress: see "Slice 1 notes".
+Rows: 90 (2 n/a). P0: 32. Progress: see "Slice 1 notes".
 
 ## Performance baseline (2026-10-19, Lawrence's Mac, load avg 14-17)
 
@@ -194,8 +194,8 @@ Notes:
   menu's Duplicate), Cmd+1/2/3 (workspaces; Files uses Ctrl+Cmd+1/2/3 for
   icons/list/columns), Cmd+[ and Cmd+] (cmux page history, which the pane
   plugs into, so they do step through folders).
-- Of 88 countable items (90 rows, 2 n/a): `[x]` 21, `[~]` 15. Parity by
-  weight (`[~]` = half): (21 + 7.5) / 88 = 32%. P0 rows only (33): (21 + 6) / 33 = 82%.
+- Of 88 countable items (90 rows, 2 n/a): `[x]` 27, `[~]` 22. Parity by
+  weight (`[~]` = half): (27 + 11) / 88 = 43%. P0 rows only (32): (21 + 5.5) / 32 = 83%.
   `[x]` means built and unit-tested in the model; none is verified in a running app yet.
 
 ## Shared core for the Screenshots pane

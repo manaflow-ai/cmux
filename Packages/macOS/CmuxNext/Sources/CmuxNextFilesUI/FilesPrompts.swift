@@ -37,6 +37,29 @@ struct FilesPrompts {
         return ConflictAnswer(choice, applyToAll: alert.suppressionButton?.state == .on)
     }
 
+    /// Rename Items… for several items. Nil when cancelled.
+    func batchRename(_ names: [String]) async -> BatchRename? {
+        let sheet = BatchRenameSheet(names: names)
+        let alert = NSAlert()
+        alert.messageText = FilesStrings.renameItemsTitle(names.count)
+        alert.addButton(withTitle: FilesStrings.rename)
+        alert.addButton(withTitle: FilesStrings.cancel)
+        alert.accessoryView = sheet.accessory
+        let response = await run(alert)
+        return response == .alertFirstButtonReturn ? sheet.rename : nil
+    }
+
+    /// Delete Immediately asks first: it cannot be undone.
+    func confirmDelete(_ count: Int) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = FilesStrings.deleteConfirm(count)
+        alert.informativeText = FilesStrings.deleteCannotUndo
+        alert.addButton(withTitle: FilesStrings.delete)
+        alert.addButton(withTitle: FilesStrings.cancel)
+        return await run(alert) == .alertFirstButtonReturn
+    }
+
     private func textSheet(title: String, initial: String, button: String) async -> String? {
         let alert = NSAlert()
         alert.messageText = title

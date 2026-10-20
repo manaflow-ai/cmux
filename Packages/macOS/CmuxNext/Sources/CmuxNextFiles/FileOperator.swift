@@ -5,7 +5,7 @@ public import Foundation
 /// Copies go through `copyfile(3)` with `COPYFILE_CLONE`, so an APFS copy of
 /// any size is a metadata-only clone, and report bytes as they go.
 public struct FileOperator: FileOperating {
-    private let namer: FileNamer
+    let namer: FileNamer
 
     /// Makes an operator. `namer` makes "copy" and numbered names.
     public init(namer: FileNamer = FileNamer()) { self.namer = namer }
@@ -83,6 +83,19 @@ public struct FileOperator: FileOperating {
 
     @concurrent
     public func move(_ pairs: [(from: URL, to: URL)]) async throws {
+        // A destination that another pair is leaving (a swap or a shift of
+        // numbered names) is taken until that pair moves: go through free
+        // temporary names first, then to the real ones.
+        let leaving = Set(pairs.map(\.from.path))
+        if pairs.contains(where: { leaving.contains($0.to.path) && $0.to.path != $0.from.path }) {
+            let parked = pairs.map { pair in
+                (from: pair.from, to: pair.from.deletingLastPathComponent()
+                    .appendingPathComponent(".cmux-move-\(UUID().uuidString)"))
+            }
+            try await move(parked)
+            try await move(zip(parked, pairs).map { (from: $0.to, to: $1.to) })
+            return
+        }
         for pair in pairs {
             if FileManager.default.fileExists(atPath: pair.to.path) { throw FileBrowserError.exists(pair.to) }
             do {

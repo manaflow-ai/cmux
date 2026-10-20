@@ -23,7 +23,9 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelD
 
     nonisolated func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
         guard let event, event.type == .keyDown else { return false }
-        return MainActor.assumeIsolated { onKey?(event) ?? false }
+        // QLPreviewPanel calls this on the main thread, and the event never leaves it.
+        nonisolated(unsafe) let mainEvent = event
+        return MainActor.assumeIsolated { onKey?(mainEvent) ?? false }
     }
 
     /// Shows or hides the shared panel for `urls`.

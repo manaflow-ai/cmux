@@ -12,13 +12,19 @@ public import Quartz
 ///
 /// ```swift
 /// let model = FileBrowserModel(folder: FileManager.default.homeDirectoryForCurrentUser)
-/// let pane = FilesPaneView(model: model, icons: icons) { url in NSWorkspace.shared.open(url) }
+/// let sidebar = SidebarModel(home: home, defaults: .standard)
+/// let pane = FilesPaneView(model: model, sidebar: sidebar, icons: icons) { url in NSWorkspace.shared.open(url) }
 /// ```
 @MainActor
 public final class FilesPaneView: NSView {
     let model: FileBrowserModel
     let icons: FileIconProvider
     let openFile: (URL) -> Void
+    let sidebar: SidebarModel
+    let home: URL
+    var infoWindows: [URL: FileInfoWindow] = [:]
+    private lazy var sidebarView = FileSidebarView(actions: makeSidebarActions())
+    private var sidebarWidth: NSLayoutConstraint?
     let quickLook = QuickLookSource()
     lazy var prompts = FilesPrompts(window: { [weak self] in self?.window })
     private let toolbar = NSStackView()
@@ -37,19 +43,26 @@ public final class FilesPaneView: NSView {
     /// Makes a pane over `model` and starts showing it.
     /// - Parameters:
     ///   - model: The pane's state (the host keeps it for history and restore).
+    ///   - sidebar: Favorites and Locations (one model shared by every Files pane).
     ///   - icons: Shared icon and thumbnail cache.
+    ///   - home: The person's home folder (Go menu, sidebar symbols).
     ///   - openFile: Opens a file the person activated.
-    public init(model: FileBrowserModel, icons: FileIconProvider, openFile: @escaping (URL) -> Void) {
+    public init(model: FileBrowserModel, sidebar: SidebarModel, icons: FileIconProvider,
+                home: URL = FileManager.default.homeDirectoryForCurrentUser, openFile: @escaping (URL) -> Void) {
         self.model = model
+        self.sidebar = sidebar
         self.icons = icons
+        self.home = home
         self.openFile = openFile
         super.init(frame: .zero)
         buildChrome()
         observation = Task { [weak self] in
             guard let model = self?.model else { return }
-            for await _ in ObservationStream({ [model] in
+            guard let sidebar = self?.sidebar else { return }
+            for await _ in ObservationStream({ [model, sidebar] in
                 _ = (model.entries, model.selection, model.folder, model.viewMode, model.phase, model.canGoBack,
-                     model.canGoForward, model.showHidden, model.transferProgress, model.lastError)
+                     model.canGoForward, model.showHidden, model.transferProgress, model.lastError,
+                     sidebar.favorites, sidebar.locations, sidebar.isVisible)
             }) {
                 self?.render()
             }
@@ -63,6 +76,7 @@ public final class FilesPaneView: NSView {
     /// Stops observing and watching (the tab closed).
     public func stop() {
         observation?.cancel()
+        for window in infoWindows.values { window.panel.close() }
         model.stop()
     }
 
@@ -77,6 +91,8 @@ public final class FilesPaneView: NSView {
     public nonisolated static var paneTitle: String { FilesStrings.title }
     /// The word Duplicate adds to names ("copy", localized as Finder does).
     public nonisolated static var copyWord: String { FilesStrings.copyWord }
+    /// The word Make Alias adds to names ("alias", localized as Finder does).
+    public nonisolated static var aliasWord: String { FilesStrings.aliasWord }
 
     var currentContent: (any FileContentView)? { shown }
     var filterFieldForFocus: NSView { filterField }
@@ -97,6 +113,9 @@ public final class FilesPaneView: NSView {
         }
         (view as? FileColumnsView)?.setShowsHidden(model.showHidden)
         view.show(model.entries, of: model.folder, selection: model.selection)
+        sidebarView.view.isHidden = !sidebar.isVisible
+        sidebarWidth?.constant = sidebar.isVisible ? 170 : 0
+        if sidebar.isVisible { sidebarView.show(FileSidebarRow.rows(for: sidebar, home: home), current: model.folder) }
         backButton.isEnabled = model.canGoBack
         forwardButton.isEnabled = model.canGoForward
         upButton.isEnabled = model.canGoUp
@@ -179,7 +198,7 @@ public final class FilesPaneView: NSView {
         status.font = Typography.system(size: TypeScale.caption)
         status.textColor = .secondaryLabelColor
         status.alignment = .center
-        for view in [toolbar, content, status] as [NSView] {
+        for view in [toolbar, sidebarView.view, content, status] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -187,14 +206,20 @@ public final class FilesPaneView: NSView {
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            sidebarView.view.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
+            sidebarView.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sidebarView.view.bottomAnchor.constraint(equalTo: bottomAnchor),
             content.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
-            content.leadingAnchor.constraint(equalTo: leadingAnchor),
+            content.leadingAnchor.constraint(equalTo: sidebarView.view.trailingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             status.topAnchor.constraint(equalTo: content.bottomAnchor, constant: 2),
-            status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            status.leadingAnchor.constraint(equalTo: sidebarView.view.trailingAnchor, constant: 8),
             status.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             status.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
         ])
+        let width = sidebarView.view.widthAnchor.constraint(equalToConstant: 170)
+        width.isActive = true
+        sidebarWidth = width
     }
 
     @objc private func goBack() { Task { await model.goBack() } }

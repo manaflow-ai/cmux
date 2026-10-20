@@ -27,12 +27,27 @@ final class FilesPaneService: InternalPageProvider {
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
     private let icons = FileIconProvider()
+    /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
+    private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
+    private var volumeWatch: Task<Void, Never>?
     private var titleWatch: [String: Task<Void, Never>] = [:]
     /// The folder the next new tab opens on (``open(folder:focus:)``); home when nil.
     private var pendingFolder: URL?
 
     init(services: AppServices) {
         self.services = services
+        let sidebar = self.sidebar
+        volumeWatch = Task {
+            let center = NSWorkspace.shared.notificationCenter
+            await withTaskGroup(of: Void.self) { group in
+                for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
+                             NSWorkspace.didRenameVolumeNotification] {
+                    group.addTask { @MainActor in
+                        for await _ in center.notifications(named: name) { sidebar.refreshLocations() }
+                    }
+                }
+            }
+        }
     }
 
     var page: InternalPageID { .filesPane }
@@ -66,7 +81,8 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord)))
+        let model = FileBrowserModel(folder: folder, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
+                                                                                   aliasWord: FilesPaneView.aliasWord)))
         return Tab(model: model, view: nil, history: FilesPaneHistory(model: model))
     }
 
@@ -75,7 +91,7 @@ final class FilesPaneService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         var tab = tabs[key] ?? makeTab(pendingFolder ?? FileManager.default.homeDirectoryForCurrentUser)
         pendingFolder = nil
-        let view = FilesPaneView(model: tab.model, icons: icons) { [weak self] url in self?.openFile(url, from: key) }
+        let view = FilesPaneView(model: tab.model, sidebar: sidebar, icons: icons) { [weak self] url in self?.openFile(url, from: key) }
         tab.view = view
         tabs[key] = tab
         let model = tab.model

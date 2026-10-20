@@ -9,13 +9,21 @@ public struct FileNamer: Sendable {
         case number
         /// `name copy`, `name copy 2` (Duplicate).
         case copy
+        /// `name.ext alias`, `name.ext alias 2` (Make Alias: the word goes after the whole name).
+        case alias
     }
 
     /// The word Duplicate adds ("copy"; localized by the caller).
     public var copyWord: String
 
-    /// Makes a namer. `copyWord` defaults to English "copy", as Finder writes it on an English system.
-    public init(copyWord: String = "copy") { self.copyWord = copyWord }
+    /// The word Make Alias adds ("alias"; localized by the caller).
+    public var aliasWord: String
+
+    /// Makes a namer. The words default to English, as Finder writes them on an English system.
+    public init(copyWord: String = "copy", aliasWord: String = "alias") {
+        self.copyWord = copyWord
+        self.aliasWord = aliasWord
+    }
 
     /// The first free name for `name` in `style`, given the names already taken.
     /// The extension stays last: "a.txt" becomes "a copy.txt". For ``Style/number``
@@ -37,6 +45,12 @@ public struct FileNamer: Sendable {
             var n = 2
             while taken.contains("\(stem) \(copyWord) \(n)\(suffix)") { n += 1 }
             return "\(stem) \(copyWord) \(n)\(suffix)"
+        case .alias:
+            let first = "\(name) \(aliasWord)"
+            if !taken.contains(first) { return first }
+            var n = 2
+            while taken.contains("\(first) \(n)") { n += 1 }
+            return "\(first) \(n)"
         }
     }
 

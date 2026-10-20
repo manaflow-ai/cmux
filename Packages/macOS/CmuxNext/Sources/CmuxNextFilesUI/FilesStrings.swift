@@ -49,6 +49,72 @@ nonisolated enum FilesStrings {
     static var cannotOpen: String { t("files.cannotOpen", "This folder can’t be opened.") }
     static var empty: String { t("files.empty", "This folder is empty.") }
 
+    static var favorites: String { t("files.sidebar.favorites", "Favorites") }
+    static var locations: String { t("files.sidebar.locations", "Locations") }
+    static var eject: String { t("files.sidebar.eject", "Eject") }
+    static var removeFromSidebar: String { t("files.sidebar.remove", "Remove from Sidebar") }
+    static var getInfo: String { t("files.menu.getInfo", "Get Info") }
+    static var renameItems: String { t("files.menu.renameItems", "Rename Items…") }
+    static var makeAlias: String { t("files.menu.makeAlias", "Make Alias") }
+    static var makeSymlink: String { t("files.menu.makeSymlink", "Make Symbolic Link") }
+    static var compress: String { t("files.menu.compress", "Compress") }
+    static var expand: String { t("files.menu.expand", "Expand") }
+    static var showPackageContents: String { t("files.menu.showPackage", "Show Package Contents") }
+    static var deleteImmediately: String { t("files.menu.deleteNow", "Delete Immediately…") }
+    static var delete: String { t("files.delete.button", "Delete") }
+    static var deleteCannotUndo: String { t("files.delete.cannotUndo", "You can’t undo this action.") }
+    static var archiveName: String { t("files.archiveName", "Archive") }
+    static var aliasWord: String { t("files.aliasWord", "alias") }
+    static var infoKind: String { t("files.info.kind", "Kind:") }
+    static var infoSize: String { t("files.info.size", "Size:") }
+    static var infoWhere: String { t("files.info.where", "Where:") }
+    static var infoCreated: String { t("files.info.created", "Created:") }
+    static var infoModified: String { t("files.info.modified", "Modified:") }
+    static var infoOpened: String { t("files.info.opened", "Last opened:") }
+    static var infoOwner: String { t("files.info.owner", "Owner:") }
+    static var infoPermissions: String { t("files.info.permissions", "Permissions:") }
+    static var infoLocked: String { t("files.info.locked", "Locked") }
+    static var infoHideExtension: String { t("files.info.hideExtension", "Hide extension") }
+    static var infoCalculating: String { t("files.info.calculating", "Calculating…") }
+    static var renameReplace: String { t("files.rename.replace", "Replace Text") }
+    static var renameAdd: String { t("files.rename.add", "Add Text") }
+    static var renameFormat: String { t("files.rename.format", "Format") }
+    static var renameNameIndex: String { t("files.rename.nameIndex", "Name and Index") }
+    static var renameNameCounter: String { t("files.rename.nameCounter", "Name and Counter") }
+    static var renameNameDate: String { t("files.rename.nameDate", "Name and Date") }
+    static var renameAfter: String { t("files.rename.after", "after name") }
+    static var renameBefore: String { t("files.rename.before", "before name") }
+    static var renameFind: String { t("files.rename.find", "Find:") }
+    static var renameReplaceWith: String { t("files.rename.replaceWith", "Replace with:") }
+    static var renameText: String { t("files.rename.text", "Text:") }
+    static var renameCustomFormat: String { t("files.rename.customFormat", "Custom Format:") }
+    static var renameStartAt: String { t("files.rename.startAt", "Start numbers at:") }
+    static var renameCaseSensitive: String { t("files.rename.caseSensitive", "Match case") }
+
+    static func infoTitle(_ name: String) -> String {
+        String(format: t("files.info.title", "%@ Info"), name)
+    }
+
+    static func infoBytes(_ size: String, _ bytes: Int64) -> String {
+        String(format: t("files.info.bytes", "%1$@ (%2$lld bytes)"), size, bytes)
+    }
+
+    static func infoFolderSize(_ size: String, _ items: Int) -> String {
+        String(format: t("files.info.folderSize", "%1$@ for %2$lld items"), size, items)
+    }
+
+    static func renameExample(_ name: String) -> String {
+        String(format: t("files.rename.example", "Example: %@"), name)
+    }
+
+    static func renameItemsTitle(_ count: Int) -> String {
+        String(format: t("files.rename.title", "Rename %lld Items"), count)
+    }
+
+    static func deleteConfirm(_ count: Int) -> String {
+        String(format: t("files.delete.confirm", "Are you sure you want to delete these %lld items immediately?"), count)
+    }
+
     static func conflict(_ name: String) -> String {
         String(format: t("files.conflict.message", "An item named “%@” already exists in this location."), name)
     }
