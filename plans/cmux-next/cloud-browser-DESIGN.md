@@ -11,6 +11,25 @@ CEF fork, `cmux.rb/1`, split compositor), `remote-tab-r1.md`, `remote-tab-r2.md`
 This doc adds: where cloud work stands today, the protocol comparison the user asked for, a working
 cloud prototype with numbers measured from Lawrence's Mac, and the order to ship it.
 
+## Direction change (2026-10-20, after remote-desktop-DESIGN.md, 902f2b13112)
+
+[remote-desktop-DESIGN.md](remote-desktop-DESIGN.md) makes `cmux-screen-host` (Aziz's Rust WebRTC
+host) the one host engine (U1, U2) and retires `cmux.rd/1` media and `cmux-rd-host` at M5. Its M3 step
+moves this cloud browser onto that host. So:
+
+- The `cmux-rd host --browser` prototype below stays as a measured baseline only: the "Cloud VM, software
+  encode" row of that doc's section 4 targets. No more cloud browser work goes into `cmux-rd-host`.
+- What carries over: the browser supervisor (`cmux-rd-host/src/browser.rs`: Chrome outlives viewers,
+  restarts after a crash, stops with the host) is backend-agnostic and moves into the `desktop` role of
+  `cmux-screen-host` at M3; the marker page and the click/scroll bench method carry over unchanged.
+- The cloud browser on `cmux-screen-host` waits on three things that are not on feat-cmux-next:
+  `cmux-screen` itself (draft [#20413](https://github.com/manaflow-ai/cmux/pull/20413); M0 merge order is
+  Aziz's), Linux X11 input (M2: `backend/desktop.rs` logs "input is not implemented for this backend yet;
+  the stream is view-only"), and a WebRTC source in the `remote_view` pane (U5; Aziz's #20426, draft).
+- Section 2.2's choice of `cmux.rd/1` over WebRTC is replaced by U2. The trade-off stays: `cmux.rd/1`
+  measured 13 ms key G2G in a VM; WebRTC adds about 30 ms of jitter buffer and pacing unless the
+  section 4 measures (playout delay 0) land.
+
 ## 0. Answer in one paragraph
 
 Not yet in Mighty's position, but closer than it looks. The hard parts exist: a low-latency media
@@ -226,7 +245,7 @@ floor they would reach.
 | Step | Content | Size |
 | --- | --- | --- |
 | CB-1 | Done here: `cmux-rd host --browser` (supervised Chrome that outlives viewers), bench click/scroll, fleet bench artifact | landed |
-| CB-1b | Seen in the app: a Debug cmux-next `remote_view` pane (`CMUX_NEXT_RD_DEBUG_PORT` / `_TOKEN_FILE`) on the tunnel; not done in this change (the fleet app build failed on an unrelated optchat-chief compile error) | next |
+| CB-1b | Seen in the app: fleet Debug build `cmux DEV cloud-browser-v2` (job a3eedbb24e00020f5eaf7f65, 4fd8b20dee9) with `CMUX_NEXT_RD_DEBUG_PORT=14103` / `_TOKEN_FILE`; `debug.remote_view` open + connect streamed the cloud Chrome page into a pane (hardware decode, 0 decode errors). Gaps: the tab came up in `mode=view` (the pane does not forward input in view mode, so in-app keyboard and mouse were not tried; the bench proved input on the same wire), and text was blocky (stream scaled into the pane, bitrate backed off on the Wi-Fi tunnel). | partly done |
 | CB-2 | Cloud image role: `cmux-rd` + Chrome + Xvfb in the Cloud VM snapshot, started by `cmux host run --browser`; idle pause | 1-2 days |
 | CB-3 | App: a non-debug `remote_view` connection to a cloud VM (today only `RemoteViewDebugRdHost`, DEBUG, loopback env vars): "Open Cloud Browser" in Cmd+Shift+P, CLI and MCP, the token through the server API | 2-3 days |
 | CB-4 | UDP path: Freestyle tunnel (WireGuard) from the app's `cmux link`, so media rides datagrams with FEC | 2-4 days |
@@ -234,6 +253,24 @@ floor they would reach.
 | CB-6 | Clipboard, downloads, audio (sections 2.4) | 1 week |
 | CB-7 | Stage B: Linux build of `cmux-remote-browser-host` (CEF fork headless Ozone + Viz capture): native menus, damage, no X | weeks (r7) |
 | CB-8 | Stage C: split compositor (RT3) for local scroll | months |
+
+## 4a. Contract for cloud subagents (B10 in cloud-subagents-DESIGN.md, a306)
+
+A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API stays usable from there:
+
+1. Start: `cmux-rd host --browser URL --owner OWNER --display :99 --token-fd N` (flag off by default;
+   `experiments/cloud-browser/vm/start.sh` is the reference). It binds 127.0.0.1 only, so an agent on
+   the same VM reaches it with no network setup, and a human reaches it through a tunnel.
+2. Drive: the agent controls the same Chrome through CDP on the VM's loopback, never through the video
+   stream (CB1). Gap: `--browser` does not yet open a CDP port; CB-2 adds `--browser-cdp-port N`
+   (loopback only, off by default) so the agent's CDP driver and the human's stream share one Chrome.
+3. Watch and take over: the user's Mac opens a `remote_view` pane on that VM's host (today the
+   DEBUG-only `CMUX_NEXT_RD_DEBUG_PORT` path; CB-3 makes it a normal action). One controller at a time:
+   the automation lease decides between the agent and the person.
+4. Lifetime: Chrome outlives viewers and restarts after a crash (tested); it stops with the host, so
+   the subagent's VM teardown also ends the browser.
+
+Changes to these four points must keep a VM subagent able to start, drive and hand off the browser.
 
 ## 5. Open questions for Lawrence
 
