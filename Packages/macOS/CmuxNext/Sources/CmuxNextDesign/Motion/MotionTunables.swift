@@ -11,8 +11,8 @@ public nonisolated enum MotionTunables {
         // Structural (design-tokens.json motion.springs, motion.structural): critically damped by
         // default, response short enough that a move ends visibly (within 0.5%) by 0.18 s (hq-1d D1).
         .move: (SpringParameters(response: 0.15, dampingFraction: 1), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
-        .zoom: (SpringParameters(response: 0.32, dampingFraction: 0.9), "A pane zooming to fill its screen."),
-        .exit: (SpringParameters(response: 0.12, dampingFraction: 1), "The panes a zoom leaves fading out, the farthest first."),
+        .zoom: (SpringParameters(response: 0.30, dampingFraction: 1), "A pane zooming to fill its screen and back (Cmd-Shift-Enter)."),
+        .exit: (SpringParameters(response: 0.24, dampingFraction: 1), "A pane closing: its neighbours and dividers covering its space."),
         .tabOpen: (SpringParameters(response: 0.1, dampingFraction: 1), "A new tab growing in at its slot and the tabs right of it making room."),
         .appear: (SpringParameters(response: 0.135, dampingFraction: 1), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.11, dampingFraction: 1), "Tab close, group collapse, row removal, sidebar hide."),
@@ -63,6 +63,8 @@ public nonisolated enum MotionTunables {
         .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
         .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
         .cursorHide: (0.3, "Agent cursor fades out once its agent goes idle."),
+        .hibernateIcon: (0.25, "Hibernated tab favicon shrinks into its ring, and grows back on wake (Chrome: 250 ms)."),
+        .hibernateRing: (1.0, "Hibernated tab dotted ring fades in (Chrome: 1 s)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

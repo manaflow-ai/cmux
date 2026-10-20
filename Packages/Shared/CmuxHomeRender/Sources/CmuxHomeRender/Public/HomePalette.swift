@@ -50,7 +50,7 @@ public struct HomeColor: Hashable, Sendable {
     /// Text on this colour: white while it keeps 3:1 (Messages' white on
     /// its blue is 3.7:1; saturated blues read better white than WCAG's
     /// black pick), else white or black, whichever has the higher contrast.
-    var readableText: HomeColor {
+    public var readableText: HomeColor {
         let l = relativeLuminance
         let onWhite = 1.05 / (l + 0.05), onBlack = (l + 0.05) / 0.05
         return onWhite >= 3 || onWhite >= onBlack ? .gray255(255) : .gray255(0)
@@ -142,6 +142,49 @@ public struct HomePalette: Hashable, Sendable {
             typingDot: n(0.248),
             typingDotHighlight: n(0.426)
         )
+    }
+
+    /// How the Chief chat's bubbles look (Settings > Agents > Chief Chat >
+    /// Bubble Style, `home.chiefBubbleStyle`; Leo 2026-10-19: iMessage's blue
+    /// stays the default, the theme's colours are the option).
+    public enum BubbleStyle: Sendable, Hashable {
+        /// The default: Messages' blue for the person and its grey for the Chief (`iMessageStyled`).
+        case iMessage
+        /// The bubbles take the theme's colours (`themeStyled`).
+        case theme
+    }
+
+    /// The theme's look (the opt-in style). The person's bubbles are `sent` (the
+    /// theme's accent and the text on it) when the theme names an accent, else
+    /// a neutral step of the theme's own colours; the Chief's sit on the
+    /// theme's surface (`themed`). One flat colour: the viewport shading is
+    /// Messages' blue, and it reads as a stain on a grey.
+    public static func themeStyled(_ theme: Theme, sent: (fill: HomeColor, text: HomeColor)? = nil, active: Bool = true) -> HomePalette {
+        var palette = themed(theme, active: active)
+        let bg = theme.background, fg = theme.foreground
+        let fill = sent?.fill ?? bg.mixed(with: fg, 0.22)
+        let shown = active ? fill : fill.mixed(with: bg.mixed(with: fg, 0.5), 0.35)
+        palette.outgoingGradient = [GradientStop(location: 0, color: shown), GradientStop(location: 1, color: shown)]
+        palette.outgoingText = sent?.text ?? fg
+        // The caret is the accent, or the theme's text with none (a grey caret would vanish in the field).
+        palette.caret = sent?.fill ?? fg
+        return palette
+    }
+
+    /// Messages' look (the default style): its measured grey under the Chief's
+    /// bubbles and its text colours, light or dark with the theme. The
+    /// person's bubbles are `theme.accent` here; the host passes Messages'
+    /// blue, and the renderer draws MessagesLab's measured blue and gradient
+    /// for it (`measuredAccent`).
+    public static func iMessageStyled(_ theme: Theme, active: Bool = true) -> HomePalette {
+        var palette = themed(theme, active: active)
+        // Messages' key and non-key windows are the same greys (MessagesLab, macOS 27, 2026-10-05 and 10-09).
+        let light = theme.background.luminance > 0.5
+        palette.incomingBubble = light ? .rgb255(233, 233, 235) : .rgb255(59, 59, 61)
+        palette.incomingText = .gray255(light ? 36 : 225)
+        palette.secondaryText = .gray255(light ? 134 : 154)
+        palette.badge = palette.incomingBubble
+        return palette
     }
 
     /// The outgoing colour at a fraction of the viewport height.

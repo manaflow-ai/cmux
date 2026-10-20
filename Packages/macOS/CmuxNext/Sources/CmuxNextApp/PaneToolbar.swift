@@ -16,7 +16,7 @@ import os
 @MainActor
 final class PaneToolbar {
     /// What the selected tab is, for its own actions; nil is a chat: no "…".
-    enum Kind: Equatable, Sendable {
+    enum Kind: Hashable, Sendable {
         case newTab, terminal, browser, other
     }
 
@@ -26,6 +26,9 @@ final class PaneToolbar {
         var kind: Kind?
         var zoomed = false
         var pinned: [String] = []
+        /// What every tab of the pane that offers "…" is: the bar keeps their room whichever is
+        /// selected, so a selection never changes the strip's width (Lawrence 2026-10-19).
+        var paneKinds: Set<Kind> = []
         /// The strip selects a tab the store no longer lists (a provisional tab the store's tab
         /// just replaced): the selection follows on the strip's next apply, so the bar keeps what
         /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
@@ -80,22 +83,24 @@ final class PaneToolbar {
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
                 if state.behind { continue }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned)
+                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
             }
         }
     }
 
     private static func state(_ pane: PaneController) -> State {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
-        guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned) }
+        let resolver = TabTitleResolver(services: pane.services)
+        let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned, paneKinds: paneKinds) }
         guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
             // A window's own page or browser tab is never in the store: no "…", not a stale bar.
             let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
-            return State(pinned: pinned, behind: !local)
+            return State(pinned: pinned, paneKinds: paneKinds, behind: !local)
         }
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), zoomed: zoomed, pinned: pinned)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -119,16 +124,22 @@ final class PaneToolbar {
         return ["splitRight", "splitDown"] + own + [zoom]
     }
 
-    static let zoom: ActionID = "toggleSplitZoom"
+    static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = []) {
+    /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
         self.pinned = pinned
         let shown = target != nil && kind != nil
-        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown)
+        // The room the bar keeps: Search Tabs (Chrome's tab search), "…" and the most pins any tab of the
+        // pane shows, so selecting a tab without "…" (a chat, a window's own page) or fewer pins moves no tab.
+        let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
+        let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
+        view.show((shownPins() + (kinds.isEmpty ? [] : [Self.search])).compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: kinds.isEmpty ? 0 : reservedPins + 2)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
@@ -139,14 +150,14 @@ final class PaneToolbar {
         guard let registry = registry(), let descriptor = registry.descriptor(for: id) else { return nil }
         let title = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
         let lit = zoomed && id == Self.zoom
-        let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
+        let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right", Self.search: "chevron.down"]
         return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
                                shortcut: registry.shortcutDisplay(for: id), lit: lit)
     }
 
     private func perform(_ id: ActionID) {
-        guard let target else { return }
-        _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
+        guard id == Self.search || target != nil else { return } // Search Tabs takes no tab target: one only reveals that tab
+        _ = registry()?.perform(id, invocation: ActionInvocation(target: id == Self.search ? nil : target.map { ActionTargetRef(kind: .tab, id: $0) }, origin: .user))
     }
 
     /// The tab's actions "…" offers: those it can run.

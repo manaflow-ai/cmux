@@ -106,6 +106,10 @@ public struct Palette {
     /// Text carets: the terminal's cursor color (`cursor-color`), else the primary text.
     public static var caret: NSColor { color(\.caret, dynamic: PaletteDynamic.caret) }
 
+    /// The notification blue (rgb 57 130 245, sampled from the Codex app): the one color of
+    /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
+    /// same in every theme, so an unread mark reads the same everywhere.
+    public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
@@ -118,6 +122,12 @@ public struct Palette {
     /// Whether `highlight` is the theme's own accent (its ANSI blue), not
     /// Ghostty's default palette standing in for a theme that names none.
     public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
+    /// Whether the theme or `appearance.accent` names an accent, so `accentFill` has a hue; false
+    /// keeps the neutral default, where `accentFill` is the primary text (``ThemeTokens/accent``).
+    public static var hasChosenAccent: Bool {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return tokens.accent != tokens.textPrimary
+    }
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 

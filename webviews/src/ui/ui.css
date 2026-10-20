@@ -382,3 +382,18 @@
 .ui-sheet[data-ending-style] {
   opacity: 0;
 }
+
+/* Dialog buttons show the key that presses them (u2647, ui/DialogButton): a subtle keycap after
+   the title in the secondary color, as macOS menus show their keys. */
+.ui-dialog-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.ui-keyhint {
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  color: var(--ui-fg-2);
+  opacity: 0.9;
+}

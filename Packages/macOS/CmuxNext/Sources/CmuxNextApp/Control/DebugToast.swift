@@ -44,7 +44,13 @@ enum DebugToast {
         let window = windowID.flatMap { id in services.windows.controllers.first { $0.state.id == id }?.window }
             ?? services.windows.active?.window
         if params["undo"]?.boolValue == true {
-            result["undone"] = .bool(window.map { CmuxToastCenter.shared.runUndo(in: $0) } ?? false)
+            // As Cmd-Z: the newest undo toast, else the window's undo stack (moves and pins have no toast).
+            result["undone"] = .bool(window.map { window in
+                if CmuxToastCenter.shared.runUndo(in: window) { return true }
+                guard let manager = window.undoManager, manager.canUndo else { return false }
+                manager.undo()
+                return true
+            } ?? false)
         }
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)

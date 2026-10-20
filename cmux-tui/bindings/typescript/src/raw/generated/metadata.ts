@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8. */
+/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8" as const;
+export const SDK_IR_SHA256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -620,6 +620,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
+  "cloud-conversation-typing": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversation-typing-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "While some client of the daemon subscribes the conversation (not_subscribed). Sends the owner's ephemeral typing {on, conversation} frame on the shared socket once it is live; the newest state replaces one not yet sent; nothing is stored. Answers the subscription's state. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-unsubscribe": {
     "authority": "local-admin",
     "since": 12,
@@ -628,6 +638,36 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-clear": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Drops the lease; with purge the cloud copy is deleted first (the host's off switch). See spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-set": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Leases the app's install token to the host replica publisher, which enrolls the host and publishes host:<host>/session; never echoes the token. See plans/cmux-next/object-sync/DESIGN.md and spec/commands.md."
+    ]
+  },
+  "cloud-host-replica-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Returns state off, connecting, online, unauthenticated, forbidden, purging, backoff or replaced, and the host and seq; never the token. See spec/commands.md."
     ]
   },
   "cloud-inbox-list": {
@@ -708,6 +748,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections only (and the person's authenticated page). Needs cloud-conversations-v1 too. Calls the cloud. See spec/commands.md."
+    ]
+  },
+  "cloud-requests-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
     ]
   },
   "cloud-session-clear": {
@@ -1384,7 +1434,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 5,
     "capability": null,
-    "fields": {},
+    "fields": {
+      "machine_metadata": {
+        "since": 12,
+        "capability": "machine-identity-v1"
+      }
+    },
     "stream": null,
     "constraints": []
   },
@@ -2528,6 +2583,10 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
+      "expect_foreground": {
+        "since": null,
+        "capability": "send-expect-foreground-v1"
+      },
       "paste": {
         "since": 7,
         "capability": null
@@ -2578,6 +2637,10 @@ export const COMMAND_METADATA = {
     "since": 6,
     "capability": null,
     "fields": {
+      "api_revision": {
+        "since": 12,
+        "capability": null
+      },
       "device_id": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -2615,6 +2678,10 @@ export const COMMAND_METADATA = {
     "since": 12,
     "capability": "dock-columns-v1",
     "fields": {
+      "pinned": {
+        "since": 12,
+        "capability": "pinned-dock-v1"
+      },
       "role": {
         "since": 12,
         "capability": "dock-column-role-v1"
@@ -2624,6 +2691,7 @@ export const COMMAND_METADATA = {
     "constraints": [
       "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\"). role is \"agent_chat\" with dock-column-role-v1 (default none).",
       "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
+      "pinned: true (pinned-dock-v1) marks the column pinned (the Home dock); false or omitted keeps the current value, and allow_tabs changes only with column.update. A pinned column keeps its first tab, takes no other tab unless allow_tabs is on, and refuses an undock, edge change or replacement with error_code \"dock-column-pinned\".",
       "See spec/commands.md for the result object."
     ]
   },
@@ -3447,6 +3515,22 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "agent-inventory-changed": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "agent-inventory-watch-ended": {
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "agent-presence-changed": {
     "since": 12,
     "capability": "agent-presence-v1",
@@ -3546,6 +3630,22 @@ export const EVENT_METADATA = {
   "cloud-conversation-run-changed": {
     "since": 12,
     "capability": "cloud-conversation-runs-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-conversation-typing": {
+    "since": 12,
+    "capability": "cloud-conversation-typing-v1",
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "cloud-host-replica-needed": {
+    "since": 12,
+    "capability": "cloud-host-replica-v1",
     "streams": [
       "subscribe"
     ],
@@ -7040,6 +7140,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "IdentifyResult": {
     "additional_properties": false,
     "fields": {
+      "api_revision": {
+        "constraints": [
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
       "app": {
         "nullable": false,
         "presence": "required",
@@ -7134,6 +7245,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "boolean"
         }
       },
+      "machine_capabilities": {
+        "default": [],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "machine_id": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "machine_name": {
         "nullable": false,
         "presence": "optional",
@@ -7141,6 +7274,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "machine_platform": {
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "MachinePlatform"
+        }
+      },
+      "min_api_revision": {
+        "constraints": [
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
         }
       },
       "pid": {
@@ -7704,6 +7857,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     ],
     "fields": {
       "stdout": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachinePlatform": {
+    "additional_properties": false,
+    "fields": {
+      "arch": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "os": {
         "nullable": false,
         "presence": "required",
         "type": {
@@ -15433,6 +15608,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "cloud-conversation-typing": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "on": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "cloud-conversation-unsubscribe": {
     "request": {
       "additional_properties": false,
@@ -15446,6 +15649,90 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         }
       },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-clear": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "purge": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-set": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "api_base_url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "client_version": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expires_at": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "host_name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "install_token": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-host-replica-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
       "kind": "object"
     },
     "result": {
@@ -15612,6 +15899,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         }
       },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "cloud-requests-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
       "kind": "object"
     },
     "result": {
@@ -19038,7 +19336,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "identify": {
     "request": {
       "additional_properties": false,
-      "fields": {},
+      "fields": {
+        "machine_metadata": {
+          "capability": "machine-identity-v1",
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
       "kind": "object"
     },
     "result": {
@@ -23633,7 +23942,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "When both are present, UTF-8 text bytes precede decoded bytes.",
-        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
+        "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
+        "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
       ],
       "fields": {
         "bytes": {
@@ -23648,6 +23958,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Base64"
+          }
+        },
+        "expect_foreground": {
+          "capability": "send-expect-foreground-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "paste": {
@@ -23811,6 +24131,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "api_revision": {
+          "constraints": [
+            "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
         "capabilities": {
           "constraints": [
             "Advertises additive client capabilities for this connection."
@@ -24020,6 +24353,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "pinned": {
+          "capability": "pinned-dock-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "boolean"
@@ -26749,6 +27093,88 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "agent-inventory-changed": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-changed"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "agent-inventory-watch-ended": {
+    "additional_properties": false,
+    "constraints": [
+      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "agent-inventory-watch-ended"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "watch_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-presence-changed": {
     "additional_properties": false,
     "fields": {
@@ -27340,6 +27766,82 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "JsonValue"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-conversation-typing": {
+    "additional_properties": false,
+    "fields": {
+      "account": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "conversation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-conversation-typing"
+        }
+      },
+      "on": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "participant": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "cloud-host-replica-needed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "cloud-host-replica-needed"
+        }
+      },
+      "expires_at": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

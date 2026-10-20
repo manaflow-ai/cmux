@@ -762,6 +762,12 @@ pre.cv-math-source {
 .acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
   margin-bottom: 0;
 }
+/* The spacer is the scroller's extent, which a followed view's offset is set against in the same
+   frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
+   that frame, and the offset clamped short of the end and stayed there. */
+.acpmux-spacer {
+  transition: none;
+}
 .acpmux-row {
   left: var(--cv-inset);
   right: var(--cv-inset);
@@ -1014,6 +1020,35 @@ pre.cv-math-source {
 .cv-worked__chevron {
   margin-top: 3px;
   margin-left: 2px;
+}
+/* The running line's counts (WorkingFor.tsx), after its label on the same 20px line. They keep
+   to one line and give way at the line's end, never wrapping it to a second. */
+.cv-worked__count {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+}
+.cv-worked__open {
+  all: unset;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  color: var(--agent-accent);
+  cursor: pointer;
+}
+.cv-worked__open:hover {
+  text-decoration: underline;
+}
+.cv-worked__open:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.cv-worked__label {
+  flex: none;
 }
 /* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
 @keyframes cv-thinking-sweep {
@@ -1579,6 +1614,28 @@ pre.cv-math-source {
   }
 }
 
+/* cx-2lv1k: a row from a page of older history fades in once, the first time the reader scrolls it
+ * into view at the top edge (OlderRowFade in App.tsx). It waits at a soft 0.35 until then, out of
+ * view, so the fade starts from ink already there and never from a blank band. Opacity only: no
+ * row moves or changes height, so the anchoring that holds the reader's place is untouched. Reduce
+ * Motion draws it in full ink at once; ui.animationSpeed off makes the fade instant (the token is 0). */
+@keyframes acpmux-older-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-row--older:not([data-older-shown]) {
+    opacity: 0.35;
+  }
+  .acpmux-row--older[data-older-shown] {
+    animation: acpmux-older-in var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+
 /* R104: an open fence draws plain lines in Pierre's metrics (12px on 20px lines, no wrap), so its
  * height is final as it grows; Pierre highlights it once when it closes (StreamingCode.tsx). */
 .cv-code-plain {
@@ -1946,6 +2003,10 @@ pre.cv-math-source {
   height: 180px;
   background: var(--agent-page-bg);
 }
+/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
+.acpmux-turn-preview-unloaded--live {
+  height: 360px;
+}
 .acpmux-turn-preview-load {
   height: 28px;
   padding: 0 10px;
@@ -2082,6 +2143,15 @@ pre.cv-math-source {
   max-width: 100%;
   height: auto;
 }
+/* Ondine's monochrome diagrams take the pane's colors (its defaults are black on white). */
+.cv-diagram__chart svg.ondine {
+  --ondine-fg: var(--agent-text);
+  --ondine-bg: var(--agent-page-bg);
+  --ondine-muted: var(--agent-text);
+  --ondine-line: var(--agent-text);
+  --ondine-border: var(--agent-text);
+  --ondine-surface-alt: color-mix(in srgb, var(--agent-text) 8%, var(--agent-page-bg));
+}
 .cv-diagram__error {
   padding: 8px 10px;
   font-size: 12px;
@@ -2188,16 +2258,15 @@ pre.cv-math-source {
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
    transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its dots say a reply
-   is streaming below. It fades in and out with the pane's motion tokens. */
+   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
+   reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
   bottom: 12px;
   z-index: var(--layer-sticky);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -2235,16 +2304,35 @@ pre.cv-math-source {
 .acpmux-inspecting > .acpmux-jump-latest {
   visibility: hidden;
 }
+/* The arrow and the dots share one cell: while the agent works, the arrow shrinks and fades out as
+   the accent dots grow in (Claude desktop's Code tab), and back when the turn ends. */
+.acpmux-jump-latest__arrow,
 .acpmux-jump-latest__dots {
+  grid-area: 1 / 1;
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-jump-latest__dots {
   gap: 3px;
+  color: var(--agent-accent);
+  opacity: 0;
+  transform: scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__arrow {
+  opacity: 0;
+  transform: translateY(3px) scale(0.4);
+}
+.acpmux-jump-latest[data-working] .acpmux-jump-latest__dots {
+  opacity: 1;
+  transform: none;
 }
 .acpmux-jump-latest__dots i {
-  width: 3.5px;
-  height: 3.5px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.45;
+  opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-jump-latest {
@@ -2255,28 +2343,39 @@ pre.cv-math-source {
   .acpmux-jump-latest[data-shown] {
     transition-duration: var(--agent-motion-in);
   }
-  .acpmux-jump-latest__dots i {
+  .acpmux-jump-latest__arrow,
+  .acpmux-jump-latest__dots {
+    transition:
+      opacity var(--agent-motion-in) var(--agent-ease-out),
+      transform var(--agent-motion-in) var(--agent-ease-out);
+  }
+  /* Only while shown and working: hidden dots keep no compositor animation running. */
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
     animation: acpmux-jump-latest-dot calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite;
   }
-  .acpmux-jump-latest__dots i:nth-child(2) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(2) {
     animation-delay: calc(var(--agent-motion-in) * 1.5);
   }
-  .acpmux-jump-latest__dots i:nth-child(3) {
+  .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i:nth-child(3) {
     animation-delay: calc(var(--agent-motion-in) * 3);
   }
 }
-/* Static status indicators (cx-sya4n): the new-content dots hold still. */
-:root[data-status-indicators="static"] .acpmux-jump-latest__dots i {
+/* Static status indicators (cx-sya4n): the dots hold still. Reduce Motion gets the same static
+   dots, swapped in without the morph, since both rules above sit under no-preference. The selector
+   repeats the loop's [data-shown][data-working] so it outranks it. */
+:root[data-status-indicators="static"] .acpmux-jump-latest[data-shown][data-working] .acpmux-jump-latest__dots i {
   animation: none;
 }
 @keyframes acpmux-jump-latest-dot {
   0%,
   60%,
   100% {
-    opacity: 0.45;
+    opacity: 0.55;
+    transform: scale(0.8);
   }
   30% {
     opacity: 1;
+    transform: scale(1.15);
   }
 }
 /* A chat reopening where the reader left it stays unseen while older pages bring that row back
@@ -2400,6 +2499,44 @@ pre.cv-math-source {
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
+  color: var(--agent-danger);
+}
+
+/* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
+/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
+   facts' text, quiet until dismissed. */
+.cv-session-start__compaction {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 22.5px;
+  line-height: 18px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-session-start__compaction-text {
+  min-width: 0;
+  flex: 1;
+}
+.cv-session-start__dismiss {
+  all: unset;
+  flex: none;
+  display: flex;
+  padding: 3px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__dismiss:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__dismiss:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
+/* ---------- A compaction (CompactionNote.tsx) ---------- */
+.cv-compaction[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
 }
 

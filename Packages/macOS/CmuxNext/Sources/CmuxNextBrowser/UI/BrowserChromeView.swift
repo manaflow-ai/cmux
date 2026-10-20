@@ -78,7 +78,7 @@ public final class BrowserChromeView: NSView {
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
-        // With no extension pinned the Extensions menu opens from More.
+        // An extension popup opened while the Extensions button is not placed anchors at More.
         toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
@@ -120,9 +120,9 @@ public final class BrowserChromeView: NSView {
         self.tab = tab
         addressBar = AddressBarView(suggestionEngine: suggestionEngine)
         // Chromium toolbar glyphs: plain arrows, not chevrons.
-        backButton = ChromeIconButton(icon: .navBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
-        forwardButton = ChromeIconButton(icon: .navForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
-        reloadButton = ChromeIconButton(icon: .actionReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false)
+        backButton = ChromeIconButton(icon: .browserToolbarBack, label: Strings.back, action: nil, target: nil, toolbar: true, toolTip: false)
+        forwardButton = ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false)
+        reloadButton = ChromeIconButton(icon: .browserToolbarReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false)
         super.init(frame: .zero)
         wantsLayer = true
         backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
@@ -220,7 +220,9 @@ public final class BrowserChromeView: NSView {
             density.bind(navigation.leadingAnchor.constraint(equalTo: toolbar.leadingAnchor)) { OmnibarStyle.toolbarInset },
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
-            addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor, constant: OmnibarStyle.toolbarTopPadding), // R101 gaps
+            density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
+                OmnibarStyle.toolbarTopPadding(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+            },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
             density.bind(toolbarButtons.trailingAnchor.constraint(equalTo: toolbar.trailingAnchor)) { -OmnibarStyle.toolbarInset },
@@ -279,6 +281,7 @@ public final class BrowserChromeView: NSView {
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {
@@ -332,12 +335,12 @@ public final class BrowserChromeView: NSView {
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
 
-        let loading = state.isLoading
+        let loading = state.showsLoad
         if loading != showsStop {
             showsStop = loading
-            reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
+            reloadButton.setIcon(loading ? .browserToolbarStop : .browserToolbarReload, label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
+        addressBar.update(url: Self.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)

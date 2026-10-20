@@ -87,6 +87,7 @@ extension UpdaterService {
     func syncFlowPhase() {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         if case .note = phase, let controller,

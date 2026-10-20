@@ -47,10 +47,10 @@ public struct SettingsSchemaExport {
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
         let page = page(text: text)
-        let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
+        // No schema_hash: the daemon computes it from the rows at load. A committed
+        // hash line changed in every settings pull request, so no two merged (#21946).
         let document: [String: Any] = [
             "version": version,
-            "schema_hash": SettingsSchemaHash.hex(rowsData),
             "sections": sections,
             "page": page,
             "rows": rows,
