@@ -56,6 +56,7 @@ import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -1255,6 +1256,24 @@ function JumpToLatest({
   );
 }
 
+/// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
+/// button, the session its marks key into (threadMinimap/promptMarks.ts).
+function TranscriptContext({
+  find,
+  sessionId,
+  children,
+}: {
+  find: React.ContextType<typeof FindReveal>;
+  sessionId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <FindReveal.Provider value={find}>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
+    </FindReveal.Provider>
+  );
+}
+
 export function VirtualTranscript({
   rows,
   sessionId,
@@ -1384,6 +1403,8 @@ export function VirtualTranscript({
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
+  /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
+  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
   olderRows.current ??= new OlderRowFade(() => ref.current);
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
@@ -1957,6 +1978,8 @@ export function VirtualTranscript({
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+    // The minimap's band reads the offset this pass settled on.
+    minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -2339,9 +2362,10 @@ export function VirtualTranscript({
           scrollTop={renderScroll.top}
           viewportHeight={height}
           width={width}
+          placed={minimapPlaced}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <FindReveal.Provider value={countReveal ?? findReveal}>
+        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -2402,7 +2426,7 @@ export function VirtualTranscript({
               )}
             </div>
           </div>
-        </FindReveal.Provider>
+        </TranscriptContext>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} />}
     </>
@@ -3917,9 +3941,12 @@ function AcpmuxPane() {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
-            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
+            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down), and Previous and Next Bookmarked
+            // Prompt (the palette's): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            "previousBookmarkedPrompt",
+            "nextBookmarkedPrompt",
             // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
