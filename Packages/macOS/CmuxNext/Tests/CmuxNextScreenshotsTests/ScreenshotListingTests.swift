@@ -1,23 +1,24 @@
 import CmuxNextFileGrid
+import CmuxNextScreenshots
 import Foundation
 import Testing
 
-/// The grid's newest-first listing: order, live updates and filters.
-@Suite struct FileGridListingTests {
+/// The pane's newest-first listing: order, live updates and filters.
+@Suite struct ScreenshotListingTests {
     static func item(_ name: String, at seconds: TimeInterval, source: String = "a", size: Int64 = 1) -> FileGridItem {
         FileGridItem(url: URL(fileURLWithPath: "/shots/\(source)/\(name)"), size: size,
                      modified: Date(timeIntervalSinceReferenceDate: seconds), sourceID: source)
     }
 
     @Test func listsNewestFirstThenByNumericName() {
-        let listing = FileGridListing([
+        let listing = ScreenshotListing([
             Self.item("Shot 10.png", at: 5), Self.item("Shot 2.png", at: 5), Self.item("old.png", at: 1), Self.item("new.mov", at: 9),
         ])
         #expect(listing.items.map(\.name) == ["new.mov", "Shot 2.png", "Shot 10.png", "old.png"])
     }
 
     @Test func upsertPlacesANewScreenshotFirstAndMovesARewrittenFile() {
-        var listing = FileGridListing([Self.item("a.png", at: 1), Self.item("b.png", at: 2)])
+        var listing = ScreenshotListing([Self.item("a.png", at: 1), Self.item("b.png", at: 2)])
         listing.upsert(Self.item("c.png", at: 3))
         #expect(listing.items.map(\.name) == ["c.png", "b.png", "a.png"])
         listing.upsert(Self.item("a.png", at: 4, size: 9))
@@ -27,14 +28,14 @@ import Testing
     }
 
     @Test func removeDropsOnlyThatPath() {
-        var listing = FileGridListing([Self.item("a.png", at: 1), Self.item("b.png", at: 2)])
+        var listing = ScreenshotListing([Self.item("a.png", at: 1), Self.item("b.png", at: 2)])
         listing.remove(path: "/shots/a/a.png")
         listing.remove(path: "/shots/a/missing.png")
         #expect(listing.items.map(\.name) == ["b.png"])
     }
 
     @Test func replaceSwapsOneSourceAndKeepsTheOthers() {
-        var listing = FileGridListing([Self.item("a.png", at: 1, source: "a"), Self.item("b.png", at: 2, source: "b")])
+        var listing = ScreenshotListing([Self.item("a.png", at: 1, source: "a"), Self.item("b.png", at: 2, source: "b")])
         listing.replace(source: "a", with: [Self.item("c.png", at: 3, source: "a")])
         #expect(listing.items.map(\.name) == ["c.png", "b.png"])
         listing.removeSource("b")
@@ -43,7 +44,7 @@ import Testing
     }
 
     @Test func filtersByNameAndSource() {
-        let listing = FileGridListing([
+        let listing = ScreenshotListing([
             Self.item("Screenshot one.png", at: 3, source: "a"), Self.item("Recording.mov", at: 2, source: "b"),
             Self.item("screenshot two.png", at: 1, source: "b"),
         ])
@@ -56,7 +57,7 @@ import Testing
     @Test(arguments: [1, 7, 42, 1999])
     func incrementalUpdatesMatchAFullSort(seed: UInt64) {
         var generator = SeededGenerator(seed: seed)
-        var listing = FileGridListing()
+        var listing = ScreenshotListing()
         var truth: [String: FileGridItem] = [:]
         for _ in 0..<600 {
             let name = "f\(Int.random(in: 0..<80, using: &generator)).png"
@@ -69,12 +70,12 @@ import Testing
                 truth[item.id] = item
             }
         }
-        #expect(listing.items == truth.values.sorted(by: FileGridListing.precedes))
+        #expect(listing.items == truth.values.sorted(by: ScreenshotListing.precedes))
     }
 
     /// A screenshot landing in a folder of 20 000 files is placed without a re-sort.
     @Test func upsertIntoALargeListingStaysFast() {
-        var listing = FileGridListing((0..<20_000).map { Self.item("f\($0).png", at: TimeInterval($0)) })
+        var listing = ScreenshotListing((0..<20_000).map { Self.item("f\($0).png", at: TimeInterval($0)) })
         let clock = ContinuousClock()
         let elapsed = clock.measure {
             for index in 0..<500 { listing.upsert(Self.item("new\(index).png", at: 30_000 + TimeInterval(index))) }
