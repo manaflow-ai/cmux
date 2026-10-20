@@ -100,6 +100,16 @@ fn chief_home(root: &Path) -> rusqlite::Connection {
     write(&root.join("acpmux/config.json"), "{}");
     write(&root.join("c/abc123/optchat/person.md"), "- other chief\n");
     write(&root.join("agent-token"), "tok\n");
+    // A preset that names the home: the target's copy names the new home.
+    write(
+        &root.join("acpmux/presets/p/config.json"),
+        &format!("{{\"cwd\":\"{}/optchat/session\"}}", root.display()),
+    );
+    // Bound to the session name and machine: the target's daemon makes its own.
+    write(&session.join("workspace-registry.sqlite3"), "registry");
+    write(&session.join("launch-snapshot.json"), "{}");
+    write(&root.join("tui/machine-id"), "m");
+    write(&root.join("tui/resource-effect-pepper"), "p");
     // Machine-local.
     write(&root.join("optchat/traces/t.jsonl"), "x");
     write(&root.join("optchat/claude/settings.json"), "{}");
@@ -192,11 +202,16 @@ fn checkpoint_then_restore_under_another_root_keeps_every_message() {
         "optchat/chat/main/2026-10-20.jsonl",
         "acpmux/sessions/s1/events",
         "c/abc123/optchat/person.md",
-        "agent-token",
         "state/moved-in.json",
     ] {
         assert!(dst.join(kept).is_file(), "{kept} moved");
     }
+    let preset = std::fs::read_to_string(dst.join("acpmux/presets/p/config.json")).unwrap();
+    assert!(
+        preset.contains(&format!("{}/optchat/session", dst.display()))
+            && !preset.contains(&src.display().to_string()),
+        "the old home path is rewritten: {preset}"
+    );
     for local in [
         "optchat/traces",
         "optchat/claude",
@@ -206,8 +221,17 @@ fn checkpoint_then_restore_under_another_root_keeps_every_message() {
         "acpmux/login-env.json",
         "tui/terminal-hosts-1234",
         "optchat/memory.sqlite3-wal",
+        "agent-token",
+        "tui/machine-id",
+        "tui/resource-effect-pepper",
     ] {
         assert!(!dst.join(local).exists(), "{local} is machine-local");
+    }
+    for bound in ["workspace-registry.sqlite3", "launch-snapshot.json"] {
+        assert!(
+            !session.join(bound).exists(),
+            "{bound} is bound to the source session"
+        );
     }
     let verified = ok_json(&run(&["move", "verify", "--home", dst.to_str().unwrap()]));
     assert_eq!(verified["memory"]["messages"], 40);
@@ -547,4 +571,391 @@ fn a_move_over_ssh_restores_with_the_remote_optchat_chief() {
     );
     assert!(target.join("state/moved.json").is_file());
     assert!(!src.join("state/moved.json").exists());
+}
+
+#[test]
+fn a_move_carries_reach_by_name_only_and_the_backup_repository() {
+    let dir = tempfile::tempdir().unwrap();
+    let user_home = dir.path().join("user");
+    write(
+        &user_home.join(".ssh/config"),
+        "Host bogus-reach-host\n  HostName 127.0.0.1\n  Port 1\n  IdentityFile ~/.ssh/id_very_secret\n",
+    );
+    write(
+        &user_home.join(".ssh/id_very_secret"),
+        "PRIVATE KEY MATERIAL",
+    );
+    let src = new_home(dir.path(), "src");
+    let _mem = chief_home(&src);
+    let dst = dir.path().join("dst");
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--to",
+            &format!("local:{}", dst.display()),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .env("HOME", &user_home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    assert_eq!(ok_json(&out)["moved"], true);
+    let dst = std::fs::canonicalize(&dst).unwrap();
+    let reach = std::fs::read_to_string(dst.join("optchat/reach-source.json")).unwrap();
+    assert!(reach.contains("bogus-reach-host"), "{reach}");
+    assert!(
+        reach.contains("id_very_secret"),
+        "the key is listed by name: {reach}"
+    );
+    assert!(!reach.contains("PRIVATE KEY MATERIAL") && !reach.contains("IdentityFile"));
+    // The backup repository follows the Chief, not the new path.
+    let src_id = optchat_chief::paths::home_id(&src);
+    assert_eq!(
+        std::fs::read_to_string(dst.join("optchat/backup-id"))
+            .unwrap()
+            .trim(),
+        src_id
+    );
+    assert_eq!(optchat_chief::migrate::backup_id(&dst), src_id);
+    let probe = Command::new(BIN)
+        .args(["move", "reach", "--home", dst.to_str().unwrap()])
+        .env("HOME", &user_home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    let probe = ok_json(&probe);
+    assert_eq!(
+        probe["ssh"]["unreachable"][0], "bogus-reach-host",
+        "{probe}"
+    );
+    assert!(
+        probe["blockers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b.as_str().unwrap().contains("SSH"))
+    );
+}
+
+#[test]
+fn a_chief_moving_itself_waits_for_its_turn_to_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "src");
+    let _mem = chief_home(&src);
+    let trace = src.join("optchat/traces/2026-10-20.jsonl");
+    write(&trace, "{\"ev\":\"turn.start\",\"ts\":1}\n");
+    let dst = dir.path().join("dst");
+    let started = run(&[
+        "move",
+        "--detach",
+        "--to",
+        &format!("local:{}", dst.display()),
+        "--home",
+        src.to_str().unwrap(),
+    ]);
+    let started = ok_json(&started);
+    assert_eq!(started["scheduled"], true, "{started}");
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(!dst.exists(), "nothing moves while the turn runs");
+    assert!(!src.join("state/moved.json").exists());
+    use std::io::Write as _;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&trace)
+        .unwrap()
+        .write_all(b"{\"ev\":\"turn.end\",\"ts\":2}\n")
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !src.join("state/move.json").exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let report: Value =
+        serde_json::from_str(&std::fs::read_to_string(src.join("state/move.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["moved"], true, "{report}");
+    assert!(src.join("state/moved.json").is_file());
+    assert_eq!(
+        count(
+            &std::fs::canonicalize(&dst)
+                .unwrap()
+                .join("optchat/memory.sqlite3"),
+            "messages"
+        ),
+        40
+    );
+}
+
+#[test]
+fn the_chief_has_a_move_tool_and_a_dry_run_changes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "src");
+    let _mem = chief_home(&src);
+    let dst = dir.path().join("dst");
+    let socket = src.join("optchat/tools.sock");
+    let input = format!(
+        "{}\n{}\n{}\n",
+        serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}),
+        serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "move", "arguments": {"to": format!("local:{}", dst.display()), "dry_run": true}}}),
+    );
+    let mut child = Command::new(BIN)
+        .args(["mcp", "--socket", socket.to_str().unwrap()])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let out = child.wait_with_output().unwrap();
+    let lines: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let list = lines.iter().find(|l| l["id"] == 2).unwrap();
+    assert!(
+        list["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["name"] == "move"),
+        "{list}"
+    );
+    let call = lines.iter().find(|l| l["id"] == 3).unwrap();
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    let text = call["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(
+        text.contains("\"dry_run\":true") && text.contains("preflight"),
+        "{text}"
+    );
+    assert!(!dst.exists());
+    assert!(!src.join("state/moved.json").exists());
+}
+
+/// A stand-in for the cloud API (the calls the app's Hosted Chief copy makes).
+/// The calls the fake cloud received: method, path, body.
+type Calls = std::sync::Arc<std::sync::Mutex<Vec<(String, String, Value)>>>;
+
+fn fake_cloud() -> (String, Calls) {
+    use std::io::{BufRead, BufReader, Read, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        let mut memory = 0u64;
+        let mut done = false;
+        let mut brain = false;
+        let mut history = 0u64;
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            let mut parts = first.split_whitespace();
+            let method = parts.next().unwrap_or("").to_owned();
+            let path = parts.next().unwrap_or("").to_owned();
+            let mut length = 0usize;
+            let mut auth = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
+                    break;
+                }
+                let lower = line.to_ascii_lowercase();
+                if let Some(v) = lower.strip_prefix("content-length:") {
+                    length = v.trim().parse().unwrap();
+                }
+                if lower.starts_with("authorization:") {
+                    auth = line.trim().to_owned();
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).unwrap();
+            let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+            log.lock()
+                .unwrap()
+                .push((method.clone(), path.clone(), body.clone()));
+            let (status, reply) = if auth != "authorization: Bearer test-session" {
+                (401, serde_json::json!({"ok": false}))
+            } else if path.ends_with("/agent_00000000000000000000000000/brain") {
+                (403, serde_json::json!({"ok": false}))
+            } else if path == "/v1/ops" && body["op"] == "chief.create" {
+                (
+                    200,
+                    serde_json::json!({"ok": true, "value": {"id": "agent_01TEST", "owner_user": "user_T", "main_conversation": "conv_MAIN"}}),
+                )
+            } else if path == "/v1/ops" && body["op"] == "conversation.import" {
+                history += body["params"]["messages"].as_array().unwrap().len() as u64;
+                (
+                    200,
+                    serde_json::json!({"ok": true, "value": {"last_seq": history}}),
+                )
+            } else if path == "/v1/ops" {
+                (200, serde_json::json!({"ok": true, "value": {}}))
+            } else if path.contains("/brain") && method == "PUT" {
+                brain = body["enabled"] == true;
+                (200, serde_json::json!({"ok": true}))
+            } else if path.contains("/brain") {
+                (
+                    200,
+                    serde_json::json!({"ok": true, "value": {"config": {"enabled": brain}}}),
+                )
+            } else if path.contains("/memory") && method == "PUT" {
+                assert_eq!(body["after"], memory);
+                memory += body["main"].as_array().unwrap().len() as u64;
+                done = body["done"] == true;
+                (200, serde_json::json!({"ok": true}))
+            } else if path.contains("/memory") {
+                let state = if done {
+                    "done"
+                } else if memory == 0 {
+                    "empty"
+                } else {
+                    "importing"
+                };
+                (
+                    200,
+                    serde_json::json!({"ok": true, "value": {"count": memory, "state": state}}),
+                )
+            } else {
+                (404, serde_json::json!({"ok": false}))
+            };
+            let text = reply.to_string();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                text.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+#[test]
+fn a_move_to_the_cloud_copies_history_and_memory_and_turns_the_brain_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "src");
+    let mem = chief_home(&src);
+    drop(mem);
+    // A real memory store: the cloud copy reads the memory's text export.
+    std::fs::remove_file(src.join("optchat/memory.sqlite3")).unwrap();
+    let seed = dir.path().join("seed.jsonl");
+    write(
+        &seed,
+        "{\"text\":\"the code word is PERIWINKLE-42\",\"kind\":\"user\"}\n{\"text\":\"noted\",\"kind\":\"talk\"}\n",
+    );
+    let imported = run(&[
+        "import",
+        "--mux-home",
+        src.to_str().unwrap(),
+        seed.to_str().unwrap(),
+    ]);
+    assert!(
+        imported.status.success(),
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
+    // The local Chief conversation in the owner's shape.
+    let session = src.join("tui").join(session_dir(&src));
+    std::fs::remove_file(session.join("conversations.sqlite3")).unwrap();
+    let conv = rusqlite::Connection::open(session.join("conversations.sqlite3")).unwrap();
+    conv.execute_batch(
+        r#"CREATE TABLE conversation (id TEXT PRIMARY KEY, title TEXT, participants_json TEXT, last_seq INTEGER, rev INTEGER, created_at TEXT, updated_at TEXT);
+           CREATE TABLE message (conversation TEXT, seq INTEGER, id TEXT, message_json TEXT, PRIMARY KEY(conversation, seq)) WITHOUT ROWID;
+           INSERT INTO conversation VALUES ('conv_L','Chief','[{"id":"user_local"},{"id":"agent_mux"}]',2,2,'','');
+           INSERT INTO message VALUES ('conv_L',1,'msg_A','{"id":"msg_A","seq":1,"client_msg_id":"c1","author":"user_local","parts":[{"type":"text","text":"hi"}],"created_at":"2026-10-20T09:00:00.000Z"}');
+           INSERT INTO message VALUES ('conv_L',2,'msg_B','{"id":"msg_B","seq":2,"client_msg_id":"t1","author":"agent_mux","parts":[{"type":"text","text":"hello"}],"created_at":"2026-10-20T09:00:01.000Z"}');"#,
+    )
+    .unwrap();
+    drop(conv);
+    let (base, seen) = fake_cloud();
+    let token = dir.path().join("session");
+    std::fs::write(&token, "test-session\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&token, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--to",
+            &format!("cloud:{base}"),
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !text.contains("test-session"),
+        "the token is never printed: {text}"
+    );
+    let report = ok_json(&out);
+    assert_eq!(report["moved"], true, "{report}");
+    assert_eq!(report["cloud"]["chief"], "agent_01TEST");
+    assert_eq!(report["cloud"]["history_imported"], 2);
+    assert_eq!(report["cloud"]["memory_messages"], 2);
+    let calls = seen.lock().unwrap().clone();
+    let import = calls
+        .iter()
+        .find(|c| c.2["op"] == "conversation.import")
+        .unwrap();
+    assert_eq!(import.2["params"]["messages"][0]["author"], "user_T");
+    assert_eq!(import.2["params"]["messages"][1]["author"], "agent_01TEST");
+    assert!(
+        calls
+            .iter()
+            .any(|c| c.2["op"] == "conversation.import.commit")
+    );
+    let brain_puts: Vec<&Value> = calls
+        .iter()
+        .filter(|c| c.0 == "PUT" && c.1.contains("/brain"))
+        .map(|c| &c.2)
+        .collect();
+    assert_eq!(
+        brain_puts.last().unwrap()["enabled"],
+        true,
+        "the brain is on at the end"
+    );
+    let moved: Value =
+        serde_json::from_str(&std::fs::read_to_string(src.join("state/moved.json")).unwrap())
+            .unwrap();
+    assert_eq!(moved["to"], format!("cloud:{base}/agent_01TEST"));
+    // Rollback turns the hosted brain off and lets this copy answer again.
+    let back = Command::new(BIN)
+        .args([
+            "move",
+            "rollback",
+            "--session-token-file",
+            token.to_str().unwrap(),
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        back.status.success(),
+        "{}",
+        String::from_utf8_lossy(&back.stderr)
+    );
+    assert!(!src.join("state/moved.json").exists());
+    let calls = seen.lock().unwrap().clone();
+    let last_brain = calls
+        .iter()
+        .rev()
+        .find(|c| c.0 == "PUT" && c.1.contains("/brain"))
+        .unwrap();
+    assert_eq!(last_brain.2["enabled"], false);
 }

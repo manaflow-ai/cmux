@@ -1465,9 +1465,10 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
+    // The backup repository follows a moved Chief (migrate.rs backup_id).
     let backup = crate::backup::Backup::new(crate::backup::BackupConfig::for_home(
         paths,
-        &crate::paths::home_id(home),
+        &crate::migrate::backup_id(home),
     ));
     let retention =
         crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
