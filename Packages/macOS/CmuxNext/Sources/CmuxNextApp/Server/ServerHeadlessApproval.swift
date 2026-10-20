@@ -53,13 +53,10 @@ enum ServerHeadlessApproval {
         return notFound
     }
 
-    /// Callers on this Mac may approve without the sheet (the user, the local CLI, a local MCP agent
-    /// or script); another client (a phone, another Mac) or a web page may not.
+    /// The code and words authenticate the waiting server, not the approver. Only an in-process
+    /// user action may turn them into account authority; every socket/page caller is refused.
     nonisolated static func allows(origin: ActionOrigin) -> Bool {
-        switch origin {
-        case .user, .cli, .mcp, .script: true
-        case .remote, .page: false
-        }
+        origin == .user
     }
 
     /// Events one headless approval may hold before the oldest are dropped.

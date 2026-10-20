@@ -74,10 +74,8 @@ struct ServerHeadlessApprovalOriginTests {
         #expect(!ServerHeadlessApproval.allows(origin: origin))
     }
 
-    @Test func addServerIsPersonOnlyAndHasNoCLIMutationSurface() throws {
+    @Test func addServerIsPersonOnlyAtTheSharedActionBoundary() throws {
         let descriptor = try #require(ServerActionCatalog.descriptors().first { $0.id == "server.addServer" })
         #expect(descriptor.isPersonOnly)
-        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
-        #expect(descriptor.surfacePlan.mcp == .exempt(.guiOnly))
     }
 }
