@@ -6200,7 +6200,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.</string>
+			<string>A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.</string>
 			<key>pfm_name</key>
 			<string>home.chiefPetEnabled</string>
 			<key>pfm_title</key>
