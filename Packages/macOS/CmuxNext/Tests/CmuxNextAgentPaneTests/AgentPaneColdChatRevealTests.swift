@@ -63,6 +63,35 @@ struct AgentPaneColdChatRevealTests {
         #expect(!Self.markShows(view), "the busy mark stayed while the page faded in")
     }
 
+    /// cx-txnr: after a relaunch a page that never reported its first paint (WebKit holds an
+    /// occluded window's animation frames) kept the pane on its loading state, a spinner over a
+    /// clear page, for good. Seen unpainted at two checks in a row, the page counts as painted.
+    @Test func aPageThatNeverPaintsDropsItsLoadingStateAtTheDeadline() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.loadingView.paintCheckInterval = .milliseconds(100)
+        #expect(view.showsLoadingState)
+        try await Self.settle { view.loadingView.superview == nil }
+        #expect(view.loadingView.superview == nil, "a page that never painted kept its loading state")
+        #expect(view.pageContent.alphaValue == 1, "the page stayed clear after the loading state gave up")
+        #expect(view.model.hasPainted, "the pane still waits on a paint it gave up on")
+    }
+
+    /// A pane out of sight (a New Tab spare parked outside the window's content) keeps its
+    /// loading state: its clock runs only while it is seen.
+    @Test func aPaneOutOfSightKeepsItsLoadingState() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView = content
+        view.frame = NSRect(x: 10_000, y: 10_000, width: 400, height: 300)
+        content.addSubview(view)
+        view.loadingView.paintCheckInterval = .milliseconds(50)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(view.loadingView.superview != nil, "a pane nobody could see gave up on its page")
+        #expect(!view.model.hasPainted)
+    }
+
     @Test func aNewTabPageShowsInOneFrame() throws {
         let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
         defer { window.close() }

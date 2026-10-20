@@ -102,8 +102,7 @@ struct PaneSurfaceStatus {
                 // Ghostty's frames, cell rebuilds and theme blend frames (a blend frame changes
                 // only the color table the shaders read).
                 "render_counters": terminal.renderCounters.map { (counters: TerminalRenderCounters) -> JSONValue in
-                    .object(["frames": .number(Double(counters.frames)), "cell_rebuilds": .number(Double(counters.cellRebuilds)),
-                             "blend_frames": .number(Double(counters.blendFrames))])
+                    .object(counters.byName.mapValues { .number(Double($0)) })
                 } ?? .null,
                 // Where the terminal is in its window (fractions, top-left origin) for recordings.
                 "window_fraction": terminal.windowFraction.map { (rect: CGRect) -> JSONValue in

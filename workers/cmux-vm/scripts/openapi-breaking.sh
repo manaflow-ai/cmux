@@ -18,7 +18,11 @@ trap 'rm -rf "$work"' EXIT
 if [[ "$base_ref" =~ ^0+$ ]]; then base_ref=feat-cmux-next; fi
 fetch_ref="refs/heads/${base_ref}"
 if [[ "$base_ref" =~ ^[0-9a-f]{40}$ ]]; then fetch_ref="$base_ref"; fi
-git fetch --quiet --depth=1 origin "$fetch_ref"
+# Depth 1 only in a shallow checkout: in a full clone --depth writes
+# .git/shallow and truncates history for every worktree sharing it.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$fetch_ref"
 if ! git show "FETCH_HEAD:workers/cmux-vm/openapi.json" > "$work/base.json" 2>/dev/null; then
   echo "base branch ${base_ref} has no workers/cmux-vm/openapi.json; nothing to compare"
   exit 0

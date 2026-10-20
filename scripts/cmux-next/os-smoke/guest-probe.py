@@ -33,6 +33,18 @@ STALLS_SEEN = [0]
 def step(name, ok, detail=None):
     result["steps"][name] = {"ok": bool(ok), **({"detail": detail} if detail is not None else {})}
     print("%-9s %s %s" % (name, "ok" if ok else "FAIL", "" if detail is None else json.dumps(detail)[:400]), flush=True)
+    if not ok and "did not finish within" in json.dumps(detail):
+        # What a timed-out action.run waited on (data.waiting_on: its stages and command tickets).
+        def find_waits(value):
+            if isinstance(value, dict):
+                if "waiting_on" in value:
+                    return value["waiting_on"]
+                for v in value.values():
+                    found = find_waits(v)
+                    if found is not None:
+                        return found
+            return None
+        print("waiting   %s %s" % (name, json.dumps(find_waits(detail))[:1500]), flush=True)
     if not ok and "did not finish within" in json.dumps(detail) and DEBUG_ROUTER:
         # A control deadline passed: the main-thread stalls since the last report say what held it.
         records = (rpc("debug.hangs", {"after": STALLS_SEEN[0]}) or {}).get("records") or []
@@ -239,6 +251,10 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"), "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"),
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"}
+# A release build keeps Chromium's cookie key in the default keychain. Without one (HOME
+# pointed at an empty directory) the key's first write waits on a dialog and no Chromium page loads.
+keychain = subprocess.run(["/usr/bin/security", "default-keychain"], env=env, capture_output=True, text=True, timeout=30)
+step("keychain", keychain.returncode == 0, (keychain.stdout + keychain.stderr).strip()[:300])
 # The guest display before the app starts: shows what the image itself has open.
 subprocess.run(["/usr/sbin/screencapture", "-x", "-t", "png", os.path.join(OUT, "baseline.png")], capture_output=True, timeout=60)
 # A fresh profile for the lazy-launch check: no record of an earlier Chromium tab (ChromiumUseRecord).
@@ -374,7 +390,12 @@ try:
               "cef": rpc("debug.cef") if debug_router() else None})
         if not result["steps"]["browser"]["ok"] and debug_router():
             # The run's artifacts are deleted with the VM: the step log keeps Chromium's state.
-            print("cefdiag   %s" % json.dumps({k: v for k, v in (rpc("debug.cef") or {}).items() if k != "devtools"})[:1500], flush=True)
+            diag = rpc("debug.cef") or {}
+            print("cefdiag   %s" % json.dumps({k: v for k, v in diag.items() if k not in ("devtools", "start_steps", "pump", "windows")})[:1200], flush=True)
+            steps = diag.get("start_steps") or []
+            origin = min([m.get("start_uptime_ns") or 0 for m in steps] or [0])
+            print("cefsteps  %s" % json.dumps([[m.get("name"), round(((m.get("start_uptime_ns") or 0) - origin) / 1e6), round(m.get("ms") or 0)]
+                                               for m in sorted(steps, key=lambda m: m.get("start_uptime_ns") or 0)])[:1500], flush=True)
         step("snapshot", snap("browser", "window.png"), result["snapshots"].get("browser"))
         # The engine's own frame of the page (no screen capture), then the screen again 5 s
         # later: a page the engine rendered but the window never showed is a compositing bug.
@@ -422,6 +443,43 @@ try:
         settings_shot = snap("settings", "settings.png")
         step("settings", isinstance(settings, dict) and settings.get("opened") is True and bool(page_state) and settings_shot,
              {"run": settings, "page": {k: (page_state or {}).get(k) for k in ("page", "painted", "painted_ms", "language")}})
+        if debug_router():
+            # Cmd-D then Cmd-W at once from the Settings tab (macOS 15 tester, 2026-10-19: "does not
+            # work on the first 2-3 tries and then ends up closing"). The split's key hold kept every
+            # Cmd-W until the new pane's focus landed, which a New Tab page split never gives, then ran
+            # them all together: the new tab, Settings and the window closed. Each Cmd-W must run at
+            # once (closeTab), and the window must end with the tabs it had before the first Cmd-D.
+            def shown_windows():
+                return [w for w in (windows_now() or []) if w.get("open") and w.get("visible")]
+
+            def tab_count():
+                return (rpc("snapshot.get") or {}).get("tab_count")
+
+            windows_before, tabs_before = len(shown_windows()), tab_count()
+            pairs = []
+            for _ in range(3):
+                pairs.append((rpc("debug.key", {"key": "d", "modifiers": ["cmd"]}),
+                              rpc("debug.key", {"key": "w", "modifiers": ["cmd"]})))
+            settled = wait(lambda: tab_count() == tabs_before, 5, alive)
+            late_closes = [w.get("action") for _, w in pairs if not isinstance(w, dict) or w.get("action") != "closeTab"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("settings_split_close", alive() and not late_closes and bool(settled) and len(shown_windows()) == windows_before,
+                 {"windows_before": windows_before, "windows_after": len(shown_windows()), "tabs_before": tabs_before,
+                  "tabs_after": tab_count(), "cmd_w_routed": [(w or {}).get("action") for _, w in pairs],
+                  "cmd_d_routed": [(d or {}).get("action") for d, _ in pairs],
+                  "settings": rpc("debug.page", {"page": "cmux.settings"}), "crash": crash})
+            # Cmd-1, Cmd-2, Cmd-3 (macOS 15 tester: "crashes after cmd 123"). Cmd-1 is Home: leaving
+            # it releases its views inside the key's action scope, where every main-actor class's
+            # implicit isolated deinit runs inline (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+            digits = [rpc("debug.key", {"key": str(n), "modifiers": ["cmd"]}) for _ in range(4) for n in (1, 2, 3)]
+            wait(lambda: not alive(), 3, step_s=0.5)
+            digit_errors = [d for d in digits if not isinstance(d, dict) or "error" in d or d.get("handled_by") != "app"]
+            crash = None if alive() else wait(lambda: crash_frames(started), 30, step_s=1)
+            step("cmd_digits", alive() and not digit_errors,
+                 {"keys": len(digits), "routed": [(d or {}).get("action") for d in digits][:6], "errors": digit_errors[:3],
+                  "exit": None if alive() else app.returncode, "crash": crash})
+            if alive():
+                rpc("settings.open", {"focus": True})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})
@@ -511,6 +569,18 @@ finally:
                         time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
                         "--predicate", 'process CONTAINS "cmux" OR process CONTAINS "ghostty" OR senderImagePath CONTAINS "cmux"'],
                        stdout=f, stderr=subprocess.STDOUT, timeout=120)
+    # Privacy: which TCC services the app asked for during the run (none expected; the early
+    # LocalAuthentication ask must not be one).
+    try:
+        tcc = subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",
+                              time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(started - 1)),
+                              "--predicate", 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "%s"' % (bundle_id or "-none-")],
+                             capture_output=True, text=True, timeout=120).stdout
+    except subprocess.TimeoutExpired:
+        tcc = "log show timed out"
+    services = sorted(set(re.findall(r"kTCCService\w+", tcc)))
+    result["tcc_services"] = services
+    print("tcc       %s" % json.dumps({"services": services, "lines": len([l for l in tcc.splitlines() if bundle_id in l])}), flush=True)
     # Which process opened any other app (System Settings, a browser) during the run.
     with open(os.path.join(OUT, "launches.log"), "w") as f:
         subprocess.run(["/usr/bin/log", "show", "--style", "compact", "--start",

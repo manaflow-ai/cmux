@@ -67,7 +67,7 @@ final class DividerHandleView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
@@ -133,7 +133,7 @@ final class DividerHandleView: NSView {
     }
 
     private var lineFrame: CGRect {
-        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
+        let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
         case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)

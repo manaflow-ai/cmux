@@ -23,7 +23,7 @@ Two ways to run (macOS only, a fleet or capture mini, never a laptop):
 Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
-      [--settle 30] [--churn-minutes 0] [--sample-minutes 5]
+      [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
 
 Prints a table per measurement (top processes by footprint, totals per
@@ -57,15 +57,24 @@ except AttributeError:  # an OS without the call: WebKit processes are not attri
 MB = 1048576.0
 
 
+class _Timebase(ctypes.Structure):
+    _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+
+
+_timebase = _Timebase()
+_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+
+
 def usage(pid: int):
-    """(resident, footprint, lifetime max footprint) in bytes, or None once the pid is gone."""
+    """(resident, footprint, lifetime max footprint, cpu ns, wakeups), or None once the pid is gone."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
-    # RUSAGE_INFO_V4 in u64 words: uuid (2), user, system, pkg idle wakeups,
-    # interrupt wakeups, pageins, wired (7), resident (8), phys_footprint (9),
-    # ... ri_lifetime_max_phys_footprint (30).
-    return buf[8], buf[9], buf[30]
+    # RUSAGE_INFO_V4 in u64 words: uuid (2), user, system (mach ticks), pkg
+    # idle wakeups, interrupt wakeups, pageins, wired (7), resident (8),
+    # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
+    cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
+    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
 
 
 def process_table():
@@ -126,15 +135,29 @@ def owned(app_pid: int, bundle: str):
     return found
 
 
-def sample(app_pid: int, bundle: str, label: str, workspaces: int):
+def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: float = 0):
+    """Memory per process now; with `measure` > 0 also CPU % and wakeups/s
+    over that many idle seconds (proc_pid_rusage at both ends, so the bench
+    adds no wakeups to the measured processes)."""
+    start = {}
+    if measure > 0:
+        for pid in owned(app_pid, bundle):
+            got = usage(pid)
+            if got is not None:
+                start[pid] = got
+        time.sleep(measure)  # test script: the measured idle window
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
         got = usage(pid)
         if got is None:
             continue
-        rows.append({"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
-                     "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
-                     "command": cmd[:160]})
+        row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
+               "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
+               "command": cmd[:160]}
+        if pid in start:
+            row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
+            row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
+        rows.append(row)
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
     for row in rows:
@@ -142,7 +165,10 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int):
         entry["count"] += 1
         entry["rss_mb"] = round(entry["rss_mb"] + row["rss_mb"], 1)
         entry["footprint_mb"] = round(entry["footprint_mb"] + row["footprint_mb"], 1)
-    return {"label": label, "workspaces": workspaces, "time": round(time.time()),
+        if "cpu_pct" in row:
+            entry["cpu_pct"] = round(entry.get("cpu_pct", 0.0) + row["cpu_pct"], 3)
+            entry["wakeups_per_s"] = round(entry.get("wakeups_per_s", 0.0) + row["wakeups_per_s"], 2)
+    return {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
             "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
             "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
             "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
@@ -152,9 +178,10 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int):
 def print_sample(result, top: int):
     print(f"== {result['label']}: {result['workspaces']} workspaces, {len(result['processes'])} processes, "
           f"footprint {result['total_footprint_mb']:.0f} MB, RSS {result['total_rss_mb']:.0f} MB")
-    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}")
+    print(f"   {'kind':<22}{'n':>4}{'footprint MB':>14}{'RSS MB':>10}{'CPU %':>9}{'wakeups/s':>11}")
     for kind, entry in result["kinds"].items():
-        print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}")
+        print(f"   {kind:<22}{entry['count']:>4}{entry['footprint_mb']:>14.1f}{entry['rss_mb']:>10.1f}"
+              f"{entry.get('cpu_pct', float('nan')):>9.3f}{entry.get('wakeups_per_s', float('nan')):>11.2f}")
     print(f"   top {top} processes by footprint:")
     for row in result["processes"][:top]:
         print(f"   {row['footprint_mb']:>8.1f} MB  RSS {row['rss_mb']:>7.1f}  max {row['max_footprint_mb']:>7.1f}  "
@@ -404,7 +431,7 @@ def merged(base: dict, extra: dict) -> dict:
     return out
 
 
-def launch(bundle: str, config: dict):
+def launch(bundle: str, config: dict, extra_env: dict | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
@@ -424,6 +451,7 @@ def launch(bundle: str, config: dict):
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+    env.update(extra_env or {})
     os.makedirs(env["TMPDIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
@@ -460,6 +488,8 @@ def main():
     parser.add_argument("--workspaces", default="1,10,30")
     parser.add_argument("--mix", default="terminal+chat,terminal+browser,terminal")
     parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--measure", type=float, default=0,
+                        help="seconds of idle CPU and wakeup measurement after each settle (0: memory only)")
     parser.add_argument("--churn-minutes", type=float, default=0)
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
@@ -495,7 +525,7 @@ def main():
 
     def settle_and_sample(label):
         time.sleep(args.settle)  # test script: let the app and its helpers go idle
-        result = sample(app_pid, bundle, label, len(opened) + 1)
+        result = sample(app_pid, bundle, label, len(opened) + 1, args.measure)
         report["samples"].append(result)
         print_sample(result, args.top)
         return result

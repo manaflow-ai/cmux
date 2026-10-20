@@ -31,7 +31,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -49,8 +49,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if global.output == OutputMode::Human {
         global.output = OutputMode::Json;
     }
-    let help_requested =
-        command_args[1..].iter().any(|arg| matches!(arg.as_str(), "--help" | "-h"));
+    let help_requested = asks_help(&command_args[1..]);
     if global.all_sessions && !command_args[1..].is_empty() && !help_requested {
         return Some(print_usage(
             &global,
@@ -111,7 +110,7 @@ fn normalize_qualified_target(
 }
 
 fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
-    if args.is_empty() || args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+    if args.is_empty() || asks_help(args) {
         println!("{HELP}");
         return 0;
     }
@@ -145,7 +144,12 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
             eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
             0
         }
-        Ok(value) => wire::print_local_success(&value, global.output),
+        Ok(value) => {
+            let code = wire::print_local_success(&value, global.output);
+            // A chat message stored but not handed to its chat: the receipt
+            // is printed, and the exit status says it failed.
+            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+        }
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
             wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
@@ -153,12 +157,25 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     }
 }
 
+/// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+fn asks_help(args: &[String]) -> bool {
+    args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
+}
+
 pub(super) enum AgentCommand {
     Snapshot,
-    Resource { action: String, args: Vec<String> },
-    App { action: String, args: Vec<String> },
+    Resource {
+        action: String,
+        args: Vec<String>,
+    },
+    App {
+        action: String,
+        args: Vec<String>,
+    },
     Wait(wait::WaitRequest),
     Events(events::EventsRequest),
+    /// Prompt another agent chat or read its transcript (chat.rs).
+    Chat(chat::ChatCommand),
 }
 
 /// Why an agent action answered without a receipt.
@@ -224,6 +241,7 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
             action: "dialog.list".into(),
             args: words[2..].iter().map(|value| (*value).into()).collect(),
         }),
+        ["chat", rest @ ..] => chat::parse(rest).map(AgentCommand::Chat),
         ["dialog", "answer", request_id, rest @ ..] => Ok(AgentCommand::App {
             action: "dialog.answer".into(),
             args: std::iter::once((*request_id).into())
@@ -300,6 +318,11 @@ pub(super) fn execute<B: Backend>(
         }
         AgentCommand::App { action, args } => {
             (action, run_app(backend, action, args, idempotency_key, origin)?)
+        }
+        // A chat verb answers its own receipt or page: a topology snapshot
+        // says nothing about what a chat was sent or answered.
+        AgentCommand::Chat(command) => {
+            return backend.chat(command, idempotency_key, origin).map_err(AgentFailure::Owner);
         }
         AgentCommand::Wait(request) => return wait::run(backend, session, request),
         AgentCommand::Events(request) => return events::run(backend, session, request),
@@ -793,5 +816,6 @@ pub(super) fn snapshot_tool() -> Value {
     })
 }
 
+pub(super) mod chat;
 #[cfg(test)]
 mod tests;

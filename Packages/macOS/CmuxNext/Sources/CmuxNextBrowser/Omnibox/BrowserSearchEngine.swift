@@ -131,11 +131,20 @@ public nonisolated struct OmniboxResolver: Sendable {
         return fixed.url
     }
 
+    /// Where `input` goes: a URL, else a search. A leading `?` forces a
+    /// search for the rest (Chromium `AutocompleteInput`: "?" is the
+    /// forced-query prefix).
     public func destination(for input: String) -> OmniboxDestination? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("?") {
+            let query = trimmed.dropFirst().trimmingCharacters(in: .whitespaces)
+            guard !query.isEmpty, let url = searchEngine.searchURL(for: query) else { return nil }
+            return .search(query: query, url: url)
+        }
         if let url = urlResolver.url(for: input) {
             return .url(url)
         }
-        let query = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = trimmed
         guard let url = searchEngine.searchURL(for: query) else { return nil }
         return .search(query: query, url: url)
     }

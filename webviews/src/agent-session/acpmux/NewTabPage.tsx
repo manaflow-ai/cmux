@@ -27,6 +27,7 @@ import {
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -95,6 +96,8 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
+  /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
+  widgets?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -104,6 +107,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const object = (typeof value === "object" ? value : {}) as Record<string, unknown>;
   // The app's copy of the last picks: this page's own storage did not outlive the launch.
   seedLastPicks(object.lastPicks);
+  // The chats a page of this Mac listed last: the Chats list's first frame (newtab/warmSnapshot.ts).
+  seedWarmNewTab(object.warm);
   const keys = (typeof object.hotkeys === "object" && object.hotkeys !== null ? object.hotkeys : {}) as Record<
     string,
     unknown
@@ -138,6 +143,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
+    ...(object.widgets === true ? { widgets: true } : {}),
   };
 }
 
@@ -176,9 +182,15 @@ export function recentSessions(
   // callers may still provide raw summaries, so retain the normalization fallback for those.
   const all = sessions
     .map((session) => normalizedSessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
-    .filter(listed);
+    // A chat nothing was sent in yet (a New Tab's chip pick starts one) is no recent chat.
+    .filter((entry) => listed(entry) && !entry.unsent);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
-  const ordered = all.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  // Chats reported in the same millisecond tie on their durable ids, so a snapshot's arrival order
+  // cannot make the rows trade places.
+  const ordered = all.sort(
+    (a, b) =>
+      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+  );
   if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
   const shown = ordered.filter((entry) => !entry.spawnedBy).slice(0, count);

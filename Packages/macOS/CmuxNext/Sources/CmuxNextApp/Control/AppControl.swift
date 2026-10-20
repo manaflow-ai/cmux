@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -18,6 +19,7 @@ final class AppControl {
     private let frameProbe = DebugFrameProbe()
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
+    private(set) var errorJournal: ErrorJournalService?
 
     var socketPath: String? { service?.socketPath }
 
@@ -50,6 +52,11 @@ final class AppControl {
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(SessionTransferControl.methods(services: services))
+        // The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
+        let errors = ErrorJournalService.make(environment: services.environment)
+        errors.start()
+        errorJournal = errors
+        service.router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -75,6 +82,10 @@ final class AppControl {
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
+            .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
+            // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
+            .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).

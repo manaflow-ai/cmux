@@ -1,9 +1,9 @@
 name: cmux-next media
 
 # Screenshots and a short video of each cmux-next UI pull request, posted in
-# one sticky comment (scripts/cmux-next/media/publish.py). The tour builds the
-# merge base and head as separate tagged dev apps on an owned Mac's gui runner,
-# launches each, drives them through the bundled cmux CLI
+# the `tour` part of the PR's status comment (scripts/cmux-next/media/publish.py).
+# The tour builds the merge base and head as separate tagged dev apps on an
+# owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
 # mapping selects New Tab, agent-pane, or core interactions from the changed
 # files. Tours are data in scripts/cmux-next/media/tours.
@@ -29,6 +29,11 @@ name: cmux-next media
 #     replaces the waiting one, and a running tour is never cancelled.
 #   - on a pull request labeled `media-tour` (add the label to get a tour;
 #     every later push of that pull request tours again).
+# Either way a change with nothing for a Mac to tour takes no Mac: no UI
+# paths, or only webview code, whose look the gallery advisory run checks in
+# Linux Chromium on the pull request (a webview-only merge gets no capture of
+# its own). Native-bridge, glass and theme webview files still tour. Add the
+# `media-tour-mac` label (with `media-tour`) to tour a webview change on a Mac.
 # A pull request without the label starts no job. Classic main has no
 # cmux-next UI, and a nightly schedule would run only from main's copy of
 # this file, so neither has a tour.
@@ -41,6 +46,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
+      - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -50,7 +57,15 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      - 'scripts/cmux-next/media/tours/**'
+  # The batch queue tours a group's combined branch (docs/ci/cmux-next-batch.md#groups):
+  # base_sha is the stack's base, so the path map takes the union of the members' tours.
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Commit the tour compares against (the batch stack's base); empty tours nothing
+        required: false
+        default: ''
 
 permissions: {}
 
@@ -65,11 +80,12 @@ concurrency:
 jobs:
   route:
     name: Pick the tour runner
-    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' && inputs.base_sha != '' || github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'media-tour') && (github.event.action != 'labeled' || github.event.label.name == 'media-tour')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     outputs:
       runs_on: ${{ steps.pick.outputs.runs_on }}
       reason: ${{ steps.pick.outputs.reason }}
@@ -80,16 +96,52 @@ jobs:
           sparse-checkout: |
             scripts/ci/cmux_next_media_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/cmux-next/media/path_map.py
           sparse-checkout-cone-mode: false
+
+      # The changed paths, read here on Linux so a change the Mac tour would
+      # not capture (no UI, or only webview code, which the gallery advisory
+      # run captures in Linux Chromium) never queues for a Mac. The file is
+      # written only when the listing is complete; without it the picker
+      # picks a Mac as before and the tour maps the paths itself.
+      - name: List the changed paths
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The same diff the tour maps: the pull request's base and head at
+          # the event, or the push's before and after.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          listing="$RUNNER_TEMP/changed-files.json"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '[.files[] | {filename, previous_filename}]' > "$listing"
+          python3 - "$listing" "$RUNNER_TEMP/changed-paths.txt" <<'PY'
+          import json, pathlib, sys
+          rows = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          # The compare API lists at most 300 files; past that the Mac maps the paths itself.
+          if len(rows) >= 300:
+              print(f"{len(rows)} changed files listed, the compare API's cap; the Mac maps the paths itself")
+              sys.exit(0)
+          paths = sorted({p for row in rows for p in (row.get("filename"), row.get("previous_filename")) if p})
+          pathlib.Path(sys.argv[2]).write_text("\n".join(paths) + "\n")
+          print(f"{len(paths)} changed path(s)")
+          PY
 
       - name: Pick an owned gui runner
         id: pick
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          SAME_REPO: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
-        run: python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO"
+          PR_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          # A batch dispatch (docs/ci/cmux-next-batch.md#groups) tours a branch of this repository.
+          SAME_REPO: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+          FORCE_MAC: ${{ contains(github.event.pull_request.labels.*.name, 'media-tour-mac') }}
+        run: |
+          force=()
+          if [ "$FORCE_MAC" = true ]; then force=(--force-mac); fi
+          python3 scripts/ci/cmux_next_media_runner.py --same-repo "$SAME_REPO" \
+            --paths-file "$RUNNER_TEMP/changed-paths.txt" "${force[@]}"
 
   tour:
     name: Tour the app
@@ -101,23 +153,26 @@ jobs:
     # tours of the PR reuse its per-tag DerivedData while it is among the
     # most recently used on that Mac (scripts/ci/prune_media_derived_data.py).
     timeout-minutes: 120
+    # actions: read finds and downloads another run's base app artifact.
     permissions:
+      actions: read
       contents: read
     # is_ui tells the publish job a UI tour ran, so a capture that died before
     # writing capture-receipt.json is reported, not shown as "no media".
     outputs:
       is_ui: ${{ steps.scope.outputs.is_ui }}
+      tree_note: ${{ steps.tree.outputs.note }}
     env:
-      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
       # One tag per PR (one for all merges) keeps its DerivedData warm across
       # updates; base and head use separate tags so the two apps never share
       # state or sockets.
-      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || 'feat-cmux-next' }}
+      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && 'batch' || 'feat-cmux-next' }}
       # A merge tour compares the previous feat-cmux-next head with the merge.
-      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -205,6 +260,35 @@ jobs:
         with:
           node-version: "24.11.1"
 
+      # Tours run side by side on a Mac's session runners, each capturing only
+      # its own app's window. One tag's DerivedData, sockets and daemon session
+      # take one tour at a time: a cancelled run still stopping, a dispatch, or
+      # a merge tour beside a dispatch could otherwise build into the same
+      # DerivedData at once. Other tags never wait.
+      # A pull request branched before the lock existed checks out a head
+      # without the lock script, and with a prune that ignores held tags; this
+      # step comes from the merge ref, so it takes both from that commit and
+      # hands the prune step their dir (MEDIA_CI_SCRIPTS).
+      # A tour waits an hour for its tag: longer than a warm merge tour holds
+      # feat-cmux-next (54 min seen), and short enough that the waiter keeps
+      # 45+ min of its own job timeout for a cold build and the tour. A
+      # longer wait would end in a job-timeout cancel, not the "held" error.
+      - name: Hold this tour's tag
+        if: steps.scope.outputs.is_ui == 'true'
+        run: |
+          set -euo pipefail
+          ci=scripts/ci
+          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
+            git fetch --no-tags origin "$GITHUB_SHA"
+            ci="$RUNNER_TEMP/media-ci"
+            mkdir -p "$ci"
+            for script in media_tag_lock.py prune_media_derived_data.py; do
+              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
+            done
+          fi
+          echo "MEDIA_CI_SCRIPTS=$ci" >> "$GITHUB_ENV"
+          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 3600
+
       # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
       # Keep this run's pair and the most recently used other pair; a dir
@@ -213,14 +297,65 @@ jobs:
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
-          python3 scripts/ci/prune_media_derived_data.py \
+          python3 "${MEDIA_CI_SCRIPTS:-scripts/ci}/prune_media_derived_data.py" \
             --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
 
-      - name: Download pre-built GhosttyKit.xcframework for both revisions
+      # A pull request branched before these scripts checks out a head
+      # without them; this step takes them from the merge ref instead.
+      # MEDIA_APP_RECIPE hashes how this tour builds an app (this workflow, the
+      # build scripts and their env), so a pull request
+      # that changes that never shares its app with other tours.
+      - name: Take the tour build scripts
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
+          ci="$GITHUB_WORKSPACE/scripts/ci"
+          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ]; then
+            git fetch --no-tags origin "$GITHUB_SHA"
+            ci="$RUNNER_TEMP/media-tour-ci"
+            mkdir -p "$ci"
+            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py; do
+              git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
+            done
+            chmod +x "$ci/media_build_app.sh"
+          fi
+          # The workflow itself comes from GITHUB_SHA (the merge ref of a pull request).
+          git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
+          recipe="$({ cat "$ci/media_build_app.sh" "$ci/media_module_cache_stamp.py"
+            git show "$GITHUB_SHA:.github/workflows/cmux-next-media.yml"
+            env | grep -E '^(CMUX_SKIP_ZIG_BUILD|CMUX_GHOSTTYKIT_PREPROVISIONED|CMUX_CI_XCODE_APP)=' | sort
+          } | shasum -a 256 | cut -c1-12)"
+          { echo "MEDIA_TOUR_CI=$ci"; echo "MEDIA_APP_RECIPE=$recipe"; } >> "$GITHUB_ENV"
+
+      # A tour of the same pull request with the same merge base built this
+      # app under this tag already (and with per-Mac tour slots, any tour in
+      # the same slot number on any Mac). It is in that run's artifacts
+      # (media_app_cache.py); fetching it skips the base's worktree, GhosttyKit
+      # and ~6 min build. Any miss, refusal or failure builds as before.
+      - name: Reuse the base app another tour built
+        id: base_cache
+        if: steps.scope.outputs.is_ui == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 "$MEDIA_TOUR_CI/media_app_cache.py" fetch --repo "$GITHUB_REPOSITORY" \
+            --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" --recipe "$MEDIA_APP_RECIPE" \
+            --dest "$HOME/Library/Developer/Xcode/DerivedData/cmux-${TOUR_TAG}-base/Build/Products/Debug" \
+            --github-output "$GITHUB_OUTPUT" || echo "no reusable base app; building it"
+
+      # The archive cache is the one glaeda CI jobs on these Macs already share
+      # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
+      - name: Download pre-built GhosttyKit.xcframework for both revisions
+        if: steps.scope.outputs.is_ui == 'true'
+        env:
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: /Users/Shared/cmux-build-fleet/ci/ghosttykit-archives
+          BASE_APP: ${{ steps.base_cache.outputs.app }}
+        run: |
+          set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse "$HEAD_SHA:ghostty")" ./scripts/download-prebuilt-ghosttykit.sh
+          [ -z "$BASE_APP" ] || exit 0
           # The runner wipes RUNNER_TEMP between jobs but keeps the checkout's
           # .git, so the last run's base worktree stays registered and a plain
           # add fails ("missing but already registered worktree"). A job killed
@@ -231,24 +366,102 @@ jobs:
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
 
-      - name: Build base and head tagged apps
-        id: build
+      # A merge that changes cmux-tui publishes its tree only after every
+      # cmux-tui-artifacts target builds: 45 min for 6c4456b782d9 (run
+      # 39311342536), and each tour based on it waited ~37 min in reload.sh.
+      # When the pull request changes no cmux-tui tree input (head and base
+      # share a tree) and that tree is not published yet, both apps build
+      # with the newest published tree in the base's history
+      # (resolve-newest-published never waits), so before and after still run
+      # one daemon. The search skips commits whose daemon-capabilities.json
+      # differs from the base's: the bundle checks the daemon serves every
+      # capability listed there. A head that changes cmux-tui waits for its
+      # own tree, so the base keeps its own too. The tour comment names a
+      # stand-in. Best effort: any failure waits as before.
+      - name: Use a published cmux-tui tree for an unpublished base
+        id: tree
+        if: steps.scope.outputs.is_ui == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          base="${RUNNER_TEMP:?}/cmux-next-base"
+          [ -d "$base" ] || { echo "the base app was reused; no base tree needed"; exit 0; }
+          pin=scripts/cmux-next/pin-cmux-tui.sh
+          base_key="$(cd "$base" && "./$pin" key)"
+          head_key="$("./$pin" key)"
+          if [ "$head_key" != "$base_key" ]; then
+            echo "the head changes cmux-tui ($head_key, base $base_key): both apps use their own trees"
+            exit 0
+          fi
+          resolved="$(cd "$base" && GITHUB_STEP_SUMMARY='' CMUX_TUI_TREE_DISPATCH='' \
+            CMUX_TUI_TREE_SAME_PATHS=plans/cmux-next/daemon-capabilities.json \
+            "./$pin" resolve-newest-published)" || {
+            echo "no published cmux-tui tree near the base; the builds wait for $base_key"; exit 0; }
+          key="$(sed -n 's/^key=//p' <<<"$resolved")"
+          from="$(sed -n 's/^source_commit=//p' <<<"$resolved")"
+          [[ "$key" =~ ^[0-9a-f]{40}$ ]] || { echo "unexpected resolve output: $resolved"; exit 0; }
+          if [ "$key" = "$base_key" ]; then
+            echo "the base's own cmux-tui tree $base_key is published"
+            exit 0
+          fi
+          { echo "BASE_TUI_TREE_KEY=$key"; echo "HEAD_TUI_TREE_KEY=$key"; } >> "$GITHUB_ENV"
+          note="Both apps run cmux-tui from ${from:0:12} (tree ${key:0:12}): the merge base's own tree ${base_key:0:12} was not published yet."
+          echo "$note"
+          echo "note=$note" >> "$GITHUB_OUTPUT"
+
+      # The checkout is cleaned and the base worktree recreated every run, so
+      # optchat-chief built cold (~100 s) for each app; its Cargo target dir
+      # stays on the Mac instead. One per runner: Cargo's lock ends before
+      # build-optchat-chief.sh copies the binary out, so two tours sharing a
+      # dir could ship each other's build.
+      - name: Build the base app
+        id: build_base
+        if: steps.scope.outputs.is_ui == 'true'
+        env:
+          BASE_APP: ${{ steps.base_cache.outputs.app }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE_APP" ]; then
+            echo "base_app=$BASE_APP" >> "$GITHUB_OUTPUT"
+            echo "Reusing $BASE_APP"
+            exit 0
+          fi
+          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
+          [ -z "${BASE_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$BASE_TUI_TREE_KEY"
+          ci="$MEDIA_TOUR_CI"
+          "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
+          # Pack it for later tours (the next step uploads it). Best effort.
+          # An app built on a stand-in cmux-tui tree is not this commit's app.
+          [ -z "${BASE_TUI_TREE_KEY:-}" ] || exit 0
+          app="$(sed -n 's/^base_app=//p' "$GITHUB_OUTPUT" | tail -n 1)"
+          if python3 "$ci/media_app_cache.py" pack --app "$app" --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
+              --recipe "$MEDIA_APP_RECIPE" --out "$RUNNER_TEMP/media-app/app.tar"; then
+            echo "artifact=$(python3 "$ci/media_app_cache.py" name --tag "${TOUR_TAG}-base" --sha "$MERGE_BASE" \
+              --recipe "$MEDIA_APP_RECIPE")" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Uploaded before the head builds, so a tour cancelled by a newer push
+      # still leaves its base for the next one.
+      - name: Share the base app with later tours
+        if: steps.build_base.outputs.artifact != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.build_base.outputs.artifact }}
+          path: ${{ runner.temp }}/media-app/app.tar
+          if-no-files-found: ignore
+          compression-level: 1
+          retention-days: 1
+
+      - name: Build the head app
+        id: build_head
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
-          build_one() {
-            local dir="$1" tag="$2" log="$3" output="$4" app
-            (cd "$dir" && ./scripts/reload.sh --tag "$tag" --no-global-cli-links) 2>&1 | tee "$log"
-            app="$(awk '/^App path:/ { getline; sub(/^ +/, ""); print; exit }' "$log")"
-            if [ -z "$app" ] || [ ! -d "$app" ]; then
-              app="$(find "$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug" -maxdepth 1 -name '*.app' -print -quit)"
-            fi
-            [ -d "$app" ] || { echo "::error::reload.sh built no $tag app"; return 1; }
-            echo "$output=$app" >> "$GITHUB_OUTPUT"
-            echo "Built $tag: $app"
-          }
-          build_one "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
-          build_one "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
+          export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
+          [ -z "${HEAD_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$HEAD_TUI_TREE_KEY"
+          ci="$MEDIA_TOUR_CI"
+          "$ci/media_build_app.sh" "$GITHUB_WORKSPACE" "${TOUR_TAG}-head" "$RUNNER_TEMP/reload-head.out" head_app
 
       - name: Capture before and after interactions
         id: capture
@@ -264,8 +477,8 @@ jobs:
           rm -rf "$media_dir"
           python3 scripts/cmux-next/media/capture_paths.py \
             --paths-file "$RUNNER_TEMP/changed-paths.txt" \
-            --base-app "${{ steps.build.outputs.base_app }}" \
-            --head-app "${{ steps.build.outputs.head_app }}" \
+            --base-app "${{ steps.build_base.outputs.base_app }}" \
+            --head-app "${{ steps.build_head.outputs.head_app }}" \
             --out "$media_dir" \
             --receipt "$media_dir/capture-receipt.json"
 
@@ -293,7 +506,8 @@ jobs:
   publish:
     name: Post the tour media
     needs: [route, tour]
-    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    # A batch dispatch has no PR to post on: the queue reads the tour's artifact.
+    if: ${{ github.event_name != 'workflow_dispatch' && !cancelled() && needs.route.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # contents: write reaches the pr-media branch; main and the feature
@@ -311,6 +525,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/pr-media.py
+            scripts/ci/pr_status.py
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
@@ -376,6 +591,7 @@ jobs:
           ROUTE_REASON: ${{ needs.route.outputs.reason }}
           TOUR_RESULT: ${{ needs.tour.result }}
           TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
+          TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
         run: |
           set -euo pipefail
           note=""
@@ -400,6 +616,8 @@ jobs:
                   failed.add(path.parent.name)
           if status == "recorder-failed":
               print(f"The path-selected recorder failed for {', '.join(sorted(failed)) or tours}; see the run artifact and failed manifests.")
+          elif status == "no-ui-paths" and data.get("gallery"):
+              print("Only webview code changed; the gallery advisory run checks it in Linux Chromium.")
           elif status == "no-ui-paths":
               print("No UI paths changed; no interaction tour was needed.")
           PY
@@ -419,5 +637,6 @@ jobs:
                 note="${note:+$note }The tour job failed before the tour ran (build or setup); the run log has the output."
               fi ;;
           esac
+          note="${note:+$note }$TREE_NOTE"
           python3 scripts/cmux-next/media/publish.py --repo "$GITHUB_REPOSITORY" \
             --media "$RUNNER_TEMP/media" --pr "$PR" --sha "$HEAD_SHA" --run-url "$RUN_URL" --note "$note"
