@@ -10,13 +10,18 @@ import { t, text } from "./strings";
 /** The Settings pages whose rows the stack records: Appearance and Theme. */
 export const APPEARANCE_CATEGORIES: readonly string[] = ["appearance", "theme"];
 
+/** Appearance keys the page no longer shows that the app still loads (#22379): a value someone
+ * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */
+const RETIRED_APPEARANCE_KEYS: readonly string[] = ["appearance.glassTransparency", "appearance.backdropArt"];
+
 let tracked: ReadonlySet<string> | null = null;
 function trackedKeys(): ReadonlySet<string> {
-  tracked ??= new Set(
-    APPEARANCE_CATEGORIES.flatMap((id) => categoryRows(id))
+  tracked ??= new Set([
+    ...APPEARANCE_CATEGORIES.flatMap((id) => categoryRows(id))
       .filter((row) => !row.page_hidden)
       .map((row) => row.key),
-  );
+    ...RETIRED_APPEARANCE_KEYS,
+  ]);
   return tracked;
 }
 
