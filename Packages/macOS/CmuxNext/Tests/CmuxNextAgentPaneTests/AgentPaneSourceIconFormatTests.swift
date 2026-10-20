@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
 
 struct AgentPaneSourceIconFormatTests {
     @Test func pngInsideICOContainerDecodes() throws {
-        let png = try #require(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
-        // ICONDIR + ICONDIRENTRY: one 1x1 PNG payload at offset 22.
-        var ico = Data([0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 32, 0])
+        // A 16x16 RGBA PNG, the shape real favicons use (ImageIO refuses a 1x1 gray-alpha entry).
+        let png = try rgbaPNG(side: 16)
+        // ICONDIR + ICONDIRENTRY: one 16x16 PNG payload at offset 22.
+        var ico = Data([0, 0, 1, 0, 1, 0, 16, 16, 0, 0, 1, 0, 32, 0])
         for value in [UInt32(png.count), 22] {
             ico.append(contentsOf: (0..<4).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) })
         }
@@ -32,6 +33,20 @@ struct AgentPaneSourceIconFormatTests {
         #expect(decoder.decode(Data(text.utf8)) == nil)
         #expect(decoder.decode(text.data(using: .utf16LittleEndian)!) == nil)
         #expect(decoder.decode(text.data(using: .utf16BigEndian)!) == nil)
+    }
+
+    private func rgbaPNG(side: Int) throws -> Data {
+        let context = try #require(CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
     }
 
     private func expectPNG(_ output: Data?) throws {

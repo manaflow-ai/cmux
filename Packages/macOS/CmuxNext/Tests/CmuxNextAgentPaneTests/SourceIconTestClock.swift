@@ -38,10 +38,10 @@ nonisolated final class SourceIconTestClock: Clock, Sendable {
                 if let outcome { continuation.resume(with: outcome) }
             }
         } onCancel: {
-            let pending = self.state.withLock {
-                if let sleeper = $0.sleepers.removeValue(forKey: id) { return sleeper.1 }
-                $0.cancelled.insert(id)
-                return nil as CheckedContinuation<Void, any Error>?
+            let pending = self.state.withLock { state -> CheckedContinuation<Void, any Error>? in
+                if let sleeper = state.sleepers.removeValue(forKey: id) { return sleeper.1 }
+                state.cancelled.insert(id)
+                return nil
             }
             pending?.resume(throwing: CancellationError())
         }
