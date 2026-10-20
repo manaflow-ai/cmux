@@ -119,9 +119,12 @@ public final class HostBrowserSignInFlow {
     /// - Parameter selectAccount: `true` (Switch Account) asks the hosted page
     ///   to confirm which account to use even when the browser is signed in.
     ///   It never reuses a handed-off attempt, whose page did not ask.
+    /// - Parameter inDefaultBrowser: `true` skips the popup: the hosted page
+    ///   opens in the default browser at once and the attempt waits for its
+    ///   `<scheme>://auth-callback`, as after a handoff.
     @discardableResult
-    public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
-        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount)")
+    public func beginSignIn(selectAccount: Bool = false, inDefaultBrowser: Bool = false) -> Task<Bool, Never> {
+        log.log("auth.browser.beginSignIn signedIn=\(coordinator.isAuthenticated) signingIn=\(isSigningIn) selectAccount=\(selectAccount) defaultBrowser=\(inDefaultBrowser)")
         if !selectAccount,
            let activeAttemptID,
            handedOffAttemptID == activeAttemptID,
@@ -130,7 +133,15 @@ public final class HostBrowserSignInFlow {
             signInIsSlow = true
             return activeAttemptTask
         }
-        return startAttempt(selectAccount: selectAccount)
+        return startAttempt(selectAccount: selectAccount, inDefaultBrowser: inDefaultBrowser)
+    }
+
+    /// Ends the sign-in in progress (the person's Cancel). A late callback
+    /// carrying its state is then rejected.
+    public func cancelSignIn() {
+        guard activeAttemptID != nil else { return }
+        log.log("auth.browser.cancelSignIn")
+        cancelActiveAttempt()
     }
 
     /// The hosted sign-in URL for a manual fallback.
@@ -291,7 +302,7 @@ public final class HostBrowserSignInFlow {
 
     // MARK: - Attempt lifecycle
 
-    private func startAttempt(selectAccount: Bool = false) -> Task<Bool, Never> {
+    private func startAttempt(selectAccount: Bool = false, inDefaultBrowser: Bool = false) -> Task<Bool, Never> {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
@@ -319,7 +330,7 @@ public final class HostBrowserSignInFlow {
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
             guard self.activeAttemptID == attemptID else { return false }
-            guard let result = await self.runBrowserSession(attemptID: attemptID) else {
+            guard let result = await self.runBrowserSession(attemptID: attemptID, inDefaultBrowser: inDefaultBrowser) else {
                 self.log.log("auth.browser.attempt.noResult id=\(attemptID) signedIn=\(self.coordinator.isAuthenticated)")
                 return self.coordinator.isAuthenticated
             }
@@ -341,11 +352,17 @@ public final class HostBrowserSignInFlow {
         return task
     }
 
-    private func runBrowserSession(attemptID: UInt64) async -> HostBrowserAuthSessionResult? {
+    private func runBrowserSession(attemptID: UInt64, inDefaultBrowser: Bool) async -> HostBrowserAuthSessionResult? {
         await withCheckedContinuation {
             (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
+            if inDefaultBrowser {
+                // No popup: the attempt waits for its callback, a cancel or the timeout.
+                log.log("auth.browser.session.defaultBrowser id=\(attemptID)")
+                continueInDefaultBrowser(attemptID: attemptID, staleReason: "staleDefaultBrowser")
+                return
+            }
             let callbackState = activeCallbackState ?? callbackStateGenerator.make()
             let signInURL = attemptSignInURL(callbackState)
             let scheme = callbackScheme()

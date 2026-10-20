@@ -5,7 +5,7 @@
 import { useCallback, useState } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
-import type { AccountsButton, AccountsRow } from "../ops";
+import type { AccountsButton, AccountsCmux, AccountsRow } from "../ops";
 import { t } from "../strings";
 
 export function AccountsSection() {
@@ -32,16 +32,10 @@ function AccountsBody() {
   return (
     <>
       <section className="group">
+        <div className="rows">
+          <CmuxAccountRow cmux={accounts.cmux} />
+        </div>
         <div className="accounts-header">
-          {accounts.signIn && (
-            <button
-              type="button"
-              className="button accounts-sign-in"
-              onClick={() => void store.runAccounts({ action: "signIn" })}
-            >
-              {accounts.signIn}
-            </button>
-          )}
           <button
             type="button"
             className="button"
@@ -68,6 +62,37 @@ function AccountsBody() {
         </section>
       ))}
     </>
+  );
+}
+
+// cmux's own account: who is signed in and the gestures the host offers for that state (sign in,
+// open the sign-in in the browser, cancel, switch account, sign out).
+function CmuxAccountRow({ cmux }: { cmux: AccountsCmux }) {
+  const store = useStore();
+  return (
+    <div className="row accounts-row" data-account="cmux">
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title">{cmux.title}</div>
+          {cmux.detail && <div className="row-help">{cmux.detail}</div>}
+        </div>
+        <span className="accounts-status" data-status={cmux.statusKind}>
+          <span className="accounts-dot" aria-hidden="true" />
+          {cmux.status}
+        </span>
+      </div>
+      <div className="accounts-body">
+        <div className="accounts-buttons">
+          <Buttons buttons={cmux.buttons} onRun={(id) => void store.runAccounts({ action: id })} />
+        </div>
+        {cmux.note && <div className="row-help">{cmux.note}</div>}
+        {cmux.error && (
+          <div className="row-error" data-outcome="danger">
+            {cmux.error}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

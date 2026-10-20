@@ -863,10 +863,6 @@ mark {
   margin-bottom: 8px;
 }
 
-.accounts-sign-in {
-  margin-right: auto;
-}
-
 /* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;

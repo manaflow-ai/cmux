@@ -22,7 +22,7 @@ final class AccountsService: AccountsServices {
     let fixtureHome: URL?
     /// The showcase profile uses the package's deterministic account fixture;
     /// it must never read or mutate a user's real credentials.
-    private let showcaseMock: MockAccountsServices?
+    let showcaseMock: MockAccountsServices?
     private var loginEnvironment: [String: String]?
     /// False once the Keychain salt failed: `acct_…` handles then last for
     /// this launch only (`accounts.list` says `handles_stable: false`).
@@ -96,15 +96,7 @@ final class AccountsService: AccountsServices {
 
     var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? services.cloud.isSignedIn }
 
-    func signInToCmux() {
-        if let showcaseMock { showcaseMock.signInToCmux(); model.refresh(); return }
-        let cloud = services.cloud
-        // task-owner: one hosted sign-in; ends when the browser flow returns
-        Task { [weak self] in
-            _ = await cloud.auth.signIn()
-            self?.model.refresh()
-        }
-    }
+    func signInToCmux() { runCmuxAccount(.signIn) }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }
