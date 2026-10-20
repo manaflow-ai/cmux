@@ -8,6 +8,8 @@
 //! picture or video (png, jpeg, gif, webp, heic, mp4, mov), at most [`MAX_MEDIA_BYTES`], is
 //! read; anything else stays text.
 
+use std::io::Read;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use cmux_conversation::Part;
@@ -66,7 +68,42 @@ pub fn attachment_type(path: &Path) -> &'static str {
     }
 }
 
-/// The local path a Markdown link target names: `/abs`, `~/rel`, `file:///abs`, in `<…>` or not.
+/// The private folder a turn may attach files from. Its name is a log id, so a
+/// later turn cannot reuse a path a previous prompt named.
+pub fn turn_outbox(session_dir: &Path, first: u64) -> PathBuf {
+    session_dir
+        .join(".cmux-media")
+        .join(format!("turn-{first}"))
+}
+
+/// Makes this turn's outbox owner-only, refusing an unexpected non-directory
+/// or symlink. None keeps media attachment disabled for the turn.
+pub fn prepare_turn_outbox(session_dir: &Path, first: u64) -> Option<PathBuf> {
+    let base = session_dir.join(".cmux-media");
+    let turn = turn_outbox(session_dir, first);
+    for path in [&base, &turn] {
+        if let Ok(meta) = std::fs::symlink_metadata(path)
+            && (!meta.file_type().is_dir() || meta.file_type().is_symlink())
+        {
+            return None;
+        }
+        if std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(path)
+            .is_err()
+        {
+            return None;
+        }
+        if std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).is_err() {
+            return None;
+        }
+    }
+    Some(turn)
+}
+
+/// The local path an explicit attachment or Markdown target names:
+/// `/abs`, `~/rel`, or `file:///abs`, in `<...>` or not.
 pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
     let target = target.trim();
     let target = target
@@ -80,8 +117,9 @@ pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
     target.starts_with('/').then(|| PathBuf::from(target))
 }
 
-/// The files a reply names that can be sent: each once, in reply order.
-pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
+/// The files a reply names that can be sent: direct regular-file children of
+/// this turn's outbox, each once, in reply order.
+pub fn media_refs(reply: &str, outbox: Option<&Path>) -> Vec<MediaRef> {
     let mut refs: Vec<MediaRef> = Vec::new();
     let bytes = reply.as_bytes();
     let mut at = 0;
@@ -109,14 +147,19 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
             continue;
         };
         at = target_end + 1;
-        let Some(path) = local_path(&reply[target_start..target_end], home) else {
+        let Some(path) = local_path(&reply[target_start..target_end], None) else {
             continue;
         };
+        let Some(outbox) = outbox else { continue };
+        if path.parent() != Some(outbox) {
+            continue;
+        }
         let Some(mime_type) = media_type(&path) else {
             continue;
         };
-        let sendable = std::fs::metadata(&path)
-            .is_ok_and(|meta| meta.is_file() && meta.len() > 0 && meta.len() <= MAX_MEDIA_BYTES);
+        let sendable = std::fs::symlink_metadata(&path).is_ok_and(|meta| {
+            meta.file_type().is_file() && meta.len() > 0 && meta.len() <= MAX_MEDIA_BYTES
+        });
         if !sendable || refs.iter().any(|r| r.path == path) {
             continue;
         }
@@ -171,7 +214,19 @@ pub fn upload(
 ) -> Vec<(MediaRef, Part)> {
     let mut sent = Vec::new();
     for media in refs {
-        let bytes = match std::fs::read(&media.path) {
+        let bytes = match (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&media.path)?;
+            let meta = file.metadata()?;
+            if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_MEDIA_BYTES {
+                return Ok::<_, std::io::Error>(Vec::new());
+            }
+            let mut bytes = Vec::with_capacity(meta.len() as usize);
+            file.read_to_end(&mut bytes)?;
+            Ok(bytes)
+        })() {
             Ok(bytes) if !bytes.is_empty() && bytes.len() as u64 <= MAX_MEDIA_BYTES => bytes,
             Ok(_) => continue,
             Err(e) => {

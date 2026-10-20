@@ -60,9 +60,12 @@ impl Brain {
             return false;
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
-        // Never feed a non-owner's text into an approve-all session. It waits
-        // for the current turn to end, then starts its own ask-policy turn.
-        if !self.turn_ask && items.iter().any(Queued::requires_approval) {
+        // Never feed a non-owner's text into a session that already received
+        // the cross-conversation memory. It waits for the current turn to end,
+        // then starts its own conversation-scoped ask-policy turn. This is
+        // independent of `turn_ask`: ambient Home text may already have put an
+        // otherwise private turn in ask mode.
+        if self.turn_shared_memory && items.iter().any(Queued::requires_approval) {
             for item in items.into_iter().rev() {
                 self.queue.push_front(item);
             }
@@ -166,6 +169,7 @@ impl Brain {
         if remote || non_owner {
             self.turn_remote |= remote;
             self.turn_ask |= non_owner || (remote && !self.chief.remote_auto_approve);
+            self.turn_shared_memory &= !non_owner;
             self.interrupt.set_gate(self.turn_ask);
         }
     }

@@ -404,6 +404,13 @@ pub struct Settings {
     /// cached layout's system prompt, and the session directory's CLAUDE.md
     /// in the old layout.
     pub system_text: String,
+    /// A shared-conversation turn's system text: product instructions only,
+    /// without the owner's profile or private instructions.
+    pub shared_system_text: String,
+    /// The corresponding private and shared instructions for CLI-tool
+    /// harnesses (Codex and other non-Claude families), written to AGENTS.md.
+    pub cli_system_text: String,
+    pub shared_cli_system_text: String,
     /// `$MUX_HOME/optchat/engine.json` (engine.rs), read at each turn start:
     /// harness, model and effort swap between turns. None: the fields above.
     pub engine_file: Option<PathBuf>,
@@ -668,6 +675,9 @@ pub struct Brain {
     turn_remote: bool,
     /// The running turn runs with policy `ask` (remote, no auto-approve).
     turn_ask: bool,
+    /// The running turn may read the one shared OptChat memory without an
+    /// owner approval. False for group/side and non-owner-started turns.
+    turn_shared_memory: bool,
     /// A remote-origin turn was stopped for a newer message: the turn that
     /// answers both keeps its origin.
     remote_taint: bool,
@@ -788,6 +798,7 @@ impl Brain {
             chief,
             turn_remote: false,
             turn_ask: false,
+            turn_shared_memory: true,
             remote_taint: false,
             approvals: VecDeque::new(),
             after_turn: None,

@@ -760,6 +760,15 @@ fn start(
     // prompt, so it reads it from the turns' cache entry.
     let claude_text =
         crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let shared_claude_text = crate::prompt::system_text(None, &crate::prompt::Tools::Mcp);
+    let chief_launcher = crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string());
+    let cli_text = crate::prompt::chief_system_text(
+        instructions.as_deref(),
+        &chief_launcher,
+        chief_tools.grant().allows("profile"),
+        chief_tools.grant().allows("chiefs"),
+    );
+    let shared_cli_text = crate::prompt::chief_system_text(None, &chief_launcher, false, false);
     let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
         prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
@@ -1464,6 +1473,9 @@ fn start(
         turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
         system_text: claude_text,
+        shared_system_text: shared_claude_text,
+        cli_system_text: cli_text,
+        shared_cli_system_text: shared_cli_text,
         engine_file: Some(crate::engine::path(home)),
         families,
         codex_preset,

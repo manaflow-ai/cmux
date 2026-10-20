@@ -234,6 +234,7 @@ fn a_turn_over_the_acpmux_wire() {
             peer: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
+        restrict_shared_memory: false,
         limit: None,
         idle_limit: None,
         ..Default::default()
