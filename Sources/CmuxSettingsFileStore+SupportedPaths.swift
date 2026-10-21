@@ -43,6 +43,7 @@ extension CmuxSettingsFileStore {
         "app.hideTabCloseButton",
         "app.tabBarVisibility",
         "app.renameSelectsExistingName",
+        "app.findSelectsExistingQuery",
         "app.commandPaletteSearchesAllSurfaces",
         "workspaceGroups.newWorkspacePlacement",
         "sleepyMode.theme",

@@ -933,6 +933,11 @@
           "default": true,
           "description": "Select the current name when opening rename flows."
         },
+        "findSelectsExistingQuery": {
+          "type": "boolean",
+          "default": false,
+          "description": "Select the whole query when Cmd+F is pressed while the find bar is already open, so typing replaces it. Off restores the previous caret and selection."
+        },
         "commandPaletteSearchesAllSurfaces": {
           "type": "boolean",
           "default": false,

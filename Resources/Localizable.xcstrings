@@ -670576,6 +670576,183 @@
           }
         }
       }
+    },
+    "settings.app.findSelectsQuery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Selects Existing Query"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث يحدد الاستعلام الحالي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchen wählt vorhandenen Suchbegriff aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar selecciona la consulta existente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La recherche sélectionne la requête existante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索時に既存の検索語を選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾기 시 기존 검색어 선택"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找时选中现有查询"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找時選取現有查詢"
+          }
+        }
+      }
+    },
+    "settings.app.findSelectsQuery.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressing Cmd+F while the find bar is open selects the whole query instead of restoring the previous cursor."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي الضغط على Cmd+F أثناء فتح شريط البحث إلى تحديد الاستعلام بالكامل بدلاً من استعادة موضع المؤشر السابق."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Sie bei geöffneter Suchleiste Cmd+F drücken, wird der gesamte Suchbegriff ausgewählt, statt den vorherigen Cursor wiederherzustellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al pulsar Cmd+F con la barra de búsqueda abierta se selecciona toda la consulta en lugar de restaurar el cursor anterior."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyer sur Cmd+F lorsque la barre de recherche est ouverte sélectionne toute la requête au lieu de restaurer le curseur précédent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索バーが開いているときに Cmd+F を押すと、以前のカーソル位置に戻す代わりに検索語全体を選択します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾기 막대가 열려 있을 때 Cmd+F를 누르면 이전 커서 위치를 복원하는 대신 검색어 전체를 선택합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在查找栏打开时按 Cmd+F 会选中整个查询，而不是恢复之前的光标位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在尋找列開啟時按下 Cmd+F 會選取整個查詢，而不是還原先前的游標位置。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.find-selects-query": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection suchen suche alles auswählen vorhandener suchbegriff ersetzen text auswahl"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection rechercher recherche tout sélectionner requête existante remplacer texte sélection"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection بحث تحديد الكل الاستعلام الحالي استبدال نص تحديد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection buscar búsqueda seleccionar todo consulta existente reemplazar texto selección"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection 尋找 搜尋 全選 現有 查詢 取代 文字 選取"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection 查找 搜索 全选 现有 查询 替换 文本 选中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection 찾기 검색 모두 선택 기존 검색어 바꾸기 텍스트 선택"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.findSelectsExistingQuery find search cmd-f select all existing query replace text selection 検索 すべて選択 既存 検索語 置換 テキスト 選択"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

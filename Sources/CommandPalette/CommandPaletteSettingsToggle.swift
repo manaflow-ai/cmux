@@ -519,6 +519,9 @@ enum CommandPaletteSettingsToggleCommands {
                 userFacing: SettingCatalog().app.renameSelectsExistingName
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.findSelectsExistingQuery
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "commandPaletteSearchesAllSurfaces",
                 settingsKey: "app.commandPaletteSearchesAllSurfaces",
                 title: {

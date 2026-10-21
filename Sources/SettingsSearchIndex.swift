@@ -101,6 +101,7 @@ enum SettingsSearchIndex {
             "hide x button close tab"
         ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
+        setting(.app, "find-selects-query", String(localized: "settings.app.findSelectsQuery", defaultValue: "Find Selects Existing Query"), "find search cmd f select all query text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
@@ -313,6 +314,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingWindow": settingID(for: .app, idSuffix: "warn-before-closing-window"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
+        "app.findSelectsExistingQuery": settingID(for: .app, idSuffix: "find-selects-query"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
         "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),

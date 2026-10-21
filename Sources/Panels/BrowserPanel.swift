@@ -7771,7 +7771,7 @@ extension BrowserPanel {
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
+        let shouldSelectAll = cmuxFindFocusShouldSelectAll(barWasOpen: !created, recoveredNeedle: recoveredNeedle)
         pendingAddressBarFocusRequestId = nil
         pendingAddressBarFocusSelectionIntent = .preserveFieldEditorSelection
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)

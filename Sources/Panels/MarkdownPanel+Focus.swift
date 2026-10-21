@@ -12,7 +12,7 @@ extension MarkdownPanel {
         let created = searchState == nil
         let recoveredNeedle = created ? lastSearchNeedle : ""
         if created { searchState = BrowserSearchState(needle: recoveredNeedle) }
-        let shouldSelectAll = created && !recoveredNeedle.isEmpty
+        let shouldSelectAll = cmuxFindFocusShouldSelectAll(barWasOpen: !created, recoveredNeedle: recoveredNeedle)
         searchFocusRequestGeneration &+= 1
         let generation = searchFocusRequestGeneration
         activeSearchFocusRequestGeneration = generation

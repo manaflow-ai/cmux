@@ -356,6 +356,29 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Whether Cmd+F on an already open find bar selects the whole query.
+    /// Off keeps restoring the previous caret and selection.
+    public let findSelectsExistingQuery = DefaultsKey<Bool>(
+        id: "app.findSelectsExistingQuery",
+        defaultValue: false,
+        userDefaultsKey: "find.selectsExistingQuery",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.findSelectsQuery",
+                defaultValue: "Find Selects Existing Query"
+            ),
+            section: .app,
+            searchID: "find-selects-query",
+            searchKeywords: ["find", "search", "select", "all", "existing", "query", "cmd", "f", "text", "selection"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "findSelectsExistingQuery",
+                    keywords: ["find", "search", "select", "query"]
+                )
+            ))
+        )
+    )
+
     public let commandPaletteSearchesAllSurfaces = DefaultsKey<Bool>(
         id: "app.commandPaletteSearchesAllSurfaces",
         defaultValue: false,

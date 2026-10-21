@@ -33,6 +33,7 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` | Show a confirmation before closing an agent session while it is mid-turn. |
 | `app.renameSelectsExistingName` | boolean | `true` | Select the current name when opening rename flows. |
+| `app.findSelectsExistingQuery` | boolean | `false` | Select the whole query when Cmd+F is pressed while the find bar is already open, so typing replaces it. Off restores the previous caret and selection. |
 | `app.commandPaletteSearchesAllSurfaces` | boolean | `false` | Search every surface in the command palette switcher instead of only the active workspace. |
 | `app.windowTitleTemplate` | string | `""` | Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}. |
 | `app.forkConversationDefaultDestination` | `"right"` or `"left"` or `"top"` or `"bottom"` or `"newTab"` or `"newWorkspace"` | `"right"` | Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination. |
