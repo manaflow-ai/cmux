@@ -667,10 +667,17 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
-            let mut cfg = hub.config.write().await;
-            cfg.permission_policy = policy;
-            hub.permission_defaults_changed();
-            cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
+            {
+                let mut cfg = hub.config.write().await;
+                cfg.permission_policy = policy;
+                hub.permission_defaults_changed();
+                cfg.save()
+                    .map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
+            }
+            // deny-all is a lockdown: every chat without a policy of its own follows it.
+            if policy == PermissionPolicy::DenyAll {
+                hub.follow_default_policy().await;
+            }
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
@@ -960,7 +967,7 @@ async fn dispatch_request(
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
-            let max_bytes = Some(events::page_bytes(&params));
+            let max_bytes = Some(crate::hub::page_bytes(&params));
             let detail = hub.session_detail(&s);
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).

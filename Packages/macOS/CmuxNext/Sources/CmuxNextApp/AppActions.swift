@@ -84,6 +84,7 @@ enum AppActions {
         PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
         ChiefUsagePageTab.bind(into: registry, context: context)
+        ChiefViewsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
         MobilePairingPageService.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
