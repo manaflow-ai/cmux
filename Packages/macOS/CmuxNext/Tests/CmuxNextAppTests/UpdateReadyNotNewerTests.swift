@@ -65,7 +65,7 @@ import Testing
         for (staged, version) in [("100", "1.0.0"), ("99", "0.9.9")] {
             let updater = Self.updater(stagedBuild: staged)
             let cancels = Counter()
-            updater.cancelStaged = { cancels.count += 1 }
+            updater.cancelStaged = { cancels.count += 1; return true }
             updater.debugIndicatorPhase = .ready(version: version)
             #expect(cancels.count > 0, "build \(staged)'s staged installer still runs: quitting installs it again")
         }
@@ -80,17 +80,36 @@ import Testing
         for version in [nil, "1.0.0", "1.0.1"] as [String?] {
             let updater = Self.updater(stagedBuild: nil)
             let cancels = Counter()
-            updater.cancelStaged = { cancels.count += 1 }
+            updater.cancelStaged = { cancels.count += 1; return true }
             updater.debugIndicatorPhase = .ready(version: version)
             updater.checkForUpdates()
             #expect(cancels.count == 0, "a staged update of version \(version ?? "unknown") with no build number was cancelled")
         }
     }
 
+    /// The installer is cancelled once: the log says so only when Sparkle
+    /// held one (the cancel reports it), never again for the same item, and
+    /// never when nothing was held.
+    @Test func theCancelIsLoggedOnlyWhenAnInstallerWasHeld() {
+        let line = "is not newer than build 100: cancelling its installer"
+        let updater = Self.updater(stagedBuild: "100")
+        let calls = Counter()
+        updater.cancelStaged = { calls.count += 1; return calls.count == 1 }
+        updater.debugIndicatorPhase = .ready(version: "1.0.0")
+        updater.checkForUpdates()
+        updater.send(.checkRequested)
+        #expect(updater.log.recent.filter { $0.contains(line) }.count == 1, "\(updater.log.recent)")
+
+        let nothingHeld = Self.updater(stagedBuild: "100")
+        nothingHeld.cancelStaged = { false }
+        nothingHeld.debugIndicatorPhase = .ready(version: "1.0.0")
+        #expect(!nothingHeld.log.recent.contains { $0.contains(line) }, "logged a cancel with no installer held")
+    }
+
     @Test func aNewerStagedBuildKeepsItsInstaller() {
         let updater = Self.updater(stagedBuild: "101")
         let cancels = Counter()
-        updater.cancelStaged = { cancels.count += 1 }
+        updater.cancelStaged = { cancels.count += 1; return true }
         updater.debugIndicatorPhase = .ready(version: "1.0.1")
         updater.checkForUpdates()
         #expect(cancels.count == 0, "a newer staged update was cancelled")

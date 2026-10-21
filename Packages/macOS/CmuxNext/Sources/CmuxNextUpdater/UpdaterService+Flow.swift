@@ -43,7 +43,7 @@ extension UpdaterService {
         }.first ?? .proceed
         if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            cancelStaged()
+            _ = cancelStaged()
         }
         return action
     }
