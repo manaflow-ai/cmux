@@ -22,6 +22,18 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// The toggle style holds for every action, not only the palette's: a keyboard-only action's
+    /// title shows in Keyboard Shortcuts settings ("Pin or Unpin Chat" drifted there unseen).
+    @Test func everyActionTitleUsesOneToggleStyle() throws {
+        let orToggle = try NSRegularExpression(pattern: #"^\w+ or \w+ "#)
+        for descriptor in ActionCatalog.all {
+            let title = descriptor.title
+            #expect(orToggle.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) == nil,
+                    "\(descriptor.id) \(title): a toggle reads X/Y")
+            #expect(!title.hasPrefix("Toggle Group"), "\(descriptor.id) \(title): a toggle reads X/Y")
+        }
+    }
+
     /// Palette titles are menu titles, so they follow the macOS title style: the ellipsis is one
     /// character ("…", never "..."), and every word is capitalized except a short article,
     /// conjunction or preposition inside the title ("Move Tab to Workspace…"). The first and last
