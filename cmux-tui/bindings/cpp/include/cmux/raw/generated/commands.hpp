@@ -99,6 +99,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_mux_unsubscribe(const CloudMuxUnsubscribeRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_participant_avatar_get(const CloudParticipantAvatarGetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_requests_list(const CloudRequestsListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_selfhost_info(const CloudSelfhostInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_clear(const CloudSessionClearRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
