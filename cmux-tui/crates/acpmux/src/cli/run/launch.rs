@@ -107,7 +107,7 @@ impl Launch {
         if let Some(to) = &args.report_to {
             parts.push(format!(
                 "You were started by the acpmux session {to}. Report back to it with: \
-                 acpmux send --no-wait --steer {to} '<report>'"
+                 acpmux send --no-wait {to} '<report>'"
             ));
         }
         if let Some(w) = created.pointer("/_meta/acpmux/worktree") {
@@ -253,6 +253,14 @@ fn in_worktree(cwd: &Path, repo: &Path, name: &str) -> bool {
         && common == git(repo, "--git-common-dir")
 }
 
+/// `info`'s session was never given a prompt: no turn ran, runs or waits.
+/// A launcher stopped between making it and prompting it leaves one so.
+pub(super) fn never_prompted(info: &Value) -> bool {
+    let none = |k: &str| info.get(k).is_none_or(Value::is_null);
+    let zero = |k: &str| info.get(k).and_then(Value::as_u64).unwrap_or(0) == 0;
+    none("turn") && none("lastPrompt") && none("lastTurn") && zero("turnCount") && zero("queued")
+}
+
 /// A create that lost a race to another launcher with the same name.
 pub(super) fn name_taken(e: &anyhow::Error) -> bool {
     e.to_string().contains("is taken")
@@ -304,6 +312,22 @@ mod tests {
         assert_eq!(split_worktree("/a@b/r@main"), ("/a@b/r", Some("main")));
         assert_eq!(split_worktree("/r"), ("/r", None));
         assert_eq!(split_worktree("/r@"), ("/r@", None));
+    }
+
+    #[test]
+    fn only_a_session_with_no_turn_and_nothing_queued_was_never_prompted() {
+        let fresh = json!({"turn": null, "lastPrompt": null, "lastTurn": null, "turnCount": 0, "queued": 0});
+        assert!(never_prompted(&fresh));
+        for (k, v) in [
+            ("turn", json!({"prompt": "go"})),
+            ("lastPrompt", json!("go")),
+            ("turnCount", json!(1)),
+            ("queued", json!(1)),
+        ] {
+            let mut info = fresh.clone();
+            info[k] = v;
+            assert!(!never_prompted(&info), "{k}");
+        }
     }
 
     #[test]

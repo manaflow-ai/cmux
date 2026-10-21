@@ -356,11 +356,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(&id)
                 .to_owned();
-            let show = || match &args.group {
-                Some(group) => {
-                    launch::show_in_group(&id, launch.title.as_deref().unwrap_or(&name), group)
+            // A failed sidebar step only warns: the prompt is still sent.
+            let show = || {
+                if let Some(group) = &args.group {
+                    let title = launch.title.as_deref().unwrap_or(&name);
+                    if let Err(e) = launch::show_in_group(&id, title, group) {
+                        eprintln!("acpmux: {e:#}");
+                    }
                 }
-                None => Ok(()),
             };
             if let Some(info) = &reused {
                 launch::check_reusable(
@@ -368,12 +371,24 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     &name,
                     launch.worktree.as_ref().map(|(_, r)| r.as_path()),
                 )?;
-                // Its first prompt went with the first run; it is not sent twice.
-                show()?;
+                // Its first prompt went with the first run and is not sent
+                // twice, unless that run stopped before sending it.
+                let first = launch.first_prompt(&args, &v).filter(|_| launch::never_prompted(info));
+                if let Some(text) = &first {
+                    let prompt = PromptId::new(args.prompt_id.clone());
+                    queue_prompt(client, &id, text, false, None, &prompt).await?;
+                }
+                show();
                 if json_out {
                     let mut info = info.clone();
                     info["reused"] = json!(true);
+                    info["prompted"] = json!(first.is_some());
                     print_json(&info);
+                } else if first.is_some() {
+                    println!(
+                        "reused {name} ({}): it had no prompt yet, so its first prompt is queued",
+                        &id[..8.min(id.len())]
+                    );
                 } else {
                     println!(
                         "reused {name} ({}): it already runs, so the prompt was not sent again; \
@@ -407,13 +422,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(text) = first {
                 let prompt = PromptId::new(args.prompt_id.clone());
                 if one_shot {
-                    show()?;
                     let opts = CollectOpts {
                         timeout: args.timeout,
                         on_permission: OnPermission::parse(&args.on_permission)?,
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
+                    show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
                     if args.ephemeral {
                         let _ = client
@@ -434,15 +449,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
                     queue_prompt(client, &id, &text, false, None, &prompt).await?;
-                    return show();
+                    show();
+                    return Ok(());
                 }
-                show()?;
                 let opts = CollectOpts {
                     timeout: args.timeout,
                     on_permission: OnPermission::parse(&args.on_permission)?,
                     stall_secs: args.stall,
                     retries: args.retries,
                 };
+                show();
                 return stream_prompt(
                     client,
                     &id,
@@ -456,7 +472,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
-            show()?;
+            show();
             if args.detach || json_out {
                 return Ok(());
             }

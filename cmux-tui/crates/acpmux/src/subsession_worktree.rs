@@ -348,6 +348,10 @@ fn has_branch(folder: &Path, name: &str) -> bool {
 }
 
 /// Git refused an add because another start took that path or branch first.
+fn checked_out_elsewhere(error: &str) -> bool {
+    error.contains("is already checked out") || error.contains("is already used by worktree")
+}
+
 fn taken(error: &str) -> bool {
     error.contains("already exists") || error.contains("is already checked out")
 }
@@ -446,6 +450,11 @@ fn ensure_worktree_under(
         };
         match added {
             Ok(_) => {}
+            // Its branch in another folder: no rerun fixes that, so git's
+            // words (which name the folder) are the error.
+            Err(e) if checked_out_elsewhere(&e) => {
+                return Err(format!("{branch} is checked out in another worktree: {e}"));
+            }
             Err(e) if taken(&e) => continue,
             Err(e) => return Err(e),
         }
@@ -568,6 +577,11 @@ mod tests {
         assert!(e.contains("no commit"), "{e}");
         let e = ensure_worktree_under(&repo, "x", Some("--orphan"), &home).err().unwrap();
         assert!(e.contains("not an option"), "{e}");
+        // Its branch checked out in another folder: said once, with that folder.
+        let elsewhere = home.join("elsewhere");
+        sh(&repo, &["worktree", "add", "-q", "-b", "cmux/y", &elsewhere.to_string_lossy()]);
+        let e = ensure_worktree_under(&repo, "y", None, &home).err().unwrap();
+        assert!(e.contains("checked out in another worktree") && e.contains("elsewhere"), "{e}");
         assert!(ensure_worktree_under(&repo, "//", None, &home).is_err());
     }
 }

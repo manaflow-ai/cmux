@@ -33,7 +33,9 @@ acpmux new -n gui/composer \
   first prompt is: who started the session and how to report back
   (`--report-to`), where its worktree is, the prompt words, then the file.
 - **Idempotent.** Running the same command again gives the same session and
-  worktree and sends nothing (`--reuse`, which `--worktree` implies). Two
+  worktree and sends nothing (`--reuse`, which `--worktree` implies), except
+  the first prompt to a session that never got one (a launcher stopped
+  before sending it). Two
   launchers racing on one name on one machine end with one session; the
   daemon makes one worktree at a time per name. A session of that name that
   has ended, or that works outside that worktree, is refused, not reused.
@@ -43,7 +45,7 @@ acpmux new -n gui/composer \
   `cmux/gui-composer`); the name as given is the sidebar title.
 - **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
   workspace key derived from the session id, so a second run finds the same
-  row and opens nothing.
+  row and opens nothing. A failed sidebar step warns; the prompt is still sent.
   It needs the cmux app on this machine; elsewhere leave it off and run
   `cmux agent open` on the Mac.
 
