@@ -15,7 +15,10 @@ import Foundation
 /// terminal: the app holds many `frontend` connections of its own there (each terminal view, the
 /// page relay), and they, other apps and pages all reconnect to the next daemon. Only a client
 /// that does not come back keeps it busy: a `cmux chief` chat or a terminal UI (`tui`), and a
-/// local client that never named its kind, which is a `cmux` CLI or MCP call in flight.
+/// local client that never named its kind and connected under ``callSeconds`` ago, which is a
+/// `cmux` CLI or MCP call in flight. A cmux SDK client names no kind either: the daemon's own agent
+/// screen detector holds two such connections for its whole life, so an older one is a plugin's or
+/// script's standing connection and must not hold the restart forever.
 public struct OwnerIdleProbe: Sendable {
     /// Which other clients keep the owner busy.
     public enum Clients: Sendable {
@@ -27,6 +30,10 @@ public struct OwnerIdleProbe: Sendable {
 
     public let connection: DaemonConnection
     public let clients: Clients
+    /// Under ``Clients/reconnecting``, how long a local client without a kind counts as a call in flight.
+    public let callSeconds: Double
+    /// A minute: a CLI or MCP call takes seconds; the quiet restart tries again each minute.
+    public static let standardCallSeconds: Double = 60
     /// Client kinds that keep the owner busy: another app (`frontend`) and an open
     /// `cmux chief` chat (`chief-chat`).
     public static let busyClientKinds: Set<String> = ["frontend", "chief-chat"]
@@ -34,9 +41,11 @@ public struct OwnerIdleProbe: Sendable {
     /// `cmux chief` chat and a terminal UI attached to the session.
     public static let interactiveClientKinds: Set<String> = ["chief-chat", "tui"]
 
-    public init(_ connection: DaemonConnection, clients: Clients = .everyOther) {
+    public init(_ connection: DaemonConnection, clients: Clients = .everyOther,
+                callSeconds: Double = Self.standardCallSeconds) {
         self.connection = connection
         self.clients = clients
+        self.callSeconds = callSeconds
     }
 
     public func isIdle() async -> Bool {
@@ -65,9 +74,15 @@ public struct OwnerIdleProbe: Sendable {
             return client["transport"]?.stringValue != "unix"
         case .reconnecting:
             // A page names no kind either, but it comes over the WebSocket listener and reconnects.
-            guard let kind else { return client["transport"]?.stringValue == "unix" }
+            guard let kind else { return client["transport"]?.stringValue == "unix" && connectedSeconds(client) < callSeconds }
             return Self.interactiveClientKinds.contains(kind)
         }
+    }
+
+    /// `connected_seconds` (a decimal string on the wire); unreadable counts as just connected.
+    private func connectedSeconds(_ client: JSONValue) -> Double {
+        let value = client["connected_seconds"]
+        return value?.stringValue.flatMap(Double.init) ?? value?.doubleValue ?? 0
     }
 
     private func read(_ operation: String, _ params: [String: JSONValue]) async throws -> JSONValue {
