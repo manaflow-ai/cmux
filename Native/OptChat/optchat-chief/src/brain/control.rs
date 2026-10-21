@@ -763,7 +763,7 @@ impl Brain {
         }
     }
 
-    fn control_restart(
+    pub(super) fn control_restart(
         &mut self,
         sub: &SubRecord,
         message: Option<&str>,
