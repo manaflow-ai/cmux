@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
+import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -551,5 +552,132 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
     expect(frames.filter((frame) => Math.abs(frame.rowAboveCard - before.rowAboveCard) > 2)).toEqual([]);
     await page.close();
+  });
+
+  // A reader who scrolls up from the latest row while the composer has grown: the rows the
+  // composer's growth drew up become room and offset in the same frame, so a row in view moves only
+  // by the wheel's distance, in its direction, on every painted frame. Without that, the rows dropped
+  // by the growth (five lines, about 100px) in the frame the view stopped following.
+  test("a reader who scrolls up from a grown composer sees the rows move only by the wheel", async () => {
+    const page = await open();
+    await page.locator(".acpmux-md").click();
+    for (let line = 1; line <= 5; line++) {
+      await page.keyboard.type(`Line ${line} of a longer prompt`);
+      await page.keyboard.press("Shift+Enter");
+      await page.waitForTimeout(60);
+    }
+    await page.waitForTimeout(300);
+    const grown = await measure(page);
+    expect({ fromEnd: grown.fromEnd, lastIsLatest: grown.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
+    // A row in the lower half of the view, which stays mounted through the wheel's distance.
+    const posinset = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top >= view.top + view.height / 2 && box.bottom <= view.bottom - 120;
+      })!;
+      return row.getAttribute("aria-posinset")!;
+    });
+    await page.evaluate((posinset) => {
+      const frames: number[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        const row = document.querySelector(`.acpmux-scroll .acpmux-row[aria-posinset="${posinset}"]`);
+        if (row) frames.push(row.getBoundingClientRect().top);
+      };
+      // Read after each frame paints (a task queued from its animation frame).
+      const tick = () => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
+        setTimeout(sample, 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, posinset);
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.waitForTimeout(100);
+    await page.mouse.wheel(0, -300);
+    await page.waitForTimeout(600);
+    const frames = await page.evaluate(() => {
+      const holder = window as unknown as { __frames?: number[] };
+      const frames = holder.__frames ?? [];
+      holder.__frames = undefined;
+      return frames;
+    });
+    expect(frames.length).toBeGreaterThan(5);
+    // The view left the latest row and the row came down the wheel's distance in all ...
+    expect((await measure(page)).fromEnd).toBeGreaterThan(100);
+    const moved = frames.at(-1)! - frames[0]!;
+    expect(Math.round(moved)).toBeGreaterThan(200);
+    expect(moved).toBeLessThanOrEqual(301);
+    // ... and never up, or down by more than that, on any frame.
+    expect(
+      frames.flatMap((top, index) =>
+        index > 0 && (top < frames[index - 1]! - 0.5 || top - frames[0]! > 301)
+          ? [{ index, top, first: frames[0] }]
+          : [],
+      ),
+    ).toEqual([]);
+    await page.close();
+  });
+
+  // A transcript just taller than its view (Leo's report, its other case): growing the composer at
+  // the latest row draws the rows up by no more than the offset holds above the follow deadband, so
+  // the reader can still scroll up to the first row while the draft stays.
+  test("a transcript about a screen tall keeps its first row in reach while the composer grows", async () => {
+    const short = await papercutPane(() => browser!, { turns: 3, running: false });
+    try {
+      const page = await short.open();
+      // Size the view so the transcript is 2-3px taller than it: the chat opens at its latest row.
+      const fit = await page.evaluate(() => ({
+        total: parseFloat(document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height),
+        view: document.querySelector<HTMLElement>(".acpmux-scroll")!.clientHeight,
+      }));
+      await page.setViewportSize({ width: 900, height: 700 - (fit.view - (Math.floor(fit.total) - 2)) });
+      await page.waitForTimeout(500);
+      const opened = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return { top: scroller.scrollTop, end: scroller.scrollHeight - scroller.clientHeight };
+      });
+      expect(opened.end).toBeGreaterThanOrEqual(1);
+      expect(opened.end).toBeLessThanOrEqual(4);
+      expect(Math.abs(opened.top - opened.end)).toBeLessThanOrEqual(1);
+      await page.locator(".acpmux-md").click();
+      for (let line = 1; line <= 5; line++) {
+        await page.keyboard.type(`Line ${line} of a longer prompt`);
+        await page.keyboard.press("Shift+Enter");
+        await page.waitForTimeout(60);
+      }
+      await page.waitForTimeout(300);
+      // The latest row is above the grown card.
+      const grown = await measure(page);
+      expect(grown.lastIsLatest).toBe(true);
+      expect(grown.rowAboveCard).toBeGreaterThanOrEqual(-1);
+      // The reader scrolls up: the first row comes into view.
+      const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+      await page.mouse.move(view.x + view.width / 2, view.y + 60);
+      for (let step = 0; step < 3; step++) {
+        await page.mouse.wheel(0, -600);
+        await page.waitForTimeout(300);
+      }
+      const first = await page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const row = scroller.querySelector<HTMLElement>('.acpmux-row[aria-posinset="1"]');
+        return row
+          ? {
+              belowTop: Math.round(row.getBoundingClientRect().top - scroller.getBoundingClientRect().top),
+              top: scroller.scrollTop,
+              height: scroller.scrollHeight,
+              view: scroller.clientHeight,
+            }
+          : null;
+      });
+      expect(first).not.toBeNull();
+      expect({ ...first!, inView: first!.belowTop >= 0 }).toEqual({ ...first!, inView: true });
+      await page.close();
+    } finally {
+      await short.close();
+    }
   });
 });
