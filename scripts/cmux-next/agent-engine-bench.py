@@ -35,7 +35,8 @@ parser.add_argument("--open", action="store_true",
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
-TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
+# LaunchServices reports the real path (/private/tmp for /tmp), so match processes by it.
+TAG, APP = opts.tag, os.path.realpath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
@@ -88,8 +89,10 @@ def open_chat():
     """Opens a chat; ms from the action to the first text and to a visible composer, and its engine."""
     start = time.monotonic()
     reply = rpc("action.run", {"action": "palette.newAgentChat"})
-    if isinstance(reply, dict) and reply.get("error"):
-        return {"error": reply["error"]}
+    error = reply.get("error") if isinstance(reply, dict) else None
+    # The socket answers after about 2 s; an action still running then goes on, so wait for the page.
+    if error and not (isinstance(error, dict) and (error.get("data") or {}).get("state") == "in_progress"):
+        return {"error": error}
     content = interactive = None
     deadline = start + 30
     while time.monotonic() < deadline and interactive is None:
@@ -108,16 +111,29 @@ def memory(label, chats):
     return {"total_footprint_mb": got["total_footprint_mb"], "kinds": got["kinds"]}
 
 
+def open_session():
+    """A fresh chat shows the start screen, not the composer: ms from opening a mock session to its composer."""
+    start = time.monotonic()
+    pane("select_session", session="mock-session")
+    ready = wait(lambda: (lambda r: r if r.get("composer_visible") else None)(pane("readiness", timeout=5)), 30, step=0.02)
+    return {"composer_ms": round((time.monotonic() - start) * 1000, 1) if ready else None,
+            "transcript_rows": (ready or {}).get("transcript_rows")}
+
+
 def typing():
     pane("reset_typing")
     focused = pane("focus_composer").get("focused")
-    target = {"target": "page"} if pane("engine").get("engine") == "cef" else {}
+    # The chat's pane, not the focused one: keys for a Chromium page go to that pane's page window.
+    target = {"target": "page", "pane": pane("engine").get("pane")} if pane("engine").get("engine") == "cef" else {}
     letters = "abcdefghijklmnopqrstuvwxyz"
+    replies = []
     for index in range(opts.keys):
-        rpc("debug.key", dict(target, key=letters[index % len(letters)]))
+        replies.append(rpc("debug.key", dict(target, key=letters[index % len(letters)])))
         time.sleep(0.08)  # test harness: about a fast typist's pace
     time.sleep(0.5)  # test harness: the last key's frame lands
-    return {"composer_focused": focused, **pane("typing_stats")}
+    errors = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")]
+    return {"composer_focused": focused, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
+            "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
 
 
 def focus_probe():
@@ -125,12 +141,13 @@ def focus_probe():
         return None
     subprocess.run(["osascript", "-e", f'tell application id "com.cmuxterm.app.debug.{TAG}" to activate'], capture_output=True, timeout=30)
     time.sleep(1)  # test harness: activation settles
-    pane("focus_composer")
+    focused = pane("focus_composer").get("focused")
     time.sleep(0.5)  # test harness: focus settles
     report = rpc("debug.focus") or {}
     windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
-    return {"app_active": report.get("app_active"), "key_window": report.get("key_window"),
-            "shell_window_is_key": any(w.get("is_key") for w in windows)}
+    return {"composer_focused": focused, "app_active": report.get("app_active"), "key_window": report.get("key_window"),
+            "shell_window_is_key": any(w.get("is_key") for w in windows),
+            "first_responders": [(w.get("appkit") or {}).get("first_responder") for w in windows]}
 
 
 class Launched:
@@ -149,7 +166,7 @@ def launch(mode, scratch):
     config = os.path.join(scratch, "cmux.json")
     json.dump({"browser": {"defaultEngine": "chromium"}}, open(config, "w"))
     tunables = os.path.join(scratch, "debug-tunables.json")
-    json.dump(TUNABLES[mode], open(tunables, "w"))
+    json.dump({"version": 1, "values": TUNABLES[mode]}, open(tunables, "w"))
     open(os.path.join(scratch, "ghostty"), "w").close()
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_DEV_BACKEND_MODE": "local",
@@ -203,9 +220,10 @@ def run_mode(mode):
     first = open_chat()
     result["first_chat"] = first
     print(mode, "first chat", json.dumps(first), flush=True)
-    result["focus"] = focus_probe()
     time.sleep(opts.settle)  # test harness: the chat settles before it is measured
     result["one_chat"] = memory("one chat", 1)
+    result["session"] = open_session()
+    result["focus"] = focus_probe()
     result["typing"] = typing()
     pane("seed_rows", count=5000, timeout=60)
     time.sleep(3)  # test harness: the seeded transcript lays out
@@ -224,7 +242,10 @@ def run_mode(mode):
         "first_chat_mb": round(one - base, 1), f"chats_{opts.chats}_mb": round(many - base, 1),
         "per_more_chat_mb": round((many - one) / max(1, opts.chats - 1), 1),
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
+        "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
+        "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
+        "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
     }
     return result
 
