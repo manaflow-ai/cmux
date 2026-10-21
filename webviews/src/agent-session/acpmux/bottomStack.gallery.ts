@@ -144,7 +144,7 @@ async function samplePinned(ctx: PlayContext, frames = 8) {
 }
 const trustThenPermission: Play = async (ctx) => {
   await checkTrust(ctx);
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await samplePinned(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
@@ -175,7 +175,7 @@ const waitingInLine: Play = async (ctx) => {
 };
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
-  await ctx.click({ role: "button", name: "Trust" });
+  await ctx.click({ role: "button", name: "Trust folder" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   ctx.find({
     role: "button",
