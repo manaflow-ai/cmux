@@ -453,6 +453,7 @@ final class AgentTabStore {
             return try await link.write(request, in: cwd)
         }
         wireAgentFolder(model, key: provisional)
+        wireAgentReply(model, key: provisional)
         model.onUpload = { [weak self] in
             guard let self else { return nil }
             return uploader?(resolve(provisional))
