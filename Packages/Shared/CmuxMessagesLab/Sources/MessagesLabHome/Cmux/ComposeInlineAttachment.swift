@@ -27,8 +27,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
         // view only for a provider class registered for its type (`viewProvider(for:...)` alone was
         // never asked, and the field drew the attachment's image with no remove button).
         _ = Self.registerViewProvider
-        super.init(data: nil, ofType: Self.fileType)
         pictureSize = Self.size(of: a, scale: scale)
+        super.init(data: nil, ofType: Self.fileType)
         bounds = CGRect(x: 0, y: Self.baselineOffset, width: pictureSize.width, height: pictureSize.height + Self.gapBelow)
         allowsTextAttachmentView = true
         loadThumbnail(scale: scale)
