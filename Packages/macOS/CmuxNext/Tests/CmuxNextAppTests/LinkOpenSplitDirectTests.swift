@@ -16,6 +16,8 @@ import Testing
     /// What the faked `new-frontend-browser-tab` was asked.
     @MainActor private final class Creates {
         var made: [(pane: PaneID, url: String, after: SurfaceID?, split: ConversationTabSplit?)] = []
+        /// Hears each create as it is made.
+        let (heard, hear) = AsyncStream<Void>.makeStream()
     }
 
     private static func tree() -> DaemonTree {
@@ -38,6 +40,7 @@ import Testing
         let creates = Creates()
         services.cache.browserTabs.create = { _, pane, url, _, _, _, after, split in
             creates.made.append((pane, url, after, split))
+            creates.hear.yield()
             return SurfaceID(rawValue: 900)
         }
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
@@ -50,7 +53,7 @@ import Testing
     private static let served = [DaemonCapabilities.shared.frontendBrowserTabs, DaemonCapabilities.shared.frontendBrowserTabSplit,
                                  DaemonCapabilities.shared.splitClientSplitID]
 
-    @Test func aCmdClickToTheRightMakesTheTabInItsSplitNeverInTheSource() async throws {
+    @Test(.timeLimit(.minutes(1))) func aCmdClickToTheRightMakesTheTabInItsSplitNeverInTheSource() async throws {
         let (services, pane, creates) = try Self.pane(capabilities: Self.served)
         defer { pane.teardown() }
         services.linkOpener.placement = { .splitRight }
@@ -73,8 +76,7 @@ import Testing
         #expect(screen.panes.count == 2, "the new split did not show at once")
         #expect(screen.panes.first?.tabs.count == 1, "the link's tab showed in the source pane")
 
-        let deadline = ContinuousClock.now + .seconds(2)
-        while creates.made.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
         try #require(creates.made.count == 1, "one new-frontend-browser-tab, not a create and a move")
         let made = creates.made[0]
         #expect(made.pane == PaneID(rawValue: 1))

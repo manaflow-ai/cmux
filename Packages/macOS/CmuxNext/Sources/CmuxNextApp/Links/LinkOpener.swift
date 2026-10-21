@@ -119,9 +119,15 @@ final class LinkOpener {
         }
     }
 
-    /// A web link's tab made in its new split (``Split``) where the pane's daemon can.
+    /// A web link's tab made in its new split (``Split``) where the pane's daemon can and the pane
+    /// splits in place (`splitRoom`): a chat dock, a pane with no room or a strip column too narrow
+    /// keeps the move, which refuses or opens a new column as every split does.
     private static func webSplit(_ url: URL, background: Bool) -> Split {
-        { pane, direction in pane.opensBrowserSplitsDirectly ? pane.newBrowserTab(url: url, background: background, split: direction) : nil }
+        { pane, direction in
+            guard pane.opensBrowserSplitsDirectly,
+                  case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
+            return pane.newBrowserTab(url: url, background: background, split: direction)
+        }
     }
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
