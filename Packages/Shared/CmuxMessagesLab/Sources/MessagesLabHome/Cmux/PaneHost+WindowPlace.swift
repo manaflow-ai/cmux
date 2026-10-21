@@ -31,8 +31,15 @@ extension HostView {
     func observeWindowPlace() {
         windowPlaceObserver.map(NotificationCenter.default.removeObserver)
         windowPlaceObserver = nil
+        occlusionObserver.map(NotificationCenter.default.removeObserver)
+        occlusionObserver = nil
         lastWindowPlace = nil
         guard let window else { return }
+        // cmux (perf100): covered, minimized or on another Space, and back.
+        occlusionObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification,
+                                                                   object: window, queue: .main) { [weak self] _ in
+            self?.controller?.intents?.shownChanged()
+        }
         windowPlaceObserver = NotificationCenter.default.addObserver(forName: NSWindow.didUpdateNotification, object: window,
                                                                      queue: .main) { [weak self] _ in
             self?.refreshWindowPlaceIfMoved()
