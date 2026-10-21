@@ -1,7 +1,7 @@
 import Testing
 @testable import CmuxNextAgentPane
 
-/// Leo 2026-10-13 (cosmic-gray): a new chat made from this one (a fork, a Continue in…) took over
+/// Leo 2026-10-13 (cosmic-gray): a new chat made from this one (a fork, a Continue In…) took over
 /// the chat's tab, so the chat itself left the sidebar. The page asks the host to open the new
 /// chat in a tab of its own (`chat.openTab`): the chat keeps its tab and its session.
 @Suite

@@ -13,7 +13,7 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
-    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue in…), so
+    /// Opens acpmux session `id` in a new tab beside the chat's (a fork, a started Continue In…), so
     /// the chat keeps its own tab and session; false when no tab opened.
     public var openTab: @MainActor (String) -> Bool
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
