@@ -17,8 +17,8 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = ChromeLabel(labelWithString: "")
-    private let titleLabel = ChromeLabel(labelWithString: "")
+    let eyebrowLabel = ChromeLabel(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
     private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
     private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
