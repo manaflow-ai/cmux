@@ -101,11 +101,11 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
-            return services.machines.allWorkspaces.map(\.0).map { workspace in
+            return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
                 return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id])
+                                        groupName: groupNames[workspace.id], machineName: daemon.isLocal ? nil : services.machines.machineName(daemon.machineID))
             }
         }
 
