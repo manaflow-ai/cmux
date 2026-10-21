@@ -27,8 +27,19 @@ const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json da
 /// (after an empty one: a part need not end its last line).
 const PROBE_SPLIT: &str = "ACPMUX_PROBE";
 
-/// What `host update` reads before it changes anything: `uname -sm`, the
-/// daemon's status, with `if_idle` its sessions (only from a daemon that
+/// A cmux Cloud VM has this file. Its daemon runs in a keyed `systemd-run`
+/// scope that `cmux link machine update --to-bundled` owns, so `host update`
+/// never replaces its binary or restarts it.
+const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+
+/// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
+const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";
+
+/// Starts [`probe_script`]'s `uname -sm` line, so a login banner is not read as one.
+const UNAME: &str = "ACPMUX_UNAME=";
+
+/// What `host update` reads before it changes anything: `uname -sm` (and
+/// whether the host is a cmux Cloud VM), the daemon's status, with `if_idle` its sessions (only from a daemon that
 /// runs: `ls` would start one), and whether a hand-written unit it runs
 /// under can be moved ([`migrate`], dry).
 fn probe_script(if_idle: bool) -> String {
@@ -38,7 +49,7 @@ fn probe_script(if_idle: bool) -> String {
         ":"
     };
     format!(
-        "uname -sm; echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
+        "echo \"{UNAME}$(uname -sm)\"; [ ! -e {CLOUD_VM_MARK} ] || echo {CLOUD_VM}; echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{DAEMON_UNIT}{}",
         migrate(true)
     )
 }
@@ -48,6 +59,8 @@ fn probe_script(if_idle: bool) -> String {
 struct Probe {
     /// `uname -sm`, e.g. `Linux x86_64`.
     uname: String,
+    /// The host is a cmux Cloud VM ([`CLOUD_VM_MARK`]).
+    cloud_vm: bool,
     /// The running daemon's build; None when none answers.
     build: Option<String>,
     /// Its own sessions that run a turn or wait on a permission (asked
@@ -86,7 +99,10 @@ impl Probe {
             let why = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or(code);
             (code.to_owned(), why.trim().to_owned())
         });
-        Some(Probe { uname: parts[0].trim().to_owned(), build, busy, refused })
+        let cloud_vm = parts[0].lines().any(|l| l == CLOUD_VM);
+        let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
+        let uname = uname.trim().to_owned();
+        Some(Probe { uname, cloud_vm, build, busy, refused })
     }
 }
 
@@ -350,6 +366,13 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     };
     let mut up =
         PeerUpdate { target: uname_target(&probe.uname), build: probe.build.clone(), ..up };
+    if probe.cloud_vm {
+        let why = format!(
+            "{} is a cmux Cloud VM: update it with `cmux link machine update --to-bundled`",
+            remote.name()
+        );
+        return up.end(Outcome::Failed, "cloudMachine", why);
+    }
     let Some(target) = up.target else {
         let why = format!("no acpmux build runs on {} ({})", remote.name(), probe.uname);
         return up.end(Outcome::Failed, "unsupportedPlatform", why);
@@ -406,6 +429,8 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
     // From here on the peer changes.
     let version = match push_binary(remote, &binary) {
         Ok(version) => version,
+        // The install checks the pushed binary runs before it replaces
+        // anything, so the installed one is still the old one.
         Err(e) => return up.end(Outcome::Failed, "pushFailed", e.to_string()),
     };
     let pushed = version_build(&version).map(str::to_owned);
@@ -418,6 +443,25 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             why.push_str(&format!("; putting the previous one back failed: {e}"));
         }
         return up.end(Outcome::Failed, "pushMismatch", why);
+    }
+    // A turn may have started while the binary was copied: read the
+    // sessions again right before the restart, and put the binary back
+    // rather than restart under it.
+    if opts.if_idle {
+        let busy = match remote.run(&probe_script(true)).ok().as_ref().and_then(Probe::parse) {
+            Some(Probe { busy: Some(names), .. }) if names.is_empty() => None,
+            Some(Probe { busy: Some(names), .. }) => {
+                Some(("busy", format!("mid-turn or waiting on a permission: {}", names.join(", "))))
+            }
+            _ => Some(("unknown", "its sessions could not be read, so one may be mid-turn".into())),
+        };
+        if let Some((reason, mut why)) = busy {
+            if let Err(e) = remote_ok(remote, RESTORE_PREV) {
+                why.push_str(&format!("; putting the previous binary back failed: {e}"));
+                return up.end(Outcome::Failed, reason, why);
+            }
+            return up.end(Outcome::Busy, reason, why);
+        }
     }
     let linux = probe.uname.starts_with("Linux");
     let restart = if linux { linux_restart(false, true) } else { LAUNCHD_RESTART.to_owned() };
@@ -560,7 +604,7 @@ fn cut(mut text: String, max: usize) -> String {
 ///   restarted daemon's status text (cut to 400 bytes), after a push.
 /// - `reason` and `error`, on every outcome but `updated` and `current`: a
 ///   code (`busy`, `unknown`, `noBinary`, `wrongPlatform`,
-///   `unsupportedPlatform`, `unreachable`, `pushFailed`, `pushMismatch`,
+///   `unsupportedPlatform`, `cloudMachine`, `unreachable`, `pushFailed`, `pushMismatch`,
 ///   `restartFailed`, `noAnswer`, `buildMismatch`, and for a daemon under a
 ///   hand-written unit `unitConflict`, `listenConflict`, `unitArgs`,
 ///   `unitSettings`, `unitElsewhere`, `noLinger`) and a message.
