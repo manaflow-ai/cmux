@@ -28,8 +28,8 @@ struct AgentSessionAdoptNoPageTests {
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
         let vmSocket = try await vm.endpointProvider().socketPath
-        // No dev server and no bundled page (the package tests build none): no chat can show here.
-        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: [:])
+        // A build without the agent page (and no dev server): no chat can show here. The mock host starts no acpmux.
+        let services = AppServices(environment: AppEnvironment.current([:]), agentPaneEnvironment: ["CMUX_NEXT_AGENT_PANE_NONE": "1", "CMUX_NEXT_AGENT_PANE_MOCK": "1"])
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let machine = CloudMoveTests.machine(services, cli: URL(fileURLWithPath: "/usr/bin/false"), root: root)
