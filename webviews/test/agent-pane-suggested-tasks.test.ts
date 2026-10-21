@@ -754,7 +754,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(1);
+      expect(await page.locator(".cv-incoming .cv-user__read").count()).toBe(1);
       await page.close();
     });
   });
