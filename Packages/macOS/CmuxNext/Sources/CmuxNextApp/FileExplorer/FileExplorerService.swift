@@ -23,7 +23,11 @@ final class FileExplorerService {
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
-            openWith: { [weak self] app in self?.perform("fileExplorerOpenWith", arguments: ["app": .string(app)]) })
+            openWith: { [weak self] app in self?.perform("fileExplorerOpenWith", arguments: ["app": .string(app)]) },
+            effects: effects,
+            showError: { [weak self, weak controller] reason in
+                self?.services?.refusalHUD.show(reason, in: controller?.window)
+            })
         sections.setObject(view, forKey: controller)
         return view
     }

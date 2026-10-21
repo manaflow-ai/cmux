@@ -36,6 +36,25 @@ nonisolated enum FileExplorerStrings {
     static func chooseApp(_ name: String) -> String {
         String(format: text("fileExplorer.chooseApp", "Choose an app to open “%@”."), name)
     }
+    /// The name of a new file and folder (numbered when taken), as Finder names them.
+    static var untitledFile: String { text("fileExplorer.untitledFile", "untitled") }
+    static var untitledFolder: String { text("fileExplorer.untitledFolder", "untitled folder") }
+    static var newFile: String { text("fileExplorer.menu.newFile", "New File") }
+    static var newFolder: String { text("fileExplorer.menu.newFolder", "New Folder") }
+    static var rename: String { text("fileExplorer.menu.rename", "Rename") }
+    static var moveToTrash: String { text("fileExplorer.menu.moveToTrash", "Move to Trash") }
+    /// The accessibility description of a row's git badge.
+    static func gitState(_ state: FileGitState) -> String {
+        switch state {
+        case .modified: text("fileExplorer.git.modified", "Modified")
+        case .added: text("fileExplorer.git.added", "Added")
+        case .deleted: text("fileExplorer.git.deleted", "Deleted")
+        case .renamed: text("fileExplorer.git.renamed", "Renamed")
+        case .untracked: text("fileExplorer.git.untracked", "Untracked")
+        case .conflicted: text("fileExplorer.git.conflicted", "Conflicted")
+        case .containsChanges: text("fileExplorer.git.containsChanges", "Contains changes")
+        }
+    }
     static var findPlaceholder: String { text("find.placeholder", "Find in Folder") }
     static var findTitle: String { text("find.title", "Find") }
     /// The status line while ripgrep runs over `folder`.
