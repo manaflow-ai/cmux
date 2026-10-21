@@ -93,9 +93,9 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet) and home.chiefPetMascot (its grid).
         if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
-          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="orb"]'))
             failures.push(`${row.key}: no Chief Pet card`);
           continue;
         }
@@ -321,6 +321,19 @@ describe("editors", () => {
     const theme = rowElement(page.container, "appearance.theme");
     expect(theme.querySelector("button.domain-button")).toBeNull();
     expect(theme.querySelector("input.text")).not.toBeNull();
+  });
+
+  test("the font list opens on a click in the first moments after the page loads", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const now = performance.now;
+    performance.now = () => 50;
+    try {
+      const button = rowElement(page.container, "terminal.fontFamily").querySelector("button.domain-button")!;
+      await click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      performance.now = now;
+    }
   });
 
   test("a diagnostic shows an inline notice and a warning badge", async () => {

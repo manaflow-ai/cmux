@@ -1,4 +1,4 @@
-import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
+import { contentsUnknown, plainEditLabels, type AcpmuxActivity, type AcpmuxFileDiff, type AcpmuxRow } from "./model";
 import { opensTurn } from "./turnStart";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -169,7 +169,9 @@ export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
 /// (direct.ts `continued`): its summary ends only that part, and the turn ends with a later one.
 export const endsTurn = (row: AcpmuxRow) => row.kind === "turnSummary" && !row.continued;
 
-function commonDirectory(paths: string[]): string {
+/// The directory `paths` share, with its trailing slash ("" for none): what a file's displayed path
+/// leaves out (`toolFiles` `displayPath`).
+export function commonDirectory(paths: string[]): string {
   if (paths.length === 0) return "";
   const split = paths.map((path) => path.split("/").slice(0, -1));
   let shared = 0;
@@ -177,19 +179,51 @@ function commonDirectory(paths: string[]): string {
   return shared ? `${split[0].slice(0, shared).join("/")}/` : "";
 }
 
-/// Every file the turn's tool calls changed, in the order first changed, each edit in turn.
+/// Every file the turn's tool calls changed, in the order first changed, each edit in turn. A file a
+/// Write rewrote with old contents unknown (model.ts `contentsUnknown`) is left out, with any other
+/// edit to it, so nothing counts, diffs or undoes it: the edited-files card lists its path without
+/// counts (`plainEditLabels`).
 export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
   return toolFiles(
     rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : [])),
+    { known: true },
   );
 }
 
+/// The paths the turn's edits changed with no diff `turnFiles` counts: an edit whose call carried
+/// none, and a file a Write rewrote with old contents unknown. A checkpoint file at one of them is
+/// still a tool call's change (turnCheckpoint.ts `turnDisplay`), not one made outside them. Not a
+/// path only failed calls named: they changed nothing (the card still lists it, as failed).
+export function turnPathsOnly(rows: readonly AcpmuxRow[]): string[] {
+  const edits = rows.flatMap((row) =>
+    row.kind === "activity"
+      ? (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange")
+      : [],
+  );
+  return plainEditLabels(edits).flatMap((entry) => (entry.path && !entry.failed ? [entry.path] : []));
+}
+
 /// The files these tool calls changed, each edit in turn, named from their shared directory.
-export function toolFiles(tools: readonly Tool[]): TurnFile[] {
+/// `known`: without a file a Write rewrote with old contents unknown, whose net change is unknown
+/// whatever else edited it; such a Write that failed wrote nothing, so it neither counts nor hides
+/// its file. One call's own view (its transcript row, a permission ask) still shows the text such a
+/// Write wrote.
+export function toolFiles(tools: readonly Tool[], { known = false }: { known?: boolean } = {}): TurnFile[] {
+  // An edit still waiting for its permission has changed nothing yet.
+  const changes = (tool: Tool) => (tool.status === "pending" ? [] : (tool.diffs ?? []));
+  const unknown = new Set(
+    known
+      ? tools.flatMap((tool) =>
+          tool.status === "failed"
+            ? []
+            : changes(tool).flatMap((change) => (contentsUnknown(change) ? [change.path] : [])),
+        )
+      : [],
+  );
   const files = new Map<string, TurnFile>();
   for (const tool of tools)
-    // An edit still waiting for its permission has changed nothing yet.
-    for (const change of tool.status === "pending" ? [] : (tool.diffs ?? [])) {
+    for (const change of changes(tool)) {
+      if (unknown.has(change.path) || (known && tool.status === "failed" && contentsUnknown(change))) continue;
       let file = files.get(change.path);
       if (!file) {
         file = {
@@ -198,7 +232,8 @@ export function toolFiles(tools: readonly Tool[]): TurnFile[] {
           edits: [],
           additions: 0,
           deletions: 0,
-          created: change.oldText == null,
+          // A fragment has no whole-file text, so a missing old text is not proof of a new file.
+          created: change.oldText == null && !change.fragment,
         };
         files.set(change.path, file);
       }

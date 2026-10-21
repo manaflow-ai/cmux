@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
+import CmuxNextComputerUse
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -30,6 +31,7 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         AgentSessionWorkspace.bind(into: registry, context: context)
+        AgentSessionTab.bind(into: registry, context: context)
         ChiefInspectorHandlers.bind(into: registry, context: context)
         AddHarnessHandler.bind(into: registry, context: context)
         AgentHarnessHandlers.bind(into: registry, context: context)
@@ -179,10 +181,13 @@ enum AgentHandlers {
         }
         TerminalChatHandler.bind(into: registry, context: context)
         AgentTeamsLaunch.bind(into: registry, context: context)
-        registry.bindUnavailable(
-            ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
-            ActionFailure(message: MiscHandlerStrings.computerUse)
-        )
+        let services = context.services
+        let helper = ComputerUseHelperDaemon.shared
+        ComputerUseHandlers.bind(
+            into: registry,
+            sessions: CuaComputerUseSessions(configuration: { helper.configuration },
+                                             phase: { [weak services] in services?.onboarding.computerUseSetup.phase ?? .off }),
+            focus: AppComputerUseFocus(services: services))
     }
 
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath

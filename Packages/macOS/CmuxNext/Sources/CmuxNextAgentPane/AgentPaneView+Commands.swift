@@ -19,7 +19,7 @@ extension AgentPaneView {
     /// composer, so the next words go to the fork.
     public func focusComposer() { showWithKeyboard("focusComposer") }
     private func showWithKeyboard(_ command: String) {
-        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
+        focusChat()
         send(command)
     }
     /// Palette and page buttons enter the same inline checkpoint review.

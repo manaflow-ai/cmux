@@ -566,9 +566,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           persist-credentials: false
+          # pr-media.py refuses to upload without its privacy check
+          # (pr_media_privacy.py; the OCR tool only runs on macOS, so here
+          # media are left to main's after-push scan and text is checked).
           sparse-checkout: |
             scripts/pr-media.py
             scripts/ci/pr_status.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
@@ -635,6 +640,11 @@ jobs:
           TOUR_RESULT: ${{ needs.tour.result }}
           TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
           TREE_NOTE: ${{ needs.tour.outputs.tree_note }}
+          # The agent logins whose PRs the privacy check enforces. The private
+          # names stay out of this dispatchable job (secrets need an environment);
+          # it checks with the built-in fleet patterns, and main's
+          # pr-media-privacy.yml scans every push with the names.
+          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
         run: |
           set -euo pipefail
           note=""

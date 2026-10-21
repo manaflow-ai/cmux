@@ -260,7 +260,9 @@ fn headless_creation_uses_explicit_or_authoritative_client_size() {
     )["data"]["surface"]
         .as_u64()
         .unwrap();
-    assert_vt_state_size(&mut writer, &mut reader, 15, clamped, (1, 1));
+    // The one size rule (`clamp_terminal_size`, 7598506d0d5): the sizing
+    // engine's 2 x 1 minimum, as for a hosted terminal and a viewport report.
+    assert_vt_state_size(&mut writer, &mut reader, 15, clamped, (2, 1));
 
     mux.shutdown();
     cmux_tui_core::server::cleanup(&sock_path);
