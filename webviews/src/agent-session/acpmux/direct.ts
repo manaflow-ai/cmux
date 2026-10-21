@@ -208,17 +208,20 @@ type KeptTail = {
   configSeq: number;
   usageFromSeq: number;
 };
-/// Chats whose tail is kept: each is one open page acpmux answered (OPEN_PAGE_BYTES), so this
-/// holds a couple of megabytes of events at most.
+/// Chats whose tail is kept, and the events kept of each: the newest ones, as many as an attach
+/// page holds, so a visit that paged older history in (megabytes of records) is not what the next
+/// open keeps. A truncated tail is no longer a whole transcript, so the chat can load its older
+/// history again.
 const KEPT_TAILS = 8;
+const KEPT_EVENTS = 400;
 const keptTails = new Map<string, KeptTail>();
 function rememberTail(sessionId: string, tail: KeptTail) {
   keptTails.delete(sessionId);
   keptTails.set(sessionId, tail);
   while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
 }
-/// A chat whose transcript this page no longer stands behind (it was purged, forked away, or its
-/// events were refused): its next open reads acpmux again.
+/// A chat whose transcript this page no longer stands behind (acpmux purged it, or an attach of it
+/// failed): its next open reads acpmux again.
 function forgetTail(sessionId: string) {
   keptTails.delete(sessionId);
 }
@@ -1221,11 +1224,13 @@ export class AcpmuxDirectClient {
     const sessionId = this.selectedSessionId;
     if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return;
     if (this.attachedGeneration !== this.selectionGeneration) return;
+    const events = this.events.slice(-KEPT_EVENTS);
     rememberTail(sessionId, {
-      events: [...this.events],
+      events,
       summary: this.summary,
       turnOpener: this.turnOpener,
-      historyExhausted: this.historyExhausted,
+      // Only a whole transcript is exhausted: a tail cut at KEPT_EVENTS has older events to read.
+      historyExhausted: this.historyExhausted && events.length === this.events.length,
       queue: this.queue,
       configSeq: this.configSeq,
       usageFromSeq: this.usageFromSeq,
@@ -1233,22 +1238,35 @@ export class AcpmuxDirectClient {
   }
 
   /// Draws `sessionId` from what its last visit left, for the frame a switch to it lands on, and
-  /// answers whether there was anything to draw. The session list is live (`session_changed` keeps
-  /// it current), so the chat draws running or idle as it is now; the rest of its summary is what
-  /// the last visit saw until the attach answers.
-  private drawKeptTail(sessionId: string): boolean {
+  /// answers the kept tail's newest seq (0 when nothing was kept), which the attach needs to tell
+  /// whether its page continues that tail.
+  ///
+  /// What the tail says about the chat's *past* is drawn: its rows, its history and its queued
+  /// prompts' whole text. What it says about what the chat is *doing* is not, because the chat ran
+  /// on while it was away: the session list is live (`session_changed` keeps it current), so
+  /// running or idle comes from there, and nothing waits for an answer until the attach says what
+  /// acpmux holds (an ask answered meanwhile must not come back as a card). A running chat still
+  /// shows the kept turn's clock for the attach's round trip, which the attach then corrects.
+  private drawKeptTail(sessionId: string): number {
     const kept = keptTails.get(sessionId);
-    if (!kept) return false;
+    if (!kept) return 0;
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     this.events = [...kept.events];
-    this.summary = { ...kept.summary, ...listed };
     this.turnOpener = kept.turnOpener;
     this.historyExhausted = kept.historyExhausted;
     this.configSeq = kept.configSeq;
     this.usageFromSeq = kept.usageFromSeq;
     this.rebuild();
-    this.queue = mergeQueue([], listed?.queue ?? kept.queue);
-    return true;
+    // After the replay, not before: a `session_changed` the tail holds would take the live state back.
+    this.summary = { ...kept.summary, ...listed };
+    this.turnOpen = listed?.status === "running";
+    // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history here.
+    this.pendingPermission = undefined;
+    this.waitingPermissions = new Map();
+    this.pendingSecret = undefined;
+    // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
+    this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue);
+    return this.lastSeq;
   }
 
   private scheduleReconnect(): void {
@@ -1682,8 +1700,14 @@ export class AcpmuxDirectClient {
     }
   }
 
-  /// Returns the attach page's events, or none when the selection moved on.
-  private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
+  /// Returns the attach page's events, or none when the selection moved on. `keptThrough` is the
+  /// newest seq of a tail drawn from ``drawKeptTail`` before this attach, so a page that does not
+  /// continue that tail can drop it instead of leaving a hole in the middle of the transcript.
+  private async attach(
+    sessionId: string,
+    generation = this.selectionGeneration,
+    keptThrough = 0,
+  ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const visible = pageShown();
     const attaching = this.request("_acpmux/attach", {
@@ -1717,10 +1741,21 @@ export class AcpmuxDirectClient {
     this.syncView();
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
+    const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+    // The chat ran on past what one page holds while the reader was away, so the kept tail and
+    // this page do not meet: the tail goes (only the live events that landed since it was drawn
+    // stay), and the chat holds the page alone, as one read for the first time does. Keeping both
+    // would leave a hole in the middle of the transcript that no older page can fill.
+    if (keptThrough > 0 && oldest > keptThrough + 1) {
+      this.events = this.events.filter((event) => event.seq > keptThrough);
+      this.turnOpener = undefined;
+      this.historyExhausted = false;
+      this.usageFromSeq = Infinity;
+    }
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
     // whatever live events landed before this reply) holds the page only.
-    const usageFrom = result?.hasMore === true && page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+    const usageFrom = result?.hasMore === true && page.length > 0 ? oldest : 0;
     this.usageFromSeq = Math.min(this.usageFromSeq, usageFrom);
     // An agent usually lists its commands once, at start, which is older than the page.
     if (
@@ -3487,13 +3522,24 @@ export class AcpmuxDirectClient {
     this.resetSessionState();
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
-    if (this.drawKeptTail(sessionId)) {
+    const keptThrough = this.drawKeptTail(sessionId);
+    if (keptThrough > 0) {
       this.emit("selected");
       this.releaseSnapshots(hold);
     }
     try {
       if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
-      await this.attach(sessionId, generation);
+      await this.attach(sessionId, generation, keptThrough);
+    } catch (error) {
+      // The chat could not be read: a tail drawn from this page's own memory must not stay on
+      // screen as if it were the chat, so the pane empties as it does without one.
+      if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
+        forgetTail(sessionId);
+        this.events = [];
+        this.rebuild();
+        this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
+      }
+      throw error;
     } finally {
       this.releaseSnapshots(hold);
     }
