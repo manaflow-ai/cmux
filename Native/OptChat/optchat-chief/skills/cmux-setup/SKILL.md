@@ -58,5 +58,13 @@ one.
   answer. It never edits Claude Code's or Codex's own files.
 - Harness install and sign-in: `cmux harness doctor ID --json` names the
   failing step and its fix; `cmux harness login ID` starts the sign-in.
-- Add an ssh machine: `cmux acp host setup SSH_TARGET --json`, then
-  `cmux acp host ls --json` to see it connected.
+- Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
+  `ok` when the peer is already connected and current, updates a peer on an
+  older build, and otherwise installs acpmux there and registers the peer;
+  the undo of a new peer is `cmux acp host rm NAME`. It uses key-only ssh:
+  when the machine refuses or does not answer, the result is `needs_user`
+  with `user_action.command`, the ssh command to try. Hand the user that
+  command; never ask for their password and never edit their ssh keys or
+  `~/.ssh/config`. Ask first before adding a machine the user did not name.
+  `cmux setup status` lists every peer with `connected` and `outdated`, and
+  the `fix` for each one that needs it.
