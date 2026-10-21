@@ -71,22 +71,6 @@
           "keywords": ["new tab", "widget", "chats", "recent", "history", "all chats"]
         },
         {
-          "key": "tabs.newTabWidgets.modeSwitch",
-          "name": "modeSwitch",
-          "note": "Off by default. Tab still switches between asking the agent and searching the web; the field's placeholder says which.",
-          "title": {
-            "key": "settings.tabs.newTabWidgets.modeSwitch",
-            "text": "Show Search and Ask Switch on New Tab"
-          },
-          "help": {
-            "key": "settings.tabs.newTabWidgets.modeSwitch.help",
-            "text": "Tab switches between asking the agent and searching the web either way."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": ["new tab", "widget", "search", "ask", "mode", "tab to switch"]
-        },
-        {
           "key": "tabs.newTabWidgets.styleDots",
           "name": "styleDots",
           "note": "Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).",

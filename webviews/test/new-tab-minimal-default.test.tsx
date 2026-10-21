@@ -113,7 +113,6 @@ const parts = () => ({
   projects: host.querySelectorAll(".nt-env").length,
   actions: host.querySelectorAll(".nt-suggest, .nt-create").length,
   chats: host.querySelectorAll(".nt-cards, .nt-all, .nt-closed").length,
-  modeSwitch: host.querySelectorAll(".nt-mode-track").length,
   strip: host.querySelectorAll(".acpmux-composer-strip").length,
 });
 
@@ -133,7 +132,6 @@ test("Minimal is the greeting and the composer, with its project strip", async (
       projects: 0,
       actions: 0,
       chats: 0,
-      modeSwitch: 0,
       strip: 1,
     });
   } finally {
@@ -144,7 +142,7 @@ test("Minimal is the greeting and the composer, with its project strip", async (
 test("Minimal's widgets turned on take Default's stage around the composer", async () => {
   let root = await render("minimal", [...PAGE_WIDGETS]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1, modeSwitch: 0 });
+    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1 });
     expect(parts().actions).toBeGreaterThan(0);
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
@@ -152,7 +150,7 @@ test("Minimal's widgets turned on take Default's stage around the composer", asy
   }
   root = await render("minimal", ["chats"]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0, modeSwitch: 0 });
+    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0 });
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());

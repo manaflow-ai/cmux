@@ -64,7 +64,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
     /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting",
-    /// "projects", "actions", "chats", "modeSwitch", "styleDots"); Minimal draws the composer and
+    /// "projects", "actions", "chats", "styleDots"); Minimal draws the composer and
     /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
