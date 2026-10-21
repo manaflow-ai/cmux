@@ -255,6 +255,14 @@ pub struct SpawnRecord {
     pub answers: Vec<String>,
 }
 
+impl SubRecord {
+    /// Starting or running and not cancelled: a cancelled one whose session
+    /// never ends its turn is not at work (#7).
+    pub fn at_work(&self) -> bool {
+        matches!(self.status, SubStatus::Starting | SubStatus::Running) && !self.cancelled
+    }
+}
+
 impl SpawnRecord {
     /// A subagent still works or has a report waiting that starts a turn.
     pub fn working(&self) -> bool {

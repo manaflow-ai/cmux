@@ -177,20 +177,58 @@
   text-align: center;
 }
 
-/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
+   Copy at the line's trailing end (App.tsx). The summary keeps the Copy's width free, so the label
+   never runs under it; a long label ends in an ellipsis on its one line (Lawrence 2026-10-20: the
+   Copy covered "lines)"). */
 .cv-user__context {
+  --cv-context-copy: 20px;
+  --cv-context-gap: 6px;
+  position: relative;
   box-sizing: border-box;
   max-width: 70%;
+  min-width: 0;
   margin-bottom: 4px;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
 }
-.cv-user__context > summary {
+.cv-user__context > details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  min-height: var(--cv-context-copy);
+  padding-inline-end: calc(var(--cv-context-copy) + var(--cv-context-gap));
+  list-style: none;
   cursor: pointer;
-  text-align: right;
-  list-style-position: inside;
+}
+.cv-user__context > details > summary::-webkit-details-marker {
+  display: none;
+}
+.cv-user__context-chevron {
+  flex: none;
+}
+.cv-user__context > details[open] .cv-user__context-chevron {
+  transform: rotate(90deg);
+}
+.cv-user__context-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-user__context > details > summary:hover {
+  color: var(--cv-text);
+}
+.cv-iconbtn.cv-user__context-copy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--cv-context-copy);
+  height: var(--cv-context-copy);
 }
 .cv-user__context-text {
   margin: 4px 0 0;
