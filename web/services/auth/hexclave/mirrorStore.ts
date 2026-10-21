@@ -66,15 +66,6 @@ export type HexclaveMirrorStore = {
     read: () => Promise<HexclaveUserState>,
     options?: { readonly revokeCandidateTeamIds?: readonly string[] },
   ) => Promise<UserReconcileResult>;
-  /**
-   * While holding the user's mirror lock, run external revoke/seat side
-   * effects for one still-pending membership and clear it only on success.
-   * A concurrent re-add therefore waits instead of racing past the check.
-   */
-  readonly settlePendingRevocation: (
-    input: { readonly teamId: string; readonly userId: string },
-    operation: () => Promise<void>,
-  ) => Promise<boolean>;
   /** Whether the revocation is still pending (a re-add since the reconcile clears it). */
   readonly isRevocationPending: (input: { readonly teamId: string; readonly userId: string }) => Promise<boolean>;
   /** Delete a pending revocation after its revoke succeeded. */
@@ -363,27 +354,6 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
         candidates: options.revokeCandidateTeamIds ?? [],
       });
       return { state, previousTeamIds, currentTeamIds, pendingRevocationTeamIds };
-    }),
-
-    settlePendingRevocation: (input, operation) => db().transaction(async (tx) => {
-      await boundLockWait(tx);
-      await lock(tx, hexclaveUserLockKey(input.userId));
-      await lock(tx, hexclaveTeamLockKey(input.teamId));
-      const [pending] = await tx
-        .select({ teamId: hexclavePendingRevocations.teamId })
-        .from(hexclavePendingRevocations)
-        .where(and(
-          eq(hexclavePendingRevocations.teamId, input.teamId),
-          eq(hexclavePendingRevocations.userId, input.userId),
-        ))
-        .limit(1);
-      if (!pending) return false;
-      await operation();
-      await tx.delete(hexclavePendingRevocations).where(and(
-        eq(hexclavePendingRevocations.teamId, input.teamId),
-        eq(hexclavePendingRevocations.userId, input.userId),
-      ));
-      return true;
     }),
 
     isRevocationPending: async ({ teamId, userId }) => {

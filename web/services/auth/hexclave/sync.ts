@@ -129,13 +129,15 @@ export async function syncHexclaveUser(
   try {
     await settleAll([
       ...result.pendingRevocationTeamIds.map((teamId) => async () => {
-        const settled = await store.settlePendingRevocation({ teamId, userId }, async () => {
-          await dependencies.revokeTeamMemberAccess({ teamId, userId });
-          // Do not clear the durable revoke until billing reconciliation is
-          // queued too. A failed mark then retries both idempotent operations.
-          await dependencies.markTeamSeatsDirty(teamId);
-        });
-        if (settled) revoked.push(teamId);
+        // The inbox never claims two rows for one entity at once. Re-check in
+        // case a prior reconcile already restored this membership.
+        if (!await store.isRevocationPending({ teamId, userId })) return;
+        await dependencies.revokeTeamMemberAccess({ teamId, userId });
+        // Do not clear the durable revoke until billing reconciliation is
+        // queued too. A failed mark then retries both idempotent operations.
+        await dependencies.markTeamSeatsDirty(teamId);
+        await store.clearPendingRevocation({ teamId, userId });
+        revoked.push(teamId);
       }),
       ...dirtyTeamIds.map((teamId) => () => dependencies.markTeamSeatsDirty(teamId)),
     ]);
