@@ -5404,7 +5404,9 @@ function AcpmuxPane() {
             const id = String(sessionId);
             try {
               await postNative("chat.offer.open", { sessionId: id });
-            } catch {
+            } catch (error) {
+              // The app refused a session outside this chat's family: nothing opens, not even here.
+              if (error instanceof NativeError && error.code === "chat.offer.refused") return;
               try {
                 await postNative("chat.sideChat", { sessionId: id });
               } catch {
