@@ -37,7 +37,7 @@ struct ScreenDividers {
     var mouseAreas: [LayoutMouseArea] {
         screen.dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = uncovered(view.frame.intersection(screen.bounds))
+            let rect = uncovered(screen.convert(view.cursorRectInBounds, from: view).intersection(screen.bounds))
             guard !rect.isNull, !rect.isEmpty else { return nil }
             return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
         }.sorted { $0.id < $1.id }

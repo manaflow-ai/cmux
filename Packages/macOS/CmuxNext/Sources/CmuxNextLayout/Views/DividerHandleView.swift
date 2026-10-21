@@ -115,8 +115,19 @@ final class DividerHandleView: NSView {
         if newSize != old { needsLayout = true }
     }
 
-    /// Where the handle shows its resize cursor, in its own coordinates.
-    var cursorRectInBounds: CGRect { bounds }
+    /// The part of the superview where the handle may take the pointer; nil for all of it. A strip
+    /// divider that runs on under a docked column stops where the dock begins: AppKit cursor rects
+    /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
+    var cursorClip: CGRect? {
+        didSet { if cursorClip != oldValue { window?.invalidateCursorRects(for: self) } }
+    }
+
+    /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
+    var cursorRectInBounds: CGRect {
+        guard let cursorClip else { return bounds }
+        let rect = bounds.intersection(convert(cursorClip, from: superview))
+        return rect.isNull ? .zero : rect
+    }
 
     override func resetCursorRects() {
         let rect = cursorRectInBounds
