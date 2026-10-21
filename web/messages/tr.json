@@ -5521,6 +5521,8 @@
     "errorInvalidCode": "Bu kod geçersiz. E-postanı kontrol edip tekrar dene.",
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
+    "errorEmailUnverified": "Bu e-postanın zaten bir hesabı var, ancak adres henüz doğrulanmadı. Kaydolduğun yöntemle giriş yap, ardından giriş kodlarını kullanmak için e-postanı doğrula.",
+    "useEmailPasswordInstead": "E-posta ve şifreyle giriş yap",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
     "errorGeneric": "Bir sorun oluştu. Tekrar dene."
   },

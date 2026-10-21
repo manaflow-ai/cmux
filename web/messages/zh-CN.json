@@ -5523,6 +5523,8 @@
     "errorInvalidCode": "验证码无效。请检查邮箱后重试。",
     "errorInvalidTotp": "双重验证码无效。",
     "errorSignUpNotAllowed": "目前无法创建新账号。",
+    "errorEmailUnverified": "此邮箱已有账号，但地址尚未验证。请使用注册时的方式登录，然后验证邮箱，即可使用登录验证码。",
+    "useEmailPasswordInstead": "使用邮箱和密码登录",
     "errorPasskey": "通行密钥登录未完成。请重试或改用其他方式。",
     "errorGeneric": "出了点问题，请重试。"
   },

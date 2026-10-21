@@ -15,6 +15,7 @@ import {
   PENDING_OAUTH_KEY,
   accountInitials,
   demoteRememberedMethod,
+  emailCodeRefusal,
   forgetAccount,
   handlerHref,
   isReturningFromOAuth,
@@ -30,6 +31,7 @@ import {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
+  type EmailCodeRefusal,
   type RememberedAccount,
 } from "./sign-in-entry";
 import { SignInSpinner } from "./sign-in-spinner";
@@ -85,6 +87,8 @@ export type CmuxSignInMessages = {
   errorInvalidCode: string;
   errorInvalidTotp: string;
   errorSignUpNotAllowed: string;
+  errorEmailUnverified: string;
+  useEmailPasswordInstead: string;
   errorPasskey: string;
   errorGeneric: string;
 };
@@ -971,12 +975,21 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
     (startWithPassword && credentialEnabled) || !magicLinkEnabled ? "password" : "code",
   );
   const [email, setEmail] = useState(prefillEmail ?? "");
+  // The code was refused for an unverified account: its password form opens
+  // on the password, the email kept.
+  const [switchedToPassword, setSwitchedToPassword] = useState(false);
+  const openPassword = mode === "sign-in" && credentialEnabled
+    ? () => {
+      setSwitchedToPassword(true);
+      setMethod("password");
+    }
+    : undefined;
 
   const form = (shown: "code" | "password") =>
     shown === "code" ? (
-      <EmailCode messages={messages} email={email} onEmailChange={setEmail} />
+      <EmailCode messages={messages} email={email} onEmailChange={setEmail} onUsePassword={openPassword} />
     ) : mode === "sign-in" ? (
-      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null} />
+      <PasswordSignIn messages={messages} returnTo={returnTo} email={email} onEmailChange={setEmail} focusPassword={prefillEmail !== null || switchedToPassword} />
     ) : (
       <PasswordSignUp messages={messages} email={email} onEmailChange={setEmail} />
     );
@@ -1051,15 +1064,18 @@ function TextField({ label, error, disabled, className = inputClass, onChange, .
   );
 }
 
-function EmailCode({ messages, email, onEmailChange }: {
+function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   messages: CmuxSignInMessages;
   email: string;
   onEmailChange: (value: string) => void;
+  /** Opens email and password with this email; absent when that form can't sign in. */
+  onUsePassword?: () => void;
 }) {
   const app = useHexclaveApp();
   const [step, setStep] = useState<EmailStep>({ kind: "enter" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [unverified, setUnverified] = useState(false);
 
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -1069,6 +1085,7 @@ function EmailCode({ messages, email, onEmailChange }: {
     }
     setBusy(true);
     setError(null);
+    setUnverified(false);
     try {
       const result = await app.sendMagicLinkEmail(email.trim());
       if (result.status === "error") {
@@ -1078,8 +1095,10 @@ function EmailCode({ messages, email, onEmailChange }: {
       }
       setStep({ kind: "code", email: email.trim(), nonce: result.data.nonce });
     } catch (caught) {
-      setError(KnownErrors.SignUpNotEnabled.isInstance(caught) ? messages.errorSignUpNotAllowed : messages.errorGeneric);
-      if (!KnownErrors.SignUpNotEnabled.isInstance(caught)) console.error("[cmux sign-in] sending the code failed", caught);
+      const refusal = emailCodeRefusal(caught);
+      setUnverified(refusal === "unverified-account");
+      setError(emailCodeRefusalMessage[refusal](messages));
+      if (refusal === "generic") console.error("[cmux sign-in] sending the code failed", caught);
     } finally {
       setBusy(false);
     }
@@ -1102,9 +1121,20 @@ function EmailCode({ messages, email, onEmailChange }: {
       <Button type="submit" focusableWhenDisabled className={primaryButtonClass} disabled={busy}>
         <BusyLabel busy={busy}>{messages.continueWithEmail}</BusyLabel>
       </Button>
+      {unverified && onUsePassword && (
+        <Button type="button" className={`justify-self-start text-sm ${linkClass}`} onClick={onUsePassword}>
+          {messages.useEmailPasswordInstead}
+        </Button>
+      )}
     </form>
   );
 }
+
+const emailCodeRefusalMessage: Record<EmailCodeRefusal, (messages: CmuxSignInMessages) => string> = {
+  "unverified-account": (messages) => messages.errorEmailUnverified,
+  "sign-up-disabled": (messages) => messages.errorSignUpNotAllowed,
+  generic: (messages) => messages.errorGeneric,
+};
 
 function CodeEntry({ messages, email, nonce, onBack, onResend }: {
   messages: CmuxSignInMessages;

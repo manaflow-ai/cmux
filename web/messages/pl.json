@@ -5523,6 +5523,8 @@
     "errorInvalidCode": "Ten kod jest nieprawidłowy. Sprawdź pocztę i spróbuj ponownie.",
     "errorInvalidTotp": "Ten kod uwierzytelniania dwuskładnikowego jest nieprawidłowy.",
     "errorSignUpNotAllowed": "Obecnie nie można tworzyć nowych kont.",
+    "errorEmailUnverified": "Ten adres e-mail ma już konto, ale nie został jeszcze zweryfikowany. Zaloguj się w sposób, w jaki się zarejestrowałeś, a następnie zweryfikuj e-mail, aby korzystać z kodów logowania.",
+    "useEmailPasswordInstead": "Zaloguj się e-mailem i hasłem",
     "errorPasskey": "Logowanie kluczem dostępu nie zostało ukończone. Spróbuj ponownie lub użyj innej metody.",
     "errorGeneric": "Coś poszło nie tak. Spróbuj ponownie."
   },
