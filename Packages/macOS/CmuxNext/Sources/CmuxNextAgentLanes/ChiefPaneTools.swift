@@ -17,8 +17,8 @@ public final class ChiefPaneTools: NSView {
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let actionsButton = OverflowButton(label: ChiefToolStrings.actions)
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
-    public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
-                                             "chief.openUsage", "home.newChief"]
+    public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
@@ -118,8 +118,12 @@ public final class ChiefPaneTools: NSView {
     }
 }
 
-/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+/// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// Open Chief Subagent's refusal when its run names no subagent row.
+    static var noSubagent: String {
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+    }
 }

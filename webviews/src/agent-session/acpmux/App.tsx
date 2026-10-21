@@ -80,6 +80,7 @@ import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
+import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
@@ -91,7 +92,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, linkAttachment, type ComposerAttachment } from "./attachments";
+import { audioAttachment, linkAttachment, linkItems, type ComposerAttachment, type DroppedKind } from "./attachments";
 import type { KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
@@ -107,6 +108,7 @@ import { TrustAsk, trustedLabel } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
+import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
@@ -125,15 +127,16 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
+import { BACKGROUND_WORK, type BackgroundCounts, backgroundRowShown } from "./conversation/backgroundWork";
+import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import {
-  BACKGROUND_WORK,
-  type BackgroundCounts,
   type BackgroundCommand,
   backgroundCommands,
-  backgroundRowShown,
-} from "./summary/backgroundWork";
-import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
-import { type ProcessSource, useProcessRegistry } from "./inspector/processes";
+  backgroundSection,
+  type ProcessSource,
+  useProcessRegistry,
+} from "./inspector/processes";
+import { useInspectorOpen } from "./inspector/inspectorState";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -152,7 +155,13 @@ import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointS
 import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
+import {
+  configureDictation,
+  deliverDictation,
+  isWaitingForWords,
+  useDictation,
+  type DictationField,
+} from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
@@ -162,6 +171,7 @@ import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
@@ -268,7 +278,6 @@ import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { PendingSteer } from "./conversation/PendingSteer";
-import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -678,7 +687,8 @@ const MessageRow = memo(
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images show with it; a steer's read state does not: the message is the agent's to read.
+    // Its images show with it, and its action row (age, Copy, Retry, Pin) at the line's end on hover;
+    // a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
@@ -689,6 +699,7 @@ const MessageRow = memo(
             images={row.images}
             onOpen={openOfferChat}
             onReply={replyToMessage}
+            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
           />
         </div>
       );
@@ -720,12 +731,14 @@ const MessageRow = memo(
             </div>
           )}
           {envelope || row.from === "chief" ? (
-            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+            <>
+              <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+              <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+            </>
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <DeliveryFailure row={row} />
-          {row.steer && <SteerMark steer={row.steer} />}
           <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
@@ -2808,22 +2821,22 @@ export function VirtualTranscript({
       removeWheel?.();
     };
   }, []);
-  // A turn's footer (TurnFooter) shows for the last turn, and for the turn the reader points at:
-  // anywhere from its prompt to its footer. Marked on the mounted rows, so a hover renders nothing.
-  let lastTurnId: string | undefined;
-  for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
-    if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
-  // The latest prompt shows its action row always, as Claude Code desktop's (UserBubble.tsx).
-  let lastPromptId: string | undefined;
-  for (let index = rows.length - 1; index >= 0 && !lastPromptId; index -= 1)
-    if (rows[index]!.kind === "user" && !rows[index]!.failed && !rows[index]!.queued) lastPromptId = rows[index]!.id;
+  // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
+  // to its footer. Marked on the mounted rows, so a hover renders nothing.
+  // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
+  // it on the turn's footer while it may be sent again.
+  let retryPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0; index -= 1)
+    if (rows[index]!.kind === "turnSummary") {
+      retryPromptId = rows[index]!.retryRowId;
+      break;
+    }
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
-      node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
-      node.toggleAttribute("data-last-prompt", node.dataset.rowId === lastPromptId);
+      node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId, lastPromptId]);
+  }, [retryPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
@@ -2860,7 +2873,8 @@ export function VirtualTranscript({
     pointedRow.current = rowId;
     pointedRows.current = rows;
     const from = row ? Number(row.getAttribute("aria-posinset")) - 1 : -1;
-    const footer = from >= 0 ? turnFooterFrom(rows, from) : undefined;
+    // A prompt shows its own row, never its turn's too: one action row at a time.
+    const footer = from >= 0 && rows[from]!.kind !== "user" ? turnFooterFrom(rows, from) : undefined;
     if (footer === pointedTurn.current) return;
     pointedTurn.current = footer;
     markTurns();
@@ -3589,6 +3603,8 @@ function AcpmuxPane() {
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
   }, []);
   const uploadFiles = useCallback((files: File[]) => uploadToMachine(files, callNative), []);
+  // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
+  const localPaths = useCallback((kind: DroppedKind, files: File[]) => droppedPaths(kind, files, callNative), []);
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -3659,8 +3675,10 @@ function AcpmuxPane() {
   const spawnedKept = useRef<readonly AcpmuxSessionEntry[]>(NO_SPAWNED);
   if (!sameItems(spawnedKept.current, spawnedFresh)) spawnedKept.current = spawnedFresh;
   const spawned = spawnedKept.current;
-  // Every chat it started, offers' included, with its live state: the summary card's rows under
-  // Subagents and the background counts (summary/backgroundWork.ts). A new list only when an entry changes.
+  // Every chat it started, offers' included, with its live state: the rows under the Inspector's
+  // Subagents (the summary card's with it off) and the background counts (conversation/backgroundWork.ts).
+  // A chat on a Cloud VM or another machine lists the children its daemon reports with its own
+  // session (RemoteAcpmuxWire `_acpmux/watch`). A new list only when an entry changes.
   const childSessions = useMemo(
     () => (spawned.length ? startedSessions(spawned, snapshot.sessionId) : NO_STARTED),
     [spawned, snapshot.sessionId],
@@ -3905,14 +3923,17 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
-  // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
-  // the registry's, read while the summary card shows, a turn runs or a command is known to run
-  // (the hook stays on while one it knows runs, so its end arrives).
+  // The chat's background commands (inspector/processes.ts `backgroundCommands`): the transcript's
+  // still running, and the registry's, read while the Inspector or the summary card shows, a turn
+  // runs or a command is known to run (the hook stays on while one it knows runs, so its end
+  // arrives). The one registry for the pane: the Inspector, the card and the counts all read it.
   const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
+  const inspectorOn = useHeaderState().inspector;
+  const inspectorOpened = useInspectorOpen();
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
-    summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
+    (inspectorOn && inspectorOpened) || summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
   );
   const runningCommandList = useMemo(
     () =>
@@ -4302,8 +4323,12 @@ function AcpmuxPane() {
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
-  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
-  const stopsSubagents = snapshot.summary?.harness === "claude";
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
+  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
+  const stopsSubagents = canBackground;
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
@@ -4311,9 +4336,6 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
-  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
-  // running command's row says so (conversation/runInBackground.ts).
-  const canBackground = backgroundsWork(snapshot.summary);
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
@@ -4402,14 +4424,15 @@ function AcpmuxPane() {
       ? undefined
       : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
     onOpenImage: quick ? undefined : openImage,
-    processSource,
-    sessionId: shownSessionId,
+    processes: processRegistry,
     onStopProcess: stopProcess,
     subagents: cardSubagents,
+    sessions: cardSessions,
   });
   // The running line's counts (conversation/WorkingFor.tsx): the subagents still running, the
   // background commands that have not ended and the started chats that run. A count of one opens its
-  // subagent, the command's row or the chat; of several, the summary card, which lists them all.
+  // subagent, the command's row or the chat; of several, the Inspector's section that lists them all
+  // (the summary card with the Inspector off).
   // Between turns the same work is the transcript's last row (BackgroundWorkRow.tsx).
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
   // chatAgents already lists every subagent and changes when one's state does.
@@ -4432,11 +4455,15 @@ function AcpmuxPane() {
     transcriptRows,
     summaryCard,
     inspector,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
   });
   counted.current = {
     runningAgents,
     runningCommands,
     runningSessions,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -4467,8 +4494,10 @@ function AcpmuxPane() {
       tokens: turnTokens,
       background: backgroundCounts,
       openBackground: () => {
-        const { summaryCard: card, inspector: panel } = counted.current;
-        if (panel.reveal) panel.reveal("tasks");
+        const { backgroundCommandList: commands, processes, summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists what runs, by the Inspector's own split (processes.ts
+        // `backgroundSection`): dev servers alone open Servers; no command, Subagents.
+        if (panel.reveal) panel.reveal(backgroundSection(processes, commands));
         else card.show();
       },
       openAgents: () => {
@@ -4481,7 +4510,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal("tasks");
+        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
         else card.show();
       },
       openSessions: () => {
@@ -4864,6 +4893,7 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+        setPromptSurfaces(on === true);
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
@@ -5462,7 +5492,7 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
-          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
@@ -5878,10 +5908,8 @@ function AcpmuxPane() {
   // Sources' +: the host's panel picks files and folders on this computer, which the composer holds
   // as links for the next prompt (resource_link blocks: the agent reads them where they are).
   const attachLinks = async () => {
-    const picked = await callNative<{ items?: { path?: unknown; folder?: unknown }[] } | null>("chat.attach.choose");
-    for (const item of picked?.items ?? [])
-      if (typeof item.path === "string" && item.path.startsWith("/"))
-        composerHandle.current?.attach(linkAttachment(item.path, item.folder === true));
+    for (const item of linkItems(await callNative("chat.attach.choose")))
+      composerHandle.current?.attach(linkAttachment(item.path, item.folder));
     composerHandle.current?.focus();
   };
   // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
@@ -6848,6 +6876,8 @@ function AcpmuxPane() {
             searchFiles={fileRoot ? searchFiles : undefined}
             capture={captureScreen}
             upload={uploadFiles}
+            // A chat on this Mac (as Sources' + below); the host refuses any other.
+            localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
             onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
             onShellChange={setComposerShell}
@@ -6856,6 +6886,7 @@ function AcpmuxPane() {
             // No prompt goes while a picked folder waits for the user's answer.
             blocked={pendingFolder ? {} : trustAsk.blocked}
             accessory={<DictationMic dictation={dictation} />}
+            dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
@@ -7043,8 +7074,11 @@ function AcpmuxPane() {
                 }).then(() => folder);
               }}
               accessory={<DictationMic dictation={dictation} />}
+              dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
+              // The host answers only for a page on this Mac; another machine's keeps the refusal.
+              {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
               {...(newTab.allChats === false ? { allChats: false } : {})}
