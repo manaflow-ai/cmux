@@ -81,8 +81,7 @@ await requireBrowserLane("chat-open-long.test.ts", async () => {
         : { sessionId, seq, at, dir: "mux", kind: step.mux, msg: step.msg ?? {} },
     );
   };
-  for (let turn = 0; turn < TURNS; turn += 1)
-    for (const step of loadTurn(turn)) record(step, START + turn * 60_000);
+  for (let turn = 0; turn < TURNS; turn += 1) for (const step of loadTurn(turn)) record(step, START + turn * 60_000);
   const listed = {
     sessionId,
     cwd: "/home/dev/cmux",
@@ -100,7 +99,9 @@ await requireBrowserLane("chat-open-long.test.ts", async () => {
     const before = typeof params.beforeSeq === "number" ? params.beforeSeq : Number.POSITIVE_INFINITY;
     const kinds: string[] | undefined = Array.isArray(params.kinds) ? params.kinds : undefined;
     const held = events.filter(
-      (event) => (event.seq as number) < before && (!kinds || kinds.includes("transcript") || kinds.includes(String(event.kind))),
+      (event) =>
+        (event.seq as number) < before &&
+        (!kinds || kinds.includes("transcript") || kinds.includes(String(event.kind))),
     );
     const limit = typeof params.limit === "number" ? params.limit : held.length;
     const taken = held.slice(Math.max(0, held.length - limit));
@@ -245,7 +246,12 @@ await requireBrowserLane("chat-open-long.test.ts", async () => {
         if (painted.some((node) => alpha(getComputedStyle(node).backgroundColor) >= 0.999)) state.opaque += 1;
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         if (scroller) {
-          for (const node of [scroller, shell, document.querySelector<HTMLElement>(".acpmux-main"), document.scrollingElement as HTMLElement | null])
+          for (const node of [
+            scroller,
+            shell,
+            document.querySelector<HTMLElement>(".acpmux-main"),
+            document.scrollingElement as HTMLElement | null,
+          ])
             if (node) state.scrollLeft = Math.max(state.scrollLeft, node.scrollLeft);
           const view = scroller.getBoundingClientRect();
           const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
@@ -255,8 +261,7 @@ await requireBrowserLane("chat-open-long.test.ts", async () => {
           const shows = texty.length > 0 && Number(getComputedStyle(scroller).opacity) > 0;
           for (const { rect } of rows) state.clippedLeft = Math.max(state.clippedLeft, view.left - rect.left);
           const latest = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].reduce<HTMLElement | undefined>(
-            (low, row) =>
-              !low || row.getBoundingClientRect().bottom > low.getBoundingClientRect().bottom ? row : low,
+            (low, row) => (!low || row.getBoundingClientRect().bottom > low.getBoundingClientRect().bottom ? row : low),
             undefined,
           );
           const atLatest = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2;
@@ -340,8 +345,10 @@ await requireBrowserLane("chat-open-long.test.ts", async () => {
         const sampled = await openCold();
         runs.push({
           ...sampled,
-          afterAttach: sampled.firstContentClock === null ? Number.POSITIVE_INFINITY : sampled.firstContentClock - attachAnswered,
-          afterConnect: sampled.firstContentClock === null ? Number.POSITIVE_INFINITY : sampled.firstContentClock - connected,
+          afterAttach:
+            sampled.firstContentClock === null ? Number.POSITIVE_INFINITY : sampled.firstContentClock - attachAnswered,
+          afterConnect:
+            sampled.firstContentClock === null ? Number.POSITIVE_INFINITY : sampled.firstContentClock - connected,
         });
       }
     } finally {
