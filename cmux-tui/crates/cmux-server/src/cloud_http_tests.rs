@@ -111,3 +111,26 @@ fn vm_receiver_client_http_errors_do_not_echo_rejected_urls() {
         .unwrap_err();
     assert!(!error.contains(url) && !error.contains("private-test-bearer"));
 }
+
+#[test]
+fn vm_receiver_client_http_can_retry_after_cancelling_a_body() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/test", listener.local_addr().unwrap());
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let stalled = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{").unwrap();
+        let _ = held.recv_timeout(Duration::from_secs(2));
+    });
+    let http = JsonPoster::allowing_http().unwrap();
+    let answer = http.request_until(&url, None, None, Instant::now() + Duration::from_millis(200));
+    let _ = release.send(());
+    stalled.join().unwrap();
+    assert!(answer.is_err());
+    let (url, ready) = server(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".to_vec());
+    let (status, bytes) =
+        http.request_until(&url, None, None, Instant::now() + Duration::from_secs(1)).unwrap();
+    ready.join().unwrap();
+    assert_eq!(status, 200);
+    assert_eq!(bytes, b"{}");
+}

@@ -1,8 +1,7 @@
-//! JSON POST for the Cloud machine agent (`cmux host run`'s cloud role):
-//! bind, auth and `/v1/ops`. HTTPS only, no redirects, 20 s per
-//! request, no async runtime of its own (reqwest's blocking client).
+//! Bounded JSON HTTP for the Cloud machine agent. Synchronous callers run off
+//! async executors; an owned runtime cancels requests and bodies on expiry.
 
-use std::io::Read;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -12,9 +11,12 @@ use crate::store::fetch::check_url;
 #[path = "cloud_http_deadline.rs"]
 mod deadline;
 pub use deadline::RequestDeadline;
+#[path = "cloud_http_transport.rs"]
+mod transport;
+use transport::Transport;
 
 pub struct JsonPoster {
-    client: reqwest::blocking::Client,
+    transport: Mutex<Option<Transport>>,
     allow_http: bool,
 }
 
@@ -38,15 +40,7 @@ impl JsonPoster {
 
     fn build(allow_http: bool) -> Result<JsonPoster, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
-            .https_only(!allow_http)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(20))
-            .user_agent(concat!("cmux-host/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| format!("HTTP client: {e}"))?;
-        Ok(JsonPoster { client, allow_http })
+        Ok(JsonPoster { transport: Mutex::new(Some(Transport::new(allow_http)?)), allow_http })
     }
 
     /// `(status, body)`; a body that is not JSON reads as `{}`.
@@ -63,7 +57,8 @@ impl JsonPoster {
         Ok((status, parsed))
     }
 
-    /// An explicit budget retained across authentication, policy and keyset reads.
+    /// One original budget through authentication, policy and keyset reads.
+    /// GETs never carry credentials. Errors contain neither URLs nor bodies.
     pub fn request_with_deadline(
         &self,
         url: &str,
@@ -71,14 +66,32 @@ impl JsonPoster {
         bearer: Option<&str>,
         deadline: &RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
+        check_url(url, self.allow_http).map_err(|_| "Cloud request unavailable")?;
         deadline.remaining().ok_or("Cloud request unavailable")?;
-        let result = self.request_until(url, body, bearer, deadline.active())?;
-        deadline.remaining().ok_or("Cloud response unavailable")?;
-        Ok(result)
+        if (body.is_none() && bearer.is_some()) || tokio::runtime::Handle::try_current().is_ok() {
+            return Err("Cloud request unavailable".into());
+        }
+        // This synchronous owner is serial. Contention cannot queue a request
+        // beyond its original budget or block the caller's async executor.
+        let mut slot = self.transport.try_lock().map_err(|_| "Cloud transport unavailable")?;
+        if slot.is_none() {
+            *slot = Some(Transport::new(self.allow_http)?);
+        }
+        let result = slot
+            .as_ref()
+            .ok_or("Cloud transport unavailable")?
+            .request(url, body, bearer, deadline);
+        if result.is_err()
+            && let Some(transport) = slot.take()
+        {
+            // Dropping only the request future can leave a suspended connection
+            // driver in this current-thread runtime. Stop it before returning.
+            transport.stop();
+        }
+        result
     }
 
-    /// One request with a shared absolute deadline and a 1 MiB response cap.
-    /// GETs never carry credentials. Errors contain neither URLs nor bodies.
+    /// Compatibility for callers with an active-clock absolute deadline.
     pub fn request_until(
         &self,
         url: &str,
@@ -86,33 +99,16 @@ impl JsonPoster {
         bearer: Option<&str>,
         deadline: Instant,
     ) -> Result<(u16, Vec<u8>), String> {
-        check_url(url, self.allow_http).map_err(|e| e.to_string())?;
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() || (body.is_none() && bearer.is_some()) {
-            return Err("Cloud request unavailable".into());
+        let deadline = RequestDeadline::from_active(deadline).ok_or("Cloud request unavailable")?;
+        self.request_with_deadline(url, body, bearer, &deadline)
+    }
+}
+
+impl Drop for JsonPoster {
+    fn drop(&mut self) {
+        let slot = self.transport.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(transport) = slot.take() {
+            transport.stop();
         }
-        let mut request = match body {
-            Some(body) => self.client.post(url).json(body),
-            None => self.client.get(url),
-        }
-        .timeout(remaining);
-        if let Some(token) = bearer {
-            request = request.bearer_auth(token);
-        }
-        let response = request.send().map_err(|_| "Cloud request failed".to_owned())?;
-        let status = response.status().as_u16();
-        let limit = 1024 * 1024;
-        if response.content_length().is_some_and(|n| n > limit) {
-            return Err("Cloud response too large".into());
-        }
-        let mut bytes = Vec::new();
-        response
-            .take(limit + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Cloud response failed".to_owned())?;
-        if bytes.len() as u64 > limit || Instant::now() >= deadline {
-            return Err("Cloud response unavailable".into());
-        }
-        Ok((status, bytes))
     }
 }

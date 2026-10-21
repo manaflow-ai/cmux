@@ -16,8 +16,8 @@
 //! - [`pairing`]: human-approved enrollment, private identity and resumable wait.
 //!
 //! Synchronous entrypoints run off the caller's async executor. reqwest's blocking client (package
-//! downloads and the Cloud agent's posts) runs a private one on its own thread. Nothing polls:
-//! Pairing owns a current-thread runtime for its deadline-bound WebSocket wait.
+//! downloads) runs a private one on its own thread. Cloud HTTP and pairing own
+//! current-thread runtimes for their deadline-bound network waits. Nothing polls.
 //! Health exposes a one-shot deadline, services start through the service
 //! manager, and `pg_ctl -w` waits on Postgres's own readiness.
 

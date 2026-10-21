@@ -38,4 +38,23 @@ impl RequestDeadline {
         };
         (!remaining.is_zero()).then_some(remaining)
     }
+
+    pub(super) fn elapsed(&self) -> Option<Deadline> {
+        self.elapsed.clone()
+    }
+
+    /// Preserve legacy active-clock callers on unsupported systems, while
+    /// failing closed on clock failure where a continuous clock is supported.
+    pub(super) fn from_active(active: Instant) -> Option<Self> {
+        #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+        let elapsed = {
+            let source = Elapsed::system()?;
+            Some(source.deadline_at(active.checked_duration_since(Instant::now())?)?)
+        };
+        #[cfg(not(any(target_os = "linux", target_vendor = "apple")))]
+        let elapsed = None;
+        let deadline = Self { active, elapsed };
+        deadline.remaining()?;
+        Some(deadline)
+    }
 }
