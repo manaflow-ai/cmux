@@ -16,6 +16,8 @@ public struct UpdateSettings: Sendable {
     public static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     /// Sparkle's "send anonymous system profile" key.
     public static let sendProfileInfoKey = "SUSendProfileInfo"
+    /// Sparkle's skipped-version key (`SPUSkippedUpdate`'s minor version).
+    public static let skippedVersionKey = "SUSkippedVersion"
     /// cmux's marker that the v2 automatic-checks migration already ran.
     public static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
     /// cmux's marker that the v3 stale-interval migration already ran.

@@ -49,6 +49,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var stagedInstall: (() -> Void)?
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
+    /// Removes Sparkle's skipped-version record when it names this build (set by the controller).
+    var forgetSkippedVersion: (@MainActor @Sendable (String) -> Void)?
     var installsWhenStaged = false
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
@@ -119,7 +121,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             // relaunches at once, so it waits staged for the click like any other.
             log.append("background install: Sparkle resumed the waiting installer of \(appcastItem.versionString); holding it")
             backgroundItem = appcastItem
-            return stageInBackground(reply)
+            return stageInBackground(reply, resumed: appcastItem.versionString)
         }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in

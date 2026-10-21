@@ -138,7 +138,7 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
         if let ring { follow(ring: ring) }
         downloadSetting = (downloadAutomatically, metered)
-        if checkInterval > 0 { stagedRecheckInterval = checkInterval }
+        followStagedSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)

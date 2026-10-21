@@ -16,34 +16,69 @@ extension UpdaterService {
     /// How long the click waits for the feed before it installs the staged build anyway.
     static let installProbeWait: Duration = .seconds(4)
 
+    /// Follows `updates.checkAutomatically` and `checkIntervalSeconds`: a staged update is
+    /// re-read on Sparkle's interval, and not at all while automatic checks are off.
+    func followStagedSchedule(automaticChecks: Bool, interval: TimeInterval) {
+        let current = stagedFreshness.interval ?? StagedFreshness().interval
+        stagedFreshness.interval = automaticChecks ? (interval > 0 ? interval : current) : nil
+        stagedRecheckTimer.cancel()
+        followStagedFreshness(flow.phase)
+    }
+
     /// Arms the next re-read while an update is staged, and drops it otherwise.
     func followStagedFreshness(_ phase: UpdateIndicatorPhase) {
-        guard case .ready = phase, stagedBuild() != nil else { return stagedRecheckTimer.cancel() }
-        stagedRecheckTimer.scheduleIfIdle(after: .seconds(stagedRecheckInterval)) { @MainActor [weak self] in
+        guard case .ready = phase, stagedBuild() != nil, let interval = stagedFreshness.interval else {
+            return stagedRecheckTimer.cancel()
+        }
+        stagedRecheckTimer.scheduleIfIdle(after: .seconds(interval)) { @MainActor [weak self] in
             self?.recheckStagedUpdate()
         }
     }
 
     /// cmux became active: re-reads the feed for a staged update, at most once per interval.
     func recheckStagedUpdateOnActivation() {
-        guard case .ready = flow.phase, stagedBuild() != nil else { return }
-        if let last = stagedCheckedAt, now().timeIntervalSince(last) < stagedRecheckInterval { return }
+        guard case .ready = flow.phase, stagedBuild() != nil, let interval = stagedFreshness.interval else { return }
+        if let last = stagedFreshness.checkedAt, now().timeIntervalSince(last) < interval { return }
         recheckStagedUpdate()
     }
 
     /// Re-reads the feed while an update is staged; a newer build replaces the staged one.
     @discardableResult
     func recheckStagedUpdate() -> Task<Void, Never> {
-        stagedCheckedAt = now()
+        stagedFreshness.checkedAt = now()
         let probe = probe()
         return Task { [weak self] in
             let failure = await probe.value
             guard let self else { return }
             self.stagedRecheckTimer.cancel()
             self.followStagedFreshness(self.flow.phase)
-            guard failure == nil, let newer = self.newerThanStaged() else { return }
-            self.supersedeStaged(by: newer, install: false)
+            // While the install click decides, it owns the supersede (it reads this same probe).
+            guard failure == nil, self.installDecision == nil, let newer = self.newerThanStaged() else { return }
+            self.supersedeInBackground(by: newer)
         }
+    }
+
+    /// Replaces the staged build in the background only when the newer one downloads at once:
+    /// automatic downloads on, and past the window in which a fresh nightly's deltas may still
+    /// be coming (Sparkle's scheduled check holds such a build once, which would leave nothing
+    /// staged until the next check). Otherwise the staged build stays (re-read at the window's
+    /// end), and the install click still installs the newest.
+    func supersedeInBackground(by newer: AppcastItem) {
+        if let controller, !controller.downloadsUpdatesInBackground {
+            return log.append("staged build is older than \(newer.version); downloads wait for a click, so the click replaces it")
+        }
+        if let window = stagedFreshness.deltaWindow ?? controller?.pendingDeltaWindow, let published = newer.date {
+            let age = now().timeIntervalSince(published)
+            if abs(age) < window {
+                log.append("staged build is older than \(newer.version), whose deltas may still be coming; re-reading after \(Int(window - age))s")
+                stagedRecheckTimer.cancel()
+                stagedRecheckTimer.schedule(after: .seconds(max(window - age, 0) + 60)) { @MainActor [weak self] in
+                    self?.recheckStagedUpdate()
+                }
+                return
+            }
+        }
+        supersedeStaged(by: newer, install: false)
     }
 
     /// The feed's newest build for this Mac (the last probe, which filters by ring and
@@ -63,10 +98,16 @@ extension UpdaterService {
     @discardableResult
     func supersedeStaged(by newer: AppcastItem, install: Bool) -> Bool {
         let staged = stagedBuild() ?? "unknown"
+        if let last = stagedFreshness.superseded, last.build == newer.version,
+           now().timeIntervalSince(last.at) < Self.installProbeFreshness {
+            log.append("staged build \(staged) is older than \(newer.version), which a supersede just went for; keeping \(staged)")
+            return false
+        }
         guard cancelStaged() else {
             log.append("staged build \(staged) is older than \(newer.version), but its installer cannot be cancelled")
             return false
         }
+        stagedFreshness.superseded = (newer.version, now())
         log.append("staged build \(staged) superseded by \(newer.version): " + (install ? "installing the newest once it is staged" : "downloading it"))
         guard install else {
             recheck(false)
@@ -96,16 +137,19 @@ extension UpdaterService {
         if let installDecision { return installDecision }
         let task = Task { [weak self] in
             guard let self else { return }
-            if self.stagedBuild() != nil, !self.probeIsCurrent {
+            defer { self.installDecision = nil }
+            let staged = self.stagedBuild()
+            if staged != nil, !self.probeIsCurrent {
                 self.log.append("install: reading the feed for a newer build first")
                 await self.waitForProbe(within: Self.installProbeWait)
             }
-            if self.probeIsCurrent, let newer = self.newerThanStaged(), self.supersedeStaged(by: newer, install: true) {
-                self.installDecision = nil
-                return
+            if staged != nil, self.stagedBuild() == nil {
+                // The staged installer went while the feed answered: install the newest once staged.
+                self.log.append("install: the staged build went while the feed answered; installing the newest once it is staged")
+                return self.checkAndInstallNewest()
             }
+            if self.probeIsCurrent, let newer = self.newerThanStaged(), self.supersedeStaged(by: newer, install: true) { return }
             await self.installStagedNow()
-            self.installDecision = nil
         }
         installDecision = task
         return task
@@ -150,6 +194,21 @@ extension UpdaterService {
     private static func isNewer(_ build: String, than other: String) -> Bool {
         SUStandardVersionComparator.default.compareVersion(build, toVersion: other) == .orderedDescending
     }
+}
+
+/// What the staged update's re-reads go by.
+struct StagedFreshness {
+    /// Sparkle's check interval; nil while automatic checks are off (only the click reads the feed).
+    var interval: TimeInterval? = 60 * 60
+    /// When the feed was last re-read for the staged update.
+    var checkedAt: Date?
+    /// The build the last supersede went for, and when: the same target is not chased again
+    /// within ``UpdaterService/installProbeFreshness`` (Sparkle can hand back the cancelled
+    /// installer while its helper is still running).
+    var superseded: (build: String, at: Date)?
+    /// How long after its `pubDate` a nightly's deltas may still be coming; nil reads the
+    /// controller's ``UpdateController/pendingDeltaWindow`` (replaced by tests).
+    var deltaWindow: TimeInterval?
 }
 
 /// Resumes a continuation once: the probe's answer or its deadline, whichever comes first.

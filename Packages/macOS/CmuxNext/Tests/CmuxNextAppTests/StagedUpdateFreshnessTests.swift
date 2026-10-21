@@ -158,4 +158,34 @@ import Testing
         #expect(calls.cancels == 1, "the click cancelled the resumed installer again to chase 102")
         #expect(calls.installs == 1, "the resumed installer did not install")
     }
+
+    /// A nightly minutes old may not list its deltas yet, and Sparkle's background check holds
+    /// such a build once: the staged build stays until the window ends (else nothing would be
+    /// staged until the next check), and the click still installs the newest.
+    @Test func aNightlyWhoseDeltasMayStillComeLeavesTheStagedBuildToTheClick() async {
+        let calls = Calls()
+        let feed = StaticFeed(builds: ["101", "102"], published: Date().addingTimeInterval(-10 * 60))
+        let updater = Self.updater(feed: feed, staged: "101", calls: calls)
+        updater.stagedFreshness.deltaWindow = 45 * 60
+        await updater.recheckStagedUpdate().value
+        #expect(calls.cancels == 0, "the staged build was cancelled for a nightly whose deltas are not listed yet")
+        #expect(calls.rechecks.isEmpty)
+
+        updater.installClicked()
+        await updater.installDecision?.value
+        #expect(calls.cancels == 1)
+        #expect(calls.rechecks == [true])
+    }
+
+    /// With automatic checks off, nothing re-reads the feed in the background.
+    @Test func automaticChecksOffReReadNothingOnActivation() {
+        let calls = Calls()
+        let updater = Self.updater(feed: StaticFeed(builds: ["101", "102"]), staged: "101", calls: calls)
+        updater.configure(checkAutomatically: false, checkInterval: 3600, downloadAutomatically: true)
+        updater.recheckStagedUpdateOnActivation()
+        #expect(updater.stagedFreshness.checkedAt == nil, "the feed was re-read with automatic checks off")
+        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
+        updater.recheckStagedUpdateOnActivation()
+        #expect(updater.stagedFreshness.checkedAt != nil)
+    }
 }

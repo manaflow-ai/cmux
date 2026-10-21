@@ -15,10 +15,18 @@ extension UpdateDriver {
         available.reply.consume(.install, source: .background)
     }
 
-    func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+    /// Holds Sparkle's reply as the staged update. `resumed` names the build of an installer
+    /// Sparkle resumed from update-found, where Skip is the only cancel and also records the
+    /// build as skipped (in a main-queue block the reply enqueues): the cancel forgets that
+    /// record in the block after it (the main queue runs them in order), so it skips nothing.
+    func stageInBackground(_ reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void, resumed: String? = nil) {
         log.append("background install: staged, waiting for the user")
         stagedInstall = { reply(.install) }
-        stagedCancel = { reply(.skip) }
+        stagedCancel = { [weak self] in
+            reply(.skip)
+            guard let resumed, let forget = self?.forgetSkippedVersion else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated { forget(resumed) } }
+        }
         if installsWhenStaged {
             installStaged()
             return

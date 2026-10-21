@@ -136,11 +136,10 @@ public final class UpdaterService {
     /// The install click's decision while it reads the feed first (``installNewestStaged()``);
     /// the staged card reads Installing… meanwhile.
     var installDecision: Task<Void, Never>?
-    /// While an update is staged: the next re-read of the feed (one-shot, re-armed after each),
-    /// Sparkle's check interval, and when the feed was last re-read for it.
+    /// While an update is staged: the next re-read of the feed (one-shot, re-armed after each)
+    /// and what the re-reads go by (``StagedFreshness``).
     @ObservationIgnored let stagedRecheckTimer: DemandTimer
-    @ObservationIgnored var stagedRecheckInterval: TimeInterval = 60 * 60
-    @ObservationIgnored var stagedCheckedAt: Date?
+    @ObservationIgnored var stagedFreshness = StagedFreshness()
     /// The install click's deadline for the feed's answer.
     @ObservationIgnored let installProbeTimer: DemandTimer
     /// The update record's pending background write; the click's write waits for it.

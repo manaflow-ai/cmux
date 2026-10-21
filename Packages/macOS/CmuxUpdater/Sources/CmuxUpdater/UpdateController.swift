@@ -158,6 +158,10 @@ public final class UpdateController {
         self.driver = driver
         self.updater = updaterFactory(driver, hostBundle)
         driver.eventDelegate = self
+        driver.forgetSkippedVersion = { [defaults] build in
+            guard defaults.string(forKey: UpdateSettings.skippedVersionKey) == build else { return }
+            defaults.removeObject(forKey: UpdateSettings.skippedVersionKey)
+        }
         startStateReactions()
     }
 

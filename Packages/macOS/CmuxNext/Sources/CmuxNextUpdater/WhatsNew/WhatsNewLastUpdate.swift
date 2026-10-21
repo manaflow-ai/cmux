@@ -83,13 +83,22 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
     }
 
     /// The record as a launch of `build` reads it, or nil. Any other record (an update that
-    /// only waited, an older one, an unreadable one) is removed.
+    /// only waited, an older one, an unreadable one) is removed. The update's own launch keeps
+    /// the record for its card but drops the install start, so a rollback to the build it
+    /// replaced reads no failed install.
     public func take(running build: String) -> Taken? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data) {
-            if record.toBuild == build { return .installed(record) }
+        if var record = try? decoder.decode(WhatsNewLastUpdate.self, from: data) {
+            if record.toBuild == build {
+                if record.installStartedAt != nil || record.installFailure != nil {
+                    record.installStartedAt = nil
+                    record.installFailure = nil
+                    write(record)
+                }
+                return .installed(record)
+            }
             if record.fromBuild == build, record.installStartedAt != nil { return .didNotInstall(record) }
         }
         clear()

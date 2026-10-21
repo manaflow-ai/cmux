@@ -59,7 +59,7 @@ import Testing
     /// just cancelled, if its helper has not exited yet) as "update found" at the Installing
     /// stage, where Install relaunches at once. A background install holds it as the staged
     /// update instead of relaunching nobody asked for.
-    @Test func aResumedInstallerIsHeldNotInstalled() throws {
+    @Test func aResumedInstallerIsHeldNotInstalled() async throws {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true
         let item = try #require(SUAppcastItem(dictionary: [
@@ -68,6 +68,8 @@ import Testing
                           "sparkle:version": "101", "sparkle:shortVersionString": "1.0.1"],
         ]))
         let box = ChoiceBox()
+        let forgotten = Forgotten()
+        harness.controller.driver.forgetSkippedVersion = { forgotten.builds.append($0) }
         harness.controller.driver.showUpdateFound(with: item, state: .forTests(stage: .installing), reply: { choice in
             MainActor.assumeIsolated { box.choice = choice }
         })
@@ -75,5 +77,25 @@ import Testing
         #expect(harness.controller.stagedUpdate?.versionString == "101")
         #expect(harness.controller.cancelStagedUpdate())
         #expect(box.choice == .skip, "cancelling the held installer did not reach Sparkle")
+        // Skip there also records 101 as skipped, in a main-queue block after the reply.
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in DispatchQueue.main.async { done.resume() } }
+        #expect(forgotten.builds == ["101"], "the cancel left Sparkle's skipped-version record for 101")
     }
+
+    @Test func cancellingTheResumedInstallerForgetsOnlyItsOwnSkip() throws {
+        let host = try Host()
+        defer { host.remove() }
+        let controller = UpdateController(log: NoopUpdateLog(), hostBundle: host.bundle, defaults: host.defaults)
+        let forget = try #require(controller.driver.forgetSkippedVersion)
+        host.defaults.set("101", forKey: UpdateSettings.skippedVersionKey)
+        forget("100")
+        #expect(host.defaults.string(forKey: UpdateSettings.skippedVersionKey) == "101", "a skip the person chose was removed")
+        forget("101")
+        #expect(host.defaults.string(forKey: UpdateSettings.skippedVersionKey) == nil)
+    }
+}
+
+/// The builds whose skipped-version record a cancel removed.
+@MainActor private final class Forgotten {
+    var builds: [String] = []
 }
