@@ -274,6 +274,13 @@ pub enum Input {
     SpawnPolicy {
         reply: Sender<Option<String>>,
     },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
+    },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
         image: Box<images::TurnImage>,
@@ -1171,6 +1178,9 @@ impl Brain {
             }
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
+            }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
             }
             Input::Described { image, description } => self.described(&image, description),
             Input::Engine { request, reply } => {
