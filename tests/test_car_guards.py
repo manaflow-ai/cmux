@@ -329,7 +329,12 @@ class WebBaseReds(unittest.TestCase):
             git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
             got = json.loads(subprocess.run([sys.executable, "-I", str(root / "scripts/ci/focused_tests.py"), "--root", str(root),
                                              "--files", "webviews/src/x.ts"], check=True, capture_output=True, text=True).stdout)
-            return car_guards.run(root, base, "HEAD", "linux", got, {}, {"web"})
+            # The guard tools are the fixture's, so the fake web runner beside them runs.
+            here, car_guards.HERE = car_guards.HERE, root / "scripts/ci"
+            try:
+                return car_guards.run(root, base, "HEAD", "linux", got, {}, {"web"})
+            finally:
+                car_guards.HERE = here
 
     def test_a_file_red_at_both_ends_is_the_bases(self):
         red = {"webviews/test/a.test.ts": 'import { a } from "../src/x"\n// fail\n'}
