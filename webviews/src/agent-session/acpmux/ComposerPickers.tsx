@@ -202,7 +202,7 @@ export function ComposerPickers({
   // probe alone (a timeout) keeps it.
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
-  // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
+  // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
   // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
   // keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);

@@ -55,6 +55,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
 # Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
@@ -509,6 +510,12 @@ def handle_prompt(rid, params):
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # A prompt with "[fail-digest-once]" anywhere in it (a turn of agent messages, acpmux
+    # hub/digest.rs) fails the first time in a session, then runs as any other.
+    if "[fail-digest-once]" in text and sid not in failed_digest:
+        failed_digest.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error"}})
         return
     # Failure simulation for retry tests. "fail-once: X" fails the first
     # prompt of a session with an ACP internal error and echoes X after that;

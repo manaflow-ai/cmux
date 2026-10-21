@@ -28,6 +28,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        // Where a chat rests belongs to the chat, so it is answered here from the one store both
+        // hosts share and never reaches the model (AgentPaneScrollAnchors+Bridge). Not logged: it
+        // names a row of the person's transcript.
+        if let reply = Self.chatPlaceReply(for: message.body) {
+            return replyHandler(reply, nil)
+        }
         // What a page last read of a chat, for the next tab that opens it (``AgentPaneTailCache``):
         // the chat's, not the pane's, so it never reaches the model, and never logged (it is the
         // chat's text).
