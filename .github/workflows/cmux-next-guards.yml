@@ -53,8 +53,8 @@ jobs:
   # #23006 (tests/test_feat_ci_guard_group.py).
   # ci.yml also routes ci-guards.yml's other groups by path, again only into main, so about 70 guard tests
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
-  # the groups the change's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
-  # ownership). The main-only release-ios group never runs here; release-notary runs in nightly-guards.
+  # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
+  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs in nightly-guards.
   ci-guard-group:
     name: cmux-next CI guard group
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -71,8 +71,9 @@ jobs:
 
       # The base this change is judged against, and the diff the groups are routed by: a pull request's
       # merge commit against its first parent (pull_request.base.sha lags it once the base moves), a push
-      # against the previous tip. No base (a new branch, an unreadable tip) routes every group and runs
-      # no base comparison.
+      # against the previous tip. A push runs every routed group (no list): a product-only change routes
+      # none on its pull request, and a guard it breaks then shows on the push that landed it. No base
+      # (a new branch, an unreadable tip) routes every group and runs no base comparison.
       - name: Changed files
         id: changes
         env:
@@ -89,6 +90,10 @@ jobs:
           if [[ -n "$base" ]] && git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-files.txt"; then
             echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files against $base"
             echo "base=$base" >> "$GITHUB_OUTPUT"
+            if [[ "$EVENT_NAME" != pull_request ]]; then
+              rm -f "$RUNNER_TEMP/changed-files.txt"
+              echo "a push runs every routed guard group"
+            fi
           else
             rm -f "$RUNNER_TEMP/changed-files.txt"
             echo "::warning::no base to diff against; every routed guard group runs"
@@ -412,6 +417,9 @@ jobs:
 
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
+
+      - name: Capture-only control methods are compiled out of release builds
+        run: python3 tests/test_cmux_next_debug_only_controls.py
 
       - name: Every check path a merger reads matches a tracked file
         run: python3 tests/test_check_paths.py

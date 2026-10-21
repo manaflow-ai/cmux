@@ -57,6 +57,8 @@ import PackageDescription
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> CodeRouter, Design, Icons (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
+//     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
@@ -264,6 +266,8 @@ let package = Package(
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
                 "CmuxNextCookieImport",
+                "CmuxNextImportCards",
+                "CmuxNextImportSuggestions",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
                 "CmuxNextPages",
@@ -271,6 +275,7 @@ let package = Package(
                 "CmuxNextRemoteBrowser",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
+                "CmuxNextAgentIntegrations",
                 "CmuxNextBookmarks",
                 "CmuxNextAgentActivity",
                 "CmuxNextScreenshots",
@@ -428,6 +433,30 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Import suggestion cards (Home, New Tab, Settings › Import): what this Mac has that cmux
+        // can bring over, found from folder listings only, the dismissals, the Chief's requests and
+        // the resumable import jobs. Pure model, no UI.
+        .target(
+            name: "CmuxNextImportSuggestions",
+            dependencies: ["CmuxNextBrowserImport"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextImportSuggestionsTests",
+            dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The cards' center and surfaces: the scan schedule, the job runner, the `import.*`
+        // actions, the agent pages' push and the Home strip. The App supplies `ImportCardsHost`.
+        .target(
+            name: "CmuxNextImportCards",
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+                           "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -609,6 +638,18 @@ let package = Package(
         .testTarget(
             name: "CmuxNextPagesTests",
             dependencies: ["CmuxNextPages", "CmuxNextSettings", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
+        // installs (`cmux agent hook`). The App supplies the CLI's location.
+        .target(
+            name: "CmuxNextAgentIntegrations",
+            dependencies: ["CmuxNextDaemon", "CmuxNextPages", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentIntegrationsTests",
+            dependencies: ["CmuxNextAgentIntegrations", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
@@ -1146,6 +1187,7 @@ let package = Package(
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
                 .process("HistoryActions.xcstrings"),
+                .process("ImportActions.xcstrings"),
                 .process("MusicActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("NewTabActions.xcstrings"),
@@ -1359,6 +1401,7 @@ let package = Package(
                 "CmuxNextApp",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
+                "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",

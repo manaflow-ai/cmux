@@ -7,7 +7,8 @@ public nonisolated enum ChiefWorkspaceName {
     /// `name` without the `a345 · ` subagent id a Chief before 2026-10-21 put in front of its
     /// subagents' workspace names (optchat-chief `workspaces.rs`); nil when nothing is left.
     public static func taskTitle(_ name: String) -> String? {
-        var rest = Substring(name.trimmingCharacters(in: .whitespaces))
+        // Only the leading blanks go first: "a3 · " keeps the " · " that marks its id.
+        var rest = name.drop(while: \.isWhitespace)
         if let dot = rest.range(of: " · "), rest.first == "a",
            rest.distance(from: rest.startIndex, to: dot.lowerBound) > 1,
            rest[rest.index(after: rest.startIndex)..<dot.lowerBound].allSatisfy(\.isNumber) {
@@ -16,6 +17,9 @@ public nonisolated enum ChiefWorkspaceName {
         let trimmed = rest.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    /// Who started a Chief subagent's workspace, as its hover card and right-click menu say it.
+    @MainActor public static var startedBy: String { Strings.startedByChief }
 }
 
 public nonisolated extension MachineID {
