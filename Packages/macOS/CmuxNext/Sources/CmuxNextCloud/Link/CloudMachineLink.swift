@@ -107,7 +107,7 @@ public actor CloudMachineLink {
         try checkGeneration(generation)
         try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
-        let inviteFile = endpoint.invitation.map {
+        let inviteFile = endpoint.invitation.map { _ in
             paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")
         }
         if let invitation = endpoint.invitation, let inviteFile {
