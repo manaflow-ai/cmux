@@ -292,6 +292,7 @@ impl Hub {
             if !images.is_empty() {
                 queued["images"] = Value::Array(images);
             }
+            super::session::mark_pasted(&mut queued, &q.run.blocks);
             let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
             self.append(session, "mux", "queued", queued);
         }

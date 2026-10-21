@@ -25,14 +25,14 @@
   --row-min: calc(28px * var(--settings-scale));
   --card-radius: 10px;
   --sidebar-width: 208px;
-  /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
-     overridable by the host (--cmux-motion-*). Only opacity, transform and a collapsing row's
-     own height animate, so nothing else on the page moves. */
-  --motion-hover: var(--cmux-motion-hover, 80ms);
-  --motion-focus: var(--cmux-motion-focus, 100ms);
-  --motion-in: var(--cmux-motion-in, 120ms);
-  --motion-out: var(--cmux-motion-out, 80ms);
-  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Motion: the one motion scale (--cmux-motion-*, pages/shared/desktop.css): hover, focus and
+     anything leaving quick, anything arriving micro, easing out. Only opacity, transform and a
+     collapsing row's own height animate, so nothing else on the page moves. */
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
+  --motion-in: var(--cmux-motion-micro, 120ms);
+  --motion-out: var(--cmux-motion-quick, 80ms);
+  --motion-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   font-size: calc(12.5px * var(--settings-scale));
 }
 

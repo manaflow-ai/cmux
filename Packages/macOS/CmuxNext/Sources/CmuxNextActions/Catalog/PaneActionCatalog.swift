@@ -350,13 +350,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "palette.openFilesPane",
                 title: String(localized: "action.palette.openFilesPane", defaultValue: "Open Files as Pane", bundle: .module),
                 keywords: ["explorer", "pane"], category: .pane, symbol: "doc.text", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-files-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-files-as"
             ),
             ActionDescriptor(
                 id: "palette.openFindPane",
                 title: String(localized: "action.palette.openFindPane", defaultValue: "Open Find as Pane", bundle: .module),
                 keywords: ["search", "pane"], category: .pane, symbol: "text.magnifyingglass", surfaces: [.palette],
-                targets: [.pane], cliName: "pane open-find-as"
+                arguments: [CatalogArgument.optionalPathString], targets: [.pane], cliName: "pane open-find-as"
             ),
             ActionDescriptor(
                 id: "palette.openVaultPane",

@@ -294,6 +294,8 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
+            // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
+            watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
@@ -387,6 +389,10 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        // The newest command list: a client that has it needs no read of the log for it.
+        if let Some(commands) = &m.available_commands {
+            v["availableCommands"] = commands.clone();
+        }
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
         // The folder's HEAD when the session started (`git_state.rs`); its
@@ -417,6 +423,11 @@ impl Hub {
             "version": VERSION,
             "build": BUILD,
             "pid": std::process::id(),
+            // Its own executable, and whether it runs as `cmux-tui acp …`, so a
+            // client (host enroll) tells which program runs it without scanning
+            // processes. Never its command line: `--token` is on it.
+            "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
+            "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
@@ -450,6 +461,17 @@ impl Hub {
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
         })
     }
+}
+
+/// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
+/// enroll's `~/.local/bin/acpmux` link to a cmux-tui), not `acpmux …`.
+pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
+    args: impl IntoIterator<Item = A>,
+) -> bool {
+    let mut args = args.into_iter();
+    let first = args.next();
+    first.is_some_and(|a| std::path::Path::new(a.as_ref()).file_name() == Some("cmux-tui".as_ref()))
+        && args.next().is_some_and(|a| a.as_ref() == "acp")
 }
 
 #[cfg(test)]

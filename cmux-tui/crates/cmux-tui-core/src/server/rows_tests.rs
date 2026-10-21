@@ -320,3 +320,115 @@ fn layout_documents_apply_to_a_screen_with_rows_and_keep_them() {
     let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
     assert_eq!(heights, [json!(700), json!(300)], "a refused document changes nothing");
 }
+
+/// `rows-v1` layout documents carry rows: a column with two or more rows
+/// lists them as `rows: [{row_id, height}]`, top to bottom, where row 2..n's
+/// `row_id` is the split id of its compat chain split in the column's `root`
+/// (the row's content is that chain's subtree). `workspace.layout.apply` sets
+/// heights, turns a down-split chain into rows (row 1's `row_id` omitted: a
+/// new id), and `rows: []` returns a column to one row; omitted `rows` keep
+/// the column's rows.
+#[test]
+fn layout_documents_carry_rows_and_apply_sets_them() {
+    let wire = Wire::new();
+    let first = wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let left = wire.mux.with_state(|state| state.pane_of(first.id).unwrap());
+    wire.mux.new_pane_right(left, 0.5, Some((38, 22))).unwrap();
+    let mut wire = wire;
+    wire.ok(json!({"cmd": "split", "pane": left, "dir": "down"}));
+    assert_eq!(wire.columns().len(), 2, "{}", wire.screen());
+    assert!(wire.rows(0).is_empty(), "a plain down split is no row");
+    let (workspace, screen) = wire.mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    });
+    let resource = |operation: &str, params: Value, key: Option<&str>| {
+        let mut request = json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": operation,
+            "operation": operation, "params": params,
+        });
+        if let Some(key) = key {
+            request["idempotency_key"] = json!(key);
+        }
+        // A request the catalog refuses answers Err: a refusal as well.
+        crate::resource_router::handle_resource_message(&wire.mux, &request.to_string())
+            .unwrap_or_else(|error| json!({"ok": false, "error": format!("{error:?}")}))
+    };
+    let scope = json!({"machine": "current", "session": "current", "screen": screen});
+    let export = || resource("screen.layout.export", scope.clone(), None)["result"].clone();
+    let apply = |document: &Value, key: &str| {
+        let params = json!({
+            "machine": "current", "session": "current", "workspace": workspace,
+            "layout": document,
+        });
+        resource("workspace.layout.apply", params, Some(key))
+    };
+
+    let plain = export();
+    assert!(plain["root"]["columns"][0].get("rows").is_none(), "one row: no rows: {plain}");
+    let chain = plain["root"]["columns"][0]["root"]["split_id"].clone();
+    assert!(chain.is_string(), "{plain}");
+
+    // A down split becomes rows 1 and 2.
+    let mut rows = plain.clone();
+    rows["root"]["columns"][0]["rows"] = json!([{"height": 600}, {"row_id": chain, "height": 400}]);
+    let applied = apply(&rows, "rows-doc-make");
+    assert_eq!(applied["ok"], true, "{applied}");
+    let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
+    assert_eq!(heights, [json!(600), json!(400)], "{}", wire.screen());
+
+    // Export lists them, and the export round-trips.
+    let exported = export();
+    let listed = exported["root"]["columns"][0]["rows"].as_array().cloned().unwrap_or_default();
+    assert_eq!(listed.len(), 2, "{exported}");
+    assert_eq!(listed[1]["row_id"], chain, "row 2 is the chain split: {exported}");
+    assert_eq!(listed[0]["height"], 600);
+    assert!(listed[0]["row_id"].is_string() && listed[0]["row_id"] != chain, "{exported}");
+    assert!(exported["root"]["columns"][1].get("rows").is_none(), "{exported}");
+    let before = wire.screen();
+    let applied = apply(&exported, "rows-doc-same");
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(wire.screen(), before, "the exported document changes nothing");
+
+    // Heights change through the document; row ids stay.
+    let mut taller = exported.clone();
+    taller["root"]["columns"][0]["rows"][0]["height"] = json!(300);
+    taller["root"]["columns"][0]["rows"][1]["height"] = json!(700);
+    let applied = apply(&taller, "rows-doc-heights");
+    assert_eq!(applied["ok"], true, "{applied}");
+    let after = export();
+    assert_eq!(after["root"]["columns"][0]["rows"][0]["row_id"], listed[0]["row_id"]);
+    let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
+    assert_eq!(heights, [json!(300), json!(700)]);
+
+    // Refused documents change nothing.
+    let mut refused = Vec::new();
+    let mut low = exported.clone();
+    low["root"]["columns"][0]["rows"][1]["height"] = json!(50);
+    refused.push(apply(&low, "rows-doc-low"));
+    let mut stranger = exported.clone();
+    stranger["root"]["columns"][0]["rows"][1]["row_id"] =
+        exported["root"]["columns"][0]["column_id"].clone();
+    refused.push(apply(&stranger, "rows-doc-stranger"));
+    let mut unknown_first = exported.clone();
+    unknown_first["root"]["columns"][0]["rows"][0]["row_id"] = chain.clone();
+    refused.push(apply(&unknown_first, "rows-doc-first"));
+    let mut extra = exported.clone();
+    extra["root"]["columns"][0]["rows"][1]["width"] = json!(1);
+    refused.push(apply(&extra, "rows-doc-extra"));
+    for answer in refused {
+        assert_eq!(answer["ok"], false, "{answer}");
+    }
+    let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
+    assert_eq!(heights, [json!(300), json!(700)], "a refused document changes nothing");
+
+    // `rows: []`: one row again; the down split stays.
+    let mut flat = export();
+    flat["root"]["columns"][0]["rows"] = json!([]);
+    let applied = apply(&flat, "rows-doc-flat");
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert!(wire.rows(0).is_empty(), "{}", wire.screen());
+    let flat = export();
+    assert_eq!(flat["root"]["columns"][0]["root"]["split_id"], chain, "{flat}");
+    assert!(flat["root"]["columns"][0].get("rows").is_none(), "{flat}");
+}
