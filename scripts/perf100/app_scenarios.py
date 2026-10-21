@@ -271,7 +271,9 @@ def s2(args, run, rng):
     run.metric("stream.cmux_cpu_s_per_session", round(cmux.get("cpu_s", 0) / max(len(sessions), 1), 4))
     run.metric("stream.cmux_disk_written_mb_per_session",
                round(cmux.get("disk_written_mb", 0) / max(len(sessions), 1), 4))
-    # Token-to-screen on the visible agent pane, apart from the resource window (its reads cost app CPU).
+    # Token-to-page on the visible agent pane, apart from the resource window (its reads cost app
+    # CPU): agent write to the marker in the pane's chat state (debug.agent_pane chat_state, read
+    # every 5 ms). The pane's paint after that is not in it.
     if sessions:
         log = os.path.join(app.scratch, "marks.jsonl")
         probe_done = os.path.join(app.scratch, "done-probe")
@@ -287,25 +289,23 @@ def s2(args, run, rng):
                     emitted[e["mark"]] = e["t"]
         except (OSError, ValueError):
             pass
-        run.latency("token_to_screen", [(seen[m] - t) * 1000 for m, t in emitted.items() if m in seen])
+        run.latency("token_to_page", [(seen[m] - t) * 1000 for m, t in emitted.items() if m in seen])
         if not seen:
             # Evidence for the next fix: which pages exist and what the probe read.
             try:
                 diag = appdriver.Rpc(app.socket)
                 run.data["token_probe_debug"] = {
-                    "list": diag.result("debug.page", {"page": "cmux.agent", "action": "list"}),
-                    "state": diag.result("debug.page", {"page": "cmux.agent", "action": "state"}),
-                    "query_p": json.dumps(diag.result("debug.page", {"page": "cmux.agent", "action": "query",
-                                                                     "selector": "p"}))[-3000:],
+                    "pages": diag.result("debug.page", {"action": "list"}),
+                    "chat_state": json.dumps(diag.result("debug.agent_pane", {"action": "chat_state"}))[-3000:],
                 }
                 diag.close()
             except Exception as error:  # noqa: BLE001
                 run.data["token_probe_debug"] = repr(error)
         if len(seen) < len(emitted) or not emitted:
-            run.note(f"token_to_screen: {len(seen)} of {len(emitted)} markers seen on the agent page")
-            run.unverified("token_to_screen reads the agent page text with debug.page state; a page whose "
-                           "text it cannot read leaves the metric empty")
+            run.note(f"token_to_page: {len(seen)} of {len(emitted)} markers seen in the agent pane")
         _fifo_wait([probe_done], timeout=120)
+    run.unverified("token-to-screen pixels: S2 measures token-to-page (the agent pane's chat state); the paint "
+                   "after it is not measured")
     return app
 
 
@@ -316,9 +316,9 @@ def _watch_page_for_marks(app, marks: int, timeout: float) -> dict[str, float]:
     rpc = appdriver.Rpc(app.socket)
     try:
         while time.monotonic() < deadline and len(seen) < marks:
-            # Each marker is its own paragraph (replay_agent.py), so a `p` query (120 characters
-            # per element) shows it whole.
-            state = rpc.result("debug.page", {"page": "cmux.agent", "action": "query", "selector": "p"})
+            # The agent pane's own chat state (webviews automation.ts chatState): the last
+            # assistant message as the page holds it to render, through debug.agent_pane.
+            state = rpc.result("debug.agent_pane", {"action": "chat_state"})
             now = time.time()
             text = json.dumps(state)
             start = 0
@@ -389,11 +389,15 @@ def s4(args, run, rng):
     app = _new_app(args, run)
     t0 = time.monotonic()
     run.metric("cold.socket_ms", round(app.launch(), 1))
-    launch = app.wait_first_terminal()
+    launch = app.wait_first_terminal(timeout=10)  # a launch window may show no terminal at all
     for key in ("first_window_frame_committed", "first_terminal_surface_created"):
         if key in launch:
             run.metric(f"cold.{key}_ms", round(launch[key], 1))
-    app.focus_terminal()
+    if app.focus_terminal() is None:
+        # The launch window shows no terminal tab: open one, as a user's Cmd-T (counted in the time).
+        app.act("newSurface", focus=True)
+        run.note("S4 cold: the launch window had no terminal tab; launch-to-interactive includes a New Tab")
+        app.focus_terminal()
     ms = app.key_echo_ms("".join(rng.choice("qwzx") for _ in range(4)), timeout=60)
     run.metric("cold.launch_to_interactive_ms", round((time.monotonic() - t0) * 1000, 1) if ms is not None else None)
     run.data.setdefault("latency", {})["launch_to_interactive"] = {"cold_ms": run.data["metrics"].get("cold.launch_to_interactive_ms")}

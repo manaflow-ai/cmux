@@ -37,7 +37,7 @@ an older SHA that has no runner, cherry-pick `scripts/perf100/` onto it on a sid
 |---|---|---|
 | S0 idle | 10 terminals (3 run the idle agent TUI `fixtures/idle_tui.py`: alternate screen, blinking bar cursor, blocked on stdin), 5 Chromium tabs on local pages (`fixtures/pages.py`), the first terminal shown; 60 s idle window; then keystroke-to-glyph | cmux-tui: same 13 terminals; 60 s idle |
 | S1 flood | `yes \| head -c 200M` in 1 terminal, then in 10 terminals at once (tabs of one pane: one visible); each starts on its own go FIFO and reports on a done FIFO | same, with one attached client per terminal counting the bytes it receives |
-| S2 agents | 10 acpmux sessions on `fixtures/replay_agent.py`, each a workspace; each streams a seeded recorded fixture (`fixtures/agent-streams/`, speed 2); then token-to-screen on the visible agent pane | acpmux: 10 and 100 sessions, `acpmux send` as the client; token-to-client latency |
+| S2 agents | 10 acpmux sessions on `fixtures/replay_agent.py`, each a workspace; each streams a seeded recorded fixture (`fixtures/agent-streams/`, speed 2); then token-to-page on the visible agent pane | acpmux: 10 and 100 sessions, `acpmux send` as the client; token-to-client latency |
 | S3 scale | 200 workspaces x 5 terminals, capped by the PTYs a shared GUI host may take (default 300, leaving 150 free); per-terminal and per-workspace memory | cmux-tui: 200 x 5 = 1000 terminals (macOS caps at free PTYs; Linux does not) |
 | S4 start | cold start to interactive, quit; build the S3 session, quit keeping sessions, launch on the same profile: to interactive and to all workspaces | cold start to `identify`; daemon restart that adopts the S3 terminals; shutdown |
 
@@ -64,7 +64,7 @@ not in `cmux`):
 | bytes written to disk | `ri_logical_writes` (file writes before the cache; the most precise unprivileged per-process source on macOS); `ri_diskio_byteswritten` as `disk_io_written` | `/proc/pid/io` `write_bytes` (exact) |
 | on-disk size | allocated blocks under the scratch HOME / state root after the scenario | same |
 | socket bytes | bytes the runner's own clients receive (attach streams, `acpmux send`); no unprivileged per-process Unix-socket counter exists on either OS | same |
-| latency guards | keystroke-to-glyph: `debug.key` to the key on the terminal mirror's viewport text (`debug.surfaces text`, read every 2 ms: an upper bound by one read); token-to-screen: marker emitted by the agent to the marker in the agent page's text (`debug.page state`, read every 5 ms); launch-to-interactive: `open` to a typed key on screen | keystroke-to-echo (`send` to attach output); token-to-client (agent write to `acpmux send` stdout) |
+| latency guards | keystroke-to-glyph: `debug.key` to the key on the terminal mirror's viewport text (`debug.surfaces text`, read every 2 ms: an upper bound by one read); token-to-page: marker written by the agent to the marker in the agent pane's chat state (`debug.agent_pane chat_state`, read every 5 ms; the paint after it is not in it); launch-to-interactive: `open` to a typed key on screen | keystroke-to-echo (`send` to attach output); token-to-client (agent write to `acpmux send` stdout) |
 
 A process that ends between two samples keeps its last sample (up to one interval lost).
 The sampler reads counters only; it adds no wakeups or CPU to the measured processes.
