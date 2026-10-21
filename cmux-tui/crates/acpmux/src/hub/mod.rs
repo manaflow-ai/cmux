@@ -79,6 +79,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod peer_cache;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
@@ -93,6 +94,7 @@ pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+mod drafts;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -107,6 +109,7 @@ pub(crate) mod views;
 mod warm;
 mod web_control;
 mod web_token;
+pub(crate) mod worktree_care;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -1016,6 +1019,7 @@ impl Hub {
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
+            self.care_status(status);
         }
     }
 
@@ -1025,14 +1029,6 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
-    }
-}
-
-/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
-/// chat's draft. Any other prompt leaves the draft as it is.
-fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
-    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
-        meta.composer_draft = None;
     }
 }
 

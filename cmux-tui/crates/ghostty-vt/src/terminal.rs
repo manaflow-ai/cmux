@@ -1478,6 +1478,44 @@ impl Terminal {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
     }
 
+    /// Change the primary screen's scrollback storage limit in bytes (the
+    /// same budget [`Terminal::new`] takes). Lowering it drops the oldest
+    /// complete pages at once; raising it lets history grow again.
+    pub fn set_scrollback_max_bytes(&mut self, max_bytes: usize) -> Result<()> {
+        let previous_rows = self.scrollback_rows();
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                (&max_bytes as *const usize).cast(),
+            )
+        })?;
+        if self.scrollback_rows() != previous_rows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
+        }
+        Ok(())
+    }
+
+    /// Resident bytes of the primary screen's pages (screen and scrollback),
+    /// `None` when libghostty-vt cannot report it.
+    pub fn primary_resident_bytes(&self) -> Option<u64> {
+        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
+        // the plain C struct; `size` is then set to the struct size the
+        // getter requires.
+        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
+        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
+        check(unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
+                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
+            )
+        })
+        .ok()?;
+        Some(usage.primary_resident_bytes)
+    }
+
     /// Number of retained history rows, saturated to the protocol's `u32`.
     pub fn history_rows(&self) -> u32 {
         u32::try_from(self.scrollback_rows()).unwrap_or(u32::MAX)

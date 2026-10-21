@@ -83,3 +83,56 @@ fn a_stopped_turn_that_closes_open_work_posts_no_done_marker() {
         "{rows:?}"
     );
 }
+
+/// 2026-10-20: after the owner stopped a19, a background shell its run had
+/// started (Claude Code's run_in_background, which acpmux tracks and lets
+/// outlive the turn) still ran `git fetch` in the shared checkout. The
+/// owner's stop ends each stopped subagent's background processes too.
+#[test]
+fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
+    use optchat_chief::subagents::{Spawner, SubagentSettings};
+    use optchat_chief::tools::Orchestrator;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    let spawner = Arc::new(Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        SubagentSettings {
+            harness: "claude".into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ));
+    let worker = std::thread::spawn(move || spawner.spawn(vec!["watch the build".into()], None));
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(worker.join().unwrap().unwrap().contains("Started a1"));
+    let session = {
+        let inner = h.agents.inner.lock().unwrap();
+        let k = inner
+            .specs
+            .iter()
+            .position(|s| s.tags.contains_key("optchat.subagent"))
+            .expect("a1's session");
+        format!("s{}", k + 1)
+    };
+    owner_stop(&mut h);
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(inner.cancels.contains(&session), "{:?}", inner.cancels);
+    assert_eq!(inner.killed_processes, vec![session]);
+}

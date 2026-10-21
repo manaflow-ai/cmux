@@ -762,6 +762,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+def stdin_lines(early):
+    """stdin's lines, starting with the bytes read while waiting at the start gate."""
+    if early:
+        if not early.endswith(b"\n"):
+            early += sys.stdin.buffer.readline()
+        # Split and decoded as stdin is: only at newlines (serde_json leaves U+2028 unescaped).
+        import io
+        yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
+    yield from sys.stdin
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -773,13 +784,21 @@ def main():
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
+    # It still watches stdin while it waits: once the daemon that started it is gone (EOF), it exits, so a
+    # test that never opens the gate leaves no agent behind (257 of them polled forever on huge-blue, 2026-10-21).
+    # What arrives meanwhile is kept for after the gate.
     gate = os.environ.get("FAKE_START_GATE")
+    early = b""
     if gate:
-        import time
+        import select
         while not os.path.exists(gate):
-            time.sleep(0.02)
+            if select.select([sys.stdin.fileno()], [], [], 0.02)[0]:
+                chunk = os.read(sys.stdin.fileno(), 65536)
+                if not chunk:
+                    return
+                early += chunk
     sessions = 0
-    for line in sys.stdin:
+    for line in stdin_lines(early):
         line = line.strip()
         if not line:
             continue

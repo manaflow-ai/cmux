@@ -43,9 +43,10 @@ final class ComposeInlineRemoveHover: NSObject {
                 segment = f
                 return false
             }
-            // The attachment is the tallest thing on its line, so its box starts at the line's top.
+            // The picture is its line's only thing, at the line's top left (ComposeInlineAttachment).
             guard let s = segment else { return }
-            out.append((a, CGRect(x: s.minX + origin.x, y: s.minY + origin.y, width: s.width, height: min(s.height, a.bounds.height))))
+            out.append((a, CGRect(x: s.minX + origin.x, y: s.minY + origin.y, width: min(s.width, a.pictureSize.width),
+                                  height: min(s.height, a.pictureSize.height))))
         }
         return out
     }

@@ -2,8 +2,9 @@ public import Foundation
 import CmuxNextWakeups
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
-/// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder. Nil when gh is not installed,
-/// the branch has no pull request, or gh does not answer in time; it never prompts.
+/// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
+/// link (a hover card's `pr.inspect`). Nil when gh is not installed, there is no such pull
+/// request, or gh does not answer in time; it never prompts.
 public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// `gh`'s path; nil looks in the App's PATH and the usual install folders.
     var gh: String?
@@ -35,6 +36,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 
     public func read(in folder: String) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
+    }
+
+    /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
+    /// gh's argument is never anything but that URL. Runs in the home folder: no repository needed.
+    public func read(url: URL) async -> AgentPanePullRequest? {
+        await read(arguments: ["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
+                   in: environment["HOME"] ?? NSHomeDirectory())
     }
 
     /// The pull requests at `urls`, wherever their branches are checked out, by URL. github.com
@@ -92,7 +100,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// reads (``AgentPanePullRequest/fields``) and its last commit's check rollup.
     static func query(_ targets: [Target]) -> String {
         let fields = """
-            url number title state isDraft reviewDecision mergeable createdAt mergedAt additions deletions \
+            url number title state isDraft reviewDecision mergeable createdAt mergedAt additions deletions author { login } \
             commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename \
             ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
             """
@@ -159,13 +167,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         return environment
     }
 
-    package static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    public static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
         return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     /// The process, for the deadline.
-    private final class Held: @unchecked Sendable { // crash-allow: holds only a Process; the deadline calls only isRunning and terminate(), which Foundation makes thread-safe
+    private final class Held: @unchecked Sendable { // crash-allow: one immutable let; the deadline only reads isRunning and calls terminate, which Process allows from any thread
         let process = Process()
     }
 
@@ -195,5 +203,47 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // A deadline kill is never an answer.
         guard process.terminationStatus == 0 || (anyExit && process.terminationReason == .exit) else { return nil }
         return try? Data(contentsOf: file)
+    }
+}
+
+/// The pull requests reply links and the pull request bars point at, for their hover cards
+/// (`pr.inspect`): each read with gh once, and again only after `freshness`, so hovering the same
+/// link again asks nothing; two hovers of one link while it is read share that read.
+@MainActor
+public final class AgentReplyPullRequests {
+    private struct Answer {
+        var pullRequest: AgentPanePullRequest?
+        var at: ContinuousClock.Instant
+    }
+
+    /// The App's one cache: every chat's cards read through it.
+    public static let shared = AgentReplyPullRequests()
+    /// The most links kept; the oldest go first.
+    static let maximumKept = 200
+
+    private let reader: AgentChatPullRequestReader
+    private let freshness: Duration
+    private var answers: [URL: Answer] = [:]
+    private var reading: [URL: Task<AgentPanePullRequest?, Never>] = [:]
+
+    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+        self.reader = reader
+        self.freshness = freshness
+    }
+
+    public func read(_ url: URL) async -> AgentPanePullRequest? {
+        if let answer = answers[url], ContinuousClock.now - answer.at < freshness { return answer.pullRequest }
+        if let task = reading[url] { return await task.value }
+        let reader = reader
+        // task-owner: one gh read per stale link; hovers of the same link await it.
+        let task = Task { await reader.read(url: url) }
+        reading[url] = task
+        let pullRequest = await task.value
+        reading[url] = nil
+        answers[url] = Answer(pullRequest: pullRequest, at: .now)
+        if answers.count > Self.maximumKept, let oldest = answers.min(by: { $0.value.at < $1.value.at })?.key {
+            answers[oldest] = nil
+        }
+        return pullRequest
     }
 }
