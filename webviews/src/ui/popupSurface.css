@@ -42,7 +42,8 @@
 
 /* A popup also travels a few points out of its trigger (Leo 2026-10-20, directional motion): one
    above its trigger rises, one below drops, one beside it slides away from it. Base UI names the
-   side (`data-side`); the composer's own menus say "above". */
+   side (`data-side`); a menu useUiAnchor places gets its travel from the side it opened on (an
+   inline `--ui-popup-y`), so one that flips below its chip drops instead of rising. */
 :where(.ui-popup:is([data-side="top"], [data-side="above"])) {
   --ui-popup-y: 4px;
 }
