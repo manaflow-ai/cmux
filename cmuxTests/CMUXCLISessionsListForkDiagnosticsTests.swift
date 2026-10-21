@@ -50,6 +50,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func testSessionsListProviderRouteMatchFailsClosedForUnknownEvidence() {
+        #expect(!sessionsListProviderRoutesMatch(expected: "unknown", live: "unknown"))
+        #expect(!sessionsListProviderRoutesMatch(expected: "subrouter", live: "unknown"))
+        #expect(!sessionsListProviderRoutesMatch(expected: "unknown", live: "direct"))
+        #expect(sessionsListProviderRoutesMatch(expected: "direct", live: "direct"))
+        #expect(sessionsListProviderRoutesMatch(expected: "subrouter", live: "subrouter"))
+        #expect(!sessionsListProviderRoutesMatch(expected: "subrouter", live: "direct"))
+    }
+
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
