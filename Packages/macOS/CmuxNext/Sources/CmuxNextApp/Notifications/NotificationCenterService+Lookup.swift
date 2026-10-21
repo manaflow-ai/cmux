@@ -171,6 +171,20 @@ extension NotificationCenterService {
         return marks
     }
 
+    /// Of the panes in `removed` (their mark just went away), those read because
+    /// the person went into them: their ring blinks out. Forgets the entry
+    /// reads of every tab in `workspace`, so a later mark starts clean.
+    func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
+        guard !entryReads.isEmpty else { return [] }
+        var entered: Set<LayoutPaneID> = []
+        for pane in workspace.screens.flatMap(\.panes) {
+            let read = pane.tabs.contains { entryReads.contains($0.id) }
+            if read, removed.contains(LayoutPaneID(pane.id)) { entered.insert(LayoutPaneID(pane.id)) }
+            for tab in pane.tabs { entryReads.remove(tab.id) }
+        }
+        return entered
+    }
+
     /// Whether `workspace` draws an attention ring now (the Dismiss Highlight item shows only then).
     func hasHighlight(_ workspace: WorkspaceModel) -> Bool {
         !attentionMarks(for: workspace).isEmpty

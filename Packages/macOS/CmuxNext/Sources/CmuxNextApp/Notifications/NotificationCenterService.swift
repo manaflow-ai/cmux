@@ -38,6 +38,9 @@ final class NotificationCenterService {
     /// The tabs viewed at the last viewed-tab pass: a tab marked unread
     /// (Mark Tab Unread) clears when it comes into view, not while it stays.
     @ObservationIgnored var viewedTabIDs: Set<String> = []
+    /// Tabs read because the person went into their pane (a click, a key, an
+    /// open), until the layout takes them for the ring's dismiss flash.
+    @ObservationIgnored var entryReads: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -253,6 +256,7 @@ final class NotificationCenterService {
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
+        if [.click, .keystroke, .open].contains(trigger) { entryReads.insert(tab.id) }
         acknowledge(tab)
     }
 

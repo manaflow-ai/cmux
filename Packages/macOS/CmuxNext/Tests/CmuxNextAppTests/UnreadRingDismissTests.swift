@@ -35,4 +35,24 @@ struct UnreadRingDismissTests {
         service.interacted(.focus, tab: tab)
         #expect(!service.log.contains("ack \(tab.id)"), "focus cleared the ring")
     }
+
+    /// Only going into the pane (a click, a key, an open) makes its ring blink out; a dismiss verb
+    /// (Mark Read) or a timeout clears it without the flash.
+    @Test(arguments: [NotificationTrigger.click, .keystroke, .open])
+    func goingIntoThePaneMarksItForTheDismissFlash(_ trigger: NotificationTrigger) throws {
+        let (service, tab) = try Self.unreadTab()
+        service.interacted(trigger, tab: tab)
+        #expect(service.entryReads.contains(tab.id))
+    }
+
+    @Test func markReadAndATimeoutClearWithoutTheFlash() throws {
+        let (service, tab) = try Self.unreadTab()
+        service.acknowledge(tab)
+        #expect(!service.entryReads.contains(tab.id), "Mark Read would flash")
+        let (timed, other) = try Self.unreadTab()
+        timed.preferences.dismissal = .timeout
+        timed.interacted(.timeout, tab: other)
+        #expect(timed.log.contains("ack \(other.id)"))
+        #expect(!timed.entryReads.contains(other.id), "a timeout would flash")
+    }
 }

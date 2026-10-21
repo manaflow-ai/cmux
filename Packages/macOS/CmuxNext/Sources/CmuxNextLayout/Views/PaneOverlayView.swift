@@ -193,7 +193,7 @@ final class PaneOverlayView: NSView {
 
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
-                focused: Bool = false, animated: Bool) {
+                readByEntry: Bool = false, animated: Bool) {
         self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
@@ -228,7 +228,7 @@ final class PaneOverlayView: NSView {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
         }
         Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
-        applyAttention(mark, focused: focused, animated: animated)
+        applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
     }
 
@@ -253,16 +253,17 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    /// `focused`: the pane has focus, so a mark that goes away was read by
-    /// going into the pane (a click, a key): the ring blinks out, as cmux
-    /// classic's dismiss flash did. A mark read elsewhere just fades.
-    private func applyAttention(_ mark: AttentionMark?, focused: Bool, animated: Bool) {
+    /// `readByEntry`: the mark went away because the person went into the
+    /// pane (a click, a key, an open): the ring blinks out, as cmux classic's
+    /// dismiss flash did. A mark cleared any other way (Mark Read, a timeout,
+    /// a mute, another device) just fades.
+    private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
-            if previous != nil, focused, animated,
+            if previous != nil, readByEntry, animated,
                let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
