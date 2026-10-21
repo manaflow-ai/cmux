@@ -353,10 +353,13 @@ test("a tab closed on a chat hands that chat over", async () => {
   expect(chat.host.tails.has(chat.a)).toBe(true);
 });
 
-/// The hand-over on `close` goes to the app host ALONE, and not into this page's own map. The page
-/// is the one going away: a tail left behind it would be drawn by whatever client comes next in
-/// this page, which never read that chat — its rows, its queued prompts and its turn's usage, under
-/// a chat id that by then may mean another chat entirely.
+/// The hand-over on `close` goes to the app host ALONE, and not into this page's own map: the host's
+/// copy is the one that outlives the page, and nothing should be left behind a client that is gone.
+///
+/// Where the host has the same tail this only costs the next client one in-process read. It matters
+/// where there is no host to read back from, which is what this test arranges by taking the host
+/// away: then the map would be the only copy, and a later client would draw rows it never attached
+/// to and cannot stand behind.
 ///
 /// This is not hypothetical. Writing the page's map on `close` turned
 /// `test/agent-pane-turn-tokens.test.tsx` and `src/.../failedPromptRetry.test.ts` red: a chat that

@@ -109,7 +109,7 @@ public final class AgentPageProvider: PageProvider {
         // Named, not a prefix: `scrollAnchor` treats anything but `.get` as a write, so a later
         // `chat.scrollAnchor.forget` would have erased a chat's place instead of being refused.
         if AgentPaneScrollAnchors.handles(method: method) { return try Self.scrollAnchor(method, params: params, op: op) }
-        if method.hasPrefix("chat.tail") { return try Self.tail(method, params: params, op: op) }
+        if AgentPaneTailCache.handles(method: method) { return try Self.tail(method, params: params, op: op) }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }

@@ -38,7 +38,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // the chat's, not the pane's, so it never reaches the model, and never logged (it is the
         // chat's text).
         if let body = message.body as? [String: Any], let method = body["method"] as? String,
-           method.hasPrefix("chat.tail") {
+           AgentPaneTailCache.handles(method: method) {
             return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
         }
         let request = AgentPaneRequest(body: message.body)

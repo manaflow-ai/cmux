@@ -142,6 +142,21 @@ struct ChatTailCacheTests {
         #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"]))).count == 4)
     }
 
+    /// Both hosts branch on ``AgentPaneTailCache/handles(method:)``, and it names its two ops rather
+    /// than matching the `chat.tail` prefix. `reply(to:params:)` takes anything that is not `.get`
+    /// as a write, so a later `chat.tail.forget` matched by prefix would have ERASED the chat's tail
+    /// instead of being refused — and on the pane's own host a prefix would swallow it before
+    /// ``AgentPaneRequest`` could give it to the model. The same reason `AgentPaneScrollAnchors`
+    /// names its ops, two lines above this branch in `AgentPageProvider`.
+    @Test func onlyTheTwoOpsThisStoreServesAreTakenAsItsOwn() throws {
+        #expect(AgentPaneTailCache.handles(method: "chat.tail"))
+        #expect(AgentPaneTailCache.handles(method: "chat.tail.get"))
+        #expect(!AgentPaneTailCache.handles(method: "chat.tail.forget"))
+        #expect(!AgentPaneTailCache.handles(method: "chat.tail.anything"))
+        #expect(!AgentPaneTailCache.handles(method: "chat.tailgate"))
+        #expect(!AgentPaneTailCache.handles(method: "chat.scrollAnchor"))
+    }
+
     @Test func aRequestWithoutAChatIsRefused() throws {
         defer { AgentPaneTailCache.shared.clear() }
         #expect(Self.bridge("chat.tail.get", [:])["ok"] as? Bool == false)

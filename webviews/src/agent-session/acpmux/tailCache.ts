@@ -55,11 +55,16 @@ export function keptTail(sessionId: string): KeptTail | undefined {
 /// Keeps `tail` for this chat's next open, here and in the app host.
 ///
 /// `forThisPage` is false when the client that read the chat is going away (its `close`, the
-/// page's `pagehide`): the next open of that chat is in another page, which reads the host's copy,
-/// so there is nothing for this page's own map to serve. Keeping it there would leave a tail
-/// behind a client that no longer exists, and a later client in this page would draw a chat it
-/// never read as though it had — the chat's rows, its queue and its usage, under a session id that
-/// now means something else.
+/// page's `pagehide`): the host's copy is the one that outlives the page, so the map is left alone
+/// and nothing is kept behind a client that no longer exists.
+///
+/// With a host this costs the next client in that page one in-process read instead of a map hit,
+/// and it draws the same tail. It matters where there is no host to read back from — a page outside
+/// the app, the gallery, a test — and where `writeHostTail` cut the tail to nothing: there the map
+/// would be the only copy, and a later client would draw a chat it never attached to as though it
+/// had. Session ids are not reused, so the rows would be that chat's; they would simply be rows
+/// this client never read and cannot stand behind, which is the same thing `forgetTail` exists to
+/// prevent after a failed attach.
 export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
   if (forThisPage) {
     keptTails.delete(sessionId);
@@ -96,11 +101,13 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
 function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
   const already = reading.get(sessionId);
   if (already) return already;
-  const read = callHost<unknown>("chat.tail.get", { sessionId })
+  const read: Promise<KeptTail | undefined> = callHost<unknown>("chat.tail.get", { sessionId })
     .then((value) => {
       const tail = tailFromHost(value);
-      // Only when this page read nothing of its own meanwhile: its own tail is the newer one.
-      if (tail && !keptTails.has(sessionId)) {
+      // Only when this page read nothing of its own meanwhile (its own tail is the newer one) and
+      // only while this read is still the chat's: `forgetTail` drops the entry for a chat this page
+      // no longer stands behind, and an answer already in flight must not put it back.
+      if (tail && !keptTails.has(sessionId) && reading.get(sessionId) === read) {
         keptTails.set(sessionId, tail);
         while (keptTails.size > KEPT_TAILS) keptTails.delete(keptTails.keys().next().value!);
       }
@@ -110,7 +117,9 @@ function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
     // the chat has no kept tail and opens from acpmux, as it did before. A cache never fails an open.
     .catch(() => undefined)
     .finally(() => {
-      reading.delete(sessionId);
+      // Only this read's own entry: a `forgetTail` and a second read since would otherwise lose
+      // theirs to a late answer's cleanup.
+      if (reading.get(sessionId) === read) reading.delete(sessionId);
     });
   reading.set(sessionId, read);
   return read;
