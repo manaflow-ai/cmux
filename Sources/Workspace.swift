@@ -4697,8 +4697,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func refreshTabShortcutModifier() {
         let shortcut = KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
         let flags: NSEvent.ModifierFlags? = shortcut.isUnbound ? nil : shortcut.modifierFlags
-        guard bonsplitController.tabShortcutModifierFlags != flags else { return }
+        // Hint eligibility for a bound shortcut belongs to the focus
+        // controller; an unbound one has nothing to hint.
+        let disablesHints = shortcut.isUnbound && bonsplitController.tabShortcutHintsEnabled
+        guard bonsplitController.tabShortcutModifierFlags != flags || disablesHints else { return }
         bonsplitController.tabShortcutModifierFlags = flags
+        if disablesHints {
+            bonsplitController.tabShortcutHintsEnabled = false
+        }
     }
 
     func refreshSplitButtonBackdropEffect() {
