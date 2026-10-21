@@ -1,6 +1,7 @@
-//! `cmux agent open SESSION [--name NAME] [--key UUID] [--cwd DIR] [--host HOST]`:
-//! an existing acpmux session (one `cmux acp ensure` made) in a new workspace
-//! of the app, the app action with the CLI name `agent open`
+//! `cmux agent open SESSION [--name NAME] [--key UUID] [--cwd DIR] [--host HOST]
+//! [--pane pane:ID | --workspace workspace:ID]`: an existing acpmux session (one
+//! `cmux acp ensure` made) in a new workspace of the app, or as a tab of an existing
+//! pane or workspace without focus (#23026), the app action with the CLI name `agent open`
 //! (`agent.openSessionWorkspace`). Scripts and coordinators make a session
 //! they started from the CLI appear in the app this way.
 

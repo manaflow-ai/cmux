@@ -15,9 +15,13 @@ import CmuxNextDesign
 struct AppWindowImage {
     let services: AppServices
 
-    /// The window's image at its backing scale.
+    /// The window's image at its backing scale. `contentOnly` (an agent's or a script's
+    /// pane or tab capture, #23026) leaves out every child and floating window and every
+    /// Chromium page: a hover card, drag ghost or menu over the pane can show a browser
+    /// page's pixels, which automation gets only through the browser host's masked capture.
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
-    func capture(_ window: NSWindow) async throws -> CGImage {
+    func capture(_ window: NSWindow, contentOnly: Bool = false) async throws -> CGImage {
+        if contentOnly { return try await window.screenshotImage(includeChild: { _ in false }) }
         let base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
         var layers: [WindowImageLayer] = []
         for (page, rect) in DebugWindowSnapshot.chromiumPages(in: window, services: services) {
