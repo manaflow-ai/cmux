@@ -4977,6 +4977,7 @@
     "unsupportedParams": "This link includes unsupported parameters cmux will reject: {params}",
     "conflictingParams": "This link includes parameters that cannot be used together: {params}",
     "invalidParams": "This link includes invalid parameter values: {params}",
+    "ignoredParams": "cmux ignores parameters it does not use: {params}. The session still opens.",
     "fixParams": "Fix the URL parameters, then reload this page.",
     "examplePrefix": "See an",
     "exampleLink": "example link",

@@ -3451,6 +3451,7 @@
     "unsupportedParams": "此链接包含 cmux 将拒绝的不受支持的参数：{params}",
     "conflictingParams": "此链接包含不能一起使用的参数：{params}",
     "invalidParams": "此链接包含无效参数值：{params}",
+    "ignoredParams": "cmux 会忽略它不使用的参数：{params}。会话仍会打开。",
     "fixParams": "修复 URL 参数，然后重新加载此页面。",
     "examplePrefix": "参见",
     "exampleLink": "示例链接",
