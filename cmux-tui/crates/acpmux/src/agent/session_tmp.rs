@@ -11,7 +11,9 @@
 //! path stays short (about 64 bytes with a UUIDv7 id) because tools make
 //! sockets under `TMPDIR` and macOS allows 104 bytes for one. Several daemons
 //! of one user (the person's, a Chief home's `<home>/acpmux`) share the
-//! per-user directory; each one sweeps only its own folder.
+//! per-user directory; each one sweeps only its own folder. A daemon's root
+//! names its acpmux home (`.home`); a daemon whose home hashes to a root that
+//! names another home gets no folder, so two daemons never share a root.
 //!
 //! The folder lives as long as acpmux knows the session: a purge removes it,
 //! and a starting daemon removes every folder in its own root whose session
@@ -127,6 +129,11 @@ pub(crate) fn make(base: &Path, acpmux_home: &Path, session_id: &str) -> Option<
     let t = private_child(base, TMP_SUBDIR, uid)?;
     let daemon = private_child(&t, root.file_name()?.to_str()?, uid)?;
     record_home(&daemon, acpmux_home);
+    // Another daemon's root (two homes, one hash): its sweep would take
+    // this daemon's folders.
+    if recorded_home(&daemon).as_deref() != Some(acpmux_home) {
+        return None;
+    }
     private_child(&daemon, session_id, uid)
 }
 
@@ -160,10 +167,15 @@ fn private_child(parent: &Path, name: &str, uid: u32) -> Option<PathBuf> {
 /// TypeScript bindings, chatmux-relay), so an agent without
 /// `XDG_RUNTIME_DIR` would look for them in `dir`. With `pin_runtime_dir`
 /// (macOS) such an agent also gets `XDG_RUNTIME_DIR` = the base it resolved
-/// before (its `TMPDIR`, else `/tmp`), and `CMUX_BROWSER_HOST_SOCKET` = the
-/// browser host socket it resolved before (`$TMPDIR/cmux-<uid>/browser-host.sock`),
+/// before (its `TMPDIR`), and `CMUX_BROWSER_HOST_SOCKET` = the browser host
+/// socket it resolved before (`$TMPDIR/cmux-<uid>/browser-host.sock`),
 /// because that resolver lays its path out differently under
-/// `XDG_RUNTIME_DIR` (`cmux/browser-host.sock`). Elsewhere (Linux without
+/// `XDG_RUNTIME_DIR` (`cmux/browser-host.sock`). Not under a cmux daemon
+/// (`CMUX_TUI_SOCKET`): there cmux-browser-host takes a named socket for the
+/// daemon's own host and never starts one, so that agent keeps the
+/// `$TMPDIR/cmux/browser-host.sock` it resolves and starts its own host
+/// there. A Mac agent without `TMPDIR` keeps it unset: a pinned `/tmp` would
+/// move `remote_runtime`'s `/tmp/cmux-rd-<euid>`. Elsewhere (Linux without
 /// a runtime dir) `XDG_RUNTIME_DIR` is not pinned: `systemctl --user` and
 /// the app servers' socket folder (cmux-tui-core `server_tmp`) read a set
 /// `XDG_RUNTIME_DIR` as the systemd runtime dir and refuse `/tmp`; there the
@@ -191,48 +203,14 @@ pub(crate) fn env_for(
     {
         return out;
     }
-    let tmpdir = set("TMPDIR");
+    let Some(tmpdir) = set("TMPDIR") else { return out };
     out.push(("TMPDIR", dir.as_os_str().to_owned()));
-    out.push(("XDG_RUNTIME_DIR", tmpdir.clone().unwrap_or_else(|| "/tmp".into()).into()));
-    if set("CMUX_BROWSER_HOST_SOCKET").is_none() {
-        // `std::env::temp_dir()` as the agent resolved it: its TMPDIR, else
-        // the platform's own fallback.
-        let temp = tmpdir.map(PathBuf::from).unwrap_or_else(platform_temp_fallback);
-        let socket = temp.join(format!("cmux-{uid}")).join("browser-host.sock");
+    out.push(("XDG_RUNTIME_DIR", tmpdir.clone().into()));
+    if set("CMUX_BROWSER_HOST_SOCKET").is_none() && set("CMUX_TUI_SOCKET").is_none() {
+        let socket = PathBuf::from(tmpdir).join(format!("cmux-{uid}")).join("browser-host.sock");
         out.push(("CMUX_BROWSER_HOST_SOCKET", socket.into_os_string()));
     }
     out
-}
-
-/// What `std::env::temp_dir()` returns without `TMPDIR`: the per-user temp
-/// dir on macOS (`confstr(_CS_DARWIN_USER_TEMP_DIR)`), else `/tmp`.
-fn platform_temp_fallback() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    if let Some(dir) = darwin_user_temp_dir() {
-        return dir;
-    }
-    PathBuf::from("/tmp")
-}
-
-#[cfg(target_os = "macos")]
-fn darwin_user_temp_dir() -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    // SAFETY: a null buffer of length 0 asks for the required length.
-    let length = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, std::ptr::null_mut(), 0) };
-    if length == 0 {
-        return None;
-    }
-    let mut buffer = vec![0u8; length];
-    // SAFETY: buffer holds `length` bytes, the size confstr reported.
-    let written = unsafe {
-        libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buffer.as_mut_ptr().cast(), length)
-    };
-    if written == 0 {
-        return None;
-    }
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
-    buffer.truncate(end);
-    (!buffer.is_empty()).then(|| PathBuf::from(OsString::from_vec(buffer)))
 }
 
 /// Remove `dir` when it is a real directory (lstat: a symlink there is left,
@@ -244,6 +222,31 @@ fn remove_dir(dir: &Path) {
     {
         tracing::debug!(dir = %dir.display(), "session tmp folder not removed: {e}");
     }
+}
+
+/// `dir` is a real directory (lstat) of this user's that no one else can
+/// write or list, so nothing below it can be swapped for a symlink between a
+/// listing and a removal.
+#[cfg(unix)]
+fn private_to_me(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    std::fs::symlink_metadata(dir)
+        .is_ok_and(|m| m.file_type().is_dir() && m.uid() == uid && m.mode() & 0o077 == 0)
+}
+
+#[cfg(not(unix))]
+fn private_to_me(_dir: &Path) -> bool {
+    false
+}
+
+/// This daemon's root, when it and every folder above it up to the base are
+/// [`private_to_me`] and it names `acpmux_home`.
+fn own_root(base: &Path, acpmux_home: &Path) -> Option<PathBuf> {
+    let root = daemon_root(base, acpmux_home);
+    let private = [base, &base.join(TMP_SUBDIR), &root].iter().all(|d| private_to_me(d));
+    (private && recorded_home(&root).as_deref() == Some(acpmux_home)).then_some(root)
 }
 
 /// `root/<session_id>`, for an id that is one path component.
@@ -280,15 +283,20 @@ fn record_home(root: &Path, acpmux_home: &Path) {
     if std::fs::symlink_metadata(&path).is_ok() {
         return;
     }
+    // Written aside and linked into place: a reader never sees half a
+    // record, and a second writer never replaces the first.
+    let part = root.join(format!("{HOME_RECORD}.{}", uuid::Uuid::now_v7().simple()));
     if let Ok(mut file) =
-        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)
     {
-        let _ = file.write_all(acpmux_home.as_os_str().as_encoded_bytes());
+        if file.write_all(acpmux_home.as_os_str().as_encoded_bytes()).is_ok() {
+            let _ = std::fs::hard_link(&part, &path);
+        }
+        let _ = std::fs::remove_file(&part);
     }
 }
 
-/// The acpmux home a root names, when it is a regular file holding an
-/// absolute path.
+/// The acpmux home a root names, when its record is a regular file.
 fn recorded_home(root: &Path) -> Option<PathBuf> {
     let path = root.join(HOME_RECORD);
     let meta = std::fs::symlink_metadata(&path).ok()?;
@@ -296,14 +304,13 @@ fn recorded_home(root: &Path) -> Option<PathBuf> {
         return None;
     }
     let text = String::from_utf8(std::fs::read(&path).ok()?).ok()?;
-    let home = PathBuf::from(text);
-    home.is_absolute().then_some(home)
+    Some(PathBuf::from(text))
 }
 
 /// The session is gone for good: remove its folder in this daemon's root
-/// and the first build's folder under `user_home`.
+/// ([`own_root`]) and the first build's folder under `user_home`.
 pub(crate) fn remove(base: &Path, acpmux_home: &Path, user_home: Option<&Path>, session_id: &str) {
-    if let Some(dir) = session_dir(&daemon_root(base, acpmux_home), session_id) {
+    if let Some(dir) = own_root(base, acpmux_home).and_then(|root| session_dir(&root, session_id)) {
         remove_dir(&dir);
     }
     if let Some(dir) = user_home.and_then(|h| session_dir(&legacy_root(h), session_id)) {
@@ -321,9 +328,11 @@ pub(crate) fn remove_session(session_id: &str) {
 /// What a starting daemon removes, listed before it serves (so no session
 /// can start in between) and removed later by [`remove_all`]:
 ///
-/// - in its own root, every session folder whose session `known` does not have;
-/// - every other daemon's root whose recorded acpmux home no longer exists
-///   (that daemon and its store are gone: a test's, a removed Chief home's);
+/// - in its own root ([`own_root`]), every session folder whose session
+///   `known` does not have;
+/// - every other daemon's root whose recorded acpmux home (an absolute path)
+///   no longer exists (that daemon and its store are gone: a test's, a
+///   removed Chief home's), when the per-user directory is private;
 /// - in the first build's shared root (every daemon of this user used it,
 ///   so a session this daemon does not know may be another daemon's live
 ///   one): only folders of sessions this daemon knows as closed (`closed`).
@@ -335,15 +344,25 @@ pub(crate) fn stale(
     closed: &dyn Fn(&str) -> bool,
 ) -> Vec<PathBuf> {
     let own = daemon_root(base, acpmux_home);
-    let mut out = real_dirs_in(&own, &|name| session_named(name) && !known(name));
+    let mut out = match own_root(base, acpmux_home) {
+        Some(root) => real_dirs_in(&root, &|name| session_named(name) && !known(name)),
+        None => Vec::new(),
+    };
     let own_name = own.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
     let daemon_named = |name: &str| {
         name.len() == 8 && name.bytes().all(|b| b.is_ascii_hexdigit()) && name != own_name
     };
-    for root in real_dirs_in(&base.join(TMP_SUBDIR), &daemon_named) {
+    let t = base.join(TMP_SUBDIR);
+    let roots = if private_to_me(base) && private_to_me(&t) {
+        real_dirs_in(&t, &daemon_named)
+    } else {
+        Vec::new()
+    };
+    for root in roots {
         if recorded_home(&root).is_some_and(|home| {
-            std::fs::symlink_metadata(&home)
-                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            home.is_absolute()
+                && std::fs::symlink_metadata(&home)
+                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
         }) {
             out.push(root);
         }
@@ -483,7 +502,7 @@ mod tests {
                 Some(dir) => PathBuf::from(dir).join("cmux"),
                 None => set("TMPDIR")
                     .map(PathBuf::from)
-                    .unwrap_or_else(platform_temp_fallback)
+                    .unwrap_or_else(|| "/platform-temp".into())
                     .join(format!("cmux-{uid}")),
             }
             .join("browser-host.sock"),
@@ -510,8 +529,13 @@ mod tests {
                     .map(|(_, v)| v.to_string_lossy().into_owned())
                     .or_else(|| before(k))
             };
-            assert_eq!(after("TMPDIR").as_deref(), dir.to_str(), "{case:?}");
             assert_eq!(after(SESSION_TMPDIR_ENV).as_deref(), dir.to_str());
+            if before("TMPDIR").is_some_and(|v| !v.is_empty()) {
+                assert_eq!(after("TMPDIR").as_deref(), dir.to_str(), "{case:?}");
+            } else {
+                // No TMPDIR to pin: nothing but the session's own folder.
+                assert_eq!(changes, vec![(SESSION_TMPDIR_ENV, dir.into())], "{case:?}");
+            }
             assert_eq!(resolved(&after, 501), resolved(&before, 501), "{case:?}");
         }
         // The base it pins is the agent's own TMPDIR, verbatim.
@@ -523,6 +547,30 @@ mod tests {
             501,
         );
         assert!(env.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
+    }
+
+    #[test]
+    fn under_a_cmux_daemon_the_browser_host_socket_is_not_named() {
+        // cmux-browser-host takes a named socket next to CMUX_TUI_SOCKET for
+        // the daemon's own host and never starts one; unnamed, the agent
+        // resolves a socket of its own and starts its host there.
+        let dir = Path::new("/tmp/acpmux-501/t/0/s");
+        let before = |k: &str| match k {
+            "TMPDIR" => Some("/var/folders/ab/T/".to_owned()),
+            "CMUX_TUI_SOCKET" => Some("/var/folders/ab/T/cmux-501/tui.sock".to_owned()),
+            _ => None,
+        };
+        let changes = env_for(dir, before, |_| false, true, 501);
+        assert!(!changes.iter().any(|(k, _)| *k == "CMUX_BROWSER_HOST_SOCKET"), "{changes:?}");
+        assert!(changes.contains(&("XDG_RUNTIME_DIR", "/var/folders/ab/T/".into())));
+        let after = |k: &str| {
+            changes
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map(|(_, v)| v.to_string_lossy().into_owned())
+                .or_else(|| before(k))
+        };
+        assert_eq!(resolved(&after, 501).1, Path::new("/var/folders/ab/T/cmux/browser-host.sock"));
     }
 
     #[test]
@@ -615,6 +663,81 @@ mod tests {
         // Its own root is never taken for a gone one, even with a stale record.
         std::fs::remove_dir(&mine).unwrap();
         assert!(super::stale(&base, &mine, None, &|_| true, &|_| false).is_empty());
+    }
+
+    #[test]
+    fn nothing_is_swept_or_purged_below_a_base_others_can_change() {
+        let s = Scratch::new("unsafe-base");
+        let base = s.0.join("acpmux-1");
+        let (mine, gone) = (s.0.join("mine"), s.0.join("gone"));
+        std::fs::create_dir(&mine).unwrap();
+        std::fs::create_dir(&gone).unwrap();
+        let a = make(&base, &mine, A).unwrap();
+        let b = make(&base, &mine, B).unwrap();
+        let theirs = make(&base, &gone, A).unwrap();
+        std::fs::remove_dir(&gone).unwrap();
+        let own = daemon_root(&base, &mine);
+        for widen in [base.clone(), base.join("t"), own.clone()] {
+            std::fs::set_permissions(&widen, std::fs::Permissions::from_mode(0o777)).unwrap();
+            let listed = stale(&base, &mine, None, &|_| false, &|_| false);
+            if widen == own {
+                // Only the gone daemon's root, in a base still private.
+                assert_eq!(listed, vec![daemon_root(&base, &gone)]);
+            } else {
+                assert!(listed.is_empty(), "{widen:?}: {listed:?}");
+            }
+            remove(&base, &mine, None, A);
+            assert!(a.is_dir() && b.is_dir() && theirs.is_dir(), "{widen:?}");
+            std::fs::set_permissions(&widen, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        // A symlink for `t` (a private base, as a stranger could not make
+        // one, but checked the same): nothing it names is listed.
+        let s2 = Scratch::new("link-t");
+        let base2 = s2.0.join("acpmux-1");
+        std::fs::create_dir(&base2).unwrap();
+        std::fs::set_permissions(&base2, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink(base.join("t"), base2.join("t")).unwrap();
+        assert!(stale(&base2, &mine, None, &|_| false, &|_| false).is_empty());
+        remove(&base2, &mine, None, A);
+        assert!(a.is_dir());
+    }
+
+    #[test]
+    fn two_homes_with_one_hash_never_share_a_root() {
+        let s = Scratch::new("collide");
+        let base = s.0.join("acpmux-1");
+        let (first, second) = (Path::new("/home/first/.acpmux"), Path::new("/home/second/.acpmux"));
+        let dir = make(&base, first, A).unwrap();
+        // The first's root moved to the second home's name: what a hash
+        // collision would make.
+        let root = daemon_root(&base, first);
+        let collided = |home: &Path| {
+            let theirs = daemon_root(&base, home);
+            if theirs != root {
+                std::fs::rename(&root, &theirs).unwrap();
+            }
+            theirs
+        };
+        let shared = collided(second);
+        assert!(make(&base, second, B).is_none(), "a second home took the first's root");
+        // The second daemon neither sweeps nor purges the first's sessions.
+        assert!(stale(&base, second, None, &|_| false, &|_| false).is_empty());
+        remove(&base, second, None, A);
+        assert!(shared.join(A).is_dir() && !dir.exists());
+    }
+
+    #[test]
+    fn the_home_record_is_written_once() {
+        let s = Scratch::new("record");
+        let root = s.0.join("root");
+        std::fs::create_dir(&root).unwrap();
+        record_home(&root, Path::new("/first"));
+        record_home(&root, Path::new("/second"));
+        assert_eq!(recorded_home(&root).as_deref(), Some(Path::new("/first")));
+        // Only the record is left, no part file beside it.
+        let names: Vec<_> =
+            std::fs::read_dir(&root).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from(HOME_RECORD)]);
     }
 
     #[test]
