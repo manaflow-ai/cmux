@@ -189,6 +189,9 @@ import Testing
         let p = pane()
         type("Hello world", in: p)
         p.field.setSelectedRange(NSRange(location: 6, length: 5))
+        // Typing would curl these quotes and join the dashes; an inserted copy keeps them.
+        p.field.isAutomaticQuoteSubstitutionEnabled = true
+        p.field.isAutomaticDashSubstitutionEnabled = true
         p.controller.insertIntoCompose("\"there\" -- ok")
         #expect(p.field.string == "Hello \"there\" -- ok")
         #expect(p.controller.store?.state.ui.draft.text == "Hello \"there\" -- ok")
