@@ -58,7 +58,7 @@ import json, os, sys, time
 from pathlib import Path
 args = sys.argv[1:]
 # The binary-module guard's resolve and version calls (swiftpm-binary-module-guard.sh).
-if args[:1] in (['package'], ['--version']):
+if args[:2] == ['package', 'resolve'] or args[:1] == ['--version']:
     sys.exit(0)
 with open(os.environ['CALLS'], 'a') as f:
     f.write(json.dumps(args) + '\\n')

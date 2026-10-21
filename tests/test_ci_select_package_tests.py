@@ -88,7 +88,7 @@ def run_package_step(package: str, attempts: list[tuple[str, int]], ghosttykit: 
         # The binary-module guard's `swift package resolve` and `swift --version`
         # (swiftpm-binary-module-guard.sh) are not test attempts.
         swift.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
-                         "if sys.argv[1:2] in (['package'], ['--version']): sys.exit(0)\n"
+                         "if sys.argv[1:3] == ['package', 'resolve'] or sys.argv[1:2] == ['--version']: sys.exit(0)\n"
                          "root = pathlib.Path(os.environ['FIXTURE_ROOT'])\n"
                          "counter = root / 'calls'\n"
                          "count = int(counter.read_text()) if counter.exists() else 0\n"
