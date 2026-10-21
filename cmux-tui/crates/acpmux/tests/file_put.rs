@@ -158,15 +158,25 @@ async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
     assert_eq!(saved, 0);
 }
 
+/// A deleted chat's files go with it: nothing else ever deleted them, so every file dropped into
+/// every chat stayed in the daemon's home for good.
 #[tokio::test]
-async fn a_purged_chat_takes_no_more_files() {
+async fn a_purged_chat_loses_its_files_and_takes_no_more() {
     let hub = hub();
     let mut c = client(&hub, Origin::Local);
     let session = c.new_session("purged").await;
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "a.txt", b"x")).await;
     assert_saved(&reply, &session, "a.txt", b"x");
+    let kept = c.new_session("kept").await;
+    let reply = c.call(method::MUX_FILE_PUT, put(&kept, "b.txt", b"y")).await;
+    let kept_file = assert_saved(&reply, &kept, "b.txt", b"y");
     let killed = c.call(method::MUX_KILL, json!({"sessionId": session, "purge": true})).await;
     assert!(killed.get("error").is_none(), "{killed}");
+    assert!(!home().join("uploads").join(&session).exists(), "the deleted chat's uploads stayed");
+    // Another chat's files stay, and so do a closed chat's (kill without purge).
+    let closed = c.call(method::MUX_KILL, json!({"sessionId": kept})).await;
+    assert!(closed.get("error").is_none(), "{closed}");
+    assert_eq!(std::fs::read(&kept_file).unwrap(), b"y");
     // A chat that is gone takes no more.
     let reply = c.call(method::MUX_FILE_PUT, put(&session, "b.txt", b"x")).await;
     assert!(reply.get("error").is_some(), "{reply}");
