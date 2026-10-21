@@ -67,7 +67,7 @@ public struct SidebarCatalogSection: SettingCatalogSection {
 
     public let showNotificationMessage = DefaultsKey<Bool>(
         id: "sidebar.showNotificationMessage",
-        defaultValue: true,
+        defaultValue: false, // lawmux: upstream defaults to true; hide the latest-notification line
         userDefaultsKey: "sidebarShowNotificationMessage"
     )
 
