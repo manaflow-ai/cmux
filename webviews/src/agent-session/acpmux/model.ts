@@ -484,12 +484,20 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
+  silentTurn?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
