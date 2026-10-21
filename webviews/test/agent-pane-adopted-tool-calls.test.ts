@@ -167,7 +167,7 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     await page.locator("button.cv-worked").click();
     await page.locator("button.cv-tool", { hasText: "Ran 3 commands" }).waitFor();
     // With no diff the edit keeps its own row; it names both files' count, not the first file.
-    const edit = page.locator(".cv-tool", { hasText: /^Edit/ }).last();
+    const edit = page.locator(".cv-tool", { hasText: /^Edit \d+ files$/ });
     await expect(edit.textContent()).resolves.toBe("Edit 2 files");
     await page.close();
   });
