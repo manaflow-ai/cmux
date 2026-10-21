@@ -134,32 +134,69 @@ extension AppActions {
     /// creates are outstanding takes the newest of them (the workspace the
     /// person just asked for, not yet shown), never the one the window still
     /// shows (cx-7cit9). Otherwise it closes the scoped workspace after the
-    /// window's earlier creates and closes (`WorkspaceLanes`).
+    /// window's earlier creates and closes (`WorkspaceLanes`). The workspace
+    /// is resolved at the press and its row leaves then; a person's run asks
+    /// about running programs afterwards (`WorkspaceCloseFlow`).
     private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
-              !ClosingWorkspaces.shared.ids.contains(workspace.id) else { return } // a second press during the close sends nothing
+              !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
+        else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        let daemon = services.activeDaemon
+        // The workspace's own machine, for the question and the close alike.
+        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
-        // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
-        let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
-        services.registry.track(lanes.run(in: window) {
-            let failure = await daemon.failure("close-workspace") { connection in
-                try await ClosingWorkspaces.shared.refusal()
-                try await WorkspaceClose.close(key, terminals: terminals, on: connection)
-            }
-            guard hidden else { return failure }
-            // A close that went through stays hidden until the store has applied its events (the row is gone there).
-            if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
-            ClosingWorkspaces.shared.end(id, refused: failure != nil, in: owner.flatMap { services.windows.controller(for: $0)?.window })
-            return failure
-        })
+        let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let selected = WorkspaceCloseSelection()
+        let flow = WorkspaceCloseFlow(
+            // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
+            hide: {
+                let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
+                selected.afterPress = controller?.state.workspaceID
+                return hidden
+            },
+            // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
+            question: {
+                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
+                prompt.returnConfirms = false
+                return {
+                    await withCheckedContinuation { answer in
+                        DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
+                                                        settings: services.settings) { answer.resume(returning: $0) }
+                    }
+                }
+            },
+            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
+            exists: { services.workspace(id: id) != nil },
+            send: { hidden in
+                lanes.run(in: window) {
+                    let failure = await daemon.failure("close-workspace") { connection in
+                        try await ClosingWorkspaces.shared.refusal()
+                        try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+                    }
+                    guard hidden else { return failure }
+                    // A close that went through stays hidden until the store has applied its events (the row is gone there).
+                    if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
+                    return failure
+                }
+            },
+            // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
+            // (or it closed another way meanwhile).
+            restore: { hidden in
+                guard hidden else { return }
+                ClosingWorkspaces.shared.end(id, refused: false, in: nil)
+                if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
+                    services.windows.show(workspaceID: id, in: controller.state)
+                }
+            })
+        if let work = flow.start(id, asks: invocation.asksIfRunning) { services.registry.track(work) }
     }
 
     /// Makes window `id` key and activates the app. A new window still

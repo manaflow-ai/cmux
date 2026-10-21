@@ -52,7 +52,7 @@ final class SidebarNowPlayingCardView: NSView {
         }
         closeButton.isHidden = true
         closeButton.alphaValue = 0
-        closeButton.toolTip = Self.closeLabel
+        for button in [previousButton, nextButton, closeButton] { button.showsLabelToolTip = false }
         closeButton.onPress = { [weak self] in self?.onClose?() }
         previousButton.onPress = { [weak self] in self?.onCommand?(.previous) }
         playPauseButton.onPress = { [weak self] in self?.onCommand?(.playPause) }
