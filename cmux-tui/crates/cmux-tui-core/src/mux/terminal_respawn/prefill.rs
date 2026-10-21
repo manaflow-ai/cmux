@@ -127,7 +127,7 @@ impl Prefill {
 /// Whether `shell` (a path or name) is a POSIX shell, the quoting of
 /// [`shell_quoted`] and the `KEY=value command` form.
 pub(in crate::mux) fn posix_shell(shell: &str) -> bool {
-    let name = std::path::Path::new(shell).file_name().and_then(|name| name.to_str());
+    let name = Path::new(shell).file_name().and_then(|name| name.to_str());
     let name = name.unwrap_or_default().trim_start_matches('-');
     matches!(name, "sh" | "bash" | "zsh" | "dash" | "ksh" | "mksh" | "ksh93")
 }
@@ -204,7 +204,7 @@ fn agent_prefill(record: &StoredRelaunch, resume_agents: bool) -> Option<Prefill
     let text = agent_resume(record)?;
     let (harness, _) = record.agent.as_ref()?;
     let flags = record.agent_launch.as_ref().map(|launch| launch.args.as_slice()).unwrap_or(&[]);
-    (resume_agents && posix_shell(&super::launch::respawn_shell(Some(record)))).then(|| Prefill {
+    (resume_agents && posix_shell(&launch::respawn_shell(Some(record)))).then(|| Prefill {
         kind: Prefilled::Harness,
         text,
         run: !turns_approvals_off(harness, flags),
