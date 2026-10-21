@@ -171,7 +171,7 @@ Type=simple
 Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=%h/.local/bin/acpmux daemon run
 WorkingDirectory=%h
-Restart=always
+Restart=on-failure
 RestartSec=3
 KillMode=process
 TimeoutStopSec=30
@@ -184,12 +184,29 @@ WantedBy=default.target
 /// no readiness callback there, so the caller reads the status after a grace.
 const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
-/// (Re)start the daemon on a Linux host. With a user systemd manager, under
-/// `acpmux.service`: `install` writes the unit first; without it, a host
+/// Refuses (exit 3, the unit named on stderr) when the daemon of `~/.acpmux`
+/// runs under a systemd unit other than `acpmux.service`, such as a
+/// hand-written `acpmux-agent-<host>.service`: a shutdown would end its agents
+/// with that unit's cgroup, and the two units would then take turns on the
+/// lock. `ACPMUX_PROC_ROOT` stands for `/proc` in tests.
+const FOREIGN_UNIT_CHECK: &str = r#"p=$(cat ~/.acpmux/daemon.pid 2>/dev/null); u=
+if [ -n "$p" ] && [ -r "${ACPMUX_PROC_ROOT:-/proc}/$p/cgroup" ]; then u=$(sed -n 's|.*/\([^/]*\.service\)$|\1|p' "${ACPMUX_PROC_ROOT:-/proc}/$p/cgroup" | head -1); fi
+if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
+"#;
+
+/// Whether the user's systemd manager outlives this ssh session: there, and
+/// lingering (asked for when it is not; refused, the detached start, which
+/// survives a logout, is kept).
+const SYSTEMD_USABLE: &str = r#"systemctl --user show-environment >/dev/null 2>&1 && { [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
+
+/// (Re)start the daemon on a Linux host. Under the user systemd unit
+/// `acpmux.service` when the user manager outlives the session
+/// ([`SYSTEMD_USABLE`]): `install` writes the unit first; without it, a host
 /// whose unit is missing gets the detached restart. A running unit restarts
 /// (SIGTERM, agents kept); otherwise a daemon started another way is shut
 /// down keeping its agents and the unit starts, so one daemon serves the
-/// home. Without a user manager (a container), the detached restart.
+/// home; a unit that fails to start falls back to the detached start. A
+/// daemon under another unit is refused first ([`FOREIGN_UNIT_CHECK`]).
 fn linux_restart(install: bool, json: bool) -> String {
     let unit = if install {
         format!(
@@ -198,12 +215,12 @@ fn linux_restart(install: bool, json: bool) -> String {
     } else {
         String::new()
     };
+    let detached = restart_detached(json);
     format!(
-        "if systemctl --user show-environment >/dev/null 2>&1 && {{ {unit}systemctl --user cat acpmux.service >/dev/null 2>&1; }}; then \
-         if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service; \
-         else {SHUTDOWN_KEEPING_AGENTS}; systemctl --user enable --now acpmux.service; fi && echo {SYSTEMD_STARTED}; \
-         else {}; fi",
-        restart_detached(json)
+        "{FOREIGN_UNIT_CHECK}if {SYSTEMD_USABLE} && {{ {unit}systemctl --user cat acpmux.service >/dev/null 2>&1; }}; then
+if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && echo {SYSTEMD_STARTED}
+else {SHUTDOWN_KEEPING_AGENTS}; if systemctl --user enable --now acpmux.service; then echo {SYSTEMD_STARTED}; else {detached}; fi; fi
+else {detached}; fi"
     )
 }
 
@@ -446,15 +463,42 @@ mod tests {
         calls.lines().map(str::to_owned).collect()
     }
 
-    /// `linux_restart(install, true)` in a fake home whose `systemctl` answers
-    /// as `active` says (`None`: no user manager); the calls of the fake
-    /// `acpmux` and `systemctl`, the unit written and the script's output.
+    /// A Linux host as the fake `systemctl` and `loginctl` answer.
+    #[derive(Clone, Copy)]
+    struct LinuxHost {
+        /// A user systemd manager answers.
+        manager: bool,
+        /// `loginctl show-user -p Linger`; `enable-linger` succeeds when `linger_allowed`.
+        linger: bool,
+        linger_allowed: bool,
+        /// `acpmux.service` runs.
+        active: bool,
+        /// `enable --now` succeeds.
+        enables: bool,
+        /// The unit whose cgroup the running daemon of `~/.acpmux` is in.
+        daemon_unit: Option<&'static str>,
+    }
+
+    const LINGERING: LinuxHost = LinuxHost {
+        manager: true,
+        linger: true,
+        linger_allowed: true,
+        active: false,
+        enables: true,
+        daemon_unit: None,
+    };
+
+    struct LinuxRun {
+        calls: Vec<String>,
+        unit: String,
+        out: String,
+        err: String,
+        code: Option<i32>,
+    }
+
+    /// `linux_restart(install, true)` in a fake home on `host`.
     #[cfg(unix)]
-    fn linux_restart_run(
-        tag: &str,
-        install: bool,
-        active: Option<bool>,
-    ) -> (Vec<String>, String, String) {
+    fn linux_restart_run(tag: &str, install: bool, host: LinuxHost) -> LinuxRun {
         use std::os::unix::fs::PermissionsExt;
         let home = std::env::temp_dir().join(format!("acpmux-lx-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -469,18 +513,39 @@ mod tests {
             .unwrap();
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
         };
+        let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
         fake("acpmux", "exit 0");
-        let manager = if active.is_some() { "exit 0" } else { "exit 1" };
-        let is_active = if active == Some(true) { "exit 0" } else { "exit 3" };
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {manager};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {is_active};; *) exit 0;; esac"
+                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; *) exit 0;; esac",
+                code(host.manager),
+                if host.active { "exit 0" } else { "exit 3" },
+                code(host.enables),
             ),
         );
+        fake(
+            "loginctl",
+            &format!(
+                "case \"$1\" in show-user) echo {};; enable-linger) {};; esac",
+                if host.linger { "yes" } else { "no" },
+                code(host.linger_allowed),
+            ),
+        );
+        if let Some(unit) = host.daemon_unit {
+            std::fs::create_dir_all(home.join(".acpmux")).unwrap();
+            std::fs::write(home.join(".acpmux/daemon.pid"), "4242\n").unwrap();
+            std::fs::create_dir_all(home.join("proc/4242")).unwrap();
+            std::fs::write(
+                home.join("proc/4242/cgroup"),
+                format!("0::/user.slice/user-1001.slice/user@1001.service/app.slice/{unit}\n"),
+            )
+            .unwrap();
+        }
         let out = std::process::Command::new("sh")
             .args(["-c", &linux_restart(install, true)])
             .env("HOME", &home)
+            .env("ACPMUX_PROC_ROOT", home.join("proc"))
             .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
             .output()
             .unwrap();
@@ -488,24 +553,38 @@ mod tests {
         let unit = std::fs::read_to_string(home.join(".config/systemd/user/acpmux.service"))
             .unwrap_or_default();
         let _ = std::fs::remove_dir_all(&home);
-        (
-            calls.lines().map(str::to_owned).collect(),
+        LinuxRun {
+            calls: calls.lines().map(str::to_owned).collect(),
             unit,
-            String::from_utf8_lossy(&out.stdout).into_owned(),
-        )
+            out: String::from_utf8_lossy(&out.stdout).into_owned(),
+            err: String::from_utf8_lossy(&out.stderr).into_owned(),
+            code: out.status.code(),
+        }
+    }
+
+    impl LinuxRun {
+        fn started_by_systemd(&self) -> bool {
+            self.out.lines().any(|l| l == SYSTEMD_STARTED)
+        }
+        fn detached_start(&self) -> bool {
+            self.calls.iter().any(|c| c == "acpmux --json daemon start")
+        }
     }
 
     #[test]
     #[cfg(unix)]
     fn linux_setup_installs_the_unit_and_hands_a_detached_daemon_to_it() {
-        let (calls, unit, out) = linux_restart_run("setup", true, Some(false));
-        assert_eq!(unit, SYSTEMD_UNIT);
-        assert!(unit.contains("KillMode=process"), "a restart must keep the agent hosts");
-        assert!(unit.contains("ExecStart=%h/.local/bin/acpmux daemon run"));
-        let steps: Vec<&str> = calls
+        let run = linux_restart_run("setup", true, LINGERING);
+        assert_eq!(run.unit, SYSTEMD_UNIT);
+        assert!(run.unit.contains("KillMode=process"), "a restart must keep the agent hosts");
+        assert!(run.unit.contains("Restart=on-failure"), "a deliberate shutdown stays down");
+        let steps: Vec<&str> = run
+            .calls
             .iter()
             .map(String::as_str)
-            .filter(|c| !c.starts_with("systemctl --user show-environment"))
+            .filter(|c| {
+                !c.starts_with("systemctl --user show-environment") && !c.starts_with("loginctl")
+            })
             .collect();
         assert_eq!(
             steps,
@@ -517,30 +596,61 @@ mod tests {
                 "systemctl --user enable --now acpmux.service",
             ]
         );
-        assert!(out.lines().any(|l| l == SYSTEMD_STARTED));
+        assert!(run.started_by_systemd());
     }
 
     #[test]
     #[cfg(unix)]
     fn linux_update_restarts_a_running_unit_and_never_starts_a_second_daemon() {
-        let (calls, _, out) = linux_restart_run("update-active", true, Some(true));
-        assert!(calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
-        assert!(!calls.iter().any(|c| c.starts_with("acpmux ")), "{calls:?}");
-        assert!(out.lines().any(|l| l == SYSTEMD_STARTED));
+        let run = linux_restart_run("update-active", true, LinuxHost { active: true, ..LINGERING });
+        assert!(run.calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
+        assert!(!run.calls.iter().any(|c| c.starts_with("acpmux ")), "{:?}", run.calls);
+        assert!(run.started_by_systemd());
     }
 
     #[test]
     #[cfg(unix)]
-    fn linux_without_a_unit_or_a_user_manager_restarts_detached() {
-        // An update on a host set up before the unit: no unit file, detached as before.
-        let (calls, _, out) = linux_restart_run("no-unit", false, Some(false));
-        assert_eq!(calls.iter().filter(|c| c.starts_with("acpmux ")).count(), 2, "{calls:?}");
-        assert!(calls.contains(&"acpmux --json daemon start".to_owned()));
-        assert!(!out.contains(SYSTEMD_STARTED));
+    fn linux_falls_back_to_the_detached_start_without_a_unit_a_manager_or_linger() {
+        // An update on a host set up before the unit: no unit file.
+        let run = linux_restart_run("no-unit", false, LINGERING);
+        assert!(run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
         // A container without a user manager, even at setup.
-        let (calls, unit, _) = linux_restart_run("no-manager", true, None);
-        assert!(unit.is_empty());
-        assert!(calls.contains(&"acpmux --json daemon start".to_owned()));
+        let run = linux_restart_run("no-manager", true, LinuxHost { manager: false, ..LINGERING });
+        assert!(run.unit.is_empty() && run.detached_start());
+        // No linger and none allowed: the unit would stop at logout.
+        let host = LinuxHost { linger: false, linger_allowed: false, ..LINGERING };
+        let run = linux_restart_run("no-linger", true, host);
+        assert!(run.unit.is_empty() && run.detached_start(), "{:?}", run.calls);
+        // Linger off but allowed: turned on, and the unit is used.
+        let run = linux_restart_run("linger-on", true, LinuxHost { linger: false, ..LINGERING });
+        assert!(run.calls.contains(&"loginctl enable-linger".to_owned()));
+        assert!(run.started_by_systemd());
+        // A unit that does not start: the detached start, so a daemon runs.
+        let run =
+            linux_restart_run("enable-fails", true, LinuxHost { enables: false, ..LINGERING });
+        assert!(run.detached_start() && !run.started_by_systemd(), "{:?}", run.calls);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_daemon_under_another_unit_is_refused_before_anything_stops_it() {
+        let host = LinuxHost { daemon_unit: Some("acpmux-agent-huge-blue.service"), ..LINGERING };
+        for (tag, install) in [("foreign-setup", true), ("foreign-update", false)] {
+            let run = linux_restart_run(tag, install, host);
+            assert_eq!(run.code, Some(3));
+            assert!(run.err.contains("acpmux-agent-huge-blue.service"), "{}", run.err);
+            assert!(run.calls.is_empty(), "nothing may run: {:?}", run.calls);
+            assert!(run.unit.is_empty());
+        }
+        // The daemon under acpmux.service itself, or in a session scope: no refusal.
+        for unit in ["acpmux.service", "session-4.scope"] {
+            let run = linux_restart_run(
+                "own-unit",
+                true,
+                LinuxHost { daemon_unit: Some(unit), ..LINGERING },
+            );
+            assert!(run.started_by_systemd(), "{unit}: {}", run.err);
+        }
     }
 
     #[test]
