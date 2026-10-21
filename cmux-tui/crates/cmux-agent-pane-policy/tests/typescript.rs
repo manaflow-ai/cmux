@@ -85,6 +85,7 @@ fn the_allowlist_is_what_the_page_sends() {
     sent.extend(object_values(&read(&dir, "permissions/protocol.ts"), "PERMISSION_GROUP_OPS"));
     sent.insert(constant(&read(&dir, "operations.ts"), "FORK_OP"));
     sent.insert(constant(&direct, "PREWARM_METHOD"));
+    sent.insert(constant(&direct, "ATTACHMENT_PUT"));
     let p = policy();
     assert!(sent.remove(&p.initialize), "the page sends initialize");
     assert!(sent.remove("file.search"), "file.search is a mock-mode literal");

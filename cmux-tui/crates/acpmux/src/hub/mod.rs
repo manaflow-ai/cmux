@@ -47,6 +47,7 @@ mod personal_stats;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
+pub use prompt_images::{ATTACHMENT_URI, expand_put_attachments};
 mod queue;
 mod queue_edit;
 pub use digest::declared_sender;
