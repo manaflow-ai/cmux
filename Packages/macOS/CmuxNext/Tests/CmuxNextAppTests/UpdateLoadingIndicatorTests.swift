@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextUpdateEverything
 import CmuxUpdater
 import CmuxNextActions
 import Foundation

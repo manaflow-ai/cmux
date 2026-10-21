@@ -28,6 +28,9 @@ extension UpdatesSettings {
     public nonisolated static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
     public nonisolated static let keepPreviousVersionsDefault: Double = 1
     public nonisolated static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
+    /// `updates.updateEverythingServers`: Update Everything (cx-1mbnu) leaves paired servers (ServerMachineSession, a Chief brain's daemon) out by default: their cmux belongs to their installer and a server can be shared. On, it updates only their agent CLIs through the server daemon's agent-update-apply; the daemon itself is never reinstalled.
+    public nonisolated static let updateEverythingServersPath = ["updates", "updateEverythingServers"]
+    public nonisolated static let updateEverythingServersDefault = false
     /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
@@ -136,6 +139,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .number(SettingNumber(UpdatesSettings.keepPreviousVersionsRange, step: 1, unit: .count)),
                 default: .number(UpdatesSettings.keepPreviousVersionsDefault),
                 keywords: ["update", "rollback", "previous", "downgrade"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.updateEverythingServersPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.updateEverythingServers", "Include Paired Servers in Update Everything"),
+                help: SettingsText.keyed("settings.updates.updateEverythingServers.help", "Update Everything also updates the agent CLIs on your paired servers and restarts their chats. A server's cmux is never reinstalled; its own installer updates it."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.updateEverythingServersDefault),
+                keywords: ["update everything", "server", "paired", "agent", "cli"]
             ),
             SettingDescriptor(
                 UpdatesSettings.showWhatsNewPath,

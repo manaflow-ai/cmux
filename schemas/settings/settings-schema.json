@@ -190,6 +190,7 @@
               "updates.installOnQuit",
               "updates.notify",
               "updates.keepPreviousVersions",
+              "updates.updateEverythingServers",
               "updates.showWhatsNew"
             ],
             "title" : {
@@ -4068,6 +4069,54 @@
       "title" : {
         "key" : "settings.updates.keepPreviousVersions",
         "text" : "Keep Previous Versions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.updateEverythingServers.help",
+        "text" : "Update Everything also updates the agent CLIs on your paired servers and restarts their chats. A server's cmux is never reinstalled; its own installer updates it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.updateEverythingServers",
+      "keywords" : [
+        "update everything",
+        "server",
+        "paired",
+        "agent",
+        "cli"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "updateEverythingServers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.updateEverythingServers",
+        "text" : "Include Paired Servers in Update Everything"
       },
       "validation" : "portable"
     },
