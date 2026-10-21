@@ -52,6 +52,9 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(
             (try routeFixture(argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]))["live_provider_route"] as? String == "unknown"
         )
+        #expect(
+            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=openai"]))["provider_route_matches"] as? Bool == true
+        )
     }
 
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
