@@ -159,10 +159,16 @@ impl Client {
         self.reply("session/prompt", params).await
     }
 
-    /// The prompt ids of `session`'s `user_message` records, in order.
+    /// The prompt ids of `session`'s `user_message` records, in order. A turn of agent messages
+    /// that waited together (`hub/digest.rs`) counts every message in it, oldest first.
     async fn ran_ids(&mut self, session: &str) -> Vec<String> {
         let records = self.records(session, "user_message").await;
-        records.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect()
+        let ids = |m: &Value| match m["_meta"]["provenance"]["messages"].as_array() {
+            Some(joined) if m["_meta"]["provenance"]["kind"] == "agent_digest" => joined.clone(),
+            _ => vec![json!({"promptId": m["promptId"]})],
+        };
+        let ids = records.iter().flat_map(ids);
+        ids.filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect()
     }
 
     async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
@@ -172,7 +178,7 @@ impl Client {
     }
 
     async fn ran(&mut self, session: &str, prompt_id: &str) -> bool {
-        self.records(session, "user_message").await.iter().any(|m| m["promptId"] == prompt_id)
+        self.ran_ids(session).await.iter().any(|id| id == prompt_id)
     }
 
     /// Waits until `session`'s log has a `user_message` for `prompt_id` (a spawned release).
