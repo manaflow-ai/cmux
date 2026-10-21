@@ -263,15 +263,17 @@ public nonisolated struct AgentPaneTunables {
         help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
         default: true, code: "AgentPaneTunables.codexToolRuns")
 
-    /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
-    /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
-    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
+    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
+    /// does for ``chatWidth``). The first theme push starts it
+    /// (``AgentPaneTheme/values(_:motion:surface:)``).
     @MainActor static func followCodexToolRuns() {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
+            where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -372,6 +374,7 @@ public nonisolated struct AgentPaneTunables {
             escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
+            liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             pagesFollowLinkPlacement.descriptor,

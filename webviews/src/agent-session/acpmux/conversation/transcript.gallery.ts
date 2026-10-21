@@ -839,6 +839,39 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-thinking": {
+      note: "A turn before its first output: the last row reads Thinking with the turn's time, ticking.",
+      snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+    },
+    "working-after-text": {
+      note: "Text after work while the turn goes on (the agent thinks, or writes a call's input): the line stays under it and its clock keeps going.",
+      snapshot: chat(
+        [
+          user(prompt, 1.5),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.4,
+          ),
+          assistant("The parser drops the status code. I'll write a typed error and a test for it.", 1.2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-line-above": {
+      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
+      theme: { liveLineBelow: false },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
     "steer-continuous": {
       note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
       snapshot: chat(

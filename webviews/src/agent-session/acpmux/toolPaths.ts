@@ -59,7 +59,7 @@ export function toolLabel(
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
   if (tool.kind === "execute" && tool.description) return tool.description;
-  if (tool.kind === "execute" && command) return commandLabel(command);
+  if (tool.kind === "execute" && command) return commandLabel(shortCommand(command));
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
   const call = mcpCall(tool);
@@ -72,6 +72,18 @@ export function toolLabel(
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
   }
   return title || fallbackName;
+}
+
+/// A command line as a short label: the setup a script starts with (`export PATH=…;`, `B=~/x;`,
+/// `cd dir &&`) dropped, so "export PATH=\"/Applications/…\"; gh run list" reads "gh run list".
+/// The whole line stays in the call's Shell block. A line that is only setup keeps its last part.
+export function shortCommand(command: string): string {
+  const parts = command
+    .trim()
+    .split(/\s*(?:&&|;|\n)\s*/)
+    .filter(Boolean);
+  const setup = (part: string) => /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=/.test(part) || /^cd(?:\s|$)/.test(part);
+  return (parts.find((part) => !setup(part)) ?? parts.at(-1) ?? command).trim();
 }
 
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.

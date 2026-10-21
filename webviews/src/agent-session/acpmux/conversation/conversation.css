@@ -1286,7 +1286,16 @@ pre.cv-math-source {
    clock (ui/spinnerClock.ts). Reduce Motion, the static status look and agent motion off hold it
    still in the muted color. */
 .cv-thinking {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--cv-text-muted);
+}
+/* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
+.cv-worked.is-quiet {
+  visibility: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {

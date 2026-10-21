@@ -1,6 +1,6 @@
 // One command in a "Ran N commands" group, as the Codex desktop app lists them: the terminal glyph
 // and what it does (Claude Code's Bash description) or "Ran <command>" with the command in mono, cut
-// to the row, then its exit status and run time (the check and time on hover only), opening to its
+// to the row without the setup it starts with (`export PATH=…;`), then its exit status and run time (the check and time on hover only), opening to its
 // Shell block.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo } from "react";
@@ -11,6 +11,7 @@ import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { shortCommand } from "../toolPaths";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
@@ -49,7 +50,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
             <>
               {before && <span data-find-skip>{before}</span>}
               <code className="cv-command__line" data-find-skip={open || undefined}>
-                {tool.command}
+                {shortCommand(tool.command ?? "")}
               </code>
               {after && <span data-find-skip>{after}</span>}
             </>
