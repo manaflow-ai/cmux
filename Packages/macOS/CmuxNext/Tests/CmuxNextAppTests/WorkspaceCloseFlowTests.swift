@@ -12,6 +12,10 @@ import Testing
         var steps: [String] = []
     }
 
+    @MainActor private final class Flag {
+        var on = true
+    }
+
     /// Holds the question until the test answers it (a daemon that has not answered process-info).
     @MainActor private final class Pending {
         private var continuation: CheckedContinuation<DestructiveConfirmation.Prompt?, Never>?
@@ -29,15 +33,19 @@ import Testing
 
     private static let running = DestructiveConfirmation.Prompt(title: "Close “one”?", body: "sleep is still running", button: "Close")
 
-    private func flow(_ id: String, closing: ClosingWorkspaces, log: Log, pending: Pending, closes: Bool = true) -> WorkspaceCloseFlow {
+    private func flow(_ id: String, closing: ClosingWorkspaces, log: Log, pending: Pending, closes: Bool = true,
+                      exists: @escaping @MainActor () -> Bool = { true }) -> WorkspaceCloseFlow {
         WorkspaceCloseFlow(
             hide: { log.steps.append("hide"); return closing.begin(id, among: [id, "other"]) },
             question: { log.steps.append("ask process-info"); return await pending.question() },
+            exists: exists,
             ask: { _ in log.steps.append("question"); return closes },
             send: { _ in
                 log.steps.append("send")
-                closing.end(id, refused: false, in: nil)
-                return nil
+                return Task { @MainActor in
+                    closing.end(id, refused: false, in: nil)
+                    return nil
+                }
             },
             restore: { hidden in
                 log.steps.append("restore")
@@ -94,10 +102,24 @@ import Testing
         #expect(!WorkspaceCloseFlow.running.contains("one"))
     }
 
-    @Test func aScriptedConfirmedCloseNeverAsks() async throws {
+    @Test func aScriptedConfirmedCloseNeverAsksAndQueuesInThePressTurn() async throws {
         let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
         let work = try #require(flow("one", closing: closing, log: log, pending: pending).start("one", asks: false))
+        // Queued before start returns: it keeps its place in the window's lane.
+        #expect(log.steps == ["hide", "send"])
         _ = await work.value
         #expect(log.steps == ["hide", "send"])
+    }
+
+    @Test func aWorkspaceClosedElsewhereDuringTheQuestionIsNotSentAgain() async throws {
+        let closing = ClosingWorkspaces(), log = Log(), pending = Pending()
+        let listed = Flag()
+        let work = try #require(flow("one", closing: closing, log: log, pending: pending, exists: { listed.on }).start("one", asks: true))
+        while !pending.isAsked { await Task.yield() }
+        listed.on = false
+        pending.answer(Self.running)
+        _ = await work.value
+        #expect(log.steps == ["hide", "ask process-info", "restore"])
+        #expect(closing.ids.isEmpty)
     }
 }

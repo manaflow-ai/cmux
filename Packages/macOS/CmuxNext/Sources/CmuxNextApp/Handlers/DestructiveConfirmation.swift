@@ -27,6 +27,9 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// Return presses the button. False for a question that comes after the press
+        /// (WorkspaceCloseFlow): typing on in the next workspace must not confirm it.
+        var returnConfirms = true
     }
 
     static func install(_ services: AppServices) {
@@ -163,7 +166,7 @@ enum DestructiveConfirmation {
     static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
         CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
-                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
+                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: prompt.returnConfirms ? .default : .destructive)],
                        identifier: "cmux.dialog.confirmation")
     }
 

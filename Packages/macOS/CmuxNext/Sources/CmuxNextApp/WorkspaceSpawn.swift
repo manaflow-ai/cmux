@@ -155,6 +155,7 @@ struct WorkspaceSpawner {
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule), name: name)
         }
+        WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
         let windowID = windowID
         return {
@@ -164,11 +165,7 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }) {
-                    let id = try await named.create(key, rule: rule)
-                    await Self.listed(on: daemon)
-                    return id
-                }
+                }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
@@ -205,13 +202,11 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: [], on: connection)
                     }
-                }) {
+                }, settle: { await Self.settled(on: daemon) }) {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
                         try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    let id = try await shown.confirm()
-                    await Self.listed(on: daemon)
-                    return id
+                    return try await shown.confirm()
                 }
             } catch {
                 shown.abandon()
@@ -222,13 +217,12 @@ struct WorkspaceSpawner {
         }
     }
 
-    /// Waits until the store has applied the daemon's events so far, so a
-    /// workspace the daemon just made is listed when its create leaves the
-    /// window's lane (`WorkspaceLanes`): a close pressed after that takes it
-    /// as the shown workspace.
-    private static func listed(on daemon: DaemonService) async {
-        guard let connection = daemon.connection else { return }
-        await daemon.store.applied(through: await connection.eventSequence())
+    /// The check that `daemon`'s store has applied every event before now (a
+    /// create's reply): a write barrier taken without waiting for it.
+    private static func settled(on daemon: DaemonService) async -> @MainActor () -> Bool {
+        guard let barrier = await daemon.connection?.eventSequence() else { return { false } }
+        let store = daemon.store
+        return { store.appliedSequence >= barrier }
     }
 
     /// The profile the workspace is born in: its window's, else the active

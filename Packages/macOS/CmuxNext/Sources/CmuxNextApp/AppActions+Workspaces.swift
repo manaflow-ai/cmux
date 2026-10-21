@@ -141,14 +141,15 @@ extension AppActions {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        let daemon = services.activeDaemon
+        // The workspace's own machine, for the question and the close alike.
+        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
@@ -161,9 +162,12 @@ extension AppActions {
                 return hidden
             },
             question: {
-                guard let programs = services.machines.daemon(forWorkspace: id) else { return nil }
-                return await WorkspaceBulkClose.prompt([(workspace, programs)], warn: warn)
+                var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
+                prompt?.returnConfirms = false
+                return prompt
             },
+            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
+            exists: { services.workspace(id: id) != nil },
             // On the window that lists the workspace, above its pages (the overlay host), not the active one.
             ask: { prompt in
                 await withCheckedContinuation { answer in
@@ -172,7 +176,7 @@ extension AppActions {
                 }
             },
             send: { hidden in
-                await lanes.run(in: window) {
+                lanes.run(in: window) {
                     let failure = await daemon.failure("close-workspace") { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
@@ -182,13 +186,14 @@ extension AppActions {
                     if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
-                }.value
+                }
             },
-            // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile.
+            // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
+            // (or it closed another way meanwhile).
             restore: { hidden in
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
-                if shownAtPress, let controller, controller.state.workspaceID == selected.afterPress {
+                if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
                     services.windows.show(workspaceID: id, in: controller.state)
                 }
             })

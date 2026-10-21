@@ -14,11 +14,13 @@ struct WorkspaceCloseFlow {
     var hide: @MainActor () -> Bool
     /// The "still running" question, or nil to close without asking.
     var question: @MainActor () async -> DestructiveConfirmation.Prompt?
+    /// Whether the workspace is still listed (it may close another way while the question is up).
+    var exists: @MainActor () -> Bool = { true }
     /// Shows the question; true when the person chose Close.
     var ask: @MainActor (DestructiveConfirmation.Prompt) async -> Bool
-    /// Sends the close (`hidden`: the row left at the press).
-    var send: @MainActor (_ hidden: Bool) async -> ActionWorkFailure?
-    /// The person cancelled: the row and the selection come back.
+    /// Queues the close in the window's lane in this turn (`hidden`: the row left at the press).
+    var send: @MainActor (_ hidden: Bool) -> ActionWork
+    /// The person cancelled, or the workspace went meanwhile: the row (and the selection) come back.
     var restore: @MainActor (_ hidden: Bool) -> Void
 
     /// Workspaces whose close started and has not ended: a second press sends nothing,
@@ -29,13 +31,25 @@ struct WorkspaceCloseFlow {
     func start(_ id: String, asks: Bool) -> ActionWork? {
         guard Self.running.insert(id).inserted else { return nil }
         let hidden = hide()
+        // Nothing to ask (a confirmed scripted run): queued in the press's turn, so the close keeps
+        // its place among the window's creates and closes (`WorkspaceLanes`).
+        guard asks else {
+            let work = send(hidden)
+            return Task { @MainActor in
+                defer { Self.running.remove(id) }
+                return await work.value
+            }
+        }
         return Task { @MainActor in
             defer { Self.running.remove(id) }
-            if asks, let prompt = await question(), !(await ask(prompt)) {
+            let prompt = await question()
+            var closes = exists()
+            if closes, let prompt { closes = await ask(prompt) && exists() }
+            guard closes else {
                 restore(hidden)
                 return nil
             }
-            return await send(hidden)
+            return await send(hidden).value
         }
     }
 }
