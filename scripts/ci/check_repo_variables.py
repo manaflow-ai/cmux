@@ -15,6 +15,8 @@ Inputs, from the workflow's expression context (no token can read variables):
   CMUX_CI_XCODE_APP_PR      pairs a class entry in the slots with an Xcode
   CI_CLOUD_OVERFLOW_SAVED   the cloud overflow switch's record, present while
                             Blacksmith overflow is off (cloud_overflow_switch.py)
+  CI_NEXT_DAEMON_POOL       the pool of feat-cmux-next's daemon tests, which gate
+                            the nightly-next promotion (cmux-tui-artifacts.yml)
 
 While that record exists, a runner variable holding exactly the failover the
 switch wrote there is expected, not drift: an owned pool label in
@@ -34,6 +36,8 @@ from runner_label_policy import PolicyUnreadable, drifted_runner_variables  # no
 from cloud_overflow_switch import RECORD_VARIABLE, parse_record  # noqa: E402
 
 RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
+DAEMON_POOL_VARIABLE = "CI_NEXT_DAEMON_POOL"
+SIDE_LANE_VARIABLE = "CI_SIDE_LANE_RUNNER"
 
 
 def parse_runner_variables(raw: str) -> dict[str, str]:
@@ -66,6 +70,13 @@ def problems(env: dict[str, str]) -> list[str]:
     else:
         try:
             variables = {k: v for k, v in parse_runner_variables(raw).items() if v.strip()}
+            daemon_pool = env.get(DAEMON_POOL_VARIABLE, "").strip()
+            if daemon_pool and daemon_pool == variables.get(SIDE_LANE_VARIABLE, "").strip():
+                # 2026-10-21: both named glaeda-side-std; the daemon tests queued 3 h behind
+                # pull request side lanes and no nightly-next was promoted.
+                found.append(f"{DAEMON_POOL_VARIABLE}={daemon_pool!r} is also {SIDE_LANE_VARIABLE}, so the daemon tests "
+                             "that gate the nightly-next promotion queue behind pull request side lanes. "
+                             "Fix: point it at a pool pull requests do not fill, or clear it for the promote pool")
             for name, value, reason in drifted_runner_variables(variables):
                 if switched.get(name) == value:
                     continue  # the overflow switch's failover while Blacksmith is down

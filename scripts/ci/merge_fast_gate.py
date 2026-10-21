@@ -15,7 +15,8 @@ Release compile, the swift test) still blocks unless the base has it; one still
 running does not. A fast lane that was cancelled, timed out or never started has
 no verdict to waive and refuses. God-file, l10n and concurrency lint and risk
 evidence are waited for, as in the full gate: a red risk evidence refuses, and a
-red lint check is printed as a red that only the base can excuse, never --override.
+red lint check is printed as a red that the base comparison or a human --override
+can excuse.
 gh-merge-green --full keeps the old wait for every check.
 
 The gate keys on check names, so with the workflow files of the exact head it
@@ -25,7 +26,13 @@ Each poll is one GraphQL read (`gh pr view --json`), never a REST loop. It
 refuses when the head or the base branch changed while it waited.
 Prints `waited=<seconds>` and `checked=<names>`, then `red=<name>` for each
 completed red that gh-merge-green may still excuse when the base has it.
-Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr).
+When the --timeout budget runs out it prints `waited=<seconds>` and a
+`waiting=<name> (<state>)` line for each lane not done, so the caller's summary
+names them (2026-10-20: a wait that ran out with a lane still QUEUED read
+"nothing reported; waited 0m00s"). A rate-limited read refuses at once with the
+reset time instead of polling on.
+Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr);
+3: GitHub rate-limited the read (the reset time on stderr).
 """
 from __future__ import annotations
 
@@ -45,7 +52,7 @@ DEBUG_COMPILE = "cmux app scheme compile (Debug)"
 REACT = "react-apps-check"
 # cmux-next.yml jobs the gate waits for by name.
 NEXT_LANES = (ROUTING, FAST_TIER, "cmux-next Swift canary", DEBUG_COMPILE)
-FAST = re.compile(r"^(cmux-next fast tier|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
+FAST = re.compile(r"^(cmux-next fast tier( \(cargo\))?|cmux-next Swift canary|cmux app scheme compile \(Debug\)|(.* / )?react-apps-check)$")
 GATING = re.compile(r"react-apps-check|web status|app[- ]?size|size[- ]cap|crash", re.I)
 # The full gate's own lanes on feat-cmux-next. The fast gate does not wait for them,
 # but one that already finished red is judged as the full gate judges it.
@@ -53,11 +60,12 @@ FULL_LANES = {"ci-status", "cmux-next Release compile (Xcode 26)", "cmux-next sw
 KNOWN = {*NEXT_LANES, *FULL_LANES}
 LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.I)
 LINT_JOB = "a god-file, l10n or concurrency lint job"
-# Waited for and never waived by --override, as in the full gate (#21692). A red lint
-# check goes to the base comparison like other reds, which excuses it only when the
-# base prints every finding too (#22128); risk evidence reads only the description, so
-# a red one refuses and the risk:waived label is its waiver (docs/ci/risk-tiers.md).
-NEVER_WAIVED = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
+# Always waited for, as in the full gate (#21692). A red lint check goes to
+# gh-merge-green like other reds: the base comparison excuses it when the base prints
+# every finding too (#22128), or a human waives it with --override. Risk evidence reads
+# only the description, so a red one refuses and the risk:waived label is its waiver
+# (docs/ci/risk-tiers.md).
+WAITED_FOR = re.compile(LINT.pattern + r"|^risk evidence$", re.I)
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 # Like the full gate's cancelled cmux-next run: nothing ran, so --override has nothing to waive.
 NO_VERDICT = {"CANCELLED", "TIMED_OUT", "STARTUP_FAILURE", "STALE"}
@@ -66,6 +74,32 @@ WEB_FALLBACK_PREFIXES = ("web/", "webviews/", "config/", "Resources/markdown-vie
 
 class Refused(Exception):
     pass
+
+
+class WaitRanOut(Refused):
+    """The --timeout budget ran out with lanes not done; `waiting` names each with its state."""
+
+    def __init__(self, message: str, waited: float, waiting: list[str]):
+        super().__init__(message)
+        self.waited, self.waiting = waited, waiting
+
+
+class RateLimited(Refused):
+    pass
+
+
+def _load_rate_limit():
+    spec = importlib.util.spec_from_file_location("_merge_fast_gate_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_rate = _load_rate_limit()
+
+
+def read_limits() -> dict:
+    return _rate.read_limits()
 
 
 def _load_web_change() -> Callable[[str], bool]:
@@ -87,8 +121,15 @@ is_web_change = _load_web_change()
 
 
 def gh_json(*args: str) -> dict:
-    out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    try:
+        out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise Refused("reading the pull request took over 60s") from None
     if out.returncode != 0:
+        if _rate.is_rate_limited(out.stderr):
+            # Every later poll would fail the same way: refuse now and say when the quota resets.
+            raise RateLimited(f"GitHub rate-limited the pull request read ({out.stderr.strip()[:200]}); "
+                              + _rate.describe(read_limits(), after_limit=True))
         raise Refused(f"cannot read the pull request ({out.stderr.strip()[:200]})")
     return json.loads(out.stdout)
 
@@ -135,13 +176,13 @@ def evaluate(checks: dict[str, tuple[str, str]], files: list[str], touches_next:
     if touches_next and ROUTING not in checks:
         waiting.append(ROUTING)
     for name, (status, conclusion) in sorted(checks.items()):
-        if NEVER_WAIVED.search(name):
+        if WAITED_FOR.search(name):
             seen.append(name)
             if status != "COMPLETED":
                 waiting.append(name)
-            elif conclusion in NO_VERDICT:
+            elif conclusion not in PASSING and conclusion != "FAILURE" and LINT.search(name):
                 raise Refused(f"'{name}' is {conclusion.lower()} on the exact head: no verdict to compare "
-                              "with the base, and --override cannot bypass lint; rerun it")
+                              "with the base or waive with --override; rerun it")
             elif conclusion not in PASSING and not LINT.search(name):
                 raise Refused(f"'{name}' is {conclusion.lower()} on the exact head; risk evidence is "
                               "never waived or base-excused")
@@ -231,11 +272,19 @@ def missing_job_names(next_workflow: str, ci_workflow: str | None, web_workflow:
     return missing
 
 
+def state_of(name: str, checks: dict[str, tuple[str, str]]) -> str:
+    """`name (queued)`: a lane the gate still waits for, with its state on the head."""
+    status = checks.get(name, ("", ""))[0] or next(
+        (status for other, (status, _) in checks.items() if other.endswith(f" / {name}")), "")
+    return f"{name} ({status.lower() if status else 'not reported yet'})"
+
+
 def run(repo: str, number: str, sha: str, timeout: float, interval: float, touches_next: bool,
-        read: Callable[..., dict] = gh_json, clock: Callable[[], float] = time.monotonic,
+        read: Callable[..., dict] | None = None, clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep, base: str | None = None,
         files: list[str] | None = None) -> tuple[float, list[str], list[str]]:
     """files: the caller's full changed-file list; `gh pr view --json files` stops at 100."""
+    read = read or gh_json
     start = clock()
     while True:
         pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
@@ -244,11 +293,15 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
         if base is not None and pr.get("baseRefName") != base:
             raise Refused(f"the base changed to {pr.get('baseRefName')} (from {base}) while waiting on {sha}")
         changed = files if files is not None else [f.get("path", "") for f in pr.get("files") or []]
-        waiting, seen, reds = evaluate(latest(pr.get("statusCheckRollup") or []), changed, touches_next)
+        checks = latest(pr.get("statusCheckRollup") or [])
+        waiting, seen, reds = evaluate(checks, changed, touches_next)
         if not waiting:
             return clock() - start, seen, reds
         if clock() - start >= timeout:
-            raise Refused(f"still waiting on {', '.join(waiting)} after {int(clock() - start)}s")
+            states = [state_of(name, checks) for name in waiting]
+            waited = clock() - start
+            raise WaitRanOut(f"the --wait budget of {int(timeout)}s ran out after {int(waited)}s, "
+                             f"still waiting on {', '.join(states)}", waited, states)
         sleep(interval)
 
 
@@ -280,6 +333,15 @@ def main(argv: list[str] | None = None) -> int:
             files = [line for line in Path(args.files_from).read_text().splitlines() if line]
         waited, seen, reds = run(args.repo, args.number, args.sha, args.timeout, args.interval, args.next_covered,
                                  base=args.base, files=files)
+    except RateLimited as error:
+        print(f"rate-limited: {error}", file=sys.stderr)
+        return 3
+    except WaitRanOut as error:
+        print(f"waited={int(error.waited)}")
+        for name in error.waiting:
+            print(f"waiting={name}")
+        print(error, file=sys.stderr)
+        return 1
     except Refused as error:
         print(error, file=sys.stderr)
         return 1

@@ -310,6 +310,15 @@ extension TerminalController {
         if request.method == "agent.wake" {
             return try await agentWakeResponse(request)
         }
+        if request.method == "surface.wait_text_change" {
+            // Parks on the terminal's output stream, never on a worker thread.
+            return await surfaceWaitTextChangeResponse(request)
+        }
+        if request.method.hasPrefix("chief.") {
+            // Remote relay requests never reach here (`RemoteRelayCommandPolicy`
+            // denies `chief.*`); the handler refuses relay provenance again.
+            return await chiefResponse(request)
+        }
         if request.method.hasPrefix("agent.message.") {
             if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,
                let dispatchError = try await v2MainAsync({

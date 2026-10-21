@@ -182,7 +182,8 @@ jobs:
         env:
           FILE_TIMEOUT: ${{ inputs.file_timeout }}
         run: |
-          set -uo pipefail
+          # Actions starts the step with `bash -e`: without +e the first failing file ends the run.
+          set +e -uo pipefail
           [[ "$FILE_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo "::error::file_timeout must be a whole number of seconds"; exit 2; }
           failed=0
           {

@@ -59,6 +59,15 @@ class Values(unittest.TestCase):
                 self.assertEqual(len(found), 1)
                 self.assertIn("MACOS_RUNNER_PR", found[0])
 
+    def test_daemon_tests_never_share_the_pull_request_side_label(self) -> None:
+        side = "CI_SIDE_LANE_RUNNER=glaeda-side-std-xcode-26.6\n"
+        found = check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + side, CI_NEXT_DAEMON_POOL="glaeda-side-std-xcode-26.6"))
+        self.assertEqual(len(found), 1)
+        self.assertIn("CI_NEXT_DAEMON_POOL", found[0])
+        for pool in ("glaeda-side-light-xcode-26.6", ""):
+            with self.subTest(pool=pool):
+                self.assertEqual(check.problems(env(CMUX_CI_RUNNER_VARIABLES=GOOD_RUNNERS + side, CI_NEXT_DAEMON_POOL=pool)), [])
+
     def test_nothing_to_check_is_a_failure_not_a_pass(self) -> None:
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="")))
         self.assertTrue(check.problems(env(CMUX_CI_RUNNER_VARIABLES="not a pair")))
@@ -81,6 +90,7 @@ class Wiring(unittest.TestCase):
         text = (WORKFLOWS / "ci-repo-variables.yml").read_text(encoding="utf-8")
         self.assertIn("schedule:", text)
         self.assertIn("CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}", text)
+        self.assertIn("CI_NEXT_DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL }}", text)
         self.assertIn("run: python3 scripts/ci/check_repo_variables.py", text)
 
 
