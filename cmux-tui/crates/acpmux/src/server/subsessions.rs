@@ -6,6 +6,9 @@
 //!   (a)): a unix socket connection whose `initialize` carried a matching
 //!   `callerSession`. A request field never names the caller. `send` reaches
 //!   a descendant or the caller's own parent; `get` and `stop` a descendant.
+//! - `_acpmux/subsession/answer {sessionId, permissionId, answers}`: the
+//!   caller answers a descendant's pending question, never a permission
+//!   prompt (`hub/subsession_answer.rs`).
 //! - `_acpmux/subsession/limits {sessionId, maxChildren?, maxDepth?}` (a
 //!   number sets, null clears, absent keeps): the person (the app) for any
 //!   session, or a calling session for one of its descendants within its own
@@ -119,6 +122,18 @@ async fn handle(
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
             hub.subsession_send(&caller, &target, text, interrupt, prompt_id).await
+        }
+        method::MUX_SUBSESSION_ANSWER => {
+            let key = str_param(params, "sessionId")
+                .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+            let target = hub.subsession_write_target(&caller, key, false)?;
+            let permission_id = str_param(params, "permissionId")
+                .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
+            let answers = params
+                .get("answers")
+                .cloned()
+                .ok_or_else(|| RpcError::invalid_params("answers is required"))?;
+            hub.subsession_answer(&caller, &target, permission_id, answers).await
         }
         method::MUX_SUBSESSION_STOP => {
             let key = str_param(params, "sessionId")

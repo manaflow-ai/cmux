@@ -2221,7 +2221,7 @@ export class AcpmuxDirectClient {
     // Drawn already: a resync replays the live records after its rebuild drew them, and closing
     // the stream again then would split the reply that streams on.
     if (this.rows.has(rowId)) return;
-    const question = decidedQuestion(asked, msg.outcome);
+    const question = decidedQuestion(asked, msg.outcome, msg.answeredBy);
     this.closeSegment();
     this.rows.set(rowId, {
       id: rowId,
