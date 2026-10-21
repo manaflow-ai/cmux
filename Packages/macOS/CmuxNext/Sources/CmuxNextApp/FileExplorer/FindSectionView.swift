@@ -58,6 +58,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         field.target = self
         field.action = #selector(submit)
         field.font = Typography.body
+        field.focusRingType = .none
         status.font = Typography.caption
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingMiddle
