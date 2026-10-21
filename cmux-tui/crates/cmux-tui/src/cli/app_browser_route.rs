@@ -10,9 +10,14 @@
 //! takes. The daemon refused before it recorded anything, so nothing runs
 //! twice.
 //!
-//! A verb the app has no method for (`browser.input.mouse`, `.wheel`, `.text`
-//! and a key `down` or `up`) keeps the daemon's refusal; the CLI's message
-//! names the `cmux browser tab_…` verbs to use instead.
+//! Raw input runs as the app's page-level input: `browser.input.mouse` as
+//! `browser.page.mouse`, `.wheel` as `browser.page.wheel`, `.text` as
+//! `browser.page.insert_text`, and a key `down`, `up` or chord as
+//! `browser.page.key` (a plain press keeps `browser.page.press`). Their
+//! `x_px`/`y_px` are viewport CSS pixels of the page; `pointer_frame_seq`
+//! names a daemon frame, so the app ignores it. When no app owns the
+//! session, the daemon's refusal stands and the CLI's message names the
+//! `cmux browser tab_…` verbs.
 
 use std::path::Path;
 
@@ -55,16 +60,42 @@ pub(super) fn app_call(plan: &RequestPlan, tab: &str) -> Option<(&'static str, V
             }
             "browser.page.select_tab"
         }
-        // The app's press is keydown, keypress and keyup on the focused
-        // element, with no modifiers.
+        // A plain press keeps the app's press (keydown, keypress and keyup on
+        // the focused element, with Space and Enter defaults); a down, an up
+        // or a chord runs as the app's key.
         ResourceOperation::BrowserInputKey => {
             let kind = params.get("kind").and_then(Value::as_str).unwrap_or("press");
-            let modifiers = params.get("modifiers").and_then(Value::as_array);
-            if kind != "press" || modifiers.is_some_and(|list| !list.is_empty()) {
-                return None;
-            }
+            let modifiers = params.get("modifiers").cloned().unwrap_or_else(|| json!([]));
             call.insert("key".into(), params.get("key")?.clone());
-            "browser.page.press"
+            if kind == "press" && modifiers.as_array().is_none_or(Vec::is_empty) {
+                "browser.page.press"
+            } else {
+                call.insert("kind".into(), json!(kind));
+                call.insert("modifiers".into(), modifiers);
+                "browser.page.key"
+            }
+        }
+        ResourceOperation::BrowserInputMouse => {
+            call.insert("kind".into(), params.get("kind")?.clone());
+            call.insert("x".into(), params.get("x_px")?.clone());
+            call.insert("y".into(), params.get("y_px")?.clone());
+            for key in ["button", "click_count"] {
+                if let Some(value) = params.get(key) {
+                    call.insert(key.into(), value.clone());
+                }
+            }
+            "browser.page.mouse"
+        }
+        ResourceOperation::BrowserInputWheel => {
+            call.insert("x".into(), params.get("x_px")?.clone());
+            call.insert("y".into(), params.get("y_px")?.clone());
+            call.insert("dx".into(), params.get("delta_x")?.clone());
+            call.insert("dy".into(), params.get("delta_y")?.clone());
+            "browser.page.wheel"
+        }
+        ResourceOperation::BrowserInputText => {
+            call.insert("text".into(), params.get("text")?.clone());
+            "browser.page.insert_text"
         }
         _ => return None,
     };
