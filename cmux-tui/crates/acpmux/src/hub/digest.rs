@@ -340,6 +340,7 @@ mod tests {
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
+            supersede: None,
         })
     }
 

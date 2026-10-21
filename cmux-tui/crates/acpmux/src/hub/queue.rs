@@ -12,6 +12,10 @@ use std::sync::atomic::Ordering;
 #[path = "lost_start.rs"]
 mod lost_start;
 
+// `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
+#[path = "supersede.rs"]
+pub(super) mod supersede;
+
 /// A prompt waiting for the running turn to end.
 #[derive(Debug, Clone)]
 pub struct QueuedPrompt {
@@ -52,6 +56,8 @@ pub(super) struct PromptRun {
     /// Another agent's name when it is that agent's message, `None` when it is the person's
     /// (`digest.rs`); an edit makes it the person's.
     pub(super) agent: Option<String>,
+    /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
+    pub(super) supersede: Option<String>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -68,6 +74,8 @@ pub(super) struct Slot<'a> {
     pub(super) provenance: Option<&'a Value>,
     /// Another agent's name when it is that agent's message (`digest.rs`).
     pub(super) agent: Option<&'a str>,
+    /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
+    pub(super) supersede: Option<&'a str>,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -162,6 +170,7 @@ impl Hub {
                 trust_gate: p.trust_gate,
                 provenance: p.provenance.cloned(),
                 agent: p.agent.map(str::to_owned),
+                supersede: p.supersede.map(str::to_owned),
             };
             return Ok((turn_id, false, guard, Arc::new(run)));
         };
@@ -277,6 +286,7 @@ impl Hub {
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
+                    supersede: p.supersede.map(str::to_owned),
                 }),
                 restored: false,
                 resume: false,
@@ -295,6 +305,9 @@ impl Hub {
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
         if let Some(agent) = p.agent {
             queued["fromAgent"] = json!(agent);
+        }
+        if let Some(key) = p.supersede {
+            queued["supersede"] = json!(key);
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
@@ -505,6 +518,18 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
+        let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
+        self.remove_queued_with(session, prompt_id, why)
+    }
+
+    /// `remove_queued`, with the fields of `why` in its `queue_removed` record (`superseded`:
+    /// `supersede.rs`).
+    pub(super) fn remove_queued_with(
+        &self,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        why: Value,
+    ) -> bool {
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
@@ -517,8 +542,8 @@ impl Hub {
         };
         let mut msg =
             json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
-        if let Some(reason) = reason {
-            msg["reason"] = json!(reason);
+        if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
+            msg.extend(why);
         }
         self.append(session, "mux", "queue_removed", msg);
         // Finish the best-effort append before settlement can evict the retry identity.
@@ -636,9 +661,10 @@ impl Hub {
                             {
                                 meta.remove("provenance");
                             }
-                            // The person's now (`digest.rs`).
+                            // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {
                                 fields.remove("fromAgent");
+                                fields.remove("supersede");
                             }
                         }
                     }
@@ -700,6 +726,7 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
+            let supersede = e.msg.get("supersede").and_then(Value::as_str).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
@@ -708,7 +735,14 @@ impl Hub {
                 preview: short_text(&text, 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
-                run: Arc::new(PromptRun { blocks, control, trust_gate, provenance, agent }),
+                run: Arc::new(PromptRun {
+                    blocks,
+                    control,
+                    trust_gate,
+                    provenance,
+                    agent,
+                    supersede,
+                }),
                 restored: true,
                 resume: true,
                 steer: false,
