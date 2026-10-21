@@ -1,7 +1,7 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
-import CmuxNextRemoteView
-import CmuxVNC
+public import CmuxNextRemoteView
+public import CmuxVNC
 import CmuxVNCDemoServer
 
 #if DEBUG
@@ -9,11 +9,11 @@ import CmuxVNCDemoServer
 /// source, the saved sign-in, the sign-in prompt, and, for the host `mock`,
 /// an in-process loopback demo server (the VNC test desktop).
 @MainActor
-final class RemoteVNCSession {
-    let record: RemoteViewTabRecord
-    let source = RemoteVNCSource()
+public final class RemoteVNCSession {
+    public let record: RemoteViewTabRecord
+    public let source = RemoteVNCSource()
     /// The record's address; the Keychain key for its sign-in.
-    let endpoint: VNCEndpoint
+    public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
@@ -21,13 +21,14 @@ final class RemoteVNCSession {
     private var prompting = false
     private var closed = false
 
-    init(record: RemoteViewTabRecord, port: UInt16) {
+    /// `demoHost`: the reserved host name served by the loopback demo desktop.
+    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
         self.record = record
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
         endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
-        if host == RemoteViewPageSession.mockHost { demo = VNCDemoServer() }
+        if host == demoHost { demo = VNCDemoServer() }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -40,7 +41,7 @@ final class RemoteVNCSession {
     }
 
     /// Connects with the saved sign-in (or none; the host may not need one).
-    func connect() {
+    public func connect() {
         guard !closed else { return }
         guard let demo else {
             source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
@@ -66,12 +67,12 @@ final class RemoteVNCSession {
     }
 
     /// Stop, a hidden tab.
-    func stop() {
+    public func stop() {
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
-    func close() {
+    public func close() {
         closed = true
         source.stop()
         demoStart?.cancel()
@@ -81,7 +82,7 @@ final class RemoteVNCSession {
 
     /// Reconnect or Sign In pressed. After a sign-in failure it asks for the
     /// user name and password first, in a sheet on `window`.
-    func reconnect(in window: NSWindow?) {
+    public func reconnect(in window: NSWindow?) {
         if case .ended(.signInRequired) = source.status.state {
             promptForSignIn(in: window)
         } else {
@@ -126,11 +127,11 @@ final class RemoteVNCSession {
     private static let connectButton = "connect"
 }
 
-/// Strings of the VNC sign-in sheet (Resources/Remote.xcstrings).
+/// Strings of the VNC sign-in sheet (Resources/RemoteViewSessions.xcstrings).
 @MainActor
 struct RemoteVNCStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Remote", bundle: .module)
+        String(localized: key, defaultValue: value, table: "RemoteViewSessions", bundle: .module)
     }
 
     static func signInTitle(_ host: String) -> String {

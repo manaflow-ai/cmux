@@ -9,6 +9,7 @@ import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextMacScreen
 import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
 import Foundation
 import os

@@ -1,10 +1,8 @@
 import AppKit
-import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDevices
-import CmuxNextMacScreen
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 import os
 
@@ -17,12 +15,30 @@ import os
 /// This Mac's name is the computer name unless the person renamed it in
 /// Settings > Devices.
 @MainActor
-final class DeviceHubService {
+public final class DeviceHubService {
+    /// The cmux account the hub follows (the App's sign-in).
+    public struct Account {
+        /// Returns once the saved sign-in is restored at launch.
+        public var awaitRestored: @MainActor () async -> Void
+        /// The signed-in user's id ("" when unknown), nil when signed out;
+        /// read inside an observation, so a sign-in or out is seen.
+        public var userID: @MainActor () -> String?
+        /// The account's access token for the hub.
+        public var accessToken: @Sendable () async throws -> String
+
+        public init(awaitRestored: @escaping @MainActor () async -> Void, userID: @escaping @MainActor () -> String?,
+                    accessToken: @escaping @Sendable () async throws -> String) {
+            self.awaitRestored = awaitRestored
+            self.userID = userID
+            self.accessToken = accessToken
+        }
+    }
+
     private let pages: MacScreenPages
-    private let auth: CloudAuth
+    private let account: Account
     private let bundleIdentifier: String
     /// Settings > Devices (the React page's `devices` card).
-    let settingsModel: MacScreenDevicesSettings
+    public let settingsModel: MacScreenDevicesSettings
     private var hub: DeviceHub?
     /// What the running hub was made for: its address and the account.
     private var running: (url: URL, user: String)?
@@ -40,9 +56,9 @@ final class DeviceHubService {
     private var loadingFor: (url: URL, user: String)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "device-hub")
 
-    init(pages: MacScreenPages, auth: CloudAuth, bundleIdentifier: String?) {
+    public init(pages: MacScreenPages, account: Account, bundleIdentifier: String?) {
         self.pages = pages
-        self.auth = auth
+        self.account = account
         self.bundleIdentifier = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         settingsModel = MacScreenDevicesSettings(pages: pages)
         settingsModel.canSignIn = { [weak self] in self?.leftHub ?? false }
@@ -60,14 +76,14 @@ final class DeviceHubService {
     }
 
     /// Follows the hub address and the account from now on.
-    func start(settings: SettingsController) {
+    public func start(settings: SettingsController) {
         guard watch == nil else { return }
-        let auth = auth
+        let account = account
         // task-owner: DeviceHubService.watch: follows deviceHub.url and sign-in for the app's life
         watch = Task { [weak self] in
-            await auth.awaitRestored()
+            await account.awaitRestored()
             await self?.pages.store.load()
-            for await (address, user) in ObservationStream({ (Self.address(settings), auth.isSignedIn ? (auth.user?.id ?? "") : nil) }) {
+            for await (address, user) in ObservationStream({ (Self.address(settings), account.userID()) }) {
                 guard let self else { return }
                 url = address
                 self.user = user
@@ -97,7 +113,7 @@ final class DeviceHubService {
     /// Loads the identity (file Keychain, Secure Enclave) off the main thread,
     /// then installs the hub unless a stop or another start came first.
     private func startHub(url: URL, user: String) {
-        let auth = auth, bundleIdentifier = bundleIdentifier
+        let token = account.accessToken, bundleIdentifier = bundleIdentifier
         let name = pages.store.hubDeviceName ?? MacScreenShareHost.computerName
         loadingFor = (url, user)
         // task-owner: DeviceHubService.loading: one identity load; stopHub cancels it
@@ -105,7 +121,7 @@ final class DeviceHubService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: url, bundleIdentifier: bundleIdentifier, deviceName: name,
-                                                 tokens: DeviceHubAccountToken { try await auth.tokens().access })
+                                                 tokens: DeviceHubAccountToken(token))
             } catch {
                 guard let self, !Task.isCancelled else { return }
                 logger.error("device hub identity unavailable: \(String(describing: error), privacy: .public)")
@@ -141,7 +157,7 @@ final class DeviceHubService {
 
     /// A sign-out starts (the account's tokens still work): the hub hears
     /// `signed_out` now, not after the rest of the sign-out.
-    func willSignOut() {
+    public func willSignOut() {
         stopHub(endingSessions: true)
     }
 
@@ -180,23 +196,5 @@ final class DeviceHubService {
             hub.stop()
         }
         logger.info("device hub signing out")
-    }
-}
-
-extension AppServices {
-    /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.
-    func startDeviceHub(_ settings: SettingsController) {
-        deviceHub.start(settings: settings)
-        cloud.willSignOut.append { [weak self] in self?.deviceHub.willSignOut() }
-    }
-
-    /// `debug.device_hub` (DEV builds).
-    func registerDeviceHubDebug(on router: ControlRouter?) {
-        macScreenPages.registerDeviceHubDebug(on: router, settings: deviceHub.settingsModel) { [weak self] record, key in
-            let named = key.flatMap { key in self?.windows.controllers.lazy.compactMap { $0.content?.panes.values.first { $0.paneKey == key } }.first }
-            guard let self, let pane = named ?? windows.active?.focusedPane ?? windows.controllers.first?.focusedPane else { return "no pane" }
-            macScreenTabs.open(record, in: pane, focus: true, byPerson: true)
-            return nil
-        }
     }
 }

@@ -1,6 +1,6 @@
-import AppKit
-import CmuxNextSettings
-import CmuxNextRemoteView
+public import AppKit
+public import CmuxNextRemoteView
+public import CmuxNextSettings
 
 /// The live part of a `remote_view` tab: the pane and its stream source.
 /// Development builds only (`RemoteViewAvailability`). The host `mock` is the
@@ -11,9 +11,9 @@ import CmuxNextRemoteView
 /// A record with `via=vnc` streams from an RFB compatibility host through
 /// `RemoteVNCSession` (`mock` is then the loopback VNC demo desktop).
 @MainActor
-final class RemoteViewPageSession {
+public final class RemoteViewPageSession {
     /// The host name that opens the test desktop.
-    static let mockHost = "mock"
+    public static let mockHost = "mock"
 
     #if DEBUG
     private let pane: RemoteDesktopPane
@@ -68,7 +68,7 @@ final class RemoteViewPageSession {
     /// An RFB compatibility host: decoded frames, fitted to the pane, on the
     /// layer-contents presenter (the Metal presenter is for YUV video).
     private init(vncRecord record: RemoteViewTabRecord, port: UInt16, closeTab: @escaping @MainActor () -> Void) {
-        let vnc = RemoteVNCSession(record: record, port: port)
+        let vnc = RemoteVNCSession(record: record, port: port, demoHost: Self.mockHost)
         self.vnc = vnc
         source = vnc.source
         rd = nil
@@ -110,12 +110,12 @@ final class RemoteViewPageSession {
         path: .direct, rttMs: 4, state: .streaming, upstream: RemoteUpstreamStatus(offered: true)
     )
 
-    var view: NSView { pane.view }
-    var focusTarget: NSView { pane.view.focusView }
+    public var view: NSView { pane.view }
+    public var focusTarget: NSView { pane.view.focusView }
 
     /// `debug.remote_view` state of this session: the source, the session
     /// state and the decode counters.
-    func debugState() async -> JSONValue {
+    public func debugState() async -> JSONValue {
         let stats = await pane.decodeStats()
         let state = pane.state
         let vncInfo = vnc?.source.serverInfo
@@ -136,7 +136,7 @@ final class RemoteViewPageSession {
     }
 
     /// Starts the stream while the tab is shown. Idempotent.
-    func resume() {
+    public func resume() {
         guard !visible else { return }
         visible = true
         if let vnc {
@@ -155,7 +155,7 @@ final class RemoteViewPageSession {
     }
 
     /// Pauses the stream while the tab is hidden or closed. The last frame stays.
-    func pause() {
+    public func pause() {
         guard visible else { return }
         visible = false
         pane.stop()
@@ -165,14 +165,14 @@ final class RemoteViewPageSession {
     }
 
     #else
-    var view: NSView { NSView() }
-    var focusTarget: NSView { view }
-    func resume() {}
-    func pause() {}
+    public var view: NSView { NSView() }
+    public var focusTarget: NSView { view }
+    public func resume() {}
+    public func pause() {}
     #endif
 
     /// A session for `record`, or nil when this build cannot show it.
-    static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
+    public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
         if let port = record.vncPort { return RemoteViewPageSession(vncRecord: record, port: port, closeTab: closeTab) }

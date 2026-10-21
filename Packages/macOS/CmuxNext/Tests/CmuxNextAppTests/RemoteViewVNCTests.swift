@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextRemoteView
+@testable import CmuxNextRemoteViewSessions
 import CmuxVNC
 import Foundation
 import Testing

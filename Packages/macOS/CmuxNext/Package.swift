@@ -98,8 +98,11 @@ import PackageDescription
 //   CmuxNextDevices -> Compat, Wakeups (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
-//   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; the App adapts it to the pane
+//   CmuxVNC (Shared) -> system frameworks and libz only (RFB client; CmuxNextRemoteViewSessions adapts it to the pane
 //     as a RemoteViewFrameSource for `via=vnc` records; remote-desktop.md 12)
+//   CmuxNextRemoteViewSessions -> Compat, Design, Icons, Settings, Browser, RemoteView, RemoteBrowser, CmuxVNC,
+//     CmuxVNCDemoServer (the remote_view browser tab and, in DEV builds, its live part: the mock desktop, the rd debug host, and `via=vnc`
+//     with its source, input sink, saved sign-ins and sign-in sheet; the App makes one per tab)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
 //     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
 //   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
@@ -277,12 +280,10 @@ let package = Package(
                 "CmuxNextHistory",
                 "CmuxNextPages",
                 "CmuxNextRemoteView",
-                .product(name: "CmuxVNC", package: "CmuxVNC"),
-                // The loopback VNC test desktop behind `cmux://remote-view?host=mock&via=vnc` (DEBUG).
-                .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 "CmuxNextRemoteBrowser",
                 "CmuxNextMacScreen",
                 "CmuxNextDevices",
+                "CmuxNextRemoteViewSessions",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -906,6 +907,22 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The live part of a remote_view tab (DEV builds): the mock desktop,
+        // the rd debug host, and `via=vnc` (CmuxVNC as the pane's frame source
+        // and input sink, the Keychain sign-ins and the sign-in sheet).
+        .target(
+            name: "CmuxNextRemoteViewSessions",
+            dependencies: [
+                "CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextBrowser", "CmuxNextRemoteView",
+                "CmuxNextRemoteBrowser",
+                .product(name: "CmuxVNC", package: "CmuxVNC"),
+                .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Mac Screen tabs: another Mac's screen over a CmuxScreenKit stream
         // (WebRTC video, input on data channels), the pairing home page and
         // Share This Mac. Input capture comes from CmuxNextRemoteView.
@@ -1363,6 +1380,7 @@ let package = Package(
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
                 "CmuxNextRemoteLocalhostService",
+                "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextTabs",
                 "CmuxNextTasks",

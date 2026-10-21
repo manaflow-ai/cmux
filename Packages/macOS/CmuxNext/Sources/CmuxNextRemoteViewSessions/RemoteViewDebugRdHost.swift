@@ -21,7 +21,7 @@ import Foundation
 /// 127.0.0.1 at `CMUX_NEXT_RD_DEBUG_PORT`. The token goes to whatever listens on
 /// that port, including another local user's process that took it first:
 /// acceptable for development builds only.
-struct RemoteViewDebugRdHost {
+public struct RemoteViewDebugRdHost {
     let endpoint: RemoteRdLoopbackEndpoint
     let tokenFile: RemoteBrowserSecretFile
     let user: String
@@ -57,7 +57,7 @@ struct RemoteViewDebugRdHost {
 
     /// Why this process has no usable debug host, or nil when it has one
     /// (`debug.remote_view` state; the token itself is never shown).
-    static func problem(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+    public static func problem(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         guard let portText = environment["CMUX_NEXT_RD_DEBUG_PORT"] else { return "CMUX_NEXT_RD_DEBUG_PORT is not set" }
         guard let port = UInt16(portText), RemoteRdLoopbackEndpoint(port: port) != nil else {
             return "CMUX_NEXT_RD_DEBUG_PORT \(portText) is not a port from 1024 to 65535"

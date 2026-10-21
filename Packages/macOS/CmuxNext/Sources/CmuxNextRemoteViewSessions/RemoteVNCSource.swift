@@ -1,6 +1,6 @@
 import CmuxNextCompat
-import CmuxNextRemoteView
-import CmuxVNC
+public import CmuxNextRemoteView
+public import CmuxVNC
 import CoreVideo
 import Foundation
 
@@ -11,7 +11,7 @@ import Foundation
 /// authentication failure ends the session as `signInRequired`.
 /// Each `connect` starts a new RFB session; the pane resubscribes per start.
 // crash-allow: its only stored property is `state`, a Mutex that holds every mutable field.
-final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
+public final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     private struct State {
         var client: VNCClient?
         var status = RemoteViewStatus(path: .compatibility, state: .connecting)
@@ -25,16 +25,16 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     private let state = Mutex(State())
 
-    init() {}
+    public init() {}
 
     /// The running session's client (input goes here).
-    var client: VNCClient? { state.withLock { $0.client } }
+    public var client: VNCClient? { state.withLock { $0.client } }
     /// What the server said at the last handshake.
-    var serverInfo: VNCServerInfo? { state.withLock { $0.server } }
+    public var serverInfo: VNCServerInfo? { state.withLock { $0.server } }
 
     /// Starts a new session to `endpoint`, ending any current one.
     /// `onConnected` runs once the server accepted the credentials.
-    func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, onConnected: (@Sendable () -> Void)? = nil) {
+    public func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, onConnected: (@Sendable () -> Void)? = nil) {
         let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials))
         let (previous, generation) = state.withLock { state -> (VNCClient?, Int) in
             defer { state.client = client }
@@ -73,7 +73,7 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     }
 
     /// Ends the session (Stop, a hidden tab, a closed tab).
-    func stop() {
+    public func stop() {
         let client = state.withLock { state -> VNCClient? in
             defer { state.client = nil }
             return state.client
@@ -93,10 +93,10 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     }
 
     /// The latest status, for `debug.remote_view`.
-    var status: RemoteViewStatus { state.withLock { $0.status } }
+    public var status: RemoteViewStatus { state.withLock { $0.status } }
 
     /// Sends the current status again (a cancelled sign-in restores its card).
-    func republishStatus() {
+    public func republishStatus() {
         let current = state.withLock { $0.generation }
         setStatus(status, generation: current)
     }
@@ -113,11 +113,11 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     // MARK: RemoteViewFrameSource
 
-    func accessUnits() -> AsyncStream<RemoteAccessUnit> {
+    public func accessUnits() -> AsyncStream<RemoteAccessUnit> {
         AsyncStream { $0.finish() }
     }
 
-    func decodedFrames() -> AsyncStream<RemoteDecodedFrame> {
+    public func decodedFrames() -> AsyncStream<RemoteDecodedFrame> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteDecodedFrame.self, bufferingPolicy: .bufferingNewest(1))
         state.withLock { state in
             state.frames?.finish()
@@ -126,7 +126,7 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
         return stream
     }
 
-    func statusUpdates() -> AsyncStream<RemoteViewStatus> {
+    public func statusUpdates() -> AsyncStream<RemoteViewStatus> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteViewStatus.self, bufferingPolicy: .bufferingNewest(4))
         let current = state.withLock { state in
             state.statuses?.finish()
@@ -138,12 +138,12 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     }
 
     /// The server draws the pointer into the framebuffer, so no overlay.
-    func cursorUpdates() -> AsyncStream<RemoteCursorState> {
+    public func cursorUpdates() -> AsyncStream<RemoteCursorState> {
         AsyncStream { $0.finish() }
     }
 
     /// A full refresh: RFB has no keyframes, but this repaints everything.
-    func requestKeyframe() {
+    public func requestKeyframe() {
         guard let client else { return }
         Task { await client.refresh() }
     }
@@ -152,11 +152,11 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 /// Sends the pane's input to the RFB session, in order: one task drains a
 /// queue, so a key up never overtakes its key down.
 @MainActor
-final class RemoteVNCInputSink: RemoteViewInputSink {
+public final class RemoteVNCInputSink: RemoteViewInputSink {
     private let queue: AsyncStream<RemoteInputEvent>.Continuation
     private let drain: Task<Void, Never>
 
-    init(source: RemoteVNCSource) {
+    public init(source: RemoteVNCSource) {
         // Far more than a live session ever queues (pointer moves at display rate drain as fast
         // as they come). Only a stalled connection fills it: then the oldest events go, so the
         // remote still gets the latest pointer position and the key and button ups that follow.
@@ -177,7 +177,7 @@ final class RemoteVNCInputSink: RemoteViewInputSink {
         drain.cancel()
     }
 
-    func send(_ event: RemoteInputEvent) {
+    public func send(_ event: RemoteInputEvent) {
         queue.yield(event)
     }
 }
