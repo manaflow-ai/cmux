@@ -2,15 +2,13 @@
 # The action exports for base autofix (the Mac action-exports job of cmux-next-base-autofix.yml),
 # made at the newest BRANCH tip: plans/cmux-next/action-surfaces.json, actions.md and links.json.
 #
-# base-autofix-push.sh holds an export whose inputs (autofix-areas.sh's actions area) moved after
-# the commit it was made at. The Mac job waits for a runner for up to half an hour and the actions
-# area moves every few minutes, so exports made at the run's own commit were held on every run, and
-# none landed after 02:14Z on 2026-10-21. So this starts on the newest tip when the area moved
-# while the job queued, and after each regeneration reads the tip again: when the area moved since
-# the commit the exports were made at, it checks that tip out and regenerates there, at most
-# CMUX_BASE_AUTOFIX_ACTIONS_TRIES times in all (3). It then prints "made at: SHA";
-# base-autofix-push.sh lands the exports only when nothing moved their inputs after that commit.
-# When the inputs still moved after the last try, it hands on no export, prints an error and fails.
+# The Mac job waits for a runner for up to half an hour and the actions area moves every few minutes,
+# so this starts on the newest tip when the area moved while the job queued. It regenerates once and
+# prints "made at: SHA". When the tip moves the area again during the regeneration, the exports still
+# go out as made there: base-autofix-push.sh lands them on the newest tip as progress, and the next
+# push run makes them on the newer tip. A regeneration is never retried: three in a row raced the
+# merges (one every three minutes or so, against about three and a half per regeneration) and none
+# landed (run 39633520123, 2026-10-21).
 #
 # OUT gets every export file that differs from the run's own commit (HEAD at the start), at its
 # repository path: the repair is made on that commit, so it then holds the whole export made at the
@@ -26,12 +24,11 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  local out remote branch tries here root at tip try file regenerate
+  local out remote branch here root at tip file regenerate
   local exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
-  tries="${CMUX_BASE_AUTOFIX_ACTIONS_TRIES:-3}"
   # Global, like start: the EXIT trap prepares the run's commit again after main has returned.
   prepare="${CMUX_BASE_AUTOFIX_ACTIONS_PREPARE:-}"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -55,38 +52,24 @@ main() {
     check_out "$tip" || return 1
     at="$tip"
   fi
-  for ((try = 1; try <= tries; try++)); do
-    regenerate="${CMUX_ACTIONS_REGENERATE:-$root/scripts/cmux-next/regenerate-action-exports.sh}"
-    rm -rf "$work/regenerated"
-    "$regenerate" "$work/regenerated" >&2 || {
-      echo "::error::regenerating the action exports on ${at:0:12} failed" >&2
-      return 1
-    }
-    tip="$(read_tip)" || {
-      echo "::error::cannot read $branch, so the action exports made at ${at:0:12} are not known to be current" >&2
-      return 1
-    }
-    if ! moved "$at" "$tip"; then
-      for file in "${exports[@]}"; do
-        [[ -f "$file" ]] || continue
-        if git cat-file -e "$start:$file" 2>/dev/null && cmp -s <(git cat-file blob "$start:$file") "$file"; then
-          continue
-        fi
-        mkdir -p "$out/$(dirname "$file")"
-        cp "$file" "$out/$file"
-        echo "regenerated: $file"
-      done
-      echo "made at: $at"
-      return 0
+  regenerate="${CMUX_ACTIONS_REGENERATE:-$root/scripts/cmux-next/regenerate-action-exports.sh}"
+  "$regenerate" "$work/regenerated" >&2 || {
+    echo "::error::regenerating the action exports on ${at:0:12} failed" >&2
+    return 1
+  }
+  if tip="$(read_tip)" && moved "$at" "$tip"; then
+    echo "::notice::$branch moved the action exports' inputs to ${tip:0:12} during the regeneration on ${at:0:12}; they land as progress and the next run makes them there." >&2
+  fi
+  for file in "${exports[@]}"; do
+    [[ -f "$file" ]] || continue
+    if git cat-file -e "$start:$file" 2>/dev/null && cmp -s <(git cat-file blob "$start:$file") "$file"; then
+      continue
     fi
-    echo "$branch moved to ${tip:0:12} and changed the action exports' inputs after ${at:0:12} (try $try of $tries)." >&2
-    if ((try < tries)); then
-      check_out "$tip" || return 1
-      at="$tip"
-    fi
+    mkdir -p "$out/$(dirname "$file")"
+    cp "$file" "$out/$file"
+    echo "regenerated: $file"
   done
-  echo "::error::$branch kept changing the action exports' inputs through $tries regenerations (last made at ${at:0:12}, tip ${tip:0:12}); the exports wait for the next run" >&2
-  return 1
+  echo "made at: $at"
 }
 
 read_tip() {
