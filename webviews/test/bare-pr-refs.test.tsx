@@ -17,6 +17,7 @@ const keys = [
   "Node",
   "MutationObserver",
   "ResizeObserver",
+  "customElements",
   "getComputedStyle",
   "localStorage",
   "requestAnimationFrame",
@@ -33,6 +34,8 @@ beforeAll(() => {
     Element: dom.window.Element,
     Node: dom.window.Node,
     MutationObserver: dom.window.MutationObserver,
+    // The code block's highlighted card registers @pierre/diffs' web component at import.
+    customElements: dom.window.customElements,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
