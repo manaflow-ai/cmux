@@ -2912,8 +2912,10 @@ def test_ci_status_waits_for_platform_workflows() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
     # The verdict folded in from the retired `tests` job keeps its skip of
-    # pull requests into feat-cmux-next, inside the step.
-    assert 'os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"' in block.split("name: Check platform workflow routing", 1)[1]
+    # cmux NEXT pull requests, stacked ones included (next_line), inside the step.
+    routing = block.split("name: Check platform workflow routing", 1)[1]
+    assert 'get("next_line") == "true"' in routing
+    assert 'os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"' in routing
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
@@ -4296,7 +4298,8 @@ def test_macos_compile_admission_builds_the_product_once() -> None:
 
 def test_static_preflight_rejects_stale_generated_output_before_native_work() -> None:
     steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
-    scripts = [step["run"] for step in steps if "run" in step]
+    # The line step routes (it writes GITHUB_OUTPUT); the validators are the rest.
+    scripts = [step["run"] for step in steps if "run" in step and step.get("id") != "line"]
     with tempfile.TemporaryDirectory(prefix="cmux-generated-preflight-") as tmp:
         repo = Path(tmp)
         # Run the actual CI wrapper while isolating the launch policy checker from
