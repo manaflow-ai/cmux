@@ -246,7 +246,8 @@ public final class AgentReplyPullRequests {
     /// `AgentPaneReplyRequest.maximumInspect` links, gathered across every reply on the page), so
     /// this is a bound per host request, not per reply: in a chat with more pull request links than
     /// this, the ones past the bound are read when a card opens them, one `gh pr view` each.
-    /// Raising it to cover a whole request would cost one more batched read instead (``batchSize``).
+    /// Raising it to cover a whole request would cost one more batched read instead
+    /// (``AgentChatPullRequestReader/batchSize``).
     static let maximumRegistered = 16
 
     private let reader: AgentChatPullRequestReader

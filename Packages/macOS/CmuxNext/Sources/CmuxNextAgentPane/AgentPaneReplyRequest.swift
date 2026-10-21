@@ -53,7 +53,8 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "pr.inspect": ["url"],
     ]
 
-    /// Most paths or URLs in one `link.inspect` (one reply's chips).
+    /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
+    /// reply on the page and asks for them in one call, so this is a bound per request.
     static let maximumInspect = 64
     /// Longest URL any method takes (the same cap as a link a browser opens from a click).
     static let maximumURL = 2048

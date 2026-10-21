@@ -171,7 +171,8 @@ struct AgentReplyPullRequestsTests {
     /// answers its fixture whatever the query says, so only this reads the ask itself.
     @Test func theBatchedQueryAsksForEveryFieldGhReads() throws {
         let target = try #require(AgentChatPullRequestReader.Target(url: Self.url.absoluteString))
-        let fields = Self.fragmentFields(AgentChatPullRequestReader.query([target]))
+        let query = AgentChatPullRequestReader.query([target])
+        let fields = Self.fragmentFields(query)
         // The fragment was found and read, and only its own level: `path` is a field of a file.
         #expect(fields.contains("url"))
         #expect(fields.contains("path") == false, "fragmentFields read a nested selection as the pull request's")
@@ -181,6 +182,12 @@ struct AgentReplyPullRequestsTests {
             let asked = field == "statusCheckRollup" ? "commits" : field
             #expect(fields.contains(asked), "the batched query no longer asks the pull request for \(field)")
         }
+        // The arguments of the three connections, which the names above cannot see: `last: 1` is
+        // the rollup's commit, and `pullRequests(fromGraphQL:)` reads `nodes.last`, so a
+        // `first: 1` here would draw a multi-commit pull request's checks from the wrong commit.
+        #expect(query.contains("commits(last: 1)"))
+        #expect(query.contains("files(first: 100)"))
+        #expect(query.contains("labels(first: \(AgentPanePullRequest.maximumLabels))"))
     }
 
     /// Replies full of links cannot grow the cache without bound: a batch records up to sixteen

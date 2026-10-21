@@ -2,8 +2,8 @@ import CmuxNextSettings
 public import Foundation
 
 /// What the host has for one pull request link, with the age of it. A card draws from the cache
-/// and never waits on a read: a hover of a link the cache has gone stale on (``freshness``, one
-/// minute) starts a background refresh, so GitHub sees at most one read a minute for a link no
+/// and never waits on a read: a hover of a link the cache has gone stale on (one minute,
+/// ``AgentReplyPullRequests``) starts a background refresh, so GitHub sees at most one read a minute for a link no
 /// matter how often it is hovered, and the hover itself always draws at once from what is there
 /// (Leo 2026-10-20: the old card called GitHub on every hover and ended up showing "GitHub rate
 /// limit · resets 9:11 PM" instead of the pull request). A read that fails leaves the last good
