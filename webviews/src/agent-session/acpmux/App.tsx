@@ -80,6 +80,7 @@ import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
+import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
@@ -129,6 +130,7 @@ import { useChatInspector } from "./inspector/ChatInspector";
 import {
   type BackgroundCommand,
   backgroundCommands,
+  backgroundSection,
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
@@ -161,7 +163,13 @@ import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointS
 import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
+import {
+  configureDictation,
+  deliverDictation,
+  isWaitingForWords,
+  useDictation,
+  type DictationField,
+} from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
@@ -4336,8 +4344,12 @@ function AcpmuxPane() {
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
-  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
-  const stopsSubagents = snapshot.summary?.harness === "claude";
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
+  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
+  const stopsSubagents = canBackground;
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
@@ -4345,9 +4357,6 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
-  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
-  // running command's row says so (conversation/runInBackground.ts).
-  const canBackground = backgroundsWork(snapshot.summary);
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
@@ -4475,11 +4484,15 @@ function AcpmuxPane() {
     transcriptRows,
     summaryCard,
     inspector,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
   });
   counted.current = {
     runningAgents,
     runningCommands,
     runningSessions,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -4518,7 +4531,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal("tasks");
+        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
         else card.show();
       },
       openSessions: () => {
@@ -4530,12 +4543,13 @@ function AcpmuxPane() {
     };
   }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, openFold]);
   // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or a
-  // command only the transcript knows), the summary card, which lists it, or the Inspector's
-  // Background tasks while the Inspector takes the card's place.
+  // command only the transcript knows), the summary card, which lists it, or, while the Inspector
+  // takes the card's place, its section that lists it (Background tasks, or Servers for a dev server).
   const openTrayCommand = useCallback((command: BackgroundCommand) => {
     const showCard = () => {
-      const { summaryCard: card, inspector: panel } = counted.current;
-      if (panel.reveal) panel.reveal("tasks");
+      const { processes, summaryCard: card, inspector: panel } = counted.current;
+      // The section that lists it, by the Inspector's own split (processes.ts `backgroundSection`).
+      if (panel.reveal) panel.reveal(backgroundSection(processes, [command]));
       else card.show();
     };
     if (!command.toolCallId) return showCard();
@@ -4902,6 +4916,7 @@ function AcpmuxPane() {
       },
       applyPreview(on) {
         setPreview(on === true);
+        setPromptSurfaces(on === true);
       },
       applySidebarPreviewVariant(variant) {
         configureNativeSidebarPreviewVariant(variant);
@@ -6912,6 +6927,7 @@ function AcpmuxPane() {
             // No prompt goes while a picked folder waits for the user's answer.
             blocked={pendingFolder ? {} : trustAsk.blocked}
             accessory={<DictationMic dictation={dictation} />}
+            dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
@@ -7099,6 +7115,7 @@ function AcpmuxPane() {
                 }).then(() => folder);
               }}
               accessory={<DictationMic dictation={dictation} />}
+              dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
