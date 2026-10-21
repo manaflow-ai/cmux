@@ -12,6 +12,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -67,7 +68,7 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
     stopDevServer(server);
   });
 
-  /// Starts sampling one signature per animation frame (into window.openFrames).
+  /// Starts sampling one signature per painted frame (into window.openFrames).
   const SAMPLER = () => {
     type Frame = Record<string, string | number>;
     const frames: { at: number; shown: boolean; sig: Frame }[] = [];
@@ -84,12 +85,12 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
       // In the app the page's module sets the gate before the probe's document-end read; on the
       // dev server its top-level awaits (strings, mock timing) set it after DOMContentLoaded. Wait
       // for it while nothing is drawn; a page that draws without a gate is shown at once.
-      else if (!document.getElementById("root")?.firstChild) requestAnimationFrame(showAfterGate);
+      else if (!document.getElementById("root")?.firstChild) void window.cmuxPaintFrame().then(showAfterGate);
       else show();
     };
     (window as unknown as { showAfterGate: () => void }).showAfterGate = showAfterGate;
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showAfterGate);
-    const sample = () => {
+    window.cmuxAfterPaint(() => {
       const rows = [...document.querySelectorAll<HTMLElement>("[data-row-key]")].filter((row) => !row.inert);
       const first = rows.slice(0, 40);
       const controlState = (row: HTMLElement) =>
@@ -115,9 +116,8 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
           cards: document.querySelectorAll(".card, section").length,
         },
       });
-      if (performance.now() - start < 2500) requestAnimationFrame(sample);
-    };
-    requestAnimationFrame(sample);
+      return performance.now() - start < 2500;
+    });
   };
 
   async function framesOf(page: Page) {
@@ -158,6 +158,7 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
 
   test("a pooled Settings page claimed by the host draws its settled page from the first frame", async () => {
     const page = await browser!.newPage({ viewport: { width: 1100, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(`${base}/?mock&latency=30&parked`);
     // The spare sits parked (built, its calls held) until the host claims it.
     await page.waitForTimeout(800);
@@ -181,6 +182,7 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
 
   test("a cold Settings open draws its settled page from its first drawn frame", async () => {
     const page = await browser!.newPage({ viewport: { width: 1100, height: 760 } });
+    await installPaintedFrames(page);
     await page.addInitScript(SAMPLER);
     await page.goto(`${base}/?mock&latency=30`);
     const result = await framesOf(page);

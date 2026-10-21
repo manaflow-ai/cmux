@@ -167,7 +167,11 @@ fn session_children_journey_lists_follows_and_opens_a_vm_chats_child() {
     assert_eq!(heard["surface"], json!(surface));
     let listed = app.request(json!({"cmd": "agent-session-children", "surface": surface}));
     assert_eq!(listed["ok"], true, "{listed}");
-    assert_eq!(ids(&listed), [child.clone()], "only the parent's child, never {other}");
+    assert_eq!(
+        ids(&listed),
+        std::slice::from_ref(&child),
+        "only the parent's child, never {other}"
+    );
     assert_eq!(listed["data"]["sessions"][0]["spawnedBy"], json!(parent));
     assert!(app.changed(&other, 1).is_none(), "another chat's changes stay on the machine");
 
