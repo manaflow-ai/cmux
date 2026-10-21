@@ -59,7 +59,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">
+      <div className="ui-glass cv-user__bubble selectable">
         <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
         {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
         {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}

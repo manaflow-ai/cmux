@@ -43,7 +43,7 @@ function GallerySentImages({ images, pending = false }: Props) {
       <TurnActionsContext.Provider value={actions}>
         <div className="cv-user" style={{ padding: 16 }}>
           <SentImages images={images} />
-          <div className="cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
+          <div className="ui-glass cv-user__bubble">Why does the sidebar overlap the toolbar here?</div>
         </div>
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>

@@ -1,7 +1,11 @@
 // Leo, 2026-10-12: popovers, menus and tooltips were glass at 92% with a blur, so the text under
-// them showed through (the New Tab folder popover over the Chats list read as text on text). Every
-// one is now the solid popup surface, `--surface-popup`: the host's `--cmux-popup-surface`, the
-// same opaque fill as the native overlays (`Palette.popupSurface`), with no backdrop blur. The two
+// them showed through (the New Tab folder popover over the Chats list read as text on text). They
+// became the solid popup surface, `--surface-popup`: the host's `--cmux-popup-surface`, the same
+// opaque fill as the native overlays (`Palette.popupSurface`), with no backdrop blur. Since the
+// liquid glass (2026-10-20, Leo: popups are glass, never opaque) every menu, popover and picker is
+// `.ui-glass` (ui/popupSurface.css): translucent and frosted; under Plain glass and Reduce
+// Transparency it is that solid popup surface again, unblurred. Floating surfaces that are not
+// popups keep the solid surface. The two
 // web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
 // 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
 // frosted glass instead (tooltip-surface.test.ts).
@@ -64,6 +68,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
   const pages = {
     css: read(
       "pages/shared/desktop.css",
+      "ui/glass/glass.css",
       "pages/shared/pageBase.css",
       "ui/popupSurface.css",
       "ui/ui.css",
@@ -73,7 +78,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
       "pages/home-channels/ledger.css",
       "pages/editor/styles.css",
     ),
-    body: `<div class="ui-positioner"><div class="ui-popup" id="menu">Menu</div></div>
+    body: `<div class="ui-positioner"><div class="ui-popup ui-glass" id="menu">Menu</div></div>
 ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
@@ -84,6 +89,7 @@ ${tooltips}
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
+    glass: ["menu"],
     surfaces: [
       "menu",
       "page-menu",
@@ -100,36 +106,55 @@ ${tooltips}
   const pane = {
     css: read(
       "pages/shared/desktop.css",
+      "ui/glass/glass.css",
       "ui/popupSurface.css",
       "agent-session/acpmux/styles.css",
       "agent-session/acpmux/changes/changes.css",
       "agent-session/acpmux/composerControls.css",
       "agent-session/acpmux/composerLocation.css",
+      "agent-session/acpmux/composerStates.css",
       "agent-session/acpmux/modelPicker.css",
       "agent-session/acpmux/summary/summary.css",
       "agent-session/acpmux/header/header.css",
       "agent-session/acpmux/newtab/screen.css",
     ),
     body: `<div class="acpmux-shell">
-<div class="acpmux-menu" id="cascade">Model</div>
-<div class="acpmux-context-pop" id="context-pop">Context</div>
-<div class="acpmux-slash-menu" id="slash">/compact</div>
-<div class="ui-popup ui-picker-popup acpmux-mp" id="model-picker">Models</div>
+<div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
+<div class="ui-popup ui-glass ui-popover acpmux-context-pop" id="context-pop">Context</div>
+<div class="ui-popup ui-glass acpmux-slash-menu" id="slash">/compact</div>
+<div class="acpmux-composer"><div class="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu" id="composer-menu">@file</div></div>
+<div class="ui-popup ui-glass ui-picker-popup acpmux-mp" id="model-picker">Models</div>
 <div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
 </div>
-<div class="ui-positioner"><div class="ui-popup" id="popup">Menu</div></div>
-<div class="ui-positioner"><div class="ui-popup ui-context-menu" id="context-menu">Copy</div></div>
-<div class="ui-positioner"><div class="ui-popup acpmux-effort-menu" id="effort">High</div></div>
-<div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
-<div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
-<div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass" id="popup">Menu</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-context-menu" id="context-menu">Copy</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass acpmux-effort-menu" id="effort">High</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass acpmux-access-menu" id="access">Full access</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-pr-status" id="pr-status">Checks</div></div>
 <div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
-<div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
+    glass: [
+      "cascade",
+      "context-pop",
+      "slash",
+      // The slash, mention and access menus open inside the composer: never its solid card tint.
+      "composer-menu",
+      "model-picker",
+      "popup",
+      "context-menu",
+      "effort",
+      "access",
+      "chat-menu",
+      "pr-status",
+      "new-tab-suggestions",
+    ],
     surfaces: [
       "cascade",
       "context-pop",
       "slash",
+      "composer-menu",
       "model-picker",
       "file-menu",
       "popup",
@@ -144,12 +169,19 @@ ${tooltips}`,
     ],
   };
 
-  const open = async (browser: Browser, fixture: { css: string; body: string }) => {
+  const open = async (browser: Browser, fixture: { css: string; body: string }, root = "") => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.setContent(
-      `<!doctype html><html style="${theme}"><head><style>${fixture.css}</style></head><body>${fixture.body}</body></html>`,
+      `<!doctype html><html ${root} style="${theme}"><head><style>${fixture.css}</style></head><body>${fixture.body}</body></html>`,
     );
     return page;
+  };
+  /** An rgb(), rgba() or color(srgb ...) background's alpha. */
+  const alpha = (color: string) => {
+    const slash = color.match(/\/\s*([\d.]+)\)$/);
+    if (slash) return Number(slash[1]);
+    const rgba = color.match(/^rgba\([^)]*,\s*([\d.]+)\)$/);
+    return rgba ? Number(rgba[1]) : 1;
   };
   const material = (page: Page, id: string) =>
     page.$eval(`#${id}`, (node) => {
@@ -170,8 +202,36 @@ ${tooltips}`,
         ["pages", pages],
         ["the agent pane", pane],
       ] as const) {
-        test(`every menu, popover and tooltip in ${where} is the opaque popup surface, unblurred`, async () => {
+        for (const [mode, root] of [
+          ["no still yet", undefined],
+          ["the lens", "data-glass-lens"],
+          ["Plain glass", 'data-glass="plain" data-glass-lens'],
+        ] as const) {
+          test(`under ${mode} every menu, popover and picker in ${where} is glass: translucent and frosted, never opaque`, async () => {
+            const page = await open(browser, fixture, root);
+            const seen: Record<string, { translucent: boolean; blurred: boolean }> = {};
+            for (const id of fixture.glass) {
+              const { background, blurred } = await material(page, id);
+              seen[id] = { translucent: alpha(background) < 1, blurred };
+            }
+            const want = Object.fromEntries(fixture.glass.map((id) => [id, { translucent: true, blurred: true }]));
+            expect(seen).toEqual(want);
+            await page.close();
+          });
+        }
+
+        test(`the other floating surfaces in ${where} keep the opaque popup surface, unblurred`, async () => {
           const page = await open(browser, fixture);
+          const solid = fixture.surfaces.filter((id) => !fixture.glass.includes(id));
+          const seen: Record<string, { background: string; blurred: boolean }> = {};
+          for (const id of solid) seen[id] = await material(page, id);
+          expect(seen).toEqual(Object.fromEntries(solid.map((id) => [id, { background: POPUP, blurred: false }])));
+          await page.close();
+        });
+
+        // Only Reduce Transparency asks for opaque: Plain glass is still glass (Leo: never opaque).
+        test(`under Reduce Transparency every menu, popover and tooltip in ${where} is the opaque popup surface, unblurred`, async () => {
+          const page = await open(browser, fixture, "data-reduce-transparency");
           const seen: Record<string, { background: string; blurred: boolean }> = {};
           for (const id of fixture.surfaces) seen[id] = await material(page, id);
           const want = Object.fromEntries(fixture.surfaces.map((id) => [id, { background: POPUP, blurred: false }]));
@@ -183,12 +243,19 @@ ${tooltips}`,
       // Leo 10-13 (coherence pass): one elevation for every menu and popover. The New Tab
       // suggestions cast a deeper, darker shadow of their own than the menus opened from the same
       // box, so the two read as different layers.
+      // Under Plain glass a glass popup's rim is the popup hairline: the same layers as the solid
+      // surfaces' popup shadow, the inset hairline after the drop instead of before it.
       test("every menu and popover in the agent pane casts the one popup elevation", async () => {
-        const page = await open(browser, pane);
+        const page = await open(browser, pane, 'data-glass="plain"');
         const look = (id: string) =>
           page.$eval(`#${id}`, (node) => {
             const style = getComputedStyle(node);
-            return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
+            const shadow = style.boxShadow
+              .split(/,(?![^(]*\))/)
+              .map((layer) => layer.trim())
+              .sort()
+              .join(", ");
+            return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow };
           });
         const want = await look("context-menu");
         const ids = pane.surfaces;
