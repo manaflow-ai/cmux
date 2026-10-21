@@ -272,12 +272,19 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     await page.close();
   });
 
-  test("the New Tab suggestions popover is the popup surface, as every pane popup", async () => {
+  // Menu glass, as every pane popup (Lucas, 2026-10-21; popup-surface.test.ts): a translucent tint
+  // with no composer tint over it; under Reduce Transparency the solid popup surface.
+  test("the New Tab suggestions popover is menu glass, as every pane popup", async () => {
     const page = await open(2, "light");
     await page.evaluate(() => document.documentElement.style.setProperty("--cmux-popup-surface", "rgb(201, 202, 203)"));
+    const glass = await fill(page, "popover");
+    expect(glass.image, "no composer tint over it").toBe("none");
+    expect(glass.rgba, "glass fill parsed").not.toBeNull();
+    expect(glass.rgba![3], "a translucent tint").toBeLessThan(1);
+    await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
     const { rgba, image } = await fill(page, "popover");
     expect(image, "no composer tint over it").toBe("none");
-    expect(rgba, "the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
+    expect(rgba, "Reduce Transparency: the popup surface").toEqual([201 / 255, 202 / 255, 203 / 255, 1]);
     await page.close();
   });
 
