@@ -161,6 +161,13 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
     const radius = (el: Element, corner: string) => parseFloat(getComputedStyle(el).getPropertyValue(corner)) || 0;
     const rows = queue ? [...queue.querySelectorAll(".acpmux-queued")] : [];
     const last = rows.at(-1)?.getBoundingClientRect();
+    const listBottom = queue?.getBoundingClientRect().bottom ?? 0;
+    const scrolls = queue ? queue.scrollHeight - queue.clientHeight > 1 : false;
+    const cap = queue ? parseFloat(getComputedStyle(queue).getPropertyValue("--acpmux-queue-max")) || 132 : 0;
+    const shownLast = rows
+      .map((row) => row.getBoundingClientRect().bottom)
+      .filter((bottom) => bottom <= listBottom + 0.5)
+      .at(-1);
     return {
       head: strip ? "strip" : "queue",
       // The block stands right on the card, side by side to the half pixel.
@@ -186,19 +193,10 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
       // queue past its cap scrolls and rests on a whole row (ComposerQueue fitList): the rows under
       // it are out of sight, so its last shown row ends at the list's edge. A font that wraps a
       // prompt to two lines (CI's, at 420px) takes the steering frame past its cap.
-      scrolls: queue ? queue.scrollHeight - queue.clientHeight > 0.5 : false,
-      queueRoom:
-        queue && last
-          ? Math.round(
-              queue.getBoundingClientRect().bottom -
-                (queue.scrollHeight - queue.clientHeight > 0.5
-                  ? (rows
-                      .map((row) => row.getBoundingClientRect().bottom)
-                      .filter((bottom) => bottom <= queue.getBoundingClientRect().bottom + 0.5)
-                      .at(-1) ?? last.bottom)
-                  : last.bottom),
-            )
-          : null,
+      // Past the cap only: a list that scrolls with its rows under `--acpmux-queue-max` sized short.
+      scrolls,
+      overCap: queue ? queue.scrollHeight > cap + 1 : false,
+      queueRoom: queue && last ? Math.round(listBottom - (scrolls ? (shownLast ?? last.bottom) : last.bottom)) : null,
     };
   }
 
@@ -240,6 +238,7 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
           offenders.push(`${label} queued text starts at ${join.textStarts.join("/")}px`);
         if (join.queueRoom !== null && (join.scrolls ? Math.abs(join.queueRoom) > 1 : join.queueRoom < 4))
           offenders.push(`${label} queue room ${join.queueRoom}px${join.scrolls ? " (scrolls)" : ""}`);
+        if (join.scrolls && !join.overCap) offenders.push(`${label} queue scrolls under its cap`);
       }
     }
     expect(offenders).toEqual([]);
