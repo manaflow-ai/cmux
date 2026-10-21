@@ -1,10 +1,12 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
 // The running turn's line says what the turn has spent so far, as Claude desktop's does: the
 // working dots, the time, then this turn's tokens ("Working for 5m 54s · 2.1M tokens"). Claude Code
-// reports each model call's usage as it lands (acpmux `usage_update`, claude_stdio/inbound.rs: the
-// call's input, cache and output tokens), so the turn's tokens are the sum of the calls since its
-// `turn_started`. A chat attached after its turn started has not seen every call, and a harness
-// whose usage is the context it holds (not one call's) cannot be summed: both show the time alone.
+// reports each model call's usage as it lands, and acpmux marks those records as one call's
+// (`usage_update` with `_meta.acpmux.call`, claude_stdio/inbound.rs), so the turn's tokens are the
+// sum of the marked calls since its `turn_started`. Every other usage record is the context a
+// harness holds: Claude Code's result repeats its last call's (for the context ring), and other
+// harnesses, whatever their family, report only that. None of those adds up. A chat attached after
+// its turn started has not seen every call; it shows the time alone, even once older pages load.
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
@@ -21,7 +23,14 @@ const CHAT = "0190a000-0000-7000-8000-0000000000e7";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
 const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
-const usage = (used: number, size = 200_000): Step => [
+/// One model call's usage, as acpmux marks it on Claude Code's streamed message_delta.
+const call = (used: number, size = 200_000): Step => [
+  "in",
+  "usage_update",
+  update({ sessionUpdate: "usage_update", used, size, _meta: { acpmux: { call: true } } }),
+];
+/// The context a harness holds: Claude Code's result repeating its last call, or another harness.
+const held = (used: number, size = 200_000): Step => [
   "in",
   "usage_update",
   update({ sessionUpdate: "usage_update", used, size }),
@@ -35,24 +44,42 @@ const record = (steps: Step[], from = 1) =>
     kind,
     msg,
   }));
+type Recorded = ReturnType<typeof record>[number];
 
-/// A daemon over a fake socket: attach answers with `history`; `push` sends live events.
-function fakeDaemon(history: ReturnType<typeof record>, harness = "claude", family = "claude") {
+/// Which records a kinds filter passes, as acpmux's paging.rs does for the kinds the pane asks.
+const passes = (kinds: string[] | undefined, event: Recorded) =>
+  !kinds || kinds.some((kind) => (kind === "transcript" ? event.kind !== "usage_update" : kind === event.kind));
+
+/// A daemon over a fake socket: attach answers with `history` from `attachFrom` on (older records
+/// load as pages); `push` sends live events.
+function fakeDaemon(
+  history: Recorded[],
+  {
+    harness = "claude",
+    family = "claude",
+    attachFrom = 0,
+  }: { harness?: string; family?: string; attachFrom?: number } = {},
+) {
   let socket: any;
   const session = { sessionId: CHAT, cwd: "/Users/dev/app", title: "x", harness, family, status: "running" };
+  const lastSeq = () => history.at(-1)?.seq ?? 0;
   const answer = (method: string, params: any) => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
         return { sessions: [session] };
-      case "_acpmux/attach":
-        return { session, lastSeq: history.at(-1)?.seq ?? 0, events: history };
+      case "_acpmux/attach": {
+        const events = history.filter((event) => event.seq >= attachFrom && passes(params?.kinds, event));
+        return { session, lastSeq: lastSeq(), events, hasMore: history.some((event) => event.seq < attachFrom) };
+      }
       case "_acpmux/events": {
         const before = params?.beforeSeq ?? Infinity;
         const after = params?.afterSeq ?? 0;
-        const events = history.filter((event) => event.seq > after && event.seq < before);
-        return { events, hasMore: false, more: false, lastSeq: history.at(-1)?.seq ?? 0 };
+        const events = history.filter(
+          (event) => event.seq > after && event.seq < before && passes(params?.kinds, event),
+        );
+        return { events, hasMore: false, more: false, lastSeq: lastSeq() };
       }
       default:
         return null;
@@ -75,7 +102,7 @@ function fakeDaemon(history: ReturnType<typeof record>, harness = "claude", fami
     queueMicrotask(() => socket.onopen?.());
     return socket as WebSocket;
   };
-  const push = (events: ReturnType<typeof record>) => {
+  const push = (events: Recorded[]) => {
     for (const event of events) {
       history.push(event);
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
@@ -92,34 +119,36 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     undefined,
     daemon.open,
   );
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await settle();
   return { client, snapshot: () => snapshot };
 }
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+const prompt = (text: string): Step => ["mux", "user_message", { text }];
+const started: Step = ["mux", "turn_started", {}];
 
 test("a Claude turn's tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
     record([
-      ["mux", "user_message", { text: "fix the build" }],
-      ["mux", "turn_started", {}],
+      prompt("fix the build"),
+      started,
       // Claude Code's window is 0 until its first result: the call still counts.
-      usage(41_200, 0),
-      usage(43_800),
+      call(41_200, 0),
+      call(43_800),
     ]),
   );
   const { client, snapshot } = await connect(daemon);
   try {
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(85_000);
-    daemon.push(record([usage(46_000)], 5));
+    daemon.push(record([call(46_000)], 5));
     await settle();
     expect(snapshot().turnTokens).toBe(131_000);
     // The turn ends: no running line, nothing to count.
-    daemon.push(record([["mux", "turn_result", { status: "completed" }]], 6));
+    daemon.push(record([held(46_000), ["mux", "turn_result", { status: "completed" }]], 6));
     await settle();
     expect(snapshot().turnTokens).toBeUndefined();
     // The next turn counts from zero.
-    daemon.push(record([["mux", "user_message", { text: "again" }], ["mux", "turn_started", {}], usage(50_000)], 7));
+    daemon.push(record([prompt("again"), started, call(50_000)], 8));
     await settle();
     expect(snapshot().turnTokens).toBe(50_000);
   } finally {
@@ -127,8 +156,51 @@ test("a Claude turn's tokens are the sum of its model calls since it started, li
   }
 });
 
+test("a result that repeats the last call while a steer waits adds nothing", async () => {
+  // Claude Code ends the steered line's first part with a result (it resends the last call's usage
+  // for the context ring) and runs the steer as more of the same turn.
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      call(40_000),
+      ["mux", "user_message", { text: "also the tests", steer: true }],
+      held(40_000),
+      call(45_000),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    expect(snapshot().turnTokens).toBe(85_000);
+  } finally {
+    client.close();
+  }
+});
+
+test("a Stop's late result does not count toward the next turn", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      call(40_000),
+      ["mux", "turn_result", { status: "cancelled" }],
+      prompt("try another way"),
+      started,
+      // The stopped turn's result, answered late, repeats its last call.
+      held(40_000),
+      call(12_000),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    expect(snapshot().turnTokens).toBe(12_000);
+  } finally {
+    client.close();
+  }
+});
+
 test("a chat attached mid-turn, without the turn's start, shows no tokens it cannot add up", async () => {
-  const daemon = fakeDaemon(record([usage(41_200), usage(43_800)], 30));
+  const daemon = fakeDaemon(record([call(41_200), call(43_800)], 30));
   const { client, snapshot } = await connect(daemon);
   try {
     expect(snapshot().isWorking).toBe(true);
@@ -138,25 +210,44 @@ test("a chat attached mid-turn, without the turn's start, shows no tokens it can
   }
 });
 
-test("a harness whose usage is its context, not one call's, shows the time alone", async () => {
-  const daemon = fakeDaemon(
-    record([
-      ["mux", "user_message", { text: "fix the build" }],
-      ["mux", "turn_started", {}],
-      usage(41_200),
-      usage(43_800),
-    ]),
-    "codex",
-    "codex",
-  );
+test("older pages that reach a mid-turn attach's start keep its tokens hidden", async () => {
+  // The attach page starts after the turn's first calls; an older page brings the start, but
+  // pages carry no usage, so a count from it would leave those calls out.
+  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
+  const daemon = fakeDaemon(history, { attachFrom: 5 });
   const { client, snapshot } = await connect(daemon);
   try {
     expect(snapshot().isWorking).toBe(true);
+    expect(snapshot().turnTokens).toBeUndefined();
+    await client.loadOlder();
+    await settle();
+    expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
   } finally {
     client.close();
   }
 });
+
+for (const [harness, family] of [
+  ["codex", "codex"],
+  // A Claude ACP adapter or opencode on a Claude model: family "claude", but its usage is the
+  // context it holds, never marked as one call's.
+  ["claude-acp", "claude"],
+  ["opencode", "claude"],
+] as const)
+  test(`a ${harness} chat (family ${family}) shows the time alone`, async () => {
+    const daemon = fakeDaemon(record([prompt("fix the build"), started, held(41_200), held(43_800)]), {
+      harness,
+      family,
+    });
+    const { client, snapshot } = await connect(daemon);
+    try {
+      expect(snapshot().isWorking).toBe(true);
+      expect(snapshot().turnTokens).toBeUndefined();
+    } finally {
+      client.close();
+    }
+  });
 
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
