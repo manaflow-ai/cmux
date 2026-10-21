@@ -27,6 +27,10 @@ jobs:
           bun-version: "1.4.2"
       - run: bun install --frozen-lockfile --ignore-scripts
         working-directory: webviews
+      # The pages' generated/strings.json tables are build output (#21970) that install's
+      # postinstall writes; --ignore-scripts skips it, and the pane fails to load without them.
+      - run: bun scripts/pages/gen-strings.mjs --best-effort
+        working-directory: webviews
       - run: bunx playwright install --with-deps chromium
         working-directory: webviews
       - name: Run bounded visual capture
