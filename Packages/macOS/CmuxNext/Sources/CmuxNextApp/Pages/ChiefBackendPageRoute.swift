@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 /// `cmux.chief.backend.*` of the Chief editor (Home's New Chief and Edit Chief page, Settings >
-/// Agents > Chiefs; docs/chiefs-create-byo-backend.md): the acpmux harnesses a Chief may run on,
+/// Chief > Chiefs; docs/chiefs-create-byo-backend.md): the acpmux harnesses a Chief may run on,
 /// adding one the person brings, and the real hello turn before the Chief record takes it. Thin:
 /// every call runs on ``AgentHarnessCenter``, the one path the `agent.harness.*` actions and
 /// Settings > Agents use.

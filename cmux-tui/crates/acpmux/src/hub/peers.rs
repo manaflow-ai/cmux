@@ -9,7 +9,7 @@ pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
 
 /// How long `peer_add` with `wait` waits for the first connect attempt: an
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
-const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
@@ -36,9 +36,21 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
+        self.spawn_peer(name, pc, true).1
+    }
+
+    /// Run a peer under `name`, replacing any peer of that name; with
+    /// `cached`, it first lists its saved last-known sessions
+    /// (`peer_cache.rs`). Returns its generation and its settled receiver.
+    pub(super) fn spawn_peer(
+        &self,
+        name: &str,
+        pc: &crate::config::PeerConfig,
+        cached: bool,
+    ) -> (u64, tokio::sync::watch::Receiver<u64>) {
         let peer = crate::peer::Peer::new(
             name,
-            url,
+            &pc.url,
             pc.token.clone(),
             pc.peer_token.clone(),
             self.peer_notices.clone(),
@@ -49,9 +61,12 @@ impl Hub {
             // A reconnect keeps when the peer was last seen.
             peer.seed_last_seen(old.link().last_seen);
         }
-        self.load_peer_cache(&peer);
+        if cached {
+            self.load_peer_cache(&peer);
+        }
+        let generation = peer.generation;
         tokio::spawn(peer.run());
-        settled
+        (generation, settled)
     }
 
     /// Add (or replace) a peer. With `wait`, answer once its first connect
@@ -86,7 +101,17 @@ impl Hub {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        let mut settled = self.start_peer(name, &pc);
+        let mut settled = {
+            // A saved peer takes the name over from a lease (`peer_lease.rs`),
+            // under the lease lock so no notice of the leased peer finds the
+            // name unleased first (lock order: `peer_leases`, then `peers`).
+            let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+            if leases.remove(name).is_some() {
+                // The leased machine's rows go; the saved peer lists its own.
+                self.purge_peer_rows(name);
+            }
+            self.start_peer(name, &pc)
+        };
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -126,7 +151,19 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
+        self.forget_lease(name);
         self.forget_peer_cache(name);
+        self.purge_peer_rows(name);
+        let mut cfg = self.config.write().await;
+        cfg.peers.remove(name);
+        if let Err(e) = cfg.save() {
+            tracing::warn!("save config failed: {e}");
+        }
+        Ok(())
+    }
+
+    /// Drop every row of peer `name` and tell watching clients they left.
+    pub(super) fn purge_peer_rows(&self, name: &str) {
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
             let ids: Vec<String> =
@@ -137,15 +174,12 @@ impl Hub {
         for summary in gone {
             self.announce_remote(name, summary, "purged");
         }
-        let mut cfg = self.config.write().await;
-        cfg.peers.remove(name);
-        if let Err(e) = cfg.save() {
-            tracing::warn!("save config failed: {e}");
-        }
-        Ok(())
     }
 
     pub fn peers(&self) -> Vec<Value> {
+        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
+        let leased: std::collections::HashSet<String> =
+            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let mut v: Vec<Value> = self
             .peers
             .lock()
@@ -161,6 +195,9 @@ impl Hub {
                         .filter(|r| r.peer == p.name)
                         .count()
                 );
+                if leased.contains(&p.name) {
+                    s["leased"] = Value::Bool(true);
+                }
                 s
             })
             .collect();

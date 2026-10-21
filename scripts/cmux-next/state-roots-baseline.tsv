@@ -48,4 +48,5 @@ cmux-tui/crates/cmux-tui-core/src/state/projects_store.rs	1	move	unreviewed at S
 cmux-tui/crates/cmux-tui/src/acp.rs	1	keep	resolver: acpmux home of the CLI (S2)
 cmux-tui/crates/cmux-tui/src/cli/chief/home.rs	1	keep	resolver: Chief home (CLI)
 cmux-tui/crates/cmux-tui/src/cli/chief/link.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer.rs	1	keep	~/.acpmux on a remote Cloud VM (its daemon's default acpmux home), read over the workspace RPC
 cmux-tui/crates/cmux-tui/src/remote_host/config.rs	1	keep	machine-wide cmux host config (one listener per machine, not per build); serve --dir and CMUX_HOST_DIR override it
