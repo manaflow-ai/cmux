@@ -75,16 +75,23 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       ({ selector, count }) => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
-        data.setData("text/plain", Array.from({ length: count }, (_, i) => `draft line ${i + 1}`).join("\n"));
+        // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
+        const lines = Array.from(
+          { length: count },
+          (_, i) => `draft line ${i + 1}: keep the retry rules and the tests in sync with the docs.`,
+        );
+        data.setData("text/plain", lines.join("\n"));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
       },
       { selector: EDITABLE, count: lines },
     );
     await page.waitForFunction(({ selector, last }) => document.querySelector(selector)?.textContent?.includes(last), {
       selector: EDITABLE,
-      last: `draft line ${lines}`,
+      last: `draft line ${lines}:`,
     });
     await settle(page);
+    // The paste overflows the field's cap, so it scrolls inside.
+    expect((await edges(page)).end).toBeGreaterThan(100);
   }
 
   async function scrollTo(page: Page, at: "middle" | "top" | "end") {
