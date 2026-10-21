@@ -2,13 +2,14 @@ import Darwin
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A daemon on this app's acpmux home that no cmux install runs (hq
 /// plans/cmux-next/acpmux-one-daemon.md, step 2): a `~/.local/bin/acpmux` started by launchd or
 /// by the CLI's autostart. The server peer check refuses it (its executable is not this app's),
 /// so the app takes it over instead, the way it hands off another build
 /// (``AcpmuxVersionHandoff``): its agents detach and the bundled daemon adopts them. A launchd
-/// agent that would start it again is disabled and booted out first. Only a daemon that runs its
+/// job that would start it again is booted out first. Only a daemon that runs its
 /// agents under agent hosts is taken over; an older one would end its agents, so it keeps
 /// running and stays refused.
 nonisolated enum AcpmuxStrayDaemon {
@@ -26,18 +27,26 @@ nonisolated enum AcpmuxStrayDaemon {
         return !running.contains(".app/Contents/")
     }
 
-    /// Labels of the launchd agents among `agents` (each a LaunchAgents plist) whose program is
-    /// `programPath` (`Program`, else the first of `ProgramArguments`, symlinks resolved).
-    static func launchAgentLabels(programPath: String, agents: [[String: Any]]) -> [String] {
-        let target = URL(fileURLWithPath: programPath).resolvingSymlinksInPath().path
-        return agents.compactMap { agent in
-            guard let label = agent["Label"] as? String,
-                  let program = agent["Program"] as? String ?? (agent["ProgramArguments"] as? [String])?.first else { return nil }
-            return URL(fileURLWithPath: program).resolvingSymlinksInPath().path == target ? label : nil
+    /// Labels of the jobs in `launchctl print gui/<uid>`'s `services` list whose pid is one of
+    /// `pids` (the daemon, or a wrapper that runs it). Each row is `PID STATUS LABEL`; a job that
+    /// does not run shows pid 0 or `-`.
+    static func labels(runningAnyOf pids: Set<Int32>, fromDomainPrint output: String) -> [String] {
+        var inServices = false
+        var labels: [String] = []
+        for line in output.split(separator: "\n") {
+            let text = line.trimmingCharacters(in: .whitespaces)
+            if !inServices {
+                inServices = text == "services = {"
+                continue
+            }
+            if text == "}" { break }
+            let columns = text.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            if columns.count >= 3, let pid = Int32(columns[0]), pid > 1, pids.contains(pid) { labels.append(String(columns[2])) }
         }
+        return labels
     }
 
-    /// The pid in `launchctl print` output (`pid = N`), nil when the job does not run.
+    /// The pid in `launchctl print gui/<uid>/<label>` output (`pid = N`), nil when the job does not run.
     static func pid(fromLaunchctlPrint output: String) -> Int32? {
         for line in output.split(separator: "\n") {
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -47,17 +56,20 @@ nonisolated enum AcpmuxStrayDaemon {
     }
 
     /// Takes over the daemon described by `status` when it is stray. Returns true when it stopped
-    /// that daemon, so the caller starts the bundled one.
+    /// that daemon, so the caller starts the bundled one. Who it is comes from the socket's own
+    /// peer (`LOCAL_PEERPID`), never from the pid the daemon reports alone.
     static func handOffIfStray(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
-        guard let pid = status.pid, let path = AcpmuxVersionHandoff.executablePath(pid: pid),
-              isStray(runningPath: path, executable: environment.executable) else { return false }
+        guard let peer = AcpmuxServerPeer.socketPeer(socketPath: environment.socketPath), peer.uid == getuid(),
+              let pid = status.pid, peer.pid == pid,
+              isStray(runningPath: peer.executablePath, executable: environment.executable) else { return false }
+        let path = peer.executablePath
         guard status.agentHosts else {
             logger.error("acpmux \(pid) at \(path, privacy: .public) is not this app's and has no agent hosts; its agents would end, so it keeps running")
             return false
         }
         guard handedOff.withLock({ $0.insert(pid).inserted }) else { return false }
         logger.info("acpmux \(pid) at \(path, privacy: .public) is not this app's; taking it over")
-        if await bootOutLaunchAgent(runningPID: pid, programPath: path) {
+        if await bootOutLaunchdJob(runningPID: pid) {
             // launchd's SIGTERM detaches its agents like a shutdown.
             return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
@@ -71,28 +83,34 @@ nonisolated enum AcpmuxStrayDaemon {
         return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
     }
 
-    /// Disables and boots out this user's launchd agent that runs daemon `runningPID`, so it does
-    /// not start the stray daemon again. True when it booted one out.
-    static func bootOutLaunchAgent(runningPID: Int32, programPath: String) async -> Bool {
-        let directory = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents", isDirectory: true)
-        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
-        let agents: [[String: Any]] = files.filter { $0.pathExtension == "plist" }.compactMap { file in
-            // concurrency-allow: small plist reads, off the main actor in the pane host's daemon start
-            guard let data = try? Data(contentsOf: file) else { return nil }
-            return (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any]
-        }
+    /// Boots out this user's launchd job that runs daemon `runningPID` (or its parent, a wrapper),
+    /// so KeepAlive does not start the stray daemon again. It is not disabled: `acpmux host setup`
+    /// and `update` bootstrap that same agent, and launchd refuses to bootstrap a disabled one. A
+    /// later login may start it again; the app takes it over again then. True when it booted one out.
+    static func bootOutLaunchdJob(runningPID: Int32) async -> Bool {
+        var pids: Set<Int32> = [runningPID]
+        if let parent = parentPID(runningPID), parent > 1 { pids.insert(parent) }
         let domain = "gui/\(getuid())"
-        for label in launchAgentLabels(programPath: programPath, agents: agents) {
-            guard pid(fromLaunchctlPrint: await launchctl(["print", "\(domain)/\(label)"]).output) == runningPID else { continue }
-            logger.info("acpmux \(runningPID) runs under launchd \(label, privacy: .public); disabling and booting it out")
-            _ = await launchctl(["disable", "\(domain)/\(label)"])
+        for label in labels(runningAnyOf: pids, fromDomainPrint: await launchctl(["print", domain]).output) {
+            // The job's own record must name the same process: the list is a snapshot.
+            guard let named = pid(fromLaunchctlPrint: await launchctl(["print", "\(domain)/\(label)"]).output),
+                  pids.contains(named) else { continue }
+            logger.info("acpmux \(runningPID) runs under launchd \(label, privacy: .public); booting it out")
             return await launchctl(["bootout", "\(domain)/\(label)"]).status == 0
         }
         return false
     }
 
+    /// The parent of `pid` (`pbi_ppid`), nil when unknown.
+    static func parentPID(_ pid: Int32) -> Int32? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return Int32(bitPattern: info.pbi_ppid)
+    }
+
     private static func launchctl(_ arguments: [String]) async -> (status: Int32, output: String) {
-        await Task.detached {
+        await Task.detached { () -> (status: Int32, output: String) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
             process.arguments = arguments

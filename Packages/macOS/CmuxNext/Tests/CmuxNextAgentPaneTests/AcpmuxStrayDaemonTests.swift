@@ -52,7 +52,8 @@ struct AcpmuxStrayDaemonTests {
             return
         }
         #expect(await AgentPaneProcessExit(pid: pid).event(within: .seconds(10)), "the daemon outlived its shutdown")
-        #expect(pid != before, "the stray daemon still answers")
+        let stray = try #require(before)
+        #expect(pid != stray, "the stray daemon still answers")
         let path = try #require(running)
         #expect(URL(fileURLWithPath: path).resolvingSymlinksInPath().path
                 == bin.appendingPathComponent("acpmux").resolvingSymlinksInPath().path)
@@ -69,18 +70,27 @@ struct AcpmuxStrayDaemonTests {
         #expect(!AcpmuxStrayDaemon.isStray(runningPath: nil, executable: own))
     }
 
-    // A launchd agent that runs the stray daemon would start it again after the hand-off: it is
-    // found by its program and booted out first.
-    @Test func theLaunchAgentThatRunsTheStrayDaemonIsFound() {
-        let agents: [[String: Any]] = [
-            ["Label": "com.acpmux.daemon", "ProgramArguments": ["/Users/me/.local/bin/acpmux", "daemon", "run"]],
-            ["Label": "com.example.other", "ProgramArguments": ["/usr/local/bin/other"]],
-            ["Label": "com.acpmux.program", "Program": "/Users/me/.local/bin/acpmux"],
-            ["ProgramArguments": ["/Users/me/.local/bin/acpmux"]],
-        ]
-        #expect(AcpmuxStrayDaemon.launchAgentLabels(programPath: "/Users/me/.local/bin/acpmux", agents: agents)
-                == ["com.acpmux.daemon", "com.acpmux.program"])
-        let printed = "gui/501/com.acpmux.daemon = {\n\tactive count = 1\n\tpath = /Users/me/Library/LaunchAgents/com.acpmux.daemon.plist\n\tstate = running\n\tpid = 4242\n}\n"
+    // A launchd job that runs the stray daemon (or a wrapper of it) would start it again after
+    // the hand-off: it is found by its pid in the user domain's services and booted out first.
+    @Test func theLaunchdJobThatRunsTheStrayDaemonIsFoundByItsPid() {
+        let domain = """
+        gui/501 = {
+        \ttype = gui
+        \tservices = {
+        \t\t       0      0 \tcom.apple.idle
+        \t\t    4242      - \tcom.acpmux.daemon
+        \t\t    4300      0 \tcom.example.wrapper
+        \t\t       -     78 \tcom.example.stopped
+        \t}
+        \tendpoints = {
+        \t\t    4242      0 \tnot.a.service
+        \t}
+        }
+        """
+        #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [4242], fromDomainPrint: domain) == ["com.acpmux.daemon"])
+        #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [4242, 4300], fromDomainPrint: domain) == ["com.acpmux.daemon", "com.example.wrapper"])
+        #expect(AcpmuxStrayDaemon.labels(runningAnyOf: [9], fromDomainPrint: domain).isEmpty)
+        let printed = "gui/501/com.acpmux.daemon = {\n\tactive count = 1\n\tstate = running\n\tpid = 4242\n}\n"
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: printed) == 4242)
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: "gui/501/x = {\n\tstate = not running\n}\n") == nil)
     }
