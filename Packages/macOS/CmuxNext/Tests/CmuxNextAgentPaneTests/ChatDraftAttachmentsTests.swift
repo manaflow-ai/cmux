@@ -150,7 +150,7 @@ struct ChatDraftAttachmentsTests {
         try await Self.keep([first, latest], for: "s-duplicate")
         let kept = try await Self.kept("s-duplicate")
         #expect(kept.map(\.id) == ["same"])
-        #expect(kept.first?.data.flatMap(Data.init(base64Encoded:)) == Self.screenshot(2))
+        #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
     }
 
     @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
