@@ -281,7 +281,10 @@ def apply_removal(repo: Path, remote: str, paths: dict[str, str], message: str) 
                 f"{commit}:refs/heads/{BRANCH}", cwd=repo)
             return commit
         except subprocess.CalledProcessError:
-            git("fetch", "--no-tags", "--filter=blob:none", "--depth=1", remote, refspec, cwd=repo)
+            # The workflow's clone is shallow and blob-less; never make a full clone shallow.
+            shallow = git("rev-parse", "--is-shallow-repository", cwd=repo).strip() == "true"
+            depth = ["--depth=1"] if shallow else []
+            git("fetch", "--no-tags", "--filter=blob:none", *depth, remote, refspec, cwd=repo)
     raise RuntimeError(f"{BRANCH} kept moving; removal not pushed after {PUSH_ATTEMPTS} attempts")
 
 
