@@ -38,7 +38,7 @@ public nonisolated struct AgentPaneNewTabWeather: Codable, Sendable, Equatable {
     }
 }
 
-extension AgentPaneNewTabWeather {
+nonisolated extension AgentPaneNewTabWeather {
     /// The unit this Mac's region reads temperatures in.
     public static func unit(for locale: Locale) -> String {
         locale.measurementSystem == .us ? "fahrenheit" : "celsius"

@@ -2,6 +2,7 @@
 // composer, so turning one on never moves the field. Weather is the app's last Open-Meteo reading
 // (the handshake's `weather`, AgentPaneNewTabWeather.swift); Machines are the composer's computers
 // (acpmux's peers and the hosts its chats ran on), each online while acpmux lists it as a peer.
+import { knownMachines } from "../environments";
 import type { AcpmuxSnapshot } from "../model";
 
 /// How long a reading stays current (AgentPaneNewTabWeather.maximumAge): older is drawn dimmed.
@@ -85,18 +86,10 @@ export function newTabMachines(
   const machines: NewTabMachine[] = [
     { id: "local", label: localName, kind: "local", online: true, hue: machineHue(localName) },
   ];
-  const seen = new Set(["local"]);
   const online = new Set(snapshot.peers ?? []);
-  const add = (id: string, label: string, cloudHost: boolean) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    const kind: MachineKind = !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud";
-    machines.push({ id, label, kind, online: online.has(id), hue: machineHue(label) });
-  };
-  for (const peer of snapshot.peers ?? []) add(peer, peer, false);
-  for (const session of snapshot.sessions) {
-    const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-    if (peer) add(peer, session.host ?? peer, !session.peer);
+  for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
+    if (machine.id === "local") continue;
+    machines.push({ ...machine, online: online.has(machine.id), hue: machineHue(machine.label) });
   }
   return machines;
 }

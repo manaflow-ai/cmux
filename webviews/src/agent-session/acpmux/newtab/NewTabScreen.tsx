@@ -1037,7 +1037,8 @@ export function NewTabScreen(props: Props) {
       </div>
     </>
   );
-  // The ambient widgets (weather, machines): their own row under the field, so they never move it.
+  // The ambient widgets (weather, machines): their own row under the field, so they never move it;
+  // with the stage, whose composer sits at the foot, the row is in the stage over it instead.
   const ambient = (
     <AmbientWidgets
       {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
@@ -1088,11 +1089,11 @@ export function NewTabScreen(props: Props) {
                 )}
               </div>
             )}
+            {ambient}
             {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
             {lists}
           </div>
           {composerCard}
-          {ambient}
           {props.notice}
         </>
       ) : (

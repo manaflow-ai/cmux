@@ -5,7 +5,7 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker } from "./EnvironmentPicker";
-import type { EnvironmentKind } from "./environments";
+import { knownMachines, type EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
@@ -325,22 +325,10 @@ function availableComputers(
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
-  const seen = new Set<string>();
-  // A peer's transport names its section: an `ssh://` peer is SSH, any other (or a Cloud chat's
-  // host acpmux no longer lists) is Cloud.
-  const add = (id: string, label: string, cloudHost = false) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    const kind = !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud";
-    computers.push({ id, label, kind, detail: t(kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud) });
-  };
-  for (const peer of peers) add(peer, peer);
-  for (const session of sessions) {
-    const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-    if (peer) add(peer, session.host ?? peer, !session.peer);
+  for (const machine of knownMachines(peers, sessions, peerKinds, summary ? [summary] : [])) {
+    const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
+    computers.push({ ...machine, detail });
   }
-  const summaryPeer = computerId(summary);
-  if (summaryPeer !== "local") add(summaryPeer, summary?.host ?? summaryPeer, !summary?.peer);
   return computers;
 }
 

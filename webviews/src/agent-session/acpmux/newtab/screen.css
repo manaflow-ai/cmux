@@ -980,7 +980,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-ambient-machine-icon {
   flex: none;
-  color: hsl(var(--nt-machine-hue) 45% 58%);
+  /* The machine's hue, mixed toward the theme's text so it reads on light and dark pages. */
+  color: color-mix(in oklab, hsl(var(--nt-machine-hue) 70% 50%) 65%, var(--agent-text));
 }
 .nt-ambient-machine-name {
   min-width: 0;
@@ -996,6 +997,6 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   box-shadow: inset 0 0 0 1px currentColor;
 }
 .nt-ambient-machine[data-online] .nt-ambient-dot {
-  background: var(--agent-success, var(--acpmux-add, #3fb950));
+  background: var(--agent-ansi-2, #90b345);
   box-shadow: none;
 }

@@ -18,8 +18,9 @@ import Foundation
     private static let defaultsKey = "cmux.newTab.weather"
     private var stored: Stored?
     private var refreshing: String?
-    /// When the last refresh failed, so an offline Mac does not ask on every new tab.
-    private var failedAt: Date?
+    /// When the last refresh for a place failed, so an offline Mac does not ask on every new tab;
+    /// another place asks at once.
+    private var failed: (key: String, at: Date)?
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey) {
@@ -36,7 +37,7 @@ import Foundation
         let unit = AgentPaneNewTabWeather.unit(for: .current)
         let key = "\(city)|\(unit)"
         let reading = stored?.key == key ? stored?.reading : nil
-        let retryAfter = failedAt.map { now.timeIntervalSince($0) > 60 } ?? true
+        let retryAfter = failed.map { $0.key != key || now.timeIntervalSince($0.at) > 60 } ?? true
         if reading?.isCurrent(at: now) != true, refreshing != key, retryAfter {
             refresh(city: city, unit: unit, key: key)
         }
@@ -50,10 +51,10 @@ import Foundation
             guard let self else { return }
             refreshing = nil
             guard let reading else {
-                failedAt = Date()
+                failed = (key, Date())
                 return
             }
-            failedAt = nil
+            failed = nil
             let stored = Stored(key: key, reading: reading)
             self.stored = stored
             if let data = try? JSONEncoder().encode(stored) { UserDefaults.standard.set(data, forKey: Self.defaultsKey) }

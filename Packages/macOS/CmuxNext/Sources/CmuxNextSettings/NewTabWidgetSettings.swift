@@ -19,7 +19,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var styleDots = NewTabWidgetSettings.styleDotsDefault
     /// The current weather and today's high and low (``NewTabWeather`` in CmuxNextApp).
     public var weather = NewTabWidgetSettings.weatherDefault
-    /// The weather's city; empty uses this Mac's location.
+    /// The weather's city; empty uses the city of this Mac's time zone.
     public var weatherCity = NewTabWidgetSettings.weatherCityDefault
     /// The machines a chat can start on, each with its color, icon and online state.
     public var machines = NewTabWidgetSettings.machinesDefault
