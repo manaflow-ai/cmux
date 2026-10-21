@@ -56,9 +56,11 @@ public final class ThinScroller: NSScroller {
         width
     }
 
-    /// The knob drawn inside AppKit's knob slot `rect`: ``knobThickness`` wide, against the trailing edge.
+    /// The knob drawn for AppKit's knob slot `rect`: its length, ``knobThickness`` wide, 2 pt in
+    /// from the scroller's trailing edge (AppKit's overlay slot is narrower than the scroller and
+    /// sits off its leading side).
     public func knobRect(for rect: CGRect) -> CGRect {
-        CGRect(x: rect.maxX - Self.knobThickness - 2, y: rect.minY + 2,
+        CGRect(x: bounds.maxX - Self.knobThickness - 2, y: rect.minY + 2,
                width: Self.knobThickness, height: max(0, rect.height - 4))
     }
 

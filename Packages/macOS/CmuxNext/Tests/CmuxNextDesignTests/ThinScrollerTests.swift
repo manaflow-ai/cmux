@@ -12,6 +12,7 @@ struct ThinScrollerTests {
     private static func overflowing(autoHides: Bool = false) -> ThinScroller {
         let scroller = ThinScroller(frame: NSRect(x: 0, y: 0, width: ThinScroller.width, height: 200))
         scroller.scrollerStyle = .overlay
+        scroller.isEnabled = true // a scroll view enables its scroller when the content overflows
         scroller.autoHides = autoHides
         scroller.knobProportion = 0.25
         scroller.doubleValue = 0
@@ -27,7 +28,7 @@ struct ThinScrollerTests {
         #expect(ThinScroller.knobThickness == 3)
         #expect(ThinScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay) <= 8)
         #expect(ThinScroller.isCompatibleWithOverlayScrollers)
-        #expect(scroller.knobRect(for: CGRect(x: 0, y: 10, width: 8, height: 40)).width == ThinScroller.knobThickness)
+        #expect(scroller.knobRect(for: CGRect(x: -2, y: 10, width: 6, height: 40)).width == ThinScroller.knobThickness)
         #expect(scrollView.scrollerStyle == .overlay)
         #expect(scrollView.autohidesScrollers)
         SystemScrollers.preferredStyleOverride = .legacy
@@ -41,7 +42,8 @@ struct ThinScrollerTests {
         let knob = try #require(scroller.restingKnobFrame)
         #expect(knob.width == ThinScroller.knobThickness)
         #expect(knob.height > 0)
-        #expect(knob.maxX <= scroller.bounds.maxX)
+        #expect(knob.minX >= scroller.bounds.minX)
+        #expect(knob.maxX == scroller.bounds.maxX - 2) // 2 pt in from the trailing edge
         // It follows the scroll position.
         scroller.doubleValue = 1
         let moved = try #require(scroller.restingKnobFrame)
