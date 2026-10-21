@@ -48,6 +48,17 @@ import Testing
         #expect(panel.pet.title == HomeStrings.firstRunShowPet)
     }
 
+    @Test func spaceActivatesAFocusedFirstRunRow() throws {
+        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
+        var actions: [HomeFirstRunAction] = []
+        panel.onAction = { actions.append($0) }
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                   windowNumber: 0, context: nil, characters: " ",
+                                                   charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
+        panel.agent.keyDown(with: event)
+        #expect(actions == [.startAgent])
+    }
+
     /// The hero shows the header's face: the profile's picture, else its text, else 🫡.
     @Test func theHeroShowsTheChiefsFace() {
         let hero = HomeFirstRunHero(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
