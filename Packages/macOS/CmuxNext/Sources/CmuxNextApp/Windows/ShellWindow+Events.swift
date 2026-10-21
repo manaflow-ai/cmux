@@ -9,6 +9,10 @@ extension ShellWindow {
     /// top-row tab bar's empty space drags its pane instead (`PaneSwapDrag`).
     override func sendEvent(_ event: NSEvent) {
         cursorRectHold?.windowWillSend(event, in: self)
+        // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type) {
+            (windowController as? WindowController)?.focusOnScreenWorkspace(at: event.locationInWindow)
+        }
         guard event.type == .leftMouseDown, !event.modifierFlags.contains(.control), // control-press: a right-click
               TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow, !PaneSwapDrag.claims(event, in: self) else {
             return super.sendEvent(event)

@@ -73,8 +73,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
     }
 
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
         self.workspace = workspace
+        isParked = parked
         self.daemon = daemon
         self.services = services
         self.state = state
