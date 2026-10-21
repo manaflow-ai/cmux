@@ -4,6 +4,7 @@
 // answers are kept for the page's life. The host never fetches anything for this.
 import { useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
+import { isNameOnlyPath } from "./paths";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -32,6 +33,8 @@ let queuedNames: string[] = [];
 let scheduled = false;
 let inFlight = false;
 let namesInFlight = false;
+/// Bumped by ``resetLinkStore``: an answer to a call made before the reset changes nothing.
+let epoch = 0;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
 let policyAsked = false;
 let version = 0;
@@ -64,8 +67,10 @@ function flush() {
   const batchPaths = queuedPaths.splice(0, MAX_BATCH);
   const batchUrls = queuedUrls.splice(0, MAX_BATCH);
   inFlight = true;
+  const asked = epoch;
   void callChipHost("link.inspect", { paths: batchPaths, urls: batchUrls })
     .then((reply) => {
+      if (asked !== epoch) return;
       const value = (reply ?? {}) as Inspect;
       for (const path of batchPaths) {
         paths.set(path, value.paths?.[path] ?? null);
@@ -75,6 +80,7 @@ function flush() {
       if (value.policy) policy = { ...policy, ...value.policy };
     })
     .finally(() => {
+      if (asked !== epoch) return;
       inFlight = false;
       changed();
       if (queuedPaths.length || queuedUrls.length) {
@@ -87,8 +93,10 @@ function flushNames() {
   if (namesInFlight || !queuedNames.length) return;
   const batch = queuedNames.splice(0, MAX_BATCH);
   namesInFlight = true;
+  const asked = epoch;
   void callChipHost("link.inspect", { paths: batch, urls: [] })
     .then((reply) => {
+      if (asked !== epoch) return;
       const value = (reply ?? {}) as Inspect;
       for (const name of batch) {
         paths.set(name, value.paths?.[name] ?? null);
@@ -96,6 +104,7 @@ function flushNames() {
       }
     })
     .finally(() => {
+      if (asked !== epoch) return;
       namesInFlight = false;
       changed();
       if (queuedNames.length) scheduleFlush();
@@ -111,7 +120,9 @@ function ask(path?: string, url?: string, bare = false) {
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
     asking.add(path);
-    (bare ? queuedNames : queuedPaths).push(path);
+    // A name with no folder (`next-sync.py`, `Foo.swift:42` once its line is split off, a link to
+    // one) may need the host's search of the chat's folders: it never rides the main batch.
+    (bare || isNameOnlyPath(path) ? queuedNames : queuedPaths).push(path);
   }
   if (url !== undefined && !sites.has(url)) {
     sites.set(url, null);
@@ -164,6 +175,9 @@ export function resetLinkStore(): void {
   queuedUrls = [];
   queuedNames = [];
   scheduled = false;
+  inFlight = false;
+  namesInFlight = false;
+  epoch += 1;
   policy = { outsideRoots: "confirm", remoteImages: "click" };
   policyAsked = false;
   changed();

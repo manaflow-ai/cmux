@@ -13,7 +13,7 @@ import { FileDoc, Folder, GitHubMark, Globe, Lock } from "../conversation/icons"
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
-import { isDeniedPath, pathName, textLinks } from "./paths";
+import { isDeniedPath, isNameOnlyPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { locationArgument, type FileLocation } from "../../../fileLocation";
@@ -45,13 +45,15 @@ export function PathChip({ path, label, written, ...position }: PathChipProps) {
 }
 
 function HostPathChip({ path, label, written, location, suffix, code, bare }: PathChipProps) {
-  const { info, policy } = usePathInfo(path, bare);
+  // A name with no folder is a chip only once the host has found that file.
+  const nameOnly = bare || isNameOnlyPath(path);
+  const { info, policy } = usePathInfo(path, nameOnly);
   const plain =
     info?.place === "denied" ||
     info?.place === "missing" ||
     (info?.place === "outside" && policy.outsideRoots === "text") ||
     // A bare name is a chip only for a file the host found inside the chat's folders.
-    (bare && info?.place !== "root");
+    (nameOnly && info?.place !== "root");
   if (plain) return <NoChip path={path} label={label} written={written} code={code} />;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");

@@ -20,7 +20,7 @@ final class AgentReplyNames {
     static let freshFor: Duration = .seconds(30)
     /// The most folders whose index is kept (each is about 60 bytes per entry).
     static let keptFolders = 4
-    /// Exact-name matches kept per name and folder.
+    /// Exact-name matches returned per name, best first.
     nonisolated static let hitsPerName = 20
 
     private var indexes: [String: (index: FolderNameIndex, built: ContinuousClock.Instant)] = [:]
@@ -35,6 +35,7 @@ final class AgentReplyNames {
     /// The files named like each of `names` inside `roots`, best first: the fewest folders below
     /// their root, then the shorter path, then by path.
     func find(_ names: [String], in roots: [String]) async -> [String: [String]] {
+        dropExpired()
         var hits: [String: [(relative: String, path: String)]] = [:]
         for root in roots where !Self.isTooBroad(root, home: home) {
             guard let index = await index(for: root) else { continue }
@@ -42,7 +43,8 @@ final class AgentReplyNames {
                 hits[name, default: []] += Self.files(named: name, in: index).map { ($0.relativePath, $0.url.path) }
             }
         }
-        return hits.mapValues { Self.ranked($0).map(\.path) }
+        // Ranked across every root first, then cut: the best few, not the first few found.
+        return hits.mapValues { Self.ranked($0).prefix(Self.hitsPerName).map(\.path) }
     }
 
     /// The home folder, a folder above it, and `/` hold far more than a project: never walked
@@ -62,9 +64,13 @@ final class AgentReplyNames {
 
     /// The files of `index` whose name is `name` (case-insensitive, as the file system is).
     nonisolated static func files(named name: String, in index: FolderNameIndex) -> [FolderNameIndex.Hit] {
-        Array(index.search(name, limit: 2_000)
-            .filter { !$0.isDirectory && $0.name.caseInsensitiveCompare(name) == .orderedSame }
-            .prefix(hitsPerName))
+        index.search(name, limit: 2_000).filter { !$0.isDirectory && $0.name.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// Lets go of indexes past ``freshFor`` (each can hold tens of MB) before any search.
+    private func dropExpired() {
+        let now = ContinuousClock.now
+        indexes = indexes.filter { now - $0.value.built < Self.freshFor }
     }
 
     private func index(for root: String) async -> FolderNameIndex? {
@@ -77,7 +83,7 @@ final class AgentReplyNames {
         building[root] = nil
         guard let index else { return nil }
         let now = ContinuousClock.now
-        indexes = indexes.filter { now - $0.value.built < Self.freshFor }
+        dropExpired()
         if indexes.count >= Self.keptFolders, let oldest = indexes.min(by: { $0.value.built < $1.value.built })?.key {
             indexes[oldest] = nil
         }

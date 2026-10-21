@@ -75,6 +75,12 @@ export function isPathShape(path: string): boolean {
   return path.endsWith("/") || /\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!);
 }
 
+/// A path with no folder (`next-sync.py`): the host may have to search the chat's folders for it,
+/// so it is asked apart from other paths and is no chip until the host has found it.
+export function isNameOnlyPath(path: string): boolean {
+  return !path.includes("/") && !path.startsWith("~");
+}
+
 /// A path or URL in plain reply text: `kind`, where it is and, for a path, the path to open (a
 /// `file://` URL decoded, its parsed line location). Paths have the shape of `isPathShape` and no
 /// spaces (prose has no quotes to bound one); a URL is http or https with a host. Trailing
