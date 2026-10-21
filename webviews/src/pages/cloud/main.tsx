@@ -23,6 +23,12 @@ export function mountCloudPage(root: HTMLElement, client: PageClient | null = de
   const store = new CloudStore(client, { layout, view: parseView(location.hash) });
   // `#/get` opens the storefront; the host or a link may set it on an open page.
   window.addEventListener("hashchange", () => store.setView(parseView(location.hash)));
+  // The fragment follows the view, so a later `#/get` link changes the hash and opens the storefront.
+  store.subscribe(() => {
+    const view = store.getSnapshot().view;
+    if (parseView(location.hash) !== view)
+      history.replaceState(null, "", `${location.pathname}${location.search}${view === "get" ? "#/get" : ""}`);
+  });
   // The page has no find or search field yet; it answers page commands as not handled so the
   // dispatcher can fall back. It never reads Cmd or Ctrl chords itself.
   client?.handle(PAGE_COMMAND, () => ({ handled: false }));

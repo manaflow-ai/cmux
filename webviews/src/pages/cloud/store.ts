@@ -369,8 +369,12 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
-      if (draft.openWhenRunning && result?.machine?.id && session === this.session) {
-        this.set({ openWhenRunning: result.machine.id, view: "machines", selection: result.machine.id });
+      // Kept across a session restart (Retry while the sheet was open); sign-out and a team switch
+      // clear the wish with the rest of the account's state.
+      if (draft.openWhenRunning && result?.machine?.id && this.state.auth?.signedIn) {
+        const id = result.machine.id;
+        this.set({ openWhenRunning: id, view: "machines" });
+        void this.select(id);
         this.openIfRunning();
       }
       if (session === this.session) void this.account.readPlan(session);
@@ -584,7 +588,8 @@ export class CloudStore {
 
   /**
    * A machine Get created opens in a workspace (the host's connect action) the first time the mirror
-   * shows it running; a failed or removed machine drops the wish without connecting.
+   * shows it running; a machine that fails or is being deleted drops the wish without connecting.
+   * A machine the mirror does not show yet keeps the wish (its first event may follow the reply).
    */
   private openIfRunning(): void {
     const id = this.state.openWhenRunning;

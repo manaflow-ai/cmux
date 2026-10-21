@@ -5,6 +5,7 @@
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
 import type { Strings } from "../shared/i18n";
+import { AccountPanel } from "./AccountPanel";
 import { formatMegabytes, memoryChoices } from "./model";
 import { AccountOps, PLANS_URL, type CloudPlan } from "./ops";
 import type { CloudState, CloudStore } from "./store";
@@ -40,6 +41,8 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
           {t(L.signIn)}
         </button>
       );
+    // The plan is still loading, or its read failed: no offer until the backend answers one.
+    if (!plan) return null;
     if (firstAllowed !== undefined && !full)
       return (
         <button
@@ -85,7 +88,9 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
             </h3>
             {plan && <Availability plan={plan} full={full} strings={strings} />}
           </header>
-          {choices.length === 0 ? (
+          {!plan ? (
+            <p className="cloud-muted cloud-store-no-plan">{t(L.loading)}</p>
+          ) : choices.length === 0 ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.storeNoPlan)}</p>
           ) : (
             <ul className="cloud-store-tiers">
@@ -107,7 +112,11 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
                         {t(L.storeGet)}
                       </button>
                     ) : (
-                      <a className="cloud-button cloud-see-plans" href={PLANS_URL}>
+                      <a
+                        className="cloud-button cloud-see-plans"
+                        href={PLANS_URL}
+                        aria-label={`${formatMegabytes(mb, t, strings.language)}: ${t(L.seePlans)}`}
+                      >
                         {t(L.seePlans)}
                       </a>
                     )}
@@ -119,6 +128,12 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
         </section>
       )}
       <p className="cloud-muted cloud-store-note">{t(L.storeNote)}</p>
+      {/* Sign-out, team switch and usage stay reachable from the storefront (an empty team has no list). */}
+      {signedIn && (
+        <div className="cloud-store-account">
+          <AccountPanel store={store} state={state} strings={strings} />
+        </div>
+      )}
     </div>
   );
 }

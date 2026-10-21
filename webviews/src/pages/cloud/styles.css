@@ -895,7 +895,7 @@ select {
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 10px 20px;
 }
 
@@ -950,7 +950,7 @@ select {
   padding: 0;
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(170px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -1010,6 +1010,15 @@ select {
 
 .cloud-store-note {
   margin: 0;
+}
+
+.cloud-store-account .cloud-account {
+  max-width: none;
+  padding-top: 0;
+}
+
+.cloud-header .cloud-title {
+  min-width: 0;
 }
 
 /* Narrow panes stack the hero: the art goes above the text. */

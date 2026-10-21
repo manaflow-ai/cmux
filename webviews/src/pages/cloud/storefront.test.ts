@@ -52,6 +52,7 @@ describe("Cloud storefront", () => {
     const id = store.getSnapshot().openWhenRunning;
     expect(id).toBeDefined();
     expect(store.getSnapshot().view).toBe("machines");
+    expect(store.getSnapshot().selection).toBe(id);
     expect(connects(provider)).toHaveLength(0);
     const machine = provider.machines.find((m) => m.id === id)!;
     provider.emitUpsert({ ...machine, status: "running", revision: "2" });
