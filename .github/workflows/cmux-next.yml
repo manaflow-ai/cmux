@@ -148,6 +148,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-perf-source-guard.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-fixture-host-names.py
+      - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -367,6 +369,8 @@ on:
       - scripts/cmux-next/check-single-omnibar.py
       - scripts/cmux-next/check-perf-source-guard.py
       - tests/test_cmux_next_perf_source_guard.py
+      - scripts/cmux-next/check-fixture-host-names.py
+      - tests/test_cmux_next_fixture_host_names.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1445,6 +1449,16 @@ jobs:
           python3 tests/test_cmux_next_perf_source_guard.py
           python3 -I scripts/cmux-next/check-perf-source-guard.py
 
+      # Gallery fixtures are public sample data the gallery and PR captures render: they name
+      # machines "studio-mac" or "build-box", never a fleet host (the capture privacy check
+      # refuses a still that shows one, and WorkspaceHoverCardGallery's "air-blue" did).
+      - name: No fleet host names in gallery fixtures
+        id: fixture-host-names
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_fixture_host_names.py
+          python3 -I scripts/cmux-next/check-fixture-host-names.py
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -1653,6 +1667,7 @@ jobs:
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
             ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
+            ${{ steps.fixture-host-names.outcome }}|No fleet host names in gallery fixtures
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted
