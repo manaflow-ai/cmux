@@ -90,6 +90,16 @@ release_lock() {
 
 saved() { cat "$GMG_HOME/$1" 2>/dev/null || true; }
 
+exclude_spotlight_marker() { # REPO: Spotlight's marker is not a change, in any worktree of REPO
+  local exclude
+  exclude="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir)/info/exclude"
+  mkdir -p "${exclude%/*}"
+  grep -qxF .metadata_never_index "$exclude" 2>/dev/null && return 0
+  # A last line without its newline would swallow the new pattern.
+  if [ -s "$exclude" ] && [ -n "$(tail -c 1 "$exclude")" ]; then printf '\n' >> "$exclude"; fi
+  printf '.metadata_never_index\n' >> "$exclude"
+}
+
 set_files_writable() { # SNAPSHOT MODE(+w|-w)
   local snap="$1" mode="$2" path
   for path in "${PINNED_PATHS[@]}"; do
@@ -177,6 +187,7 @@ cmd_install() {
   mkdir -p "$GMG_HOME/snapshots"
   printf '%s\n' "$repo" > "$GMG_HOME/repo"
   printf '%s\n' "$bin" > "$GMG_HOME/bin"
+  exclude_spotlight_marker "$repo"
 
   git -C "$repo" fetch --quiet origin main || die "cannot fetch origin main in $repo"
   touch "$GMG_HOME/last-check"
