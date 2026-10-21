@@ -151,12 +151,12 @@ public struct Palette {
     /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, lifted toward the primary
     /// text just far enough to contrast at least as much as the rest ink, so the theme's hue stays
     /// (Clay Orange's orange) and a lit control is never less visible than at rest. A theme with no
-    /// accent has `focusRing` at 40% of the text, which lifts to about the rest ink's grey.
+    /// accent lights in the primary text (``ThemeTokens/accent``), not `focusRing`'s 40% of it.
     public static var litGlyph: NSColor { litGlyph(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
 
     static func litGlyph(in tokens: ThemeTokens) -> ThemeRGB {
         let surface = tokens.windowBackground.withAlpha(1)
-        let accent = tokens.focusRing.composited(over: surface), primary = tokens.textPrimary.composited(over: surface)
+        let accent = tokens.accent.composited(over: surface), primary = tokens.textPrimary.composited(over: surface)
         let floor = tokens.textSecondary.composited(over: surface).contrast(with: surface)
         if accent.contrast(with: surface) >= floor { return accent }
         // The least lift that reaches the floor; a primary text fainter than the floor is still the brightest ink.

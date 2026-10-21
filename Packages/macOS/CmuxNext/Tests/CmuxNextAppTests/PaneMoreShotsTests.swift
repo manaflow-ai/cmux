@@ -46,6 +46,8 @@ import Testing
             let lit = Palette.litGlyph(in: tokens).contrast(with: surface)
             let rest = tokens.textSecondary.composited(over: surface).contrast(with: surface)
             #expect(lit >= rest, "\(name): lit \(lit) against rest \(rest)")
+            // With no accent hue to tell them apart, lit must be brighter than rest, not the same grey.
+            if tokens.accent == tokens.textPrimary { #expect(lit > rest, "\(name): lit \(lit) against rest \(rest)") }
         }
         // The lift keeps the theme's hue: Clay Orange's lit glyph stays orange (coord-deputy 2026-10-21).
         let clay = Palette.litGlyph(in: ThemeTokens.derive(from: try Self.input("Clay Orange")))
