@@ -5,13 +5,17 @@
 // (the transcript's room under its last row, for one) have run, a state the frame may never paint:
 // a probe read in a frame callback showed the last row 30 px low on the first frame of an opened
 // chat, and nobody saw it (scroll-jitter, 2026-10-21). A message posted from the frame callback
-// runs as a task after the frame has rendered, so every read here is of a painted state.
-// scripts/check-frame-reads.ts keeps browser tests on these.
+// runs as a task after the frame has rendered, so every read here is of a painted state. The
+// browser runs queued input before that task, though: a key, a pointer or a wheel event handled
+// in between changes the page the read would lay out, a state no frame painted (a composer card a
+// line taller than the lift its frame painted, scroll-jitter 2026-10-21). That frame's read is
+// skipped. scripts/check-frame-reads.ts keeps browser tests on these.
 import type { Page } from "playwright";
 
 declare global {
   interface Window {
-    /** Calls `read` after each painted frame, with that frame's time, until it returns false;
+    /** Calls `read` after each painted frame, with that frame's time, until it returns false (a
+     *  frame whose page input changed before the read is not read);
      *  `drive`, if given, runs in each frame's callbacks first (to set what the frame paints, or
      *  note what it paints at). Returns a function that stops it. */
     cmuxAfterPaint: (read: (frame: number) => boolean | void, drive?: (frame: number) => void) => () => void;
@@ -24,6 +28,26 @@ declare global {
 /** The page side; runs in the page, so it closes over nothing. */
 function definePaintedFrames() {
   if (typeof window.cmuxAfterPaint === "function") return;
+  // Input handled since a frame: one count for every kind the browser runs ahead of tasks.
+  let inputs = 0;
+  for (const kind of [
+    "keydown",
+    "keyup",
+    "beforeinput",
+    "input",
+    "compositionupdate",
+    "pointerdown",
+    "pointermove",
+    "pointerup",
+    "mousedown",
+    "mousemove",
+    "mouseup",
+    "wheel",
+    "touchstart",
+    "touchmove",
+    "touchend",
+  ])
+    addEventListener(kind, () => (inputs += 1), { capture: true, passive: true });
   const afterThisFrame = (then: () => void) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
@@ -40,8 +64,9 @@ function definePaintedFrames() {
       if (stopped) return;
       requestAnimationFrame(tick);
       drive?.(frame);
+      const painted = inputs;
       afterThisFrame(() => {
-        if (!stopped && read(frame) === false) stopped = true;
+        if (!stopped && inputs === painted && read(frame) === false) stopped = true;
       });
     };
     requestAnimationFrame(tick);
