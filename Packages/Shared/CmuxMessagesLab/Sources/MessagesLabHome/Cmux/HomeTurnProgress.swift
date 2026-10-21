@@ -34,7 +34,7 @@ struct HomeTurnProgress: Equatable {
     /// Lines the owner sends for its own writing, not a step of the turn's work.
     static let notSteps: Set<String> = ["Thinking", "Writing the reply", "Working"]
     /// Most characters a narration row keeps.
-    static var narrationLimit: Int { HomeThoughtHeadline.limit }
+    static var narrationLimit: Int { String.thoughtHeadlineLimit }
 
     init(summary: String?, narration: String?, current: String) {
         self.summary = summary
@@ -54,7 +54,7 @@ struct HomeTurnProgress: Equatable {
         }
         let finished = steps.filter { $0.end != nil }.map(\.line).filter { !Self.notSteps.contains($0) }
         let summary = Self.summary(finished)
-        // `thought` is already the headline (the live book publishes `HomeThoughtHeadline.of`).
+        // `thought` is already the headline (the live book publishes `String.thoughtHeadline`).
         var narration = style == .narrated ? thought : nil
         var current = line
         if let told = narration, activity.line == "Thinking" {
@@ -127,6 +127,6 @@ struct HomeTurnProgress: Equatable {
 
     // MARK: Narration
 
-    /// A thought's headline (``HomeThoughtHeadline``): the store already publishes it this way.
-    static func headline(_ thought: String) -> String? { HomeThoughtHeadline.of(thought) }
+    /// A thought's headline (`String.thoughtHeadline`): the store already publishes it this way.
+    static func headline(_ thought: String) -> String? { thought.thoughtHeadline }
 }
