@@ -177,8 +177,10 @@ fn folder_allowed(
             }
             // The person's own decision, the nearest one, ends the walk.
             _ if person == Some(crate::trust::Level::Trusted) => return Ok(()),
-            // One of the person's auto-trust rules: a farther `untrusted` still refuses.
-            Some("trusted") if trust["auto"].is_string() => ruled = true,
+            // One of the person's auto-trust rules on the folder itself, as the trust card reads
+            // it: a farther `untrusted` still refuses. A parent's rule can leave out a folder
+            // under it (a nested repository with another remote), so it counts as inherited.
+            Some("trusted") if dir == folder && trust["auto"].is_string() => ruled = true,
             // Claude Code's and Codex's, or an agent-home folder's.
             Some("trusted") => inherited = true,
             _ => {}
