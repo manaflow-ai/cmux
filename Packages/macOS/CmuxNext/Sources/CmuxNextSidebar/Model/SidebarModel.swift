@@ -310,8 +310,13 @@ public final class SidebarModel {
         selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
     }
 
-    /// What a close of `id` from its menu or a key closes (``actionTargets(for:)``).
-    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] { actionTargets(for: id) }
+    /// What a close of `id` from its menu or a key closes: the selected rows that can close
+    /// (`canClose`), in row order, when `id` is one of two or more of them; otherwise `id` alone.
+    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] {
+        guard selection.count > 1, selection.contains(id), canClose(id) else { return [id] }
+        let ids = orderedSelection.filter(canClose)
+        return ids.count > 1 ? ids : [id]
+    }
 
     // MARK: Intents
 

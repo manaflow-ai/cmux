@@ -7,7 +7,7 @@ import CmuxNextSidebar
 
 /// The workspace closes that take several at once: Close Other Workspaces,
 /// Close Workspaces Above and Below, Close Others in Group, Close All Workspaces (one window) and
-/// Close All Workspaces in All Windows. One rule for all of them
+/// Close All Workspaces in All Windows, and Close Workspace on a multi-row selection. One rule for all of them
 /// (RECOVERABLE-BY-DEFAULT, Lawrence 2026-10-07): they run at once, and a
 /// person's gesture that closes two or more gets "Closed N workspaces"
 /// with Undo in a window that stays open (`WorkspaceGroupClose.reopen`). They ask first
@@ -42,6 +42,10 @@ enum WorkspaceBulkClose {
             closing = try sectionWorkspaces(invocation, context)
         case "workspaceGroup.closeOthers":
             closing = try otherGroups(invocation, context).1.flatMap(\.workspaces).map(\.id.rawValue)
+        case "closeWorkspace":
+            // A person's Close Workspace on one of several selected rows closes the selection (`SidebarModel.closeTargets`).
+            let target = try context.workspace(invocation).model, user = invocation.origin == .user && !invocation.closesRowOnly
+            closing = (user ? (try? WorkspaceVerbHandlers.sidebar(showing: target, context)) : nil)?.model.closeTargets(for: CmuxNextSidebar.WorkspaceID(target.id)).map(\.rawValue) ?? [target.id]
         case "workspace.closeOthersInGroup":
             let workspace = try context.workspace(invocation).model
             guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
@@ -83,9 +87,18 @@ enum WorkspaceBulkClose {
             // Undo reopens each group's workspaces, then its record.
             let (sidebar, others) = try otherGroups(invocation, context)
             groups = others.map { group in
-                (group.id.rawValue, group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
+                (SidebarDocStore.personalGroupID(item: group.id.rawValue), group.workspaces.compactMap { services.machines.workspace(id: $0.id.rawValue)?.0.name })
             }
             for group in others { sidebar.handle(.closeGroup(group.id)) }
+        } else if id == "closeWorkspace", members.count > 1, let first = members.first {
+            // Undo matches a group on its personal id, not the sidebar document's `itm_g_` item id (WorkspaceGroupClose).
+            // A selection: each group it empties closes as Close Group does (an unpinned group goes, cx-rcby), the
+            // other rows as their own close does (InstantClose), asked once (`prompt`) and undone together.
+            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first.0, context), plan = sidebar.model.closePlan(members.map { CmuxNextSidebar.WorkspaceID($0.0.id) })
+            let name = { (id: CmuxNextSidebar.WorkspaceID) in services.machines.workspace(id: id.rawValue)?.0.name }
+            groups = plan.groups.map { group -> (String?, [String]) in (SidebarDocStore.personalGroupID(item: group.id.rawValue), group.workspaces.compactMap { name($0.id) }) } + [(nil, plan.rows.compactMap(name))]
+            for group in plan.groups { sidebar.handle(.closeGroup(group.id)) }
+            for row in plan.rows { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: row.rawValue).confirmed()) }
         } else {
             close(members)
         }
@@ -118,10 +131,7 @@ enum WorkspaceBulkClose {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
         let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first, context)
-        let groups = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
-            if case .group(let listed) = node { return listed }
-            return nil
-        }
+        let groups = sidebar.model.groups
         guard groups.contains(where: { $0.id.rawValue == group.id.rawValue }) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
         return (sidebar, groups.filter { $0.id.rawValue != group.id.rawValue })
     }

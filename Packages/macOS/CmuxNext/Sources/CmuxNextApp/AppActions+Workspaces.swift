@@ -12,7 +12,9 @@ extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
         let registry = services.registry
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
-        registry.bind("closeWorkspace", invoke: { closeWorkspace(services, $0) })
+        registry.bind("closeWorkspace", run: { try closeWorkspace(services, $0) })
+        // "Close N Workspaces" on a row of a multi-row selection (SidebarModel.closeTitle).
+        ActionTargetTitles.set("closeWorkspace", in: registry) { $0.target.flatMap { target in services.windows.registry.value.owner(of: target.id).flatMap(services.windows.controller(for:))?.sidebar.model.closeTitle(for: SidebarWorkspaceID(target.id)) } }
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
@@ -137,7 +139,7 @@ extension AppActions {
     /// window's earlier creates and closes (`WorkspaceLanes`). The workspace
     /// is resolved at the press and its row leaves then; a person's run asks
     /// about running programs afterwards (`WorkspaceCloseFlow`).
-    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) throws {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
@@ -145,9 +147,9 @@ extension AppActions {
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing
-        // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
+        // A person's close of one of several selected rows closes them all as one action (WorkspaceBulkClose, asked before).
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
-           case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
+           sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)).count > 1 { return try WorkspaceBulkClose.close("closeWorkspace", invocation, AppActionContext(services: services)) }
         // The workspace's own machine, for the question and the close alike.
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
