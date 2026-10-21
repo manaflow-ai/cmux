@@ -221,21 +221,18 @@ cmux_claude_apply_auth_mode() {
 cmux_codex_uses_generated_provider() {
   cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
   [ -f "$cmux_codex_config" ] || return 1
-  # Read the TOML value instead of matching the generator's formatting. The
-  # config is also written by the Codex hook installer and may use valid TOML
-  # quoting/whitespace that differs from the generated spelling.
-  python3 - "$cmux_codex_config" <<'CMUX_CODEX_PROVIDER'
-import pathlib
-import sys
-import tomllib
-
-try:
-    document = tomllib.loads(pathlib.Path(sys.argv[1]).read_text())
-except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-    raise SystemExit(1)
-
-raise SystemExit(0 if document.get("model_provider") == "cmux" else 1)
-CMUX_CODEX_PROVIDER
+  # Match the top-level key in any valid TOML spelling (whitespace, either
+  # quote style, a trailing comment, CRLF), not only the generator's exact
+  # line; keys after the first [table] header belong to that table. awk, not
+  # python3: the python3 first on PATH can be a project's venv or toolchain
+  # pin without tomllib, and a failed check here silently keeps a signed-in
+  # user on CodeRouter.
+  awk '
+    { sub(/\r$/, "") }
+    /^[ \t]*\[/ { exit }
+    /^[ \t]*(model_provider|"model_provider"|\047model_provider\047)[ \t]*=[ \t]*["\047]cmux["\047][ \t]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$cmux_codex_config" 2>/dev/null
 }
 
 cmux_codex_apply_auth_mode() {
