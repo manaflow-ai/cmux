@@ -167,6 +167,22 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
       };
     });
 
+  // What WebKit does to the focused editor when the web view resigns and regains first responder.
+  const handOff = (page: Page, placeFirst: boolean) =>
+    page.evaluate((placeFirst) => {
+      const editor = document.querySelector<HTMLElement>(".acpmux-composer-prompt .acpmux-md");
+      const selection = document.getSelection();
+      if (!editor || !selection) return;
+      const start = () => selection.collapse(editor.querySelector("p")?.firstChild ?? editor, 0);
+      window.dispatchEvent(new window.Event("blur"));
+      editor.dispatchEvent(new window.FocusEvent("blur"));
+      selection.removeAllRanges();
+      if (placeFirst) start();
+      window.dispatchEvent(new window.Event("focus"));
+      editor.dispatchEvent(new window.FocusEvent("focus"));
+      if (!placeFirst) start();
+    }, placeFirst);
+
   describe("inbound messages leave the prompt as the person left it", () => {
     test.each(["chromium", "webkit"])(
       "%s: another agent's queued message, its steer, the turn's end, a re-adopt and a reconnect keep the caret mid-text",
@@ -306,6 +322,11 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
               changed("config_option_update");
             },
           ],
+          // The web view gives the keyboard to the app (another pane, tab or workspace, the palette)
+          // and gets it back. WebKit clears the selection when it lets go and, taking the keyboard
+          // back, puts a contenteditable's caret at its start, before or after the focus event.
+          ["keyboard handed back, caret placed first", () => handOff(page, true)],
+          ["keyboard handed back, caret placed after", () => handOff(page, false)],
         ];
         let typed = "";
         try {
