@@ -93,6 +93,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     family: "claude",
     status: "working",
     turnCount: 1,
+    // acpmux's list holds the queue; the replayed `queued` record gives the prompt's whole text.
+    queue: [{ promptId: "q1", prompt: "this is a bit spammy" }],
     updatedAt: START,
   };
 
