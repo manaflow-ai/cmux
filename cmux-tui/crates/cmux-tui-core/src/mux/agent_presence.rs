@@ -131,7 +131,8 @@ pub(super) fn next_presence(
         "agent.approval.requested" | "agent.question.requested" | "agent.plan_review.requested" => {
             PresenceStep::Set(keep_target(AgentActivity::Waiting))
         }
-        // A failed tool call (PostToolUseFailure) ends the call like any
+        // Journals written before PostToolUseFailure became a plain
+        // post-tool event carry it as an error: it ends the call like any
         // other post-tool event; other errors leave presence as it was.
         "agent.error.reported" if is_post_tool_event(&event) => {
             PresenceStep::Set(keep_target(AgentActivity::Thinking))

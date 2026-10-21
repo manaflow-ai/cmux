@@ -690,6 +690,16 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
+            // Journals written before a failed tool call became a plain
+            // post-tool event stored it as `agent.error.reported`; it never
+            // meant the agent waits on the user.
+            if event.kind == "agent.error.reported"
+                && event
+                    .native_event()
+                    .is_some_and(|native| native.eq_ignore_ascii_case("PostToolUseFailure"))
+            {
+                return Vec::new();
+            }
             let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
@@ -1002,6 +1012,22 @@ mod tests {
 
     fn terminal_subject(id: &str) -> Vec<JournalSubject> {
         vec![JournalSubject { kind: "terminal".into(), id: id.into() }]
+    }
+
+    #[test]
+    fn legacy_failed_tool_call_record_does_not_block_on_replay() {
+        let subjects = terminal_subject("term_a");
+        let empty = json!({});
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.turn.started", &subjects, &empty));
+
+        let tool_failure = json!({"native_event": "PostToolUseFailure"});
+        roster.apply(&hook_event(2, "agent.error.reported", &subjects, &tool_failure));
+        assert_eq!(roster.entries["term_a"].state, "working");
+
+        let turn_failure = json!({"native_event": "StopFailure"});
+        roster.apply(&hook_event(3, "agent.error.reported", &subjects, &turn_failure));
+        assert_eq!(roster.entries["term_a"].state, "blocked");
     }
 
     #[test]

@@ -481,7 +481,11 @@ fn semantic_kind(
             _,
             "permissionrequest" | "permissionasked" | "preapprovalrequest" | "ontoolpermission",
         ) => "agent.approval.requested",
-        (_, "stopfailure" | "onerror" | "error" | "posttoolusefailure") => "agent.error.reported",
+        // A failed tool call (PostToolUseFailure) is mid-turn progress, like
+        // any other post-tool event: the agent reads the error and continues.
+        // Only a turn-level failure is an error the user must see.
+        (_, "posttoolusefailure") => "agent.state.changed",
+        (_, "stopfailure" | "onerror" | "error") => "agent.error.reported",
         (_, "sessionend" | "onsessionend" | "onsessionfinalize" | "sessionshutdown") => {
             "agent.session.ended"
         }
