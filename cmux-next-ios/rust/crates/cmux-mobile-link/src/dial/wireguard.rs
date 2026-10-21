@@ -488,8 +488,6 @@ struct HybridUnderlay {
     recent: std::collections::VecDeque<(Instant, Bytes, SendClass)>,
     /// When a route change last replayed.
     last_replay: Option<Instant>,
-    /// The route the last replay went to, and when (any replay).
-    last_replay_to: Option<(Route, Instant)>,
     /// A replay is due as soon as a route is known: there was none to send
     /// it on (right after a roam). Sending it to every candidate instead
     /// overflowed the peer's socket buffer and lost the very datagrams the
@@ -563,7 +561,6 @@ impl HybridUnderlay {
             sent_to: HashSet::new(),
             recent: std::collections::VecDeque::new(),
             last_replay: None,
-            last_replay_to: None,
             replay_pending: false,
             recv_waker: None,
         };
@@ -766,8 +763,6 @@ impl HybridUnderlay {
     /// Drop this side's TURN allocation, remembering its relayed address: a
     /// `reach` naming it was sent before the change.
     fn retire_turn(&mut self) {
-        // What a replay sent through the old allocation may be lost.
-        self.last_replay_to = None;
         if let Some(old) = self.turn.take().map(|turn| turn.relayed) {
             self.retired_relayed.push(old);
             if self.retired_relayed.len() > 8 {
@@ -822,11 +817,6 @@ impl HybridUnderlay {
 
     /// Send what went out lately again, on the current route. Replays for
     /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
-    /// Right after a replay on the same route (still the route since), a
-    /// forced one resends only what went out after it: one roam is several
-    /// events (the route change, the peer's announcement), and the same
-    /// burst twice can overflow a socket buffer on the path, which costs
-    /// TCP inside the tunnel the 1 s retransmission the replay is for.
     fn replay_recent(&mut self, forced: bool) {
         if self.direct.is_none() {
             self.replay_pending = true;
@@ -840,23 +830,10 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
-        let replayed = match self.last_replay_to {
-            Some((route, at))
-                if self.direct == Some(route)
-                    && at >= self.route_since
-                    && now.duration_since(at) < REPLAY_GAP =>
-            {
-                Some(at)
-            }
-            _ => None,
-        };
-        self.last_replay_to = self.direct.map(|route| (route, now));
         let recent: Vec<(Bytes, SendClass)> = self
             .recent
             .iter()
-            .filter(|(at, _, _)| {
-                now.duration_since(*at) <= REPLAY_AGE && replayed.is_none_or(|last| *at > last)
-            })
+            .filter(|(at, _, _)| now.duration_since(*at) <= REPLAY_AGE)
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
         if !recent.is_empty() {
