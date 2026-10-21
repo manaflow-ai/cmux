@@ -233,4 +233,42 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     expect(Math.abs(after.trackGap)).toBeLessThanOrEqual(2);
     await page.close();
   });
+  // Leo 2026-10-20: a newline in the composer (Shift-Return, or a wrap) made the transcript's
+  // scrollbar jump. Read up the chat, growing the composer by lines moves neither the reader's
+  // offset nor the rows they read, on any painted frame.
+  test("a composer that grows leaves a reader scrolled up where they were on every frame", async () => {
+    const page = await open();
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
+    await page.mouse.wheel(0, -900);
+    await page.waitForTimeout(500);
+    await page.locator(".acpmux-md").click();
+    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    expect(start).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      const tops: number[] = [];
+      (window as unknown as { __tops: typeof tops }).__tops = tops;
+      const tick = () => {
+        if ((window as unknown as { __tops?: unknown }).__tops !== tops) return;
+        setTimeout(() => tops.push(document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop), 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (let line = 1; line <= 5; line++) {
+      await page.keyboard.type(`Line ${line} of a longer prompt`);
+      await page.keyboard.press("Shift+Enter");
+      await page.waitForTimeout(60);
+    }
+    await page.waitForTimeout(300);
+    const tops = await page.evaluate(() => {
+      const holder = window as unknown as { __tops?: number[] };
+      const tops = holder.__tops ?? [];
+      holder.__tops = undefined;
+      return tops;
+    });
+    expect(tops.length).toBeGreaterThan(5);
+    expect(tops.filter((top) => Math.abs(top - start) > 0.5)).toEqual([]);
+    await page.close();
+  });
 });
