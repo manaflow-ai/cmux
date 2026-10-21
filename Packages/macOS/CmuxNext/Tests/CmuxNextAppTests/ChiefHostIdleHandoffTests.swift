@@ -83,3 +83,43 @@ struct ChiefHostIdleHandoffTests {
         #expect(!asked)
     }
 }
+
+/// Review of #22767: a heal that waited for the Chief host's turn left the handoff to
+/// `HomeBrainHost.start`, which hands off once per Chief home per app run and runs only when the
+/// brain watch restarts the host. The heal now finishes the handoff itself after the host exits.
+struct ChiefHealAfterTurnTests {
+    actor Calls {
+        var names: [String] = []
+        func add(_ name: String) { names.append(name) }
+    }
+
+    @Test func afterTheTurnTheHealHandsOffStopsAndStartsTheHost() async {
+        let calls = Calls()
+        await ChiefAcpmuxHeal.finishAfterTurn(
+            hostExited: { await calls.add("exit"); return true },
+            handOff: { await calls.add("handOff"); return true },
+            stopHost: { await calls.add("stop") },
+            ensureHost: { await calls.add("ensure") })
+        #expect(await calls.names == ["exit", "handOff", "stop", "ensure"])
+    }
+
+    @Test func aDaemonAlreadyHandedOffStillGetsAHost() async {
+        let calls = Calls()
+        await ChiefAcpmuxHeal.finishAfterTurn(
+            hostExited: { true },
+            handOff: { await calls.add("handOff"); return false },
+            stopHost: { await calls.add("stop") },
+            ensureHost: { await calls.add("ensure") })
+        #expect(await calls.names == ["handOff", "ensure"])
+    }
+
+    @Test func aHostThatNeverEndsItsTurnIsLeftAlone() async {
+        let calls = Calls()
+        await ChiefAcpmuxHeal.finishAfterTurn(
+            hostExited: { false },
+            handOff: { await calls.add("handOff"); return true },
+            stopHost: { await calls.add("stop") },
+            ensureHost: { await calls.add("ensure") })
+        #expect(await calls.names.isEmpty)
+    }
+}
