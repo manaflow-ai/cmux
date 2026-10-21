@@ -19,6 +19,9 @@ public import Foundation
 /// peer's) is listed by the pane's daemon too, and a read naming it by its bare id would be
 /// forwarded to that computer's daemon (`server/peer_forward.rs`); `local/<id>` never resolves
 /// to it, so its asks are never read here (PR #22646 review). Only that computer answers them.
+/// A peer may itself be named `local`, and acpmux keys its rows `local/<id>`, so a reply that names
+/// a `peer` (every forwarded reply does, `peer_forward.rs`; a daemon's own chat never does) is
+/// refused too.
 @MainActor
 public final class AgentPanePendingAsks {
     /// Reads `_acpmux/info` for `session` (a `local/<id>`, ``localSession(_:)``) from the acpmux
@@ -76,7 +79,7 @@ public final class AgentPanePendingAsks {
     /// `session`'s open requests on the acpmux at `socket`, filtered to ``entryKeys``.
     func pending(of session: String, at socket: String) async -> JSONValue {
         guard let local = Self.localSession(session),
-              let info = await readInfo(socket, local), let pending = info["pending"] as? [[String: Any]] else { return .null }
+              let info = await readInfo(socket, local), info["peer"] == nil, let pending = info["pending"] as? [[String: Any]] else { return .null }
         let entries = pending.prefix(Self.maximumEntries).map { entry in entry.filter { Self.entryKeys.contains($0.key) } }
         return JSONValue(foundation: ["pending": entries]) ?? .null
     }
