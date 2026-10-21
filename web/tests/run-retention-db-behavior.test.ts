@@ -128,6 +128,54 @@ describe("cloud Run terminal retention and cancellation", () => {
     }
   });
 
+  dbTest("refuses to promote an attempt whose VM the reaper has claimed", async () => {
+    // The reaper destroys the VM after its claim commits; a promotion in that window would hand
+    // the persistent runtime a VM that is about to be destroyed.
+    const userId = `retention-race-${randomUUID()}`;
+    try {
+      const runtimes = await import("../services/vms/runtimeRepository");
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0];
+      if (!attempt) throw new Error("run did not create an attempt");
+      const lease = await repo().claimAttemptLease({ runId: created.run.id, attemptId: attempt.id, workerId: "race-worker" });
+      await repo().recordAttemptProviderHandle({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        providerVmId: "vm-race",
+        providerWorkspaceId: "workspace-race",
+        providerTerminalId: "terminal-race",
+      });
+      await repo().ingestRunEvent({
+        runId: created.run.id,
+        attemptId: attempt.id,
+        leaseToken: lease.leaseToken,
+        leaseGeneration: lease.leaseGeneration,
+        externalId: "race-succeeded",
+        attemptSequence: 1,
+        kind: "attempt.succeeded",
+        payload: { providerVmId: "vm-race" },
+      });
+      const claims = await repo().claimExpiredAttemptCleanups({ now: new Date(Date.now() + 60 * 60 * 1000), limit: 100 });
+      expect(claims.some((claim) => claim.attempt.id === attempt.id)).toBe(true);
+      const runtime = await runtimes.createRuntime({ ownerTeamId: userId, kind: "persistent", lifecycleState: "running" });
+      let refused: unknown;
+      try {
+        await runtimes.promoteAttemptToRuntime({ ownerTeamId: userId, runId: created.run.id, attemptId: attempt.id, runtimeId: runtime.id });
+      } catch (error) {
+        refused = error;
+      }
+      expect(refused).toBeInstanceOf(runtimes.RuntimeAttemptConflictError);
+      for (const claim of claims) {
+        await repo().finishAttemptCleanup({ attemptId: claim.attempt.id, cleanupLeaseToken: claim.cleanupLeaseToken, succeeded: false });
+      }
+    } finally {
+      await removeRuns(userId);
+      await sql!`delete from cloud_runtimes where owner_team_id = ${userId}`;
+    }
+  });
+
   dbTest("never reaps the VM of an attempt promoted to a persistent runtime", async () => {
     const userId = `retention-promoted-${randomUUID()}`;
     try {
