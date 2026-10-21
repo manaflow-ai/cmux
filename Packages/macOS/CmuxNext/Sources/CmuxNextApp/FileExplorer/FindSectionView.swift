@@ -5,8 +5,9 @@ import CmuxNextDesign
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
 /// in the field searches; double-click or Return on a row opens its file in
-/// cmux; the right-click menu reveals or copies the path.
-final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSource, NSTableViewDelegate {
+/// cmux; the right-click menu reveals or copies the path. Typing searches
+/// live once typing pauses (``FindSectionModel/type(_:)``).
+final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     let model: FindSectionModel
     private let rootFolder: @MainActor () -> URL
     private let effects: any FileExplorerEffects
@@ -55,9 +56,12 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private func build() {
         field.placeholderString = FileExplorerStrings.findPlaceholder
         field.sendsWholeSearchString = true
+        field.focusRingType = .none
         field.target = self
         field.action = #selector(submit)
+        field.delegate = self
         field.font = Typography.body
+        field.focusRingType = .none
         status.font = Typography.caption
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingMiddle
@@ -92,6 +96,10 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             scroll.topAnchor.constraint(equalTo: status.bottomAnchor, constant: Metrics.space2),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        model.type(field.stringValue)
     }
 
     @objc private func submit() {

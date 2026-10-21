@@ -212,6 +212,7 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -375,6 +376,8 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):

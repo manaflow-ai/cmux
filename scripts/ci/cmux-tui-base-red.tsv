@@ -6,9 +6,7 @@
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
 protocol::tests::protocol_registry_names_every_served_method	cx-mvd3t	2026-10-18	any	protocol::registry() lacks _acpmux/approvers, approvers_set (9d7c894e662), new_chat_picks_set (35a1c8a3897), workspace_roots_set (e0f1c3bf6b2); red at 43a988d49d3 (fleet 2026-10-20)
-the_requests_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
-the_known_params_are_the_macos_hosts	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
-the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	policy.json lacks _acpmux/attachment (a9e1681643a6, #20411) and _acpmux/btw, keeps _acpmux/ask (ed2adf3d5591, #20826; web side #20812 open)
+the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	the page sends _acpmux/process/*, _acpmux/route/* and _acpmux/chat/route.set with this.request, and policy.json lists none of them; the test's parser does not read this.typed( calls (_acpmux/events, _acpmux/attach, _acpmux/markUnread)
 submodule_with_missing_git_folder_is_skipped	cx-4swbu	2026-10-18	macos	macOS git exits fatal on a gitfile that points nowhere (eb8924f440e3)
 apps_store::the_customize_folder_installs_itself_and_reloads_when_it_changes	cx-pqv7y	2026-10-18	macos	local/customize 1.0.1 never listed on macOS
 close_path::kitty_create::terminals_created_across_kitty_budget_buckets_start_fast_with_kitty_enabled	cx-59iu3	2026-10-18	macos	terminal #1 waits on the Kitty budget (2-3 s) on macOS
