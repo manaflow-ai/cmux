@@ -51,6 +51,23 @@ import Testing
         #expect(header?.isCollapsed == true)
     }
 
+    @Test func anEmptyChiefDrawsNothing() {
+        var all = sections()
+        all[1].nodes = []
+        let rows = keys(layout(all))
+        #expect(!rows.contains(.section(.machine(Self.chiefID))))
+        #expect(!rows.contains(.emptySection(.machine(Self.chiefID))))
+    }
+
+    @Test func aComputerAfterTheChiefGroupIsSetApart() {
+        // The next headerless computer's rows are not drawn as the Chief group's members: a section gap.
+        let made = layout(sections())
+        let chiefRow = made.rows.first { $0.key == .workspace(WorkspaceID("a14")) }!
+        let vmRow = made.rows.first { $0.key == .workspace(WorkspaceID("vm-ws")) }!
+        let metrics = SidebarLayoutMetrics.standard
+        #expect(vmRow.y >= chiefRow.y + chiefRow.height + metrics.rowSpacing + metrics.sectionSpacing - 0.5)
+    }
+
     @Test func theRuleIsOneFunctionForEveryHeaderKind() {
         let all = sections()
         #expect(SidebarLayout.keepsHeaderInOneList(all[1]))
