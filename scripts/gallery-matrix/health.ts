@@ -167,7 +167,7 @@ async function main(): Promise<void> {
   const best = new Map([...fastest(timings)].filter(([state]) => !broken.has(state)));
   const over = overBudget(best, budgets);
   const lower = lowerable(best, budgets);
-  const text = summary(verdict, cases.length) + budgetSummary(over, lower);
+  const text = [summary(verdict, cases.length), budgetSummary(over, lower)].filter(Boolean).join("\n");
   await writeFile(join(outputDir, "health.json"), `${JSON.stringify({ ...verdict, slow: over, lower }, null, 2)}\n`);
   console.log(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${text}\n`);
