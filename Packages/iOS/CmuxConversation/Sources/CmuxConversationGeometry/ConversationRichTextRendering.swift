@@ -18,6 +18,7 @@ extension NSAttributedString.Key {
 
 /// Turns the semantic formatting keys into fonts and decorations, shared by
 /// bubbles and composers on both platforms.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationRichTextStyler {
     /// Applies fonts, underline, strikethrough and effect sizing over
     /// `range` (default: all) of a string whose base font is `baseFont`.

@@ -87,6 +87,9 @@ public final class ChiefSources {
     /// The Chief Home pins first, compose writes to and New Message names.
     public var primary: ChiefSession { isCloudReady ? cloud : mac }
 
+    /// The authenticated account whose Chief sessions are active, or `nil` while signed out.
+    public var activeUserID: String? { userID }
+
     /// The Mac Chief beside the Cloud Chief, while the Cloud Chief is the
     /// default. It stays reachable once a Mac was linked in this session
     /// (the link can drop; the last Mac's name is kept), and while it holds
@@ -138,6 +141,9 @@ public final class ChiefSources {
                       accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         guard let config else {
             stop()
+            // This authenticated account still owns the Mac Chief even when
+            // the build has no Cloud Chief service configured.
+            self.userID = userID
             return
         }
         self.userID = userID

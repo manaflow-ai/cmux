@@ -66,6 +66,12 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
                                                 darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false)
 
+    /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
+    /// the toast's veil and rim, with a shadow, over the page the cursor floats on.
+    public static let agentTag = FloatingGlassStyle(cornerRadius: 11, darkVeilAlpha: toast.darkVeilAlpha,
+                                                    lightVeilAlpha: toast.lightVeilAlpha, darkRim: toast.darkRim,
+                                                    lightRim: toast.lightRim, castsShadow: true)
+
     /// The colors for one appearance.
     public func look(isDark: Bool) -> FloatingGlassLook {
         if isDark {

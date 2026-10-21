@@ -39,6 +39,8 @@ extension UpdaterService {
         }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
+        // The Updated card's change list when the update record has none (2026-10-20).
+        loadCurrentBuildNotesIfNeeded()
         runAllowListedAction = { [weak services] id in
             guard PageDescriptor.changelogTryItActions.contains(id) else { return }
             _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))

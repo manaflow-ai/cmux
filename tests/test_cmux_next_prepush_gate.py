@@ -63,6 +63,12 @@ struct Fresh {
 }
 """
 
+INTENT = """import AppIntents
+struct RecordChiefVoiceNoteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Record Voice Note for Chief"
+    static let description = IntentDescription("It is transcribed on this device and sent to your Chief.")
+}
+"""
 
 class PrePushGateTests(unittest.TestCase):
     def setUp(self):
@@ -163,6 +169,27 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
 
+    def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
+        # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
+        before = self.remote_head()
+        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT.replace("this device", "this iPhone"))
+        self.commit("intent text names the iPhone")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the rejected text must not reach origin")
+        self.assertIn("90626-reserved-term", output)
+
+    def test_push_with_device_neutral_app_intent_text_passes(self):
+        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT)
+        self.commit("intent text for every device")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
@@ -230,6 +257,50 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("sneaks in a try!", output)
         self.assertNotIn("clean commit adds", output)
         self.assertIn("2 commit(s) checked, 1 add violations", output)
+
+
+    # Ghostty's default split keys (Lawrence 2026-10-20, after 2f3e1f95983 made Cmd-Opt-Left / Right
+    # sidebar keys): the gate refuses a push whose exported keymap gives one to another action.
+    RESERVED = {"reserved": [{"key": "cmd+opt+left", "command": "focusLeft", "ghostty": "goto_split:left"}],
+                "scopedOwners": {"keys": ["codeEditorFocused"]}, "scopedActions": []}
+
+    @staticmethod
+    def surfaces(sidebar_alias):
+        left = {"key": "\uf702", "modifiers": ["opt", "cmd"]}
+        prev = {"id": "prevSidebarTab", "default_shortcut": {"key": "[", "modifiers": ["ctrl", "cmd"]},
+                "default_aliases": [{"keys": [left], "when": None}] if sidebar_alias else []}
+        focus = {"id": "focusLeft", "default_shortcut": left, "default_aliases": []}
+        return {"version": 1, "actions": [focus, prev]}
+
+    def reserved_base(self):
+        import json
+        self.write("schemas/keybindings/ghostty-reserved-keys.json", json.dumps(self.RESERVED))
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(False)))
+        self.commit("reserved keys")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(True)))
+
+    def test_push_that_gives_a_ghostty_key_to_another_action_is_refused_even_with_a_skip_reason(self):
+        self.reserved_base()
+        before = self.remote_head()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: unrelated base failure")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("prevSidebarTab takes Ghostty's cmd+opt+left", output)
+        self.assertIn("does not skip", output)
+
+    def test_a_ghostty_defaults_ok_trailer_lets_the_change_through(self):
+        self.reserved_base()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item\n\nGhostty-defaults-OK: \"fixture: yes, rebind it\"")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

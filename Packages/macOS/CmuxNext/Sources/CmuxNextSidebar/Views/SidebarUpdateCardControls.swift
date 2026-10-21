@@ -130,7 +130,8 @@ final class SidebarUpdateButton: NSView {
             let base = isQuiet ? Palette.hoverFill : Self.colors(style).fill
             if !isEnabled, neutral { return base.withAlphaComponent(0.5) }
             if neutral, isPressed { return Palette.pressedFill }
-            if neutral, isHovered { return Palette.selectionFill }
+            // Over its resting hover fill, the neutral step, never the accent selection.
+            if neutral, isHovered { return ChromeHover.raisedHoverFill }
             if !isEnabled { return base.withAlphaComponent(0.4) }
             if isPressed { return base.withAlphaComponent(0.75) }
             return isHovered ? base.withAlphaComponent(0.88) : base

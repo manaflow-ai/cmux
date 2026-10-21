@@ -1,11 +1,12 @@
 public import CoreGraphics
+import Accelerate
 import Foundation
 
 /// Flattened sidebar: rows with frames, plus the live gap when dragging.
 public nonisolated struct SidebarLayout: Hashable, Sendable {
     public private(set) var rows: [SidebarRow]
-    /// Key to row index, so lookups stay O(1) with 1,000 workspaces.
-    private var index: [SidebarRowKey: Int]
+    /// Key to row index, so lookups stay O(1) with 10,000 workspaces, and a fold's splice rehashes no row.
+    private var index: SidebarLayoutKeyIndex
     public var totalHeight: CGFloat
     /// Top of the open gap, if any.
     public var gapY: CGFloat?
@@ -25,20 +26,73 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         self.gapY = gapY
         self.gapHeight = gapHeight
         self.gapShift = gapShift
-        var index: [SidebarRowKey: Int] = [:]
-        index.reserveCapacity(rows.count)
-        for (i, row) in rows.enumerated() { index[row.key] = i }
-        self.index = index
+        self.index = SidebarLayoutKeyIndex(rows: rows)
     }
 
     public static let empty = SidebarLayout(rows: [], totalHeight: 0, gapY: nil, gapHeight: 0, gapShift: 0)
 
-    public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
+    public func row(for key: SidebarRowKey) -> SidebarRow? { index.position(of: key).map { rows[$0] } }
+
+    /// The position of `key`'s row in `rows`, or nil.
+    func position(of key: SidebarRowKey) -> Int? { index.position(of: key) }
+
+    /// Replaces `rows[range]` with `new` and moves every row after them by `dy` (a group's fold,
+    /// `folding`): the cost is the replaced rows plus one move per later row; no key is hashed again.
+    mutating func replaceRows(_ range: Range<Int>, with new: [SidebarRow], shiftingFollowingBy dy: CGFloat) {
+        rows.replaceSubrange(range, with: new)
+        if dy != 0 {
+            Self.shiftY(of: &rows, from: range.lowerBound + new.count, by: dy)
+            totalHeight += dy
+        }
+        index.splice(start: range.lowerBound, removed: range.count, inserted: new.map(\.key), rows: rows)
+    }
+
+    /// Moves the y of `rows[start...]` by `dy`: one strided vector add over the rows' `y` field (no row is
+    /// copied), so a fold at 10,000 workspaces moves the rows below it in microseconds; a plain loop without it.
+    private static func shiftY(of rows: inout [SidebarRow], from start: Int, by dy: CGFloat) {
+        let count = rows.count - start
+        guard count > 0 else { return }
+        let stride = MemoryLayout<SidebarRow>.stride
+        guard CGFloat.NativeType.self == Double.self, let offset = MemoryLayout<SidebarRow>.offset(of: \SidebarRow.y),
+              stride % MemoryLayout<Double>.stride == 0, offset % MemoryLayout<Double>.alignment == 0 else {
+            for i in start..<rows.count { rows[i].y += dy }
+            return
+        }
+        var add = Double(dy)
+        rows.withUnsafeMutableBytes { bytes in
+            // crash-allow: `y` is a stored CGFloat (Double) at `offset` in each row, rows are `stride` bytes apart,
+            // and the buffer holds `rows.count` rows; the add writes only those `count` doubles.
+            guard let base = bytes.baseAddress else { return }
+            let first = (base + start * stride + offset).assumingMemoryBound(to: Double.self)
+            vDSP_vsaddD(first, vDSP_Stride(stride / MemoryLayout<Double>.stride), &add, first,
+                        vDSP_Stride(stride / MemoryLayout<Double>.stride), vDSP_Length(count))
+        }
+    }
+
+    /// Replaces the row at `position` with `row` of the same key and frame (a header's fold flag).
+    mutating func setRow(_ row: SidebarRow, at position: Int) {
+        rows[position] = row
+    }
+
+    // Equal layouts draw the same: the key index is how lookups are found, not what is drawn.
+    public static func == (lhs: SidebarLayout, rhs: SidebarLayout) -> Bool {
+        lhs.rows == rhs.rows && lhs.totalHeight == rhs.totalHeight && lhs.gapY == rhs.gapY && lhs.gapHeight == rhs.gapHeight
+            && lhs.gapShift == rhs.gapShift && lhs.rowSpacing == rhs.rowSpacing
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rows)
+        hasher.combine(totalHeight)
+        hasher.combine(gapY)
+        hasher.combine(gapHeight)
+        hasher.combine(gapShift)
+        hasher.combine(rowSpacing)
+    }
 
     /// Replaces a workspace row's content in place, keeping its frame
     /// (a row update whose height is unchanged, `SidebarListView.patchRows`).
     mutating func setContent(_ content: WorkspaceRowContent, for key: SidebarRowKey) {
-        guard let i = index[key] else { return }
+        guard let i = index.position(of: key) else { return }
         rows[i].content = content
     }
 
@@ -121,16 +175,42 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         for section in sections {
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
+            // Nested groups (remote-groups-DESIGN.md slice 2) list flat, a group before its
+            // subgroups: a group under a collapsed or hidden one hides too, and with a filter a
+            // group shows while a group under it has a match (the path to the match).
+            var hiddenGroups = Set<GroupID>()
+            var pathToMatch = Set<GroupID>()
+            if filtering {
+                let parents = Dictionary(section.nodes.compactMap { node -> (GroupID, GroupID?)? in
+                    if case let .group(group) = node { (group.id, group.parent) } else { nil }
+                }, uniquingKeysWith: { first, _ in first })
+                for node in section.nodes {
+                    guard case let .group(group) = node, group.workspaces.contains(where: visible) else { continue }
+                    var parent = group.parent
+                    while let id = parent, pathToMatch.insert(id).inserted { parent = parents[id] ?? nil }
+                }
+            }
             for node in section.nodes {
                 switch node {
                 case let .workspace(ws):
                     if visible(ws) { nodes.append((node, [ws])) }
                 case let .group(group):
-                    if group.id == o.excludedGroup { continue }
+                    if let parent = group.parent, hiddenGroups.contains(parent) {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
+                    if group.id == o.excludedGroup {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
                     let children = group.workspaces.filter(visible)
                     // A group emptied by the drag keeps its header (it is a
                     // valid target); a group emptied by the filter hides.
-                    if filtering && children.isEmpty { continue }
+                    if filtering && children.isEmpty && !pathToMatch.contains(group.id) {
+                        hiddenGroups.insert(group.id)
+                        continue
+                    }
+                    if group.isCollapsed && !filtering { hiddenGroups.insert(group.id) }
                     nodes.append((node, children))
                 case let .item(item):
                     // A link or app row matches no workspace filter.
@@ -152,7 +232,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            let flat = o.flattensMachines && section.machine != nil
+            // A remote group (remote-groups-DESIGN.md slice 4) is a section of its own in one list too.
+            let flat = o.flattensMachines && section.machine != nil && !section.isHostGroup
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -171,7 +252,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil
+            let showsHeader = !isDocSection && (section.machine == nil || section.isHostGroup
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
@@ -249,12 +330,16 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         }
                     }
                     let groupCollapsed = group.isCollapsed && !filtering
-                    let header = SidebarRow(
+                    var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
                     )
+                    header.depth = group.depth
                     rows.append(header)
+                    // Every row appended below is this group's member: one level in from its header.
+                    let memberRowsStart = rows.count
+                    defer { for i in memberRowsStart..<rows.count { rows[i].depth = group.depth + 1 } }
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
                         // Keep the selected workspace as the one visible member

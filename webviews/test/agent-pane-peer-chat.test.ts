@@ -171,10 +171,12 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           },
         }),
       );
+      // The line names the call in flight ("Run make") with its time beside it (WorkingFor.tsx).
       const working = page.locator(".cv-worked__label");
       await working.waitFor();
       const label = (await working.textContent()) ?? "";
-      const seconds = /^Working for (\d+)s$/.exec(label)?.[1];
+      const time = (await page.locator(".cv-worked__time").textContent()) ?? "";
+      const seconds = /^(\d+)s$/.exec(time)?.[1];
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({
@@ -182,7 +184,7 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
         recent: seconds !== undefined && Number(seconds) >= 4 && Number(seconds) < 30,
         strips,
       }).toEqual({
-        label,
+        label: "Run make",
         recent: true,
         strips: 0,
       });

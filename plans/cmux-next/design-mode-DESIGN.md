@@ -58,9 +58,16 @@ cmux-next today only flips `document.designMode` (contenteditable) behind the sa
   names) plus an `image` chip with the crop of the element from the tab's own snapshot. The ids are
   stable per selector, so selecting the same element again replaces its chips instead of adding.
   They go with the next message as every chip does (ACP text + image blocks).
-- **Which chat gets the card.** The agent chat tab in the browser's workspace whose pane was
-  focused last (`PaneModel.focusedAt`). With none, the browser shows a notice ("Open an agent chat
-  in this workspace to send design selections"). Home Chief is slice 3.
+- **Which chat gets the card.** The Chief's Home composer when Home shows in the browser's window
+  (Home on the left, the page on the right): the card goes in as two files (`<name>.txt`,
+  `<name>.png`, `BrowserDesignModeCardFiles`) through Home's own drop intake. Else the agent chat
+  tab in the browser's workspace whose pane was focused last (`PaneModel.focusedAt`). With neither,
+  the browser shows a notice.
+- **Variations: the pick is a highlight.** `scripts/cmux-next/design-variations.py DIR` writes
+  `DIR/index.html`, a grid with one tile per variation file, each tagged
+  `data-testid="cmux-variation-<n>"`. The agent opens it in the right column; the person turns on
+  design mode and clicks a tile; that card's text starts "Picked design variation <n>: <title>". No
+  new page-to-app channel and no new action.
 - **One path.** The toolbar button, the palette row, the shortcut and the CLI all run the
   `toggleBrowserDesignMode` action; the action runs `BrowserDesignModeController` (app), which owns
   per-tab state. Routing cards goes through one function.
@@ -88,14 +95,19 @@ remembers what was sent per tab, so a snapshot that only moved the scroll positi
    toggle action rewired, cards with crops into the last-focused agent chat of the workspace.
    Failing-first tests: `BrowserDesignModeCardsTests` (Swift, snapshot -> cards, dedupe, redaction
    kept), `design-selection.test.ts` (host event -> chips).
-2. **Removal and edits.** A selection removed on the page removes its chips (composer handle gets
+2. **Removal and edits** (landed: `BrowserDesignModeCards.change` gives removed ids and edited cards; Home takes back its draft attachments by hash, the agent chat composer `detach`es; turning design mode off keeps the cards). A selection removed on the page removes its chips (composer handle gets
    `detach(id)`); style/text edits (`css_diff`) ride on the card; Esc in the page leaves design mode
    (`exit_requested`); drawn regions crop the same way.
-3. **Home Chief.** The native Home composer (`HomeAttachmentIntake`) takes the same cards; the
+3. **Home Chief** (first part landed: cards go to the shown Home composer as files). The native Home composer (`HomeAttachmentIntake`) takes the same cards; the
    target becomes "the chat the user last typed in" across Home and agent tabs. Coordinate with
    a290 (Home attachments open in Files) and a285 (non-image files reach agents): both own the
    attachment intake; this work only adds a source.
-4. **Design variations.** A `design.variations` tool result (or a fenced `cmux-variations` block)
+- Home composer files: one folder per card under `$TMPDIR/cmux-design-mode`, removed once Home copied them into its blob cache (`attachmentsReady`), the rest at quit and at launch.
+4. **Design variations** (landed): `design-variations.py DIR --open` writes the gallery and shows it
+   right of the Home chat (`cmux browser right navigate`). A pick (`BrowserDesignModeDelivery`) is
+   sent to the shown Home chat at once through a304's `home.sendMessage` ("Picked design variation
+   <n>: <title>"); other highlights wait in the composer. Still to do: design mode on by itself in
+   the gallery. A `design.variations` tool result (or a fenced `cmux-variations` block)
    with N HTML/URL variants opens a gallery in the right column (same placement as a272/a101's
    "open to the right"), each variant live in its own browser tab tile, one Recommended. Picking one
    sends `Picked variation <n>: <title>` (+ its chip) back to the chat that asked. Coordinate with

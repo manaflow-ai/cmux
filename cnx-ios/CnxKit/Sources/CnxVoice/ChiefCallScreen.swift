@@ -16,7 +16,7 @@ public struct ChiefCallScreen: View {
         self.controller = controller
     }
 
-    private var state: ChiefCallState { controller.coordinator.state }
+    private var state: ChiefCallState { controller.state }
 
     private var name: String {
         let name = controller.chiefName ?? ""
@@ -72,7 +72,7 @@ public struct ChiefCallScreen: View {
             Spacer()
             if recordingSince != nil {
                 Button {
-                    Task { await controller.coordinator.end() }
+                    Task { await controller.end() }
                 } label: {
                     Image(systemName: "phone.down.fill")
                         .font(.title)

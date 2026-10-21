@@ -80,7 +80,7 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, timeout=60, origin="user"):
+def action(name, args=None, timeout=60, origin="script"):  # the socket refuses "user" (ControlOrigin)
     return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": origin}, timeout=timeout)
 
 

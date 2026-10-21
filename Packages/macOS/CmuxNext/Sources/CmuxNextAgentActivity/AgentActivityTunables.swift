@@ -27,10 +27,6 @@ public nonisolated enum AgentActivityTunables {
         "agentActivity.layout", section, "Layout", help: "Prototype layout of the Agent activity pane. Switches live.",
         default: .split, code: "AgentActivityTunables.layout")
 
-    public static let filmstripHeight = Tunable<Double>.number(
-        "agentActivity.filmstripHeight", section, "Filmstrip height", help: "Height of the thumbnail filmstrip.",
-        default: 76, range: 40...160, step: 2, unit: .points, code: "AgentActivityTunables.filmstripHeight")
-
     /// The sidebar's Lanes item and the lanes view show this Mac's own sessions; on, also the
     /// acpmux peers' lanes and coordinators' child sessions (`AgentLaneStore.shown`).
     public static let lanesShowFleet = Tunable<Bool>.toggle(
@@ -38,5 +34,5 @@ public nonisolated enum AgentActivityTunables {
         help: "The Lanes item and view also count acpmux peers' lanes and sessions a coordinator started (mux.parent).",
         default: false, code: "AgentActivityTunables.lanesShowFleet")
 
-    public static var all: [TunableDescriptor] { [layout.descriptor, filmstripHeight.descriptor, lanesShowFleet.descriptor] }
+    public static var all: [TunableDescriptor] { [layout.descriptor, lanesShowFleet.descriptor] }
 }

@@ -97,3 +97,53 @@ fn release_gives_the_agents_tabs_back() {
     assert_eq!(only["params"]["agent"], "Chief");
     assert_eq!(only["params"]["release"], true);
 }
+
+/// The app lets only reads run on the person's shown tab, so the CLI names the
+/// verb it will run (plans/cmux-next/agent-browser-passkey-DESIGN.md).
+#[test]
+fn right_names_the_verb_so_the_app_can_keep_writes_off_the_persons_tab() {
+    let resolved = json!({ "id": 1, "ok": true, "result": { "tab": "tab_r1", "created": false, "navigated": false } });
+    let snap = json!({ "id": 2, "ok": true, "result": { "tab": "tab_r1" } });
+    let (socket, app) = fake_app(vec![resolved, snap]);
+    let command =
+        parse(&args(&["browser", "right", "snapshot", "--agent", "Chief"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let first = &connections[0][0];
+    assert_eq!(first["params"]["verb"], "browser.page.snapshot");
+    assert!(first["params"].get("take").is_none(), "no takeover unless asked");
+}
+
+#[test]
+fn take_hands_the_persons_tab_over_only_when_given() {
+    let resolved = json!({ "id": 1, "ok": true, "result": { "tab": "tab_user", "created": false, "navigated": false } });
+    let clicked = json!({ "id": 2, "ok": true, "result": { "tab": "tab_user" } });
+    let (socket, app) = fake_app(vec![resolved, clicked]);
+    let command = parse(&args(&["browser", "right", "click", "#go", "--take", "--agent", "Chief"]))
+        .unwrap()
+        .unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [first, second] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(first["params"]["verb"], "browser.page.click");
+    assert_eq!(first["params"]["take"], true);
+    assert_eq!(second["method"], "browser.page.click");
+    assert!(second["params"].get("take").is_none());
+}
+
+#[test]
+fn passkey_on_right_asks_the_app_to_hand_the_ceremony_to_the_person() {
+    let resolved = json!({ "id": 1, "ok": true, "result": { "tab": "tab_own", "created": false, "navigated": false } });
+    let asked = json!({ "id": 2, "ok": true, "result": { "tab": "tab_own", "request": "r1", "status": "pending" } });
+    let (socket, app) = fake_app(vec![resolved, asked]);
+    let command =
+        parse(&args(&["browser", "right", "passkey", "e11", "--agent", "Chief"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [first, second] = connections[0].as_slice() else { panic!("{connections:?}") };
+    assert_eq!(first["params"]["verb"], "browser.page.passkey");
+    assert_eq!(second["method"], "browser.page.passkey");
+    assert_eq!(second["params"]["selector"], "e11");
+    assert_eq!(second["params"]["tab"], "tab_own");
+    assert_eq!(second["params"]["agent"], "Chief");
+}

@@ -10613,6 +10613,270 @@
           }
         }
       }
+    },
+    "control.error.rightUserTab": {
+      "comment": "cmux browser right: an agent asked to write (click, type, navigate) on the tab the person is showing; agents only read it unless the person handed it over. Keep the command literal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shown tab is the person's: read it, or open your own with `cmux browser right navigate <url>`"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "علامة التبويب المعروضة تخص المستخدم: اقرأها، أو افتح علامة تبويب خاصة بك باستخدام `cmux browser right navigate <url>`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazana kartica pripada korisniku: pročitaj je ili otvori svoju sa `cmux browser right navigate <url>`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den viste fane tilhører brugeren: læs den, eller åbn din egen med `cmux browser right navigate <url>`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der angezeigte Tab gehört der Person: Lies ihn, oder öffne deinen eigenen mit `cmux browser right navigate <url>`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña visible es de la persona: léela o abre la tuya con `cmux browser right navigate <url>`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L'onglet affiché appartient à la personne : lisez-le, ou ouvrez le vôtre avec `cmux browser right navigate <url>`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda mostrata è della persona: leggila o apri la tua con `cmux browser right navigate <url>`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示中のタブはユーザーのものです。読み取るか、`cmux browser right navigate <url>` で自分のタブを開いてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងដែលបង្ហាញជារបស់អ្នកប្រើ៖ អានវា ឬបើកផ្ទាំងផ្ទាល់ខ្លួនរបស់អ្នកដោយ `cmux browser right navigate <url>`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시된 탭은 사용자의 탭입니다. 읽기만 하거나 `cmux browser right navigate <url>`로 직접 탭을 여세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den viste fanen tilhører brukeren: les den, eller åpne din egen med `cmux browser right navigate <url>`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazana karta należy do użytkownika: odczytaj ją albo otwórz własną poleceniem `cmux browser right navigate <url>`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba exibida é da pessoa: leia-a ou abra a sua com `cmux browser right navigate <url>`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показанная вкладка принадлежит пользователю: читайте её или откройте свою через `cmux browser right navigate <url>`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บที่แสดงเป็นของผู้ใช้: อ่านได้ หรือเปิดแท็บของคุณเองด้วย `cmux browser right navigate <url>`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gösterilen sekme kişiye ait: okuyun ya da `cmux browser right navigate <url>` ile kendi sekmenizi açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показана вкладка належить користувачу: читайте її або відкрийте свою через `cmux browser right navigate <url>`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đang hiển thị là của người dùng: hãy đọc nó, hoặc mở thẻ riêng bằng `cmux browser right navigate <url>`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示的标签页属于用户：只能读取，或用 `cmux browser right navigate <url>` 打开你自己的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示的分頁屬於使用者：只能讀取，或用 `cmux browser right navigate <url>` 開啟你自己的分頁"
+          }
+        }
+      }
+    },
+    "control.error.backgroundShape": {
+      "comment": "action.run: the background parameter (a tab the run opens stays unselected) was not a boolean. Keep 'background', 'true' and 'false' literal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "background must be true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون قيمة background هي true أو false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background mora biti true ili false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background skal være true eller false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background doit valoir true ou false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background deve essere true o false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background は true か false です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background ត្រូវតែជា true ឬ false"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background는 true 또는 false여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background må være true eller false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background musi mieć wartość true lub false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background deve ser true ou false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background должен быть true или false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background ต้องเป็น true หรือ false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background true veya false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background має бути true або false"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background phải là true hoặc false"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background 必须是 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "background 必須是 true 或 false"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
