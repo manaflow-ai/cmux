@@ -114,10 +114,10 @@ enum OnboardingStrings {
     }
 }
 
-public extension ImportCounts {
-    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or that it failed.
-    static func removalText(_ counts: ImportCounts?, profile: String) -> String {
-        guard let counts else {
+public extension Optional where Wrapped == ImportCounts {
+    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204"), or (nil) that it failed.
+    func removalText(profile: String) -> String {
+        guard let counts = self else {
             return String(localized: "onboarding.import.removed.failed", defaultValue: "Couldn’t remove the data imported into \(profile).",
                           bundle: .module)
         }
