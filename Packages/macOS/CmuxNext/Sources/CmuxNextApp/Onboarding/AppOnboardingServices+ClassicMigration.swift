@@ -226,8 +226,7 @@ extension AppOnboardingServices {
         // The New Tab page launch made for an empty tree gives way to classic's workspaces. A first
         // launch that landed on Home (FirstWorkspaceLaunch) made none: Home stays.
         if openedInFirstWindow, let firstWorkspace, let made = store.workspace(id: firstWorkspace), made.kind != "home",
-           let connection = services.daemon.connection {
-            let key = made.key
+           let key = made.key, let connection = services.daemon.connection {
             _ = try? await connection.closeWorkspace(key, endTerminals: true, ifEmpty: false)
         }
         return outcome
