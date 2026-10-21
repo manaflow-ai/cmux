@@ -945,6 +945,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
 
+      - name: Validate the PR media privacy check and its writers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: |
