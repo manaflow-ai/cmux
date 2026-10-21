@@ -44,7 +44,10 @@ export function ScrollArea({
         {...viewportProps}
         className={cx("h-full max-h-[inherit] w-full overscroll-contain outline-none", viewportClassName)}
       >
-        {children}
+        {/* Content is what Base UI watches for size changes: without it the thumb keeps its first size when
+            the list grows or shrinks in place. Its default min-width (fit-content) would stop long rows from
+            truncating, so only a horizontal area keeps it. */}
+        <BaseScrollArea.Content style={horizontal ? undefined : { minWidth: 0 }}>{children}</BaseScrollArea.Content>
       </BaseScrollArea.Viewport>
       <BaseScrollArea.Scrollbar
         orientation="vertical"
