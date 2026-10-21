@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -21,9 +22,10 @@ struct AgentPaneDebugClickPageHostTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
-        let html = #"<html><body><textarea style="width:200px;height:40px"></textarea><button aria-label="Remove red.png" style="position:absolute;left:300px;top:10px;width:16px;height:16px"></button></body></html>"#
+        let html = #"<html><body><textarea style="box-sizing:border-box;margin:0;padding:0;border:0;width:200px;height:40px"></textarea><button aria-label="Remove red.png" style="position:absolute;left:300px;top:10px;width:16px;height:16px"></button></body></html>"#
         try Data(html.utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+                                              chromium: nil))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         // The page loads in the page host.
         let deadline = Date().addingTimeInterval(20)
@@ -45,5 +47,68 @@ struct AgentPaneDebugClickPageHostTests {
         let none = await view.debugLocate(selector: ".missing", text: "")
         #expect(none["error"] as? String == "no visible element matches")
     }
+    /// The default: the chat shows in Chromium and the pane's own WebKit view is hidden and empty. The
+    /// element is found by a script in the Chromium page and pressed with DevTools input there.
+    @Test func clickFindsAndPressesAnElementOfAChromiumChat() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "debug-click-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body></body></html>".utf8).write(to: file)
+        let hosting = LocatingHosting()
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+                                              chromium: hosting))
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let deadline = Date().addingTimeInterval(5)
+        while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(view.debugShowsChromium)
+
+        let remove = await view.debugLocate(selector: "", text: "Remove red.png")
+        #expect(remove["tag"] as? String == "button", "\(remove)")
+        #expect(remove["x"] as? Double == 308, "\(remove)")
+        #expect(await view.debugPress(x: 308, y: 18))
+        let presses = hosting.page?.calls.filter { $0.method == "Input.dispatchMouseEvent" } ?? []
+        #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
+        #expect(presses.allSatisfy { $0.params["x"] as? Double == 308 && $0.params["y"] as? Double == 18 })
+    }
+}
+
+/// A Chromium host whose one page answers the click verb's locate script with a button at 308,18.
+@MainActor
+private final class LocatingHosting: PageChromiumHosting {
+    let preference: BrowserDefaultEngine = .chromium
+    let isAvailable = true
+    private(set) var page: LocatingPage?
+
+    func serves(_ page: PageDescriptor) -> Bool { true }
+
+    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
+        let made = LocatingPage()
+        self.page = made
+        return made
+    }
+}
+
+@MainActor
+private final class LocatingPage: PageChromiumPage {
+    let contentView = NSView()
+    var onEvent: ((PageChromiumEvent) -> Void)?
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+    private(set) var calls: [(method: String, params: [String: any Sendable])] = []
+
+    func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {
+        calls.append((method, params))
+        if method == "Runtime.evaluate", (params["expression"] as? String)?.contains("no visible element matches") == true {
+            return #"{"result":{"type":"string","value":"{\"x\":308,\"y\":18,\"tag\":\"button\"}"}}"#
+        }
+        return #"{"result":{}}"#
+    }
+
+    func load(_ url: URL) {}
+    func reload() {}
+    func setZoom(_ zoom: Double) {}
+    func setFocused(_ focused: Bool) {}
+    func setVisible(_ visible: Bool) {}
+    func close() {}
 }
 #endif

@@ -119,8 +119,10 @@ public final class AgentPaneView: NSView {
     ///     do on a loaded machine (#16471).
     ///   - pageHost: Host the page on the shared page host (``PageWebView``) instead of this
     ///     view's own WebKit host. Only a bundled page can move; a dev-server page stays.
+    ///   - chromium: Makes the page host's Chromium view when the chat shows in Chromium (the app's
+    ///     ``PageWebView/chromiumHosting`` by default; tests pass a fake).
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: Bool = false) {
+                 pageHost: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.model = model
         self.source = source
@@ -131,7 +133,8 @@ public final class AgentPaneView: NSView {
             let provider = AgentPageProvider { [weak model] _ in model }
             // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
             provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
+            guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate,
+                                                                 chromium: chromium)
             else { return nil }
             self.page = page
             pageEvents = provider

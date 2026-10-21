@@ -8,7 +8,8 @@ import WebKit
 /// found by `selector` (CSS) or by `text` (its visible text or accessible name, such as a chip's label; the
 /// smallest element that matches). Its center goes from page coordinates to the window, and a real mouse down and
 /// up go there as ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the user's gesture,
-/// also in a window that was never activated. Never moves the user's pointer.
+/// also in a window that was never activated. A chat shown in Chromium gets a trusted DevTools press instead,
+/// which the gesture monitor does not see. Never moves the user's pointer.
 @MainActor
 enum DebugAgentPaneClick {
     /// Whether the page has seen the click's mouse down, waiting up to `ms` for it.
@@ -137,8 +138,7 @@ enum DebugAgentPaneClick {
         let shown = view.focusTarget
         let height = window.contentView?.bounds.height ?? window.frame.height
         let local = shown.convert(NSPoint(x: x, y: height - y), from: nil)
-        let zoom = view.debugPageWebView.map { $0.pageZoom * $0.magnification } ?? 1
-        let scale = max(zoom, 0.01)
+        let scale = max(view.debugPageZoom, 0.01)
         let cssX = local.x / scale
         let cssY = (shown.isFlipped ? local.y : shown.bounds.height - local.y) / scale
         do {

@@ -174,6 +174,10 @@ extension PageWebView {
     /// page: a trusted DevTools press and release, as a person's click, also in a window that never
     /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
     /// which the caller clicks with AppKit events, or when DevTools refuses either half.
+    /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
+    /// CSS pixels are view points divided by it.
+    public var debugPageZoom: Double { pageZoom }
+
     public func debugPress(x: Double, y: Double) async -> Bool {
         guard let page = chromiumSession?.page else { return false }
         for type in ["mousePressed", "mouseReleased"] {
