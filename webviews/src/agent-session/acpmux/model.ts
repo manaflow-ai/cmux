@@ -390,6 +390,10 @@ export type AcpmuxSnapshot = {
   listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
+  /// `turnTokens`); unset when the harness does not report each call or the client missed the
+  /// turn's start.
+  turnTokens?: number;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
