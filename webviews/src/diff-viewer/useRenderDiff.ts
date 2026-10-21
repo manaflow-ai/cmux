@@ -6,6 +6,7 @@ import { resolveDiffViewerAppearance, type ResolvedDiffViewerAppearance } from "
 import { resolveDiffPreloadLanguages } from "../diff-language";
 import { fileName, type DiffItem, streamPatch } from "../diff-stream";
 import { DEFERRED_PATCH_KEY, hydrateDeferredFileDiff } from "../deferred-parse";
+import { isGeneratedDiffPath } from "../deferred-diffs";
 import { shikiThemeFromGhostty } from "../pierre-options";
 import { createDiffViewerStatus } from "../status";
 import type { DiffViewerLabelResolver } from "../labels";
@@ -114,6 +115,17 @@ export function useRenderDiff(
           return;
         }
         onPatchURL(patchURL);
+        // The sidecar's generated list as a set, rebuilt only when the list itself changes.
+        let declaredPaths: readonly string[] = [];
+        let declaredSet: ReadonlySet<string> = new Set<string>();
+        const declaredGenerated = (): ReadonlySet<string> => {
+          const paths = latestState.current.generatedPaths;
+          if (paths !== declaredPaths) {
+            declaredPaths = paths;
+            declaredSet = new Set(paths);
+          }
+          return declaredSet;
+        };
         const streamedItems: DiffItem[] = [];
         dispatch({ type: "set-status", status: createDiffViewerStatus(label("parsingDiff"), { loading: true }) });
         await streamPatch({
@@ -129,6 +141,9 @@ export function useRenderDiff(
           onComplete: (metrics) => {
             if (cancelled) return;
             dispatch({ type: "set-metrics", metrics });
+            // Every file has arrived, so "Group by kind" can reorder without moving text the
+            // reader is already on.
+            dispatch({ type: "set-stream-complete" });
             const items = streamedItems;
             if (items.length === 0) {
               const emptyMessage =
@@ -161,7 +176,7 @@ export function useRenderDiff(
           onTreeSource: (source) => {
             if (!cancelled) dispatch({ type: "set-tree-source", source });
           },
-          isGeneratedPath: (path) => latestState.current.generatedPaths.includes(path),
+          isGeneratedPath: (path) => isGeneratedDiffPath(path, declaredGenerated()),
           parsePatchFiles,
           patchURL,
           processFile,

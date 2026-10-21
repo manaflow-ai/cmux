@@ -180,24 +180,6 @@
             }
           },
           {
-            "key" : "settings.group.updates",
-            "rows" : [
-              "updates.channel",
-              "updates.checkAutomatically",
-              "updates.checkIntervalSeconds",
-              "updates.downloadAutomatically",
-              "updates.meteredNetwork",
-              "updates.installOnQuit",
-              "updates.notify",
-              "updates.keepPreviousVersions",
-              "updates.showWhatsNew"
-            ],
-            "title" : {
-              "key" : "settings.group.updates",
-              "text" : "Updates"
-            }
-          },
-          {
             "key" : "settings.group.announcements",
             "rows" : [
               "announcements.enabled"
@@ -231,6 +213,57 @@
         },
         "trail" : [
           "spaces"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.updates",
+            "rows" : [
+              "updates.channel",
+              "updates.checkAutomatically",
+              "updates.checkIntervalSeconds",
+              "updates.downloadAutomatically",
+              "updates.meteredNetwork",
+              "updates.installOnQuit",
+              "updates.notify",
+              "updates.keepPreviousVersions",
+              "updates.showWhatsNew"
+            ],
+            "title" : {
+              "key" : "settings.group.updates",
+              "text" : "Updates"
+            }
+          },
+          {
+            "key" : "updates.1",
+            "rows" : [
+              "updates.idleInstallMaxWaitSeconds",
+              "updates.idleInstallQuietSeconds"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.updatesAdvanced",
+              "text" : "Updates: Advanced"
+            }
+          }
+        ],
+        "id" : "updates",
+        "lead" : [
+
+        ],
+        "symbol" : "icloud.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.updates",
+          "text" : "Updates"
+        },
+        "trail" : [
+          "channels"
         ]
       },
       {
@@ -823,7 +856,8 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "computerUse"
+          "computerUse",
+          "agentIntegrations"
         ]
       },
       {
@@ -1127,6 +1161,29 @@
         },
         "trail" : [
           "browserProfiles"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "import",
+        "lead" : [
+          "importSuggestions"
+        ],
+        "symbol" : "square.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.import",
+          "text" : "Import"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -4117,6 +4174,120 @@
       "title" : {
         "key" : "settings.updates.showWhatsNew",
         "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        7200,
+        3630
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 900,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallMaxWait.help",
+        "text" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallMaxWaitSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "wait",
+        "automatic",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallMaxWaitSeconds"
+      ],
+      "range" : {
+        "max" : 7200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -7080,
+        14340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallMaxWait",
+        "text" : "Install Within"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        600,
+        302.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallQuiet.help",
+        "text" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallQuietSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "quiet",
+        "typing",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallQuietSeconds"
+      ],
+      "range" : {
+        "max" : 600,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -590,
+        1195,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallQuiet",
+        "text" : "Quiet Time Before Installing"
       },
       "validation" : "portable"
     },
@@ -8140,66 +8311,40 @@
       "accepts" : [
         "none",
         "david-death-of-marat",
-        "goya-saturn",
         "velde-small-ship-storm",
-        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
-        "bocklin-self-portrait-death",
-        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
-        "caravaggio-david-goliath",
-        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
-        "gentileschi-judith",
         "munch-madonna",
-        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
-        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
-        "fuseli-nightmare-2",
-        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
-        "klimt-judith",
-        "repin-ivan",
-        "millais-ophelia",
         "bruegel-fall-rebel-angels",
-        "fuseli-nightmare",
-        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
-        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
-        "klimt-death-and-life",
-        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
-        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
-        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
-        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
-        "vereshchagin-apotheosis-war",
-        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
-        "gericault-raft-of-the-medusa",
-        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -8209,7 +8354,6 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
-        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -8306,7 +8450,6 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
-        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -8334,23 +8477,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Saturn Devouring His Son — Francisco Goya"
-          },
-          "value" : "goya-saturn"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
           "value" : "velde-small-ship-storm"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
-          },
-          "value" : "bosch-garden-right"
         },
         {
           "title" : {
@@ -8365,20 +8494,6 @@
             "text" : "Witches' Flight — Francisco Goya"
           },
           "value" : "goya-witches-flight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
-          },
-          "value" : "bocklin-self-portrait-death"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medusa — Caravaggio"
-          },
-          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
@@ -8411,20 +8526,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "David with the Head of Goliath — Caravaggio"
-          },
-          "value" : "caravaggio-david-goliath"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
-          },
-          "value" : "van-gogh-skeleton-cigarette"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
           },
           "value" : "altdorfer-battle-of-issus"
@@ -8432,23 +8533,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
-          },
-          "value" : "gentileschi-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Madonna — Edvard Munch"
           },
           "value" : "munch-madonna"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Isle of the Dead — Arnold Böcklin"
-          },
-          "value" : "bocklin-isle-of-the-dead"
         },
         {
           "title" : {
@@ -8463,13 +8550,6 @@
             "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
           },
           "value" : "friedrich-forest-moonlight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Witches' Sabbath — Francisco Goya"
-          },
-          "value" : "goya-witches-sabbath"
         },
         {
           "title" : {
@@ -8495,20 +8575,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Nightmare (1791) — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare-2"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
-          },
-          "value" : "hiremy-hirschl-souls-of-acheron"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Scream — Edvard Munch"
           },
           "value" : "munch-scream"
@@ -8516,44 +8582,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith I — Gustav Klimt"
-          },
-          "value" : "klimt-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
-          },
-          "value" : "repin-ivan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ophelia — John Everett Millais"
-          },
-          "value" : "millais-ophelia"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
           },
           "value" : "bruegel-fall-rebel-angels"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Nightmare — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Death as General — Edgar Bundy"
-          },
-          "value" : "bundy-death-general"
         },
         {
           "title" : {
@@ -8568,13 +8599,6 @@
             "text" : "Markos Botsaris — Jean-Léon Gérôme"
           },
           "value" : "gerome-botsaris"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Knight, Death and the Devil — Albrecht Dürer"
-          },
-          "value" : "durer-knight-death-devil"
         },
         {
           "title" : {
@@ -8600,20 +8624,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and Life — Gustav Klimt"
-          },
-          "value" : "klimt-death-and-life"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medicine — Gustav Klimt"
-          },
-          "value" : "klimt-medicine"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
           },
           "value" : "bosch-garden-central"
@@ -8631,13 +8641,6 @@
             "text" : "The Wounded Eagle — Rosa Bonheur"
           },
           "value" : "bonheur-wounded-eagle"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Pollice Verso — Jean-Léon Gérôme"
-          },
-          "value" : "gerome-pollice-verso"
         },
         {
           "title" : {
@@ -8670,13 +8673,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
-          },
-          "value" : "bruegel-triumph-death"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Vertigo — Léon Spilliaert"
           },
           "value" : "spilliaert-vertigo"
@@ -8691,30 +8687,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and the Maiden — Egon Schiele"
-          },
-          "value" : "schiele-death-and-the-maiden"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
           },
           "value" : "aivazovsky-ship-stormy-seas"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apotheosis of War — Vasily Vereshchagin"
-          },
-          "value" : "vereshchagin-apotheosis-war"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Skeleton Painter — James Ensor"
-          },
-          "value" : "ensor-skeleton-painter"
         },
         {
           "title" : {
@@ -8736,20 +8711,6 @@
             "text" : "View of Toledo — El Greco"
           },
           "value" : "el-greco-view-of-toledo"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Raft of the Medusa — Théodore Géricault"
-          },
-          "value" : "gericault-raft-of-the-medusa"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apparition — Gustave Moreau"
-          },
-          "value" : "moreau-apparition"
         },
         {
           "title" : {
@@ -8813,13 +8774,6 @@
             "text" : "The Lady of Shalott — John William Waterhouse"
           },
           "value" : "waterhouse-lady-shalott"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Lament for Icarus — Herbert James Draper"
-          },
-          "value" : "draper-lament-icarus"
         },
         {
           "title" : {
@@ -9492,13 +9446,6 @@
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Deluge — Gustave Doré"
-          },
-          "value" : "dore-flood"
         },
         {
           "title" : {
@@ -9594,66 +9541,40 @@
         "daily",
         "desktop",
         "david-death-of-marat",
-        "goya-saturn",
         "velde-small-ship-storm",
-        "bosch-garden-right",
         "bosch-ascent-blessed",
         "goya-witches-flight",
-        "bocklin-self-portrait-death",
-        "caravaggio-medusa",
         "martin-pandemonium",
         "moran-burning-philadelphia",
         "goya-burial-sardine",
         "arbo-wild-hunt",
-        "caravaggio-david-goliath",
-        "van-gogh-skeleton-cigarette",
         "altdorfer-battle-of-issus",
-        "gentileschi-judith",
         "munch-madonna",
-        "bocklin-isle-of-the-dead",
         "klee-fish-magic",
         "friedrich-forest-moonlight",
-        "goya-witches-sabbath",
         "bosch-garden-left",
         "rembrandt-storm-galilee",
         "cole-voyage-manhood",
-        "fuseli-nightmare-2",
-        "hiremy-hirschl-souls-of-acheron",
         "munch-scream",
-        "klimt-judith",
-        "repin-ivan",
-        "millais-ophelia",
         "bruegel-fall-rebel-angels",
-        "fuseli-nightmare",
-        "bundy-death-general",
         "wright-vesuvius",
         "gerome-botsaris",
-        "durer-knight-death-devil",
         "martin-joshua",
         "velde-gale",
         "hogai-nio",
-        "klimt-death-and-life",
-        "klimt-medicine",
         "bosch-garden-central",
         "martin-great-day-wrath",
         "bonheur-wounded-eagle",
-        "gerome-pollice-verso",
         "cole-voyage-old-age",
         "friedrich-abbey-oakwood",
         "goya-sleep-of-reason",
         "bosch-garden-fragment",
-        "bruegel-triumph-death",
         "spilliaert-vertigo",
         "rothaug-melpomene",
-        "schiele-death-and-the-maiden",
         "aivazovsky-ship-stormy-seas",
-        "vereshchagin-apotheosis-war",
-        "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
         "el-greco-view-of-toledo",
-        "gericault-raft-of-the-medusa",
-        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -9663,7 +9584,6 @@
         "rembrandt-night-watch",
         "vigee-lebrun-madame-grand",
         "waterhouse-lady-shalott",
-        "draper-lament-icarus",
         "fragonard-swing",
         "rubens-st-francis-xavier",
         "vermeer-pearl-earring",
@@ -9760,7 +9680,6 @@
         "hokusai-umezawa",
         "whistler-falling-rocket",
         "dore-fall-of-satan",
-        "dore-flood",
         "dore-wolves-sheep",
         "dore-leviathan",
         "dore-paradise-lost-book-vi",
@@ -9798,23 +9717,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Saturn Devouring His Son — Francisco Goya"
-          },
-          "value" : "goya-saturn"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "A Small Dutch Ship Riding Out a Storm — Willem van de Velde the Younger"
           },
           "value" : "velde-small-ship-storm"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Garden of Earthly Delights: Hell — Hieronymus Bosch"
-          },
-          "value" : "bosch-garden-right"
         },
         {
           "title" : {
@@ -9829,20 +9734,6 @@
             "text" : "Witches' Flight — Francisco Goya"
           },
           "value" : "goya-witches-flight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Self-Portrait with Death Playing the Fiddle — Arnold Böcklin"
-          },
-          "value" : "bocklin-self-portrait-death"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medusa — Caravaggio"
-          },
-          "value" : "caravaggio-medusa"
         },
         {
           "title" : {
@@ -9875,20 +9766,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "David with the Head of Goliath — Caravaggio"
-          },
-          "value" : "caravaggio-david-goliath"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Skeleton with a Burning Cigarette — Vincent van Gogh"
-          },
-          "value" : "van-gogh-skeleton-cigarette"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Battle of Alexander at Issus — Albrecht Altdorfer"
           },
           "value" : "altdorfer-battle-of-issus"
@@ -9896,23 +9773,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith Slaying Holofernes — Artemisia Gentileschi"
-          },
-          "value" : "gentileschi-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Madonna — Edvard Munch"
           },
           "value" : "munch-madonna"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Isle of the Dead — Arnold Böcklin"
-          },
-          "value" : "bocklin-isle-of-the-dead"
         },
         {
           "title" : {
@@ -9927,13 +9790,6 @@
             "text" : "Forest Interior by Moonlight — Caspar David Friedrich"
           },
           "value" : "friedrich-forest-moonlight"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Witches' Sabbath — Francisco Goya"
-          },
-          "value" : "goya-witches-sabbath"
         },
         {
           "title" : {
@@ -9959,20 +9815,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Nightmare (1791) — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare-2"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Souls of Acheron — Adolf Hirémy-Hirschl"
-          },
-          "value" : "hiremy-hirschl-souls-of-acheron"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Scream — Edvard Munch"
           },
           "value" : "munch-scream"
@@ -9980,44 +9822,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Judith I — Gustav Klimt"
-          },
-          "value" : "klimt-judith"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ivan the Terrible and His Son Ivan — Ilya Repin"
-          },
-          "value" : "repin-ivan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Ophelia — John Everett Millais"
-          },
-          "value" : "millais-ophelia"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Fall of the Rebel Angels — Pieter Bruegel the Elder"
           },
           "value" : "bruegel-fall-rebel-angels"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Nightmare — Henry Fuseli"
-          },
-          "value" : "fuseli-nightmare"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Death as General — Edgar Bundy"
-          },
-          "value" : "bundy-death-general"
         },
         {
           "title" : {
@@ -10032,13 +9839,6 @@
             "text" : "Markos Botsaris — Jean-Léon Gérôme"
           },
           "value" : "gerome-botsaris"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Knight, Death and the Devil — Albrecht Dürer"
-          },
-          "value" : "durer-knight-death-devil"
         },
         {
           "title" : {
@@ -10064,20 +9864,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and Life — Gustav Klimt"
-          },
-          "value" : "klimt-death-and-life"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Medicine — Gustav Klimt"
-          },
-          "value" : "klimt-medicine"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "The Garden of Earthly Delights — Hieronymus Bosch"
           },
           "value" : "bosch-garden-central"
@@ -10095,13 +9881,6 @@
             "text" : "The Wounded Eagle — Rosa Bonheur"
           },
           "value" : "bonheur-wounded-eagle"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "Pollice Verso — Jean-Léon Gérôme"
-          },
-          "value" : "gerome-pollice-verso"
         },
         {
           "title" : {
@@ -10134,13 +9913,6 @@
         {
           "title" : {
             "key" : null,
-            "text" : "The Triumph of Death — Pieter Bruegel the Elder"
-          },
-          "value" : "bruegel-triumph-death"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Vertigo — Léon Spilliaert"
           },
           "value" : "spilliaert-vertigo"
@@ -10155,30 +9927,9 @@
         {
           "title" : {
             "key" : null,
-            "text" : "Death and the Maiden — Egon Schiele"
-          },
-          "value" : "schiele-death-and-the-maiden"
-        },
-        {
-          "title" : {
-            "key" : null,
             "text" : "Ship on Stormy Seas — Ivan Aivazovsky"
           },
           "value" : "aivazovsky-ship-stormy-seas"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apotheosis of War — Vasily Vereshchagin"
-          },
-          "value" : "vereshchagin-apotheosis-war"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Skeleton Painter — James Ensor"
-          },
-          "value" : "ensor-skeleton-painter"
         },
         {
           "title" : {
@@ -10200,20 +9951,6 @@
             "text" : "View of Toledo — El Greco"
           },
           "value" : "el-greco-view-of-toledo"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Raft of the Medusa — Théodore Géricault"
-          },
-          "value" : "gericault-raft-of-the-medusa"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Apparition — Gustave Moreau"
-          },
-          "value" : "moreau-apparition"
         },
         {
           "title" : {
@@ -10277,13 +10014,6 @@
             "text" : "The Lady of Shalott — John William Waterhouse"
           },
           "value" : "waterhouse-lady-shalott"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Lament for Icarus — Herbert James Draper"
-          },
-          "value" : "draper-lament-icarus"
         },
         {
           "title" : {
@@ -10956,13 +10686,6 @@
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
-        },
-        {
-          "title" : {
-            "key" : null,
-            "text" : "The Deluge — Gustave Doré"
-          },
-          "value" : "dore-flood"
         },
         {
           "title" : {

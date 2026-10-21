@@ -58,8 +58,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onPickAttachments: () -> Void = {}
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
-    /// While dragging, types only.
+    /// Whether a paste would be taken, types only.
     var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
+    /// A drop on the field; true when taken. Nil takes it as a paste.
+    var onAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// While dragging over the field, types only. Nil answers as for a paste.
+    var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// The field became or stopped being the target of a drag the host takes.
+    var onAttachmentDropTarget: (Bool) -> Void = { _ in }
     /// The store refused a send's attachment before logging it; the draft is back.
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
@@ -311,6 +317,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var initialsOverride: String? { didSet { applyHeader() } }
     /// A chosen avatar picture (the Home Chief's), over the initials.
     var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
+
+    /// Chosen sender avatars by participant id (each Chief's, as Home's row draws it), beside a
+    /// group's bubbles over the initials; a new value redraws those bubbles.
+    var senderAvatars: [String: Participant.Avatar] {
+        get { core.avatars }
+        set {
+            guard !stopped, let action = core.setAvatars(newValue) else { return }
+            controller.dispatch(action)
+        }
+    }
 
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
@@ -594,6 +610,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
     func statusLineClicked(_ rect: CGRect, in view: NSView) {
         let popover = turnPopover ?? {
             let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
@@ -782,6 +801,9 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
+    /// Chosen sender avatars by participant id (`setAvatars`).
+    private(set) var avatars: [String: Participant.Avatar] = [:]
+    private var installed = false
     /// The running replies on screen, in begin order (`streams(_:state:)`, MessagesLab ask 11).
     var shownStreams: [ShownStream] = []
     /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
@@ -797,12 +819,22 @@ struct ProjectionCore {
         shown = items
         shownStreams = [] // a new projection store has no stream: the next update begins them again
         self.summary = summary
+        installed = true
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
-                                participants: HomeMapping.participants(summary, me: me),
+                                participants: HomeMapping.participants(summary, me: me, avatars: avatars),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
                                 cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
+    }
+
+    /// New chosen avatars by participant id (the host's Chief avatars, again after a swap): the
+    /// action that redraws the senders with them; nil when they are the ones shown, or before the
+    /// install (which maps them).
+    mutating func setAvatars(_ new: [String: Participant.Avatar]) -> Action? {
+        guard new != avatars else { return nil }
+        avatars = new
+        return installed ? .cmuxSetParticipants(HomeMapping.participants(summary, me: me, avatars: new)) : nil
     }
 
     /// The actions from the shown snapshot to this one.

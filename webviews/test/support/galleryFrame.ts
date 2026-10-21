@@ -53,6 +53,55 @@ export function galleryFrame(entry: string, params: Params = {}): string {
   return `/gallery/frame.html?${query}`;
 }
 
+const reloadCounts = new WeakMap<ViteDevServer, { sent: number }>();
+
+/**
+ * How many full-page reloads `server` has sent since its first warm-up (none for a server given by
+ * URL). The count wraps the client's hot channel once per server, so warm-ups that overlap share it.
+ */
+function reloadsSent(server: ViteDevServer | string): number {
+  if (typeof server === "string") return 0;
+  let count = reloadCounts.get(server);
+  if (!count) {
+    const counted = { sent: 0 };
+    count = counted;
+    reloadCounts.set(server, counted);
+    const hot = server.environments.client.hot;
+    const send = hot.send;
+    hot.send = ((...args: Parameters<typeof send>) => {
+      if ((args[0] as { type?: string } | undefined)?.type === "full-reload") counted.sent += 1;
+      return (send as (...args: unknown[]) => void).apply(hot, args);
+    }) as typeof send;
+  }
+  return count.sent;
+}
+
+/**
+ * Waits until the dependency optimizer of `server` has bundled every dependency the loads so far
+ * discovered. The optimizer bundles them once the requests go idle and, when the bundle changes,
+ * reloads every page a few microtasks after it commits: the extra turn lets that reload be counted.
+ */
+async function optimizerSettled(server: ViteDevServer, left: () => number): Promise<void> {
+  const client = server.environments.client;
+  for (;;) {
+    await client.waitForRequestsIdle();
+    const pending = Object.values(client.depsOptimizer?.metadata.discovered ?? {})
+      .map((dep) => dep.processing)
+      .filter((processing): processing is Promise<void> => processing !== undefined);
+    if (pending.length === 0) break;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("the dependency optimizer did not settle")), left());
+    });
+    try {
+      await Promise.race([Promise.all(pending), timedOut]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
 /**
  * Warms the dev server for these entries by loading each one's frame once (with `params`, such as
  * a variant), in `browser` or a headless Chromium of its own, before a test measures it. A stage
@@ -60,6 +109,10 @@ export function galleryFrame(entry: string, params: Params = {}): string {
  * imports the page never makes: frame/pages.ts names every page host, the editor's Monaco among
  * them. For the composer that crawl took 25 s and 1,227 modules where this load took 20 s and 685
  * (Huge Blue, a cold server). Returns how many requests the loads made.
+ *
+ * Given the server itself, it returns only once a load ended with the optimizer settled and no
+ * reload sent: a reload that came after would land on the test's page once the test had set it up
+ * (new-tab-list-motion lost its rows that way, 2026-10-21).
  */
 export async function warmGalleryFrame(
   server: ViteDevServer | string,
@@ -83,6 +136,7 @@ export async function warmGalleryFrame(
         // Vite's dependency optimizer can reload the page while it bundles a new dependency, during
         // the navigation or after it; each reload starts the load again, within the same budget.
         for (;;) {
+          const sent = reloadsSent(server);
           try {
             await page.goto(`${base}${galleryFrame(entry, params)}`, { waitUntil: "commit", timeout: left() });
             await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
@@ -92,7 +146,9 @@ export async function warmGalleryFrame(
               document.documentElement.dataset.galleryReady,
               document.body.textContent,
             ]);
-            break;
+            if (typeof server !== "string" && ready !== "error") await optimizerSettled(server, left);
+            // A reload since this load began: load again, as for a reload during the load.
+            if (reloadsSent(server) === sent) break;
           } catch (error) {
             if (Date.now() >= deadline || !reloaded(error))
               throw new Error(`warmGalleryFrame: ${entry}: ${String(error)}`, { cause: error });

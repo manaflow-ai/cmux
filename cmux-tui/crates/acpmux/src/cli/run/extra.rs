@@ -386,6 +386,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
+                    let url = url.unwrap_or_else(|| format!("ssh://{name}"));
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -402,8 +403,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Setup { host, name, port } => {
                     return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
                 }
-                PeerCmd::Update { name, all } => {
-                    return crate::cli::hosts::update(client, name, all, json_out).await;
+                PeerCmd::Update { name, all, binary_dir, if_idle } => {
+                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle };
+                    return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
                     let plan = crate::cli::host_enroll::Plan {
@@ -434,6 +436,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Candidates { probe } => {
                     return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
+                PeerCmd::Ticket(cmd) => {
+                    return crate::cli::pairing::ticket(client, cmd, json_out).await;
+                }
+                PeerCmd::Join { ticket, name, peer_name, advertise } => {
+                    let args = crate::cli::pairing::JoinArgs { ticket, name, peer_name, advertise };
+                    return crate::cli::pairing::join(client, args, json_out).await;
+                }
             };
             if json_out {
                 print_json(&v);
@@ -441,14 +450,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux peer add sandbox-a ws://host:47811 --token T)");
+                println!("no peers (add one: acpmux host add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}",
+                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
@@ -462,6 +471,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     p.get("error")
                         .and_then(Value::as_str)
                         .map(|e| format!("  ({e})"))
+                        .unwrap_or_default(),
+                    // A user or port: another account's or another daemon on that machine.
+                    p.get("canonicalEndpoint")
+                        .and_then(Value::as_str)
+                        .map(|c| format!("  (not the canonical endpoint {c})"))
                         .unwrap_or_default(),
                 );
             }

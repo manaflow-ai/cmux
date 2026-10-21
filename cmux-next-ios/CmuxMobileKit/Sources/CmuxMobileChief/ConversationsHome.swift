@@ -93,7 +93,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     private func conversation(_ tab: WorkspaceTab, in workspace: Workspace) -> AgentConversation {
-        let chat = AgentSessionDirectory.shared.existingStore(id: tab.id)
+        let chat = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)
         let lastTurn = chat?.turns.last
         let answer: String? = lastTurn.map { $0.lastAnswerMarkdown ?? $0.prompt }
         let agentTabs = workspace.tabs.filter { $0.kind == .agent }
