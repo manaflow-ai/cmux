@@ -70,7 +70,9 @@ const turns = Array.from({ length: TURNS }, (_, index) => [
   { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ]).flat();
 
-test("the minimap's turn preview waits the hover delay, then follows the pointer at once until the rail cools", async () => {
+// The minimap's turn preview waits Codex's 250 ms rather than the app's 450 (Leo, 2026-10-19: the
+// rail should feel like Codex's); under 200 ms is still a pass-over.
+test("the minimap's turn preview waits its delay, then follows the pointer at once until the rail cools", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   try {
     await act(async () =>
@@ -80,17 +82,27 @@ test("the minimap's turn preview waits the hover delay, then follows the pointer
     );
     const rail = dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__rail")!;
     expect(rail).not.toBeNull();
-    const pitch = Number.parseFloat(rail.style.height) / TURNS;
-    const popover = () => dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__popover");
+    const tick = (index: number) => dom.window.document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")[index]!;
+    const popover = () => dom.window.document.querySelector<HTMLElement>(".acpmux-minimap__card");
     const visible = () => popover() !== null && !popover()!.hidden;
+    // The rail's rows take the pointer (their pointerenter and pointerleave, which React draws
+    // from pointerover and pointerout): onto the rail from outside, then from row to row.
+    let under: number | undefined;
+    const pointer = (type: string, target: Element, relatedTarget: Element | null) =>
+      target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, relatedTarget }));
     const move = (index: number) =>
       act(async () => {
-        rail.dispatchEvent(new dom.window.MouseEvent("pointermove", { bubbles: true, clientY: pitch * index + 1 }));
+        if (under === undefined) pointer("pointerover", tick(index), dom.window.document.body);
+        else if (under !== index) {
+          pointer("pointerout", tick(under), tick(index));
+          pointer("pointerover", tick(index), tick(under));
+        }
+        under = index;
       });
     const leave = () =>
       act(async () => {
-        rail.dispatchEvent(new dom.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: null }));
-        rail.dispatchEvent(new dom.window.MouseEvent("pointerleave", { bubbles: false, relatedTarget: null }));
+        if (under !== undefined) pointer("pointerout", tick(under), null);
+        under = undefined;
       });
 
     await move(2);

@@ -22,11 +22,16 @@ import Foundation
 /// - anything MessagesLab has no action for (a removed message, content that
 ///   changed in place, a bulk refetch): `rebuild`, the whole window without
 ///   animation, keeping the scroll position.
+/// - a new message that sorts before a row the projection already shows (the
+///   owner committed it before my pending send, or a posted reply that is not
+///   the newest row): the reducer only appends, so this is a `rebuild` in the
+///   store's order (plans/cmux-next/home-chat-pipeline-DESIGN.md, B1 and B2).
+///   The projection never shows an order the store does not have.
 struct HomeDiff: Equatable {
     var actions: [Action] = []
     var rebuild = false
-    /// Where the running reply's posted message goes among `actions` (the stream's
-    /// `.streamEnd(replacedBy:)` is dispatched there, in transcript order).
+    /// Where the running replies' posted messages go among `actions` (their streams'
+    /// `.streamEnd(replacedBy:)` are dispatched there, in transcript order).
     var handOffAt: Int?
 
     static func == (a: HomeDiff, b: HomeDiff) -> Bool {
@@ -40,7 +45,7 @@ struct HomeDiff: Equatable {
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
                      media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil },
-                     handOff: IdempotencyKey? = nil) -> HomeDiff {
+                     handOff: Set<IdempotencyKey> = []) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
@@ -58,6 +63,11 @@ struct HomeDiff: Equatable {
 
         let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
         if added.count > bulk { d.rebuild = true; return d }
+        // The order the projection will have after these actions: the page, the rows it shows, my
+        // sends flying in it (appended at the press), then each `.receive` appended in turn, with the
+        // posted replies of running streams all where the first of them is (`handOffAt`). Any other
+        // order than the store's is a rebuild.
+        if !orderHolds(old: old, new: new, head: head, aliases: aliases, handOff: handOff) { d.rebuild = true; return d }
 
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
@@ -71,15 +81,43 @@ struct HomeDiff: Equatable {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
+                // Reply to Selection: the flying bubble has the quote's text; the stored reply adds its style.
+                if item.parts.contains(where: { if case let .text(t, _) = $0 { return ReplyQuote.split(t) != nil } else { return false } }) {
+                    d.actions.append(.cmuxSetParts(id(item), msg(item).parts))
+                }
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
-            } else if item.key != handOff {
+            } else if !handOff.contains(item.key) {
                 d.actions.append(.receive(msg(item)))
-            } else {
-                d.handOffAt = d.actions.count // the running reply's stream takes it in place (ProjectionCore.stream)
+            } else if d.handOffAt == nil {
+                d.handOffAt = d.actions.count // the running replies' streams take them in place (ProjectionCore.streams)
             }
         }
         d.keepNewestStatus()
         return d
+    }
+
+    /// True when appending the new rows (`.receive`, the streams' hand-offs) leaves the projection in `new`'s order.
+    private static func orderHolds(old: [TranscriptItem], new: [TranscriptItem], head: Int,
+                                   aliases: [IdempotencyKey: ID], handOff: Set<IdempotencyKey>) -> Bool {
+        let shownKeys = Set(old.map(\.key))
+        var projected = new.prefix(head).filter { !shownKeys.contains($0.key) && aliases[$0.key] == nil }.map(\.key)
+        projected += old.map(\.key)
+        // My sends that fly in the projection but were not in the last snapshot: after it, in the order I made them.
+        projected += new.filter { !shownKeys.contains($0.key) && aliases[$0.key] != nil }.map(\.key)
+        var handOffs: [IdempotencyKey] = []
+        var appended: [IdempotencyKey] = []
+        var handOffAt: Int?
+        for item in new.dropFirst(head) where !shownKeys.contains(item.key) && aliases[item.key] == nil {
+            if handOff.contains(item.key) {
+                if handOffAt == nil { handOffAt = appended.count }
+                handOffs.append(item.key)
+            } else {
+                appended.append(item.key)
+            }
+        }
+        if let handOffAt { appended.insert(contentsOf: handOffs, at: handOffAt) }
+        projected += appended
+        return projected == new.map(\.key)
     }
 
     /// One read cursor moves every older message of mine to read at once;

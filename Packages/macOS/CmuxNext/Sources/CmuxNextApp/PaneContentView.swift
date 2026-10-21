@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextTabs
@@ -17,6 +18,12 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
+    /// The pane's own scope, under its workspace's: it pins nothing unless the pane has its own
+    /// background (`PaneContentView+Backdrop`), so its strip and content inherit as before.
+    let paneScope = ThemeScope(level: .workspace)
+    /// The pane's own background and tint (`PaneContentView+Backdrop`).
+    let backdropState = PaneBackdropState()
+    private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
@@ -82,6 +89,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
         addSubview(stripView)
+        paneScope.root(self)
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
         reveal.hold(contentHost, until: .pane)
@@ -92,6 +100,9 @@ final class PaneContentView: NSView, PaneContentChrome {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
+        }
+        paneBackgroundsObservation = Task { [weak self] in
+            for await _ in ObservationStream({ DesignSettings.shared.paneBackgrounds }) { self?.paintPaneBackdrop() }
         }
         placementObservation = Task { [weak self] in
             for await (position, order) in ObservationStream({ (DesignSettings.shared.tabBarPosition, DesignSettings.shared.tabBarOrder) }) {
@@ -110,6 +121,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         MainActor.assumeIsolated {
             tokenObservation?.cancel()
             placementObservation?.cancel()
+            paneBackgroundsObservation?.cancel()
             agentTagObservation?.cancel()
         }
     }
@@ -126,8 +138,8 @@ final class PaneContentView: NSView, PaneContentChrome {
         let shown = shownStripHeight
         stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
-        let tools = toolbarWidth(shown: shown), rowContent = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
-        let rowTools = rowContent?.tabRowWidth(room: bounds.width - tools) ?? 0 // a chat's tools in the row (PaneTabRowSharing)
+        let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
+        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -303,11 +315,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         super.viewDidMoveToWindow()
         // The pins need both views in one window (v4 note 1).
         updateBand()
+        reparentRootedThemeScope()
         stripView.reparentRootedThemeScope()
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        reparentRootedThemeScope()
         stripView.reparentRootedThemeScope()
     }
 
@@ -329,6 +343,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // The strip: clear, or the user's tab bar background (R55).
         stripView.wantsLayer = true
         stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
+        paintPaneBackdrop()
     }
 }
 

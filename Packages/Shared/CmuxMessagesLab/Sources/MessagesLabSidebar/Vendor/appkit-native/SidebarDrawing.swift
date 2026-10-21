@@ -405,7 +405,8 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
-        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: m.compact ? SidebarMetrics.pinTopPad / 2 : SidebarMetrics.pinTopPad, width: d, height: d)
+        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // compact: centered like a row's avatar
+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
     }
 
     /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
@@ -488,6 +489,11 @@ enum SidebarDraw {
     /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
     /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
     static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
+        if m.compact { // cmux: the compact list's tile dot sits where a row's dot sits (tile coordinates)
+            let d = SidebarMetrics.dotDiameter
+            let x0 = m.tileRect(0).minX
+            return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
+        }
         let d: CGFloat = 12
         let ar = tileAvatar(m)
         let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)

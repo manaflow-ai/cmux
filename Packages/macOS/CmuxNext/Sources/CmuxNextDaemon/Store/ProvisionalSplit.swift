@@ -30,6 +30,8 @@ import Foundation
         switch intent.kind {
         case .splitPane(_, _, _, let provisional):
             return !daemonPlaces(provisional, in: store)
+        case .closeTabs(let surfaces):
+            return TabCloseOverlay(store: store).daemonHolds(surfaces)
         case .createWorkspace(let provisional, _):
             // Cmd-N's workspace settles only once the daemon's workspace holds a tab: before
             // that, undoing the overlay would show the window an empty workspace for a turn.

@@ -2,12 +2,14 @@
 // footer), and effort is a chip of its own (Leo 2026-10-15: "move it back out"). A narrower
 // composer swaps whole units, never letters, and shortens labels before it drops a control
 // (cg-ui-coord 2026-10-15: "collapse faster and keep more visible"):
-//   - always: +, the model, effort, the access glyph, Send and every chevron; no label under 3
+//   - always: +, the model, effort, the access glyph, Send (with a draft typed) and every chevron; no label under 3
 //     characters; no two controls overlap;
 //   - first effort shows the level's short name ("Med"), then the model its family ("Opus"), then
 //     its harness mark alone (its name in its tooltip);
-//   - only then the access label goes; the speed bolt (Fast on) leaves with the model's name, and
-//     the mic last.
+//   - only then the access label goes; the speed bolt (Fast on) leaves with the model's name; the
+//     mic never leaves (Leo 2026-10-19: the prompt shrinks instead).
+// The controls sit in two rows (Leo 2026-10-19, as Claude Code's): +, the mic and Send in the box,
+// the model, effort, access and bolt in the quiet row under it. Both rows are measured.
 // At every width each label is whole, never clipped or ellipsized, and the row stays in the bar.
 //
 // The gallery's `agent-pane.composer-row` entry (`leo-report`) is the real pane in Chromium.
@@ -31,13 +33,15 @@ type Measured = { controls: Record<string, Control | undefined>; overflow: strin
 await requireBrowserLane("composer-row-steps.test.ts", async () => {
   /** Runs in the page. */
   function measure(): Measured {
-    const bar = document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
+    const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-composer .acpmux-composer-bar")];
+    const find = (selector: string) =>
+      bars.map((bar) => bar.querySelector<HTMLElement>(selector)).find((button) => button) ?? null;
     const shown = (element: Element) =>
       element.getClientRects().length > 0 &&
       getComputedStyle(element).visibility === "visible" &&
       Number(getComputedStyle(element).opacity) > 0;
     const control = (selector: string): Control | undefined => {
-      const button = bar.querySelector<HTMLElement>(selector);
+      const button = find(selector);
       if (!button || !shown(button) || button.getBoundingClientRect().width < 1) return undefined;
       const box = button.getBoundingClientRect();
       const found: [string, Element][] = [];
@@ -66,11 +70,16 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
       return { labels, clipped, chevron, title: button.title, rect: { left, right, top, bottom } };
     };
     const overflow: string[] = [];
-    if (bar.scrollWidth > bar.clientWidth + 0.5)
-      overflow.push(`the bar scrolls ${bar.scrollWidth - bar.clientWidth} px`);
-    const right = bar.getBoundingClientRect().right - parseFloat(getComputedStyle(bar).paddingRight);
-    const send = bar.querySelector(".acpmux-send")?.getBoundingClientRect();
-    if (send && send.right > right + 0.5) overflow.push("Send runs past the bar");
+    for (const bar of bars) {
+      if (bar.scrollWidth > bar.clientWidth + 0.5)
+        overflow.push(`the bar scrolls ${bar.scrollWidth - bar.clientWidth} px`);
+      // A bar that draws no box (display: contents, the Claude desktop box) lays its controls in
+      // the box's own grid: Send keeps inside the box's padding box then.
+      const frame = getComputedStyle(bar).display === "contents" ? bar.closest(".acpmux-composer-box")! : bar;
+      const right = frame.getBoundingClientRect().right - parseFloat(getComputedStyle(frame).paddingRight);
+      const send = bar.querySelector(".acpmux-send")?.getBoundingClientRect();
+      if (send && send.right > right + 0.5) overflow.push("Send runs past the bar");
+    }
     return {
       controls: {
         plus: control(".acpmux-composer-plus .acpmux-picker-button"),
@@ -87,7 +96,7 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
 
   /** What each pane width shows (the composer is the pane less 36 px): the model chip's labels,
    *  effort's (Fast is the bolt's, #20964, never the chip's), the access label, the speed bolt, the
-   *  mic. */
+   *  mic (always). */
   const EXPECTED: Record<number, { model: string; effort: string; access: string; bolt: boolean; mic: boolean }> = {
     760: { model: "Opus 5.5", effort: "Medium", access: "Auto", bolt: true, mic: true },
     520: { model: "Opus 5.5", effort: "Medium", access: "Auto", bolt: true, mic: true },
@@ -95,9 +104,9 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     460: { model: "Opus", effort: "Med", access: "Auto", bolt: true, mic: true },
     440: { model: "Opus", effort: "Med", access: "", bolt: true, mic: true },
     400: { model: "", effort: "Med", access: "", bolt: false, mic: true },
-    360: { model: "", effort: "Med", access: "", bolt: false, mic: false },
-    300: { model: "", effort: "Med", access: "", bolt: false, mic: false },
-    280: { model: "", effort: "Med", access: "", bolt: false, mic: false },
+    360: { model: "", effort: "Med", access: "", bolt: false, mic: true },
+    300: { model: "", effort: "Med", access: "", bolt: false, mic: true },
+    280: { model: "", effort: "Med", access: "", bolt: false, mic: true },
   };
 
   setDefaultTimeout(180_000);
@@ -148,6 +157,11 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-picker-button").waitFor();
     await page.evaluate(() => document.fonts.ready);
+    // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20). A typed prompt brings
+    // Send in, so the row is measured with every control it can hold.
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.keyboard.type("Retry");
+    await page.locator(".acpmux-composer-actions .acpmux-send").waitFor();
     // Two frames: the row's fit runs on layout and on its resize observer.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
     const measured = await page.evaluate(measure);

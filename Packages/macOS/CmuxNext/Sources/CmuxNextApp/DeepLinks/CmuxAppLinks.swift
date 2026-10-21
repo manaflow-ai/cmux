@@ -25,8 +25,8 @@ enum CmuxAppLinks {
     }
 
     /// A path link (`file:///…`: Home's form of a path an agent wrote): a file opens in the
-    /// file pages (``ViewerService/openFile(_:in:markdown:)``, which shows why it cannot), a
-    /// folder in a new terminal tab started there. Never handed to the system. The disk check
+    /// file pages, a folder in a terminal started there, both beside the focused pane
+    /// (``LinkOpener``, which shows why a file cannot open). Never handed to the system. The disk check
     /// runs off the main thread, after the click returns. False for a URL that is no
     /// absolute file path.
     @MainActor
@@ -40,25 +40,16 @@ enum CmuxAppLinks {
                 return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
             }.value
             guard let services else { return }
-            let pane = pathPane(services)
-            if isDirectory, let pane {
-                pane.newTerminalTab(cwd: path)
+            // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
+            // takes no tabs, gets the pane on its right or a new split.
+            let source = services.windows.active?.focusedPane
+            if isDirectory {
+                services.linkOpener.openFolder(path, from: source)
             } else {
-                services.viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: false)
+                services.linkOpener.openFile(URL(fileURLWithPath: path), from: source)
             }
         }
         return true
-    }
-
-    /// Where a path link opens: the focused pane, or, when that pane takes no new tabs (the
-    /// pinned Home column), the pane on its right.
-    @MainActor
-    private static func pathPane(_ services: AppServices) -> PaneController? {
-        guard let pane = services.windows.active?.focusedPane else { return nil }
-        guard !pane.stripModel.showsNewTabButton, let content = pane.workspace,
-              let right = PaneHandlers.neighbor(of: pane.layoutPaneID, direction: .right, in: content),
-              let next = content.panes[right] else { return pane }
-        return next
     }
 
     /// The link `url` opens in this app, in the `cmux` scheme or `linkScheme` (this build's): a

@@ -119,9 +119,17 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
     /// Pinned (saved) group (`workspace-group-pin-v1`): kept as an empty
     /// saved group when its workspaces close.
     public var pinned: Bool
+    /// The group this one sits in, for a nested sidebar-document group (remote-groups-DESIGN.md R1);
+    /// nil at the top level and for every daemon (wire) group.
+    public var parent: WorkspaceGroupID?
+    /// Group levels above it: 0 at the top level.
+    public var depth = 0
 
     public init(id: WorkspaceGroupID, name: String, color: String? = nil, collapsed: Bool = false, index: Int = 0,
-                profile: ProfileID? = nil, topIndex: Int? = nil, icon: String? = nil, pinned: Bool = false) {
+                profile: ProfileID? = nil, topIndex: Int? = nil, icon: String? = nil, pinned: Bool = false,
+                parent: WorkspaceGroupID? = nil, depth: Int = 0) {
+        self.parent = parent
+        self.depth = depth
         self.id = id
         self.name = name
         self.color = color

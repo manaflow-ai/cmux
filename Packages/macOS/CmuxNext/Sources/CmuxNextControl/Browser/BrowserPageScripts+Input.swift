@@ -28,7 +28,9 @@ extension BrowserPageScripts {
     static func scroll(_ selector: String?, dx: Double, dy: Double) -> String {
         let by = "{ left: \(dx), top: \(dy), behavior: 'instant' }"
         guard let selector else {
-            return wrap("window.scrollBy(\(by)); return { value: { x: window.scrollX, y: window.scrollY } };")
+            // The viewport's middle: where the agent cursor shows a page scroll.
+            return wrap("window.scrollBy(\(by)); return { value: { x: window.scrollX, y: window.scrollY }, "
+                + "at: { x: window.innerWidth / 2, y: window.innerHeight / 2, w: 0, h: 0, secret: false } };")
         }
         return wrap(find(selector) + """
         if (typeof el.scrollBy === 'function') { el.scrollBy(\(by)); } else { el.scrollLeft += \(dx); el.scrollTop += \(dy); }

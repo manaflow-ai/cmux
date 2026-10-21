@@ -1,6 +1,5 @@
 // The thread minimap's model: one tick per user message at the transcript's left edge
-// (the Codex app's thread minimap). Pure functions, so geometry and previews test without a DOM.
-// Measurements are in the lane notes (.cmux-scratch/pane-protocol/thread-minimap/minimap-spec.md).
+// (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import type { AcpmuxRow } from "../model";
 
 export type ReplySpan = { text: string; bold: boolean };
@@ -19,43 +18,86 @@ export type MinimapTurn = {
   reply: ReplyBlock[];
 };
 
-/// Tick geometry (CSS px); the drawn sizes live in threadMinimap.css. The offsets are transforms.
-export const TICK_PITCH = 10;
-export const TICK_LEFT = 15.5;
-/// Where the popover's left edge sits: 35 px right of the ticks.
-export const POPOVER_LEFT = TICK_LEFT + 35;
-/// Fisheye widths by index distance from the hovered tick; farther ticks rest at the last.
-const TICK_WIDTHS = [26, 20, 14, 10, 6] as const;
-export const TICK_MAX_WIDTH = TICK_WIDTHS[0];
-export const TICK_REST_WIDTH = TICK_WIDTHS[TICK_WIDTHS.length - 1];
-/// The turn being read rests longer than the others (and in the accent, threadMinimap.css), so the
-/// reader sees where they are in the thread at a glance (cx-f7c).
-export const TICK_CURRENT_WIDTH = TICK_WIDTHS[2];
-/// Space kept free above and below the column and the popover.
+/// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
+/// rail (lane notes: minimap-ref/SPEC.md). CSS px and ms; the drawn sizes live in threadMinimap.css.
+/// The rail shows from this many prompts...
+export const MIN_PROMPTS = 4;
+/// ...and only when the transcript column starts this far right of the scroller's left edge.
+export const MIN_GUTTER = 48;
+/// The rail's left edge, in from the scroller's.
+export const RAIL_LEFT = 16;
+/// One row per prompt: a fixed 10 px pitch (not proportional to the thread), 36 px wide to hit.
+export const ROW_PITCH = 10;
+export const ROW_WIDTH = 36;
+/// The tick's line box; a tick draws `tickLength(progress)` of it from the left.
+export const TICK_BOX = 26;
+/// Rows past this many, or past 70% of the window's height, scroll inside the rail.
+export const RAIL_MAX_ROWS = 64;
+export const RAIL_MAX_SHARE = 0.7;
+/// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
+const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
+/// Space kept free above and below the card inside the transcript's viewport.
 export const EDGE_MARGIN = 8;
-/// Blocks of a reply the preview keeps (the popover clamps to three lines).
+/// A jump lands the prompt's bubble this far below the top of the transcript's viewport.
+export const LANDING_OFFSET = 35;
+/// The transcript thread's top padding (.acpmux-thread): row tops start this far down the scroller.
+export const THREAD_PADDING_TOP = 16;
+/// A click's smooth scroll (Codex's Chromium smooth scroll, fitted), and a Previous or Next Turn step's.
+export const JUMP_CURVE = [0.35, 0.05, 0, 1] as const;
+export const STEP_CURVE = [0.3, 0.2, 0, 1] as const;
+export const STEP_MS = 200;
+/// The preview card opens this long after the pointer reaches the rail (Codex's `delayOpen`, 250 ms).
+/// Shorter than the app's 450 ms hover delay (ui/hoverIntent.ts): the rail is a deliberate target,
+/// and the card is the point of hovering it. Once one shows, the next row's follows at once.
+export const CARD_DELAY = 250;
+/// When older turns load above the rail's rows and move them, the rail glides back over this long.
+export const SHIFT_MS = 200;
+/// A jump keeps correcting its landing for up to this many frames while the rows it crossed measure.
+export const SETTLE_FRAMES = 45;
+/// The landing highlight on the prompt's bubble.
+export const HIGHLIGHT_MS = 1400;
+export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
+/// Blocks of a reply the preview keeps (the card clamps to three lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;
 
-export function tickWidth(distance: number | undefined): number {
-  if (distance === undefined) return TICK_REST_WIDTH;
-  return TICK_WIDTHS[Math.min(Math.abs(distance), TICK_WIDTHS.length - 1)];
+/// How magnified a row is (0 to 1) at `distance` rows from the hovered one; undefined is no hover.
+export function tickProgress(distance: number | undefined): number {
+  if (distance === undefined) return 0;
+  return PROGRESS[Math.abs(distance)] ?? 0;
 }
 
-/// The first tick's center and the pitch, for `count` ticks centered in a viewport `height` tall.
-export function tickLayout(count: number, height: number): { first: number; pitch: number } {
-  if (count <= 1) return { first: height / 2, pitch: TICK_PITCH };
-  const room = Math.max(0, height - 2 * EDGE_MARGIN);
-  // Many turns share the column: the pitch tightens until the column fits the viewport.
-  const pitch = Math.min(TICK_PITCH, room / (count - 1));
-  return { first: (height - pitch * (count - 1)) / 2, pitch };
+/// The drawn length of a tick at `progress`: 6 px at rest, 26 px hovered.
+export const tickLength = (progress: number) => TICK_BOX * (0.2308 + 0.7692 * progress);
+
+/// The rail's height for `count` rows in a window `windowHeight` tall: every row up to 64 rows or
+/// 70% of the window, after which the rows scroll. It never outgrows the transcript it is centered
+/// on (`viewportHeight`, less EDGE_MARGIN at each end), so a short pane's rows all scroll into view.
+export function railHeight(count: number, windowHeight: number, viewportHeight = windowHeight): number {
+  return Math.max(
+    0,
+    Math.min(
+      count * ROW_PITCH,
+      RAIL_MAX_ROWS * ROW_PITCH,
+      Math.floor(windowHeight * RAIL_MAX_SHARE),
+      // A transcript not measured yet (0) does not cap it.
+      viewportHeight > 0 ? Math.floor(viewportHeight - 2 * EDGE_MARGIN) : Infinity,
+    ),
+  );
 }
 
-/// The popover's top for a tick centered at `center`: centered on it, kept inside the viewport.
-export function popoverOffset(center: number, popoverHeight: number, viewportHeight: number): number {
-  const top = center - popoverHeight / 2;
-  const max = viewportHeight - EDGE_MARGIN - popoverHeight;
+/// The card's top for a row centered at `center`: centered on it, kept inside the viewport.
+export function cardOffset(center: number, cardHeight: number, viewportHeight: number): number {
+  const top = center - cardHeight / 2;
+  const max = viewportHeight - EDGE_MARGIN - cardHeight;
   return Math.max(EDGE_MARGIN, Math.min(top, max));
+}
+
+/// How long a click's smooth scroll takes for `distance` px: about 200 ms for 150 px up to 400 ms
+/// for 650 px and more, as the recorded Chromium scrolls took.
+export function jumpDuration(distance: number): number {
+  const share = Math.min(1, Math.max(0, (Math.abs(distance) - 150) / 500));
+  return Math.round(200 + 200 * share);
 }
 
 /// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
@@ -141,7 +183,13 @@ export function currentTurn(
   return Math.max(0, low - 1);
 }
 
-/// The turns on screen, first to last: a turn runs from its prompt to the next prompt (or the end).
+/// The turns on screen, first to last, as the Codex rail's IntersectionObserver sees them. Codex
+/// observes each turn's block, which starts LANDING_OFFSET (35 px) above its prompt's bubble (a jump
+/// puts the block's top at the view's top and the bubble 35 px down), with a -16 px top margin. So a
+/// turn stops counting once the next prompt's bubble is within 35 + 16 px of the top: a prompt just
+/// jumped to is the first lit turn, not the one above it. A bubble draws THREAD_PADDING_TOP below its
+/// layout top, so that is a layout top at or above `scrollTop + LANDING_OFFSET`. At the bottom a turn
+/// counts once its bubble is on screen: our turns have no block above the bubble to show first.
 export function visibleTurns(
   turns: readonly MinimapTurn[],
   tops: Float64Array,
@@ -149,16 +197,16 @@ export function visibleTurns(
   scrollTop: number,
   viewportHeight: number,
 ): { first: number; last: number } {
-  const bottom = scrollTop + viewportHeight;
-  const first = currentTurn(turns, tops, scrollTop, 0);
+  const bottom = scrollTop + viewportHeight - THREAD_PADDING_TOP;
+  const first = currentTurn(turns, tops, scrollTop + LANDING_OFFSET, 0);
   let last = first;
   while (last + 1 < turns.length && (tops[turns[last + 1].index] ?? totalHeight) < bottom) last += 1;
   return { first, last };
 }
 
-/// The scroll offset that puts a turn's prompt at the top of the viewport (the thread's padding stays above it).
+/// The scroll offset that lands a turn's prompt bubble LANDING_OFFSET below the viewport's top.
 export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
-  return Math.max(0, tops[turn.index] ?? 0);
+  return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
 }
 
 /// The start of a reply as plain blocks with bold spans; code, headings' marks and link targets drop.
@@ -178,8 +226,14 @@ export function replyPreview(markdown: string): ReplyBlock[] {
     if (paragraph.length) push("paragraph", paragraph.join(" "));
     paragraph = [];
   };
-  for (const raw of markdown.split("\n")) {
-    const line = raw.trim();
+  // A streaming reply previews again on every token: stop reading once the preview is full, and
+  // read line by line instead of splitting the whole reply.
+  for (let start = 0; start <= markdown.length;) {
+    if (blocks.length >= PREVIEW_BLOCKS || chars >= PREVIEW_CHARS) break;
+    const newline = markdown.indexOf("\n", start);
+    const end = newline < 0 ? markdown.length : newline;
+    const line = markdown.slice(start, end).trim();
+    start = end + 1;
     if (/^(```|~~~)/.test(line)) {
       flush();
       fenced = !fenced;

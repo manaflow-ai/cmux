@@ -3,7 +3,7 @@
 User (u2481): "https://github.com/wevm/ondine should we use this? I think we might need a better
 Mermaid parser … if it is good then we should migrate to it."
 
-**Verdict: migrate, behind a flag, with Mermaid as fallback.** Ondine draws every diagram the
+**Verdict: migrate. Ondine is the only renderer; Mermaid is the automatic fallback.** Ondine draws every diagram the
 bundled Mermaid draws (and 215 more), about 200× faster in WebKit, its script is 23% smaller raw,
 and a review of its source and package found no security issue. Our bundled Mermaid 11.4.1 has 9
 open advisories (2 label XSS, 3 CSS/HTML injection, 2 infinite-loop DoS, 2 prototype pollution),
@@ -111,8 +111,8 @@ three hold, so:
 - `Resources/markdown-viewer/ondine.min.js`: Ondine 0.0.1 pinned by tarball digest, rebuilt by
   `scripts/cmux-next/vendor-ondine.mjs` (never runs package code); license in `ondine.LICENSE` and
   the notices.
-- `diagrams.ts`: one `renderMermaid` path. Flag `MermaidRenderer` (`"ondine"` default, page config
-  `mermaidRenderer: "mermaid"` forces Mermaid). Ondine first; a refused source falls back to Mermaid;
+- `diagrams.ts`: one `renderMermaid` path. Ondine always renders (the earlier `mermaidRenderer` flag
+  was removed, user 2026-10-19: "Ondine should just be THE default, not behind a flag"); a refused source falls back to Mermaid;
   when both refuse, Ondine's diagnostic shows. Either SVG is parsed as HTML (fixes the truncation bug)
   and cleaned (script-like elements, `on*`, script URLs) before insertion.
 - Markdown page CSP adds `'wasm-unsafe-eval'` (WebAssembly compile only; the diff and editor pages

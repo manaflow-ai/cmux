@@ -5,7 +5,7 @@
 // personality or grant go through the host (`cmux.chief.profile.*` on the host's page relay). A
 // plain browser has no host: those show read-only ("Do this in the cmux app"), no Archive.
 import { isPageError, type PageClient } from "../shared/pageClient";
-import { chief as chiefRecord } from "./daemonPeople";
+import { ChiefHost, gestureFields, type ChiefEditorService, type ChiefSave } from "./chiefEditing";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
 import {
   chiefBackend,
@@ -13,8 +13,6 @@ import {
   HomeOps,
   type HomeCapabilities,
   type HomeChief,
-  type HomeChiefGrantChange,
-  type HomeChiefProfile,
   type HomeParticipant,
 } from "./types";
 
@@ -43,13 +41,6 @@ export interface SheetsHost {
 const NONE: HomeCapabilities = { start: false, invite: false, chiefs: false };
 const SELECTORS = { machine: "current", session: "current" };
 
-/** The changed grant fields as the record's fields (sorted, as the owner keeps them); a field the
- * person did not change is not sent, so the owner applies its own default (as `cmux chief new`). */
-const grantFields = (grant: HomeChiefGrantChange) => ({
-  ...(grant.tools ? { tools: [...grant.tools].sort() } : {}),
-  ...(grant.harnesses ? { harnesses: [...grant.harnesses].sort() } : {}),
-});
-
 const describe = (error: unknown) => (isPageError(error) || error instanceof Error ? error.message : String(error));
 
 export class HomeSheets {
@@ -66,12 +57,17 @@ export class HomeSheets {
   private fromHash = false;
   /** Picture hashes already read, by Chief id (one read per hash). */
   private readonly pictureHashes = new Map<string, string>();
+  /** The host's Chief calls (the page relay and the harness center), when there is a host. */
+  private readonly chiefHost: ChiefHost | null;
+  private editorService?: { grants: boolean; service: ChiefEditorService };
 
   constructor(
     private readonly client: PageClient | null,
     private readonly host: PageClient | null,
     private readonly page: SheetsHost,
-  ) {}
+  ) {
+    this.chiefHost = host ? new ChiefHost(host) : null;
+  }
 
   getSnapshot = (): SheetsSnapshot => this.snapshot;
 
@@ -154,7 +150,7 @@ export class HomeSheets {
         .sort()
         .join();
     try {
-      const listed = await this.host.call<{ chiefs?: Record<string, unknown>[] }>("cmux.chief.profile.list", SELECTORS);
+      const listed = await this.chiefHost!.rawList();
       const theirs = (listed.chiefs ?? []).map((raw) => ({
         id: String(raw.id),
         rev: Number(raw.rev) || 0,
@@ -237,35 +233,52 @@ export class HomeSheets {
     }
   }
 
+  /** The Chief editor's service on this page (ChiefPage.tsx): the same object while the host's
+   * relay stays as it is, so the editor's reads (backends, history) run once. */
+  chiefEditor(): ChiefEditorService {
+    const grants = this.snapshot.chiefGrants;
+    if (this.editorService?.grants === grants) return this.editorService.service;
+    const host = this.chiefHost;
+    const none = () => Promise.reject(new Error("no host"));
+    const service: ChiefEditorService = {
+      grants,
+      create: (save) => this.createChief(save).then(Boolean),
+      update: (before, save) => this.updateChief(before, save),
+      close: () => this.close(),
+      history: (chief) => (host ? host.history(chief) : none()),
+      undo: async (chief, toRev) => {
+        if (!host || !this.snapshot.chiefGrants) return undefined;
+        const record = await host.undo(chief, toRev);
+        await this.loadChiefs();
+        return record ?? this.snapshot.chiefs.get(chief.id);
+      },
+      backends: () => (host ? host.backends() : none()),
+      addBackend: (backend) => (host ? host.addBackend(backend) : none()),
+      checkBackend: (id) => (host ? host.checkBackend(id) : none()),
+    };
+    this.editorService = { grants, service };
+    return service;
+  }
+
   /** Makes a Chief through the host (the person's click: create is never the page's alone) with
-   * this profile and, when given, a changed grant and a starting engine other than the default, in
-   * one request; then its picture and its direct message from the page. Resolves the Chief, or
-   * undefined when it was refused. */
-  async createChief(
-    profile: HomeChiefProfile,
-    grant: HomeChiefGrantChange | undefined,
-    picture: { mediaType: string; data: string } | undefined,
-    harness?: string,
-  ): Promise<HomeChief | undefined> {
-    const backend = chiefBackend(harness);
-    if (!this.client || !this.host || !this.snapshot.chiefGrants) return undefined;
+   * this profile and, when given, a changed grant, backend and lock, in one request; then its
+   * picture and its direct message from the page. Resolves the Chief, or undefined when refused. */
+  async createChief(save: ChiefSave): Promise<HomeChief | undefined> {
+    if (!this.client || !this.chiefHost || !this.snapshot.chiefGrants) return undefined;
+    const fields = gestureFields(undefined, save);
+    // The default engine alone is not named: the owner applies its own (as `cmux chief new`).
+    if (typeof fields.harness === "string" && chiefBackend(fields.harness) === DEFAULT_CHIEF_BACKEND && !fields.model)
+      delete fields.harness;
     try {
-      const made = await this.host.call<{ value: Record<string, unknown> }>("cmux.chief.profile.create", {
-        ...SELECTORS,
-        display_name: profile.name.trim(),
-        role: profile.role.trim(),
-        personality: profile.personality,
-        instructions: profile.instructions,
-        ...(grant ? grantFields(grant) : {}),
-        // The default engine is not named: the owner applies its own (as `cmux chief new`).
-        ...(backend === DEFAULT_CHIEF_BACKEND ? {} : { harness: backend }),
-        idempotency_key: this.key("chief"),
+      const chief = await this.chiefHost.create({
+        display_name: save.profile.name.trim(),
+        role: save.profile.role.trim(),
+        ...fields,
       });
-      const chief = chiefRecord(made.value);
-      if (picture)
+      if (save.picture)
         await this.client.call(HomeOps.chiefAvatarSet, {
           chief: chief.id,
-          ...picture,
+          ...save.picture,
           idempotencyKey: this.key("picture"),
         });
       await this.loadChiefs();
@@ -283,29 +296,17 @@ export class HomeSheets {
     }
   }
 
-  /** Saves a Chief's profile: what changed of personality, instructions and the grant goes first,
-   * through the host (the person's click, one request); the name, role and picture from the page.
-   * `picture` null clears it: the default shows again. */
-  async updateChief(
-    before: HomeChief,
-    profile: HomeChiefProfile,
-    grant: HomeChiefGrantChange | undefined,
-    picture: { mediaType: string; data: string } | null | undefined,
-  ): Promise<boolean> {
+  /** Saves a Chief's profile: what changed of personality, instructions, the grant, the backend
+   * and the lock goes first, through the host (the person's click, one request); the name, role
+   * and picture from the page. `picture` null clears it: the default shows again. */
+  async updateChief(before: HomeChief, save: ChiefSave): Promise<boolean> {
     if (!this.client) return false;
-    const taught: Record<string, unknown> = {};
-    if (profile.personality !== before.personality) taught.personality = profile.personality;
-    if (profile.instructions !== before.instructions) taught.instructions = profile.instructions;
-    if (grant) Object.assign(taught, grantFields(grant));
+    const { profile, picture } = save;
+    const taught = gestureFields(before, save);
     try {
       if (Object.keys(taught).length > 0) {
-        if (!this.host || !this.snapshot.chiefGrants) return false;
-        await this.host.call("cmux.chief.profile.update", {
-          ...SELECTORS,
-          chief: before.id,
-          ...taught,
-          idempotency_key: this.key("teach"),
-        });
+        if (!this.chiefHost || !this.snapshot.chiefGrants) return false;
+        await this.chiefHost.update(before.id, taught);
       }
       if (profile.name.trim() !== before.name || profile.role.trim() !== before.role)
         await this.client.call(HomeOps.chiefUpdate, {

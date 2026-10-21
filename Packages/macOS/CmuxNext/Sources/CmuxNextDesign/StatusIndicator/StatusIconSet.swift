@@ -33,12 +33,13 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// Outlined SF Symbols of the same names.
     case symbolsOutline
     /// The static glyphs (`StaticStatusGlyph`, Leo 2026-10-14): one still shape per state, drawn for
-    /// the Static status mode (Reduce Motion): a half-filled ring for work, an empty bubble, a shield,
+    /// the Static status mode (Reduce Motion): a half-filled ring for work, an attention dot for a wait (no talk bubble), a shield,
     /// a check disc, a ! diamond.
     case still
     /// Codex-like (Leo's team, 2026-10-14: "they like Codex's sidebar"): work spins in a neutral grey
     /// (the shared spinner, re-tinted; a still ring when nothing may move), done is Codex's blue
-    /// dot, waiting is a muted line bubble or shield, and only an error is red (a line i in a ring).
+    /// dot, a wait is an attention dot (no talk bubble, Lawrence 2026-10-20) and permission a muted line
+    /// shield, and only an error is red (a line i in a ring).
     case codex
     /// The quiet static glyphs (`sets.dots` in static-status.json, hq#1957 status glyph thunderdome):
     /// one small dot, hollow (half-filled working, a ringed dot waiting) or solid with a bar, check or
@@ -86,8 +87,8 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         case .letters: "P, Q, A and ! cut out of rounded squares; check and x squares."
         case .symbols: "SF Symbols, filled: hand.raised, questionmark.bubble, key, exclamationmark.circle, checkmark.circle, xmark.octagon; a spinner for work."
         case .symbolsOutline: "SF Symbols, outlined, and a spinner for work."
-        case .still: "Static glyphs, never animated: half-filled ring, empty bubble, shield, check disc, ! diamond."
-        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, muted line bubble and shield, red line i."
+        case .still: "Static glyphs, never animated: half-filled ring, attention dot, shield, check disc, ! diamond."
+        case .codex: "Codex's sidebar: a grey spinner (a still ring under Reduce Motion), blue done dot, attention dot for a wait, muted line shield for permission, red line i."
         case .stillDots: "Static dots, never animated: half-filled dot, ringed dot, dot with a bar, check or x cut out."
         case .stillPictograms: "Static pictograms, never animated: hourglass, chat bubble, padlock, check, warning triangle."
         }
@@ -167,7 +168,7 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
             }
         case .still, .stillDots, .stillPictograms:
             .vector(staticGlyph(for: .waiting(kind: kind)) ?? .waiting)
-        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .waiting)
+        case .codex: .vector(kind == .permission || kind == .auth ? .shieldLine : .dot)
         }
     }
 
@@ -233,8 +234,12 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
         switch state {
         case .working where state.progress == nil:
             return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .spinner)
-        case .waiting(let kind):
+        case .waiting(let kind) where kind == .permission || kind == .auth:
             return StatusIndicatorPlan(glyph: .mark(blockedMark(kind)), animation: nil, tint: .loading)
+        case .waiting:
+            // No talk bubble (Lawrence 2026-10-20: "rm the talk icon"): waiting on you is the set's
+            // one dot, in the attention tint so it reads apart from done's blue dot.
+            return StatusIndicatorPlan(glyph: .mark(.vector(.dot)), animation: nil, tint: .attention)
         case .success:
             return StatusIndicatorPlan(glyph: .mark(doneMark), animation: nil, tint: .unread)
         case .error:
