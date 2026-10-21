@@ -1,0 +1,212 @@
+{
+  "version": 1,
+  "build": "3959138489301",
+  "notes": "notes/3959138489301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23000,
+      "title": "cmux NEXT Chief pet: notice card is opaque, folds away, and stays off other apps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23118,
+      "title": "acpmux: a failed log load no longer hangs attach",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23108,
+      "title": "cmux-next Chief: chief.openSubagent focuses, and refuses visibly with no target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23091,
+      "title": "cmux-next palette: titles use title case and a one-character ellipsis",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20894,
+      "title": "acpmux protocol: type attach, events, detach, view, markUnread, watch and _acpmux/event",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22373,
+      "title": "acpmux: type into one chat from several places, each prompt labelled by its surface",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23260,
+      "title": "ci(next): the route test expects CmuxNextHomeEngineTests for a schema change (Tier routing base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21258,
+      "title": "cmux-next: wire explicit read-only remote agent observation",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21258/118c9c71/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "118c9c71",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23283,
+      "title": "ci(fleet-compile-check): each status post try times out, and the job leaves room for the retries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22845,
+      "title": "cmux NEXT sidebar: avatar-only account control; its menu shows the team, Accounts… and Cloud",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23273,
+      "title": "web runs: discard the persistent runtime when promotion is refused",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22444,
+      "title": "ci: advisory post-edit checks for workflow YAML, new-test registration and god files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23237,
+      "title": "gallery: agent-pane entries show the product again (renamed controls, raced plays, blank stages)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21842,
+      "title": "cmux-next: Back/Forward right-click lists other workspaces and chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22153,
+      "title": "acpmux: forum announcements (rules per key, supersede, read on next prompt, acks)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23294,
+      "title": "ci(merge-compile-guard): a cancelled Release compile is no verdict, so a fleet pass stands in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22983,
+      "title": "cmux NEXT sidebar: edit mode to reorder, remove and add items",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23310,
+      "title": "webviews: pane-english reads an Error's text through ?? and ||, and keeps not-shipped exemptions honest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21568,
+      "title": "Keep Bun agent updates on the selected installation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23306,
+      "title": "ci(fleet-compile-check): the status says what a pass proves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23216,
+      "title": "Chief eval: a step the controller refused is void",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23285,
+      "title": "Minimap rail and Apps chips: the shared scroller, not a hidden one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23301,
+      "title": "Agent pane: move run board errors and output title into the string table",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23298,
+      "title": "webviews: the composer's caret plugin keeps its own window, so a teardown after the DOM is gone never throws",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23197,
+      "title": "cmux-next sidebar: the group ⋮ editor stays inside the window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23300,
+      "title": "webviews: the run board's timeline rings only its checkbox on keyboard focus (base text-focus red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23277,
+      "title": "cmux NEXT gallery: the Ctrl-B hint's claude-acp variant is named in kebab case",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23293,
+      "title": "ci: retry GitHub writes refused by a secondary rate limit; never hide the fleet verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21160,
+      "title": "acpmux: preserve pending prompt identities under queue pressure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22021,
+      "title": "cmux-next: error journal reads the build's acpmux home and flushes on a DemandTimer (drops #21981's allowlist entries)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21284,
+      "title": "fix(cmux-next): debug.window_snapshot encodes its PNG off the main thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23231,
+      "title": "cmux-next: clear the crash ratchet's four new hits (Crash safety base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23272,
+      "title": "acpmux: peer lease follow-ups (lease ends first, stale-instance notices, peer_remove on a lease)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
