@@ -351,6 +351,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
+    pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
@@ -438,6 +440,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
             auto_resumes: Default::default(),

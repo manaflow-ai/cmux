@@ -2,7 +2,7 @@
    narrow pane gets a popover; a wide pane reserves a quiet column beside the chat and composer.
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
-.acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-button{display:grid;place-items:center;width:24px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}

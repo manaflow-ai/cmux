@@ -494,7 +494,9 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance = crate::prompt_provenance::of(&params, conn.origin == Origin::Local)?;
+            // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
+            let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
+            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.
             let provenance = match (provenance, conn.caller()) {
@@ -797,6 +799,7 @@ async fn dispatch_request(
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;
+            hub.wait_logs().await;
             let mut detail = hub.session_detail(&s);
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never
@@ -900,6 +903,9 @@ async fn dispatch_request(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            // A restart reads the chat logs after its ready line: the queue, turn and status
+            // shown here come from them (`Hub::load_logs`).
+            hub.wait_logs().await;
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
@@ -954,6 +960,8 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
+            // The queue a restart rebuilds from the logs.
+            hub.wait_logs().await;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // A peer read the prompt masked (`peer_text.rs`): it may move or send one
             // with a secret, not rewrite it.
@@ -970,6 +978,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
+            hub.wait_logs().await;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;

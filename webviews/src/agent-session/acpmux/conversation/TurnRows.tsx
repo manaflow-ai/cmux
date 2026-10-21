@@ -5,6 +5,7 @@ import { FindReveal, isRevealRow } from "./chatFind";
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
+import { CopyButton } from "./CopyButton";
 import { MessageCard } from "./MessageCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
@@ -17,7 +18,7 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { ChevronRight, Retry, TurnFork } from "./icons";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -143,7 +144,6 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-d
 /// count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
@@ -168,19 +168,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </time>
         <span className="cv-turn-action-group">
           {text && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              onClick={() =>
-                void copyText(text).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              <Copy size={14} />
-            </button>
+            <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={14} />
           )}
           {retry && prompt && (
             <button
