@@ -68,8 +68,8 @@ final class AppsService {
         Task { [client] in client.useBundledDirectories(await AppPlatformResources.bundledDirectories()) }
     }
 
-    /// Serves app-side operations and admitted machine inventory reads
-    /// through the supervisor's verified-app provider channel.
+    /// Serves app-side operations, admitted machine inventory reads and the
+    /// Agent Memory app's search through the supervisor's verified-app provider channel.
     func attach(router: ControlRouter) {
         controlRouter = router
         let control: @Sendable (String, [String: JSONValue]) async throws(AppHostCapabilityError) -> JSONValue = { method, params throws(AppHostCapabilityError) in try await router.appControl(method, params) }
@@ -77,7 +77,11 @@ final class AppsService {
             machines?.agentInventoryRoutes() ?? []
         }
         let actionControl: @Sendable (String, [String: JSONValue], String) async throws(AppHostCapabilityError) -> JSONValue = { method, params, app throws(AppHostCapabilityError) in try await router.appControl(method, params, callerApp: app) }
-        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory]))
+        // The Agent Memory app's search, from the agent memory index while `agents.memory.enabled` is on.
+        let memory = AgentMemorySearchHandler(enabled: { [weak services] in
+            services?.settings?.snapshot.agentMemoryEnabled ?? false
+        }, index: BundledAgentMemoryIndex.bundled())
+        transport.provider.attach(AppHostCapabilities([CodeRouterAppOps(control: control), ActionAppOps(control: actionControl), inventory, memory]))
         if machineCatalog == nil {
             machineCatalog = MachineCatalogPublisher { [weak machines = services.machines] in
                 machines?.catalogSource()
