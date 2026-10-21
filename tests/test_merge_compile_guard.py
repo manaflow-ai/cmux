@@ -63,6 +63,14 @@ class Verdict(unittest.TestCase):
                 runs = [check(fleet, conclusion=conclusion), check(COMPILE, conclusion="skipped")]
                 self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs))
                 self.assertIn(f"{fleet} finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+        # A run cancelled while the fleet compiled leaves no verdict at all (the Release compile skips on a
+        # cancelled run): that is no compile, not a pass, and a fleet pass on the exact head stands in.
+        stopped = [check(fleet, conclusion="cancelled"), check(COMPILE, conclusion="skipped")]
+        self.assertIn(f"{fleet} was cancelled", guard.verdict(pr(), SWIFT, stopped))
+        self.assertTrue(guard.compile_wait(stopped))
+        self.assertEqual(guard.verdict(pr(), SWIFT, stopped, fleet_passed=True), "")
+        # A rerun that passed after the cancel counts.
+        self.assertEqual(guard.verdict(pr(), SWIFT, stopped + [check(fleet)]), "")
         # No fleet verdict: the Mac Release compile that ran instead decides.
         self.assertEqual(guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE)]), "")
         self.assertIn("still running", guard.verdict(pr(), SWIFT, [check(fleet), check(COMPILE, "queued")]))
