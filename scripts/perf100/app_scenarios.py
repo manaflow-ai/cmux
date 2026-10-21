@@ -288,6 +288,19 @@ def s2(args, run, rng):
         except (OSError, ValueError):
             pass
         run.latency("token_to_screen", [(seen[m] - t) * 1000 for m, t in emitted.items() if m in seen])
+        if not seen:
+            # Evidence for the next fix: which pages exist and what the probe read.
+            try:
+                diag = appdriver.Rpc(app.socket)
+                run.data["token_probe_debug"] = {
+                    "list": diag.result("debug.page", {"page": "cmux.agent", "action": "list"}),
+                    "state": diag.result("debug.page", {"page": "cmux.agent", "action": "state"}),
+                    "query_p": json.dumps(diag.result("debug.page", {"page": "cmux.agent", "action": "query",
+                                                                     "selector": "p"}))[-3000:],
+                }
+                diag.close()
+            except Exception as error:  # noqa: BLE001
+                run.data["token_probe_debug"] = repr(error)
         if len(seen) < len(emitted) or not emitted:
             run.note(f"token_to_screen: {len(seen)} of {len(emitted)} markers seen on the agent page")
             run.unverified("token_to_screen reads the agent page text with debug.page state; a page whose "
