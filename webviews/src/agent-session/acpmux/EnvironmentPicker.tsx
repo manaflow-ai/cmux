@@ -19,8 +19,10 @@ const SECTION_LABELS = {
 } as const;
 
 /// The environment picker (preview, `labs.previewFeatures`): one searchable list with Local, SSH
-/// and Cloud sections, ⌥⌘1–9 on the first nine, and New environment at the bottom: the host's SSH…
-/// and cmux Cloud… connect flows. ⌥⌘1–9 also work while the composer it heads has focus.
+/// and Cloud sections, ⌥⌘1–9 on the first nine. Cloud is always a section: its machines, then New
+/// Cloud Machine (the host's create flow) with what one gives, so a cloud machine is one click away
+/// even before the first. New environment at the bottom holds the SSH… connect flow. ⌥⌘1–9 also
+/// work while the composer it heads has focus.
 export function EnvironmentPicker({
   label,
   menu,
@@ -78,14 +80,22 @@ export function EnvironmentPicker({
       ),
     [shown],
   );
-  // New environment, last: the host's two connect flows under one heading.
-  const actions: { value: string; text: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
+  // New Cloud Machine closes the Cloud section (it heads the section when there is no cloud machine);
+  // New environment, last, holds the SSH connect flow.
+  const actions: { value: string; text: string; detail?: string; kind: "ssh" | "cloud"; run(): void }[] = onConnect
     ? [
+        {
+          value: ACTION + "cloud",
+          text: t("composer.newCloudMachine"),
+          detail: t("composer.newCloudMachineDetail"),
+          kind: "cloud",
+          run: () => onConnect("cloud"),
+        },
         { value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh", run: () => onConnect("ssh") },
-        { value: ACTION + "cloud", text: t("composer.connectCloud"), kind: "cloud", run: () => onConnect("cloud") },
       ]
     : [];
   const suggestions = [...shown.map((environment) => environment.id), ...actions.map((action) => action.value)];
+  const cloudShown = shown.some((environment) => environment.kind === "cloud");
 
   const latest = useRef({ ordered, current, onPick });
   latest.current = { ordered, current, onPick };
@@ -139,16 +149,24 @@ export function EnvironmentPicker({
   };
   const row = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
-    if (action)
+    if (action) {
+      const section =
+        action.kind === "cloud" ? (cloudShown ? undefined : t(SECTION_LABELS.cloud)) : t("composer.newEnvironment");
       return (
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
-          data-section={action === actions[0] ? t("composer.newEnvironment") : undefined}
+          data-kind={action.kind}
+          data-section={section}
+          data-first-section={section && shown.length === 0 && action === actions[0] ? "" : undefined}
         >
           <EnvironmentIcon kind={action.kind} />
-          <span className="acpmux-menu-label">{action.text}</span>
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{action.text}</span>
+            {action.detail && <span className="acpmux-env-detail">{action.detail}</span>}
+          </span>
         </span>
       );
+    }
     const position = positions.get(value);
     if (!position) return null;
     const { environment, index, sectionStart } = position;
