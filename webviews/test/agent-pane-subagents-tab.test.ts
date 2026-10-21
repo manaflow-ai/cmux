@@ -191,8 +191,9 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("false");
     // The tabs take the head's row: its counts (the tab lists them) leave room for them.
     expect(await panel(page).locator(".acpmux-summary-card__counts").count()).toBe(0);
-    // Its own list in the card's place: no summary sections under it.
-    expect(await panel(page).getByRole("region", { name: "Outputs" }).count()).toBe(0);
+    // Its own list in the card's place: no summary sections under it (the summary's Subagents
+    // section is the one this chat has; an empty section is not drawn).
+    expect(await panel(page).getByRole("region", { name: "Subagents", exact: true }).count()).toBe(0);
     const active = panel(page).getByRole("region", { name: "Active · 1" });
     const done = panel(page).getByRole("region", { name: "Done · 2" });
     await active.waitFor({ timeout: 5_000 });
@@ -210,7 +211,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     await page.getByText("Subagent of").waitFor({ timeout: 5_000 });
     // The tab's close button goes back to the summary.
     await panel(page).getByRole("button", { name: "Close Subagents" }).click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tabs.count()).toBe(0);
     await context.close();
   });
@@ -224,7 +225,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     const tab = (name: string) =>
       panel(page).locator(".acpmux-summary-tabs").getByRole("button", { name, exact: true });
     await tab("Summary").click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
     await tab("Subagents").click();
     await panel(page).getByRole("region", { name: "Active · 1" }).waitFor({ timeout: 5_000 });
@@ -279,7 +280,7 @@ await requireBrowserLane("agent-pane-subagents-tab.test.ts", async () => {
     expect(await panel(page).getByRole("region", { name: "Active · 1" }).count()).toBe(0);
     // The Summary tab shows the summary, not a folded header.
     await tab("Summary").click();
-    await panel(page).getByRole("region", { name: "Outputs" }).waitFor({ timeout: 5_000 });
+    await panel(page).getByRole("region", { name: "Subagents", exact: true }).waitFor({ timeout: 5_000 });
     expect(await tab("Summary").getAttribute("aria-pressed")).toBe("true");
     // Folded again, the Subagents tab shows its list.
     await panel(page).getByRole("button", { name: "Collapse summary" }).click();
