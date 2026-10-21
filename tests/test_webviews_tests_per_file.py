@@ -96,10 +96,13 @@ class PerFileRunner(unittest.TestCase):
         self.dev.write_text("", encoding="utf-8")
         self.peak.write_text("", encoding="utf-8")
         running.mkdir()
-        (web / "node_modules").mkdir()
+        (web / "node_modules").mkdir(exist_ok=True)
+        if getattr(self, "web_hook", None):
+            self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
         system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
-        env = {**os.environ, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
+        base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
+        env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
@@ -245,6 +248,45 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-default\.test\.ts \(limit 2s\)")
         self.assertIn("test/slow-declared.test.ts", output)
         self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-shorter\.test\.ts \(limit 2s\)")
+
+    def install_fake_playwright(self):
+        """A fake webviews/node_modules/.bin/playwright that logs its install calls."""
+        self.playwright_calls = None
+
+        def hook(web):
+            bin_dir = web / "node_modules" / ".bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            log = web.parent / "playwright-calls"
+            log.write_text("", encoding="utf-8")
+            script = bin_dir / "playwright"
+            script.write_text('#!/usr/bin/env bash\nprintf \'%s|%s\\n\' "$*" "$PLAYWRIGHT_BROWSERS_PATH" >> "' + str(log)
+                              + '"\n', encoding="utf-8")
+            script.chmod(0o755)
+            self.playwright_calls = log
+        return hook
+
+    def test_a_fleet_browser_run_installs_the_ci_engines_into_the_step_cache(self):
+        """A fleet cmux-ci step passes CMUX_BROWSER_TESTS=1 to run the browser lane, which needs the
+        engines CI installs (requireBrowserLane.ts); without it the lane skips everywhere but PR CI."""
+        cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.web_hook = self.install_fake_playwright()
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={
+            "CMUX_BROWSER_TESTS": "1", "CMUX_CI_CACHE_DIR": str(cache)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/a.test.ts"])
+        lines = self.playwright_calls.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        args, browsers = lines[0].split("|")
+        self.assertEqual(args, "install --only-shell chromium webkit")
+        self.assertTrue(browsers.startswith(str(cache / "playwright")), browsers)
+
+    def test_ci_and_plain_runs_install_no_engines(self):
+        for env in ({}, {"CMUX_BROWSER_TESTS": "0"}, {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}):
+            with self.subTest(env=env):
+                self.web_hook = self.install_fake_playwright()
+                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])

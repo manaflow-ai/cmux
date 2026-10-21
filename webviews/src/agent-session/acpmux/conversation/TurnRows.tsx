@@ -16,9 +16,8 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Copy, Retry, TurnFork } from "./icons";
+import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -216,37 +215,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
         </span>
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
-function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   );
 }
 

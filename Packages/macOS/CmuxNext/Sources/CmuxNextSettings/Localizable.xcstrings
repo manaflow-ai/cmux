@@ -35254,127 +35254,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يزيل خلفية العلامة المحددة."
+            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يُبقي خلفية خافتة للعلامة المحددة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho uklanja pozadinu odabrane kartice."
+            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho ostavlja samo blagu pozadinu odabrane kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille fjerner den valgte fanes baggrund."
+            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille beholder kun en svag baggrund på den valgte fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig entfernt den Hintergrund des ausgewählten Tabs."
+            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig lässt dem ausgewählten Tab nur einen schwachen Hintergrund."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto quita el fondo de la pestaña seleccionada."
+            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto deja solo un fondo tenue en la pestaña seleccionada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret retire le fond de l’onglet sélectionné."
+            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret ne garde qu’un fond léger sur l’onglet sélectionné."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto toglie lo sfondo della scheda selezionata."
+            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto lascia solo uno sfondo tenue alla scheda selezionata."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をなくします。"
+            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をごく淡く残します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ដកផ្ទៃខាងក្រោយនៃផ្ទាំងដែលបានជ្រើស។"
+            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ទុកតែផ្ទៃខាងក្រោយស្រាលៗនៃផ្ទាំងដែលបានជ្រើស។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 없앱니다."
+            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 아주 옅게만 남깁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille fjerner bakgrunnen til den valgte fanen."
+            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille beholder bare en svak bakgrunn på den valgte fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy usuwa tło zaznaczonej karty."
+            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy zostawia zaznaczonej karcie tylko słabe tło."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto remove o fundo da aba selecionada."
+            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto deixa só um fundo suave na aba selecionada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» убирает фон выбранной вкладки."
+            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» оставляет выбранной вкладке лишь слабый фон."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เอาพื้นหลังของแท็บที่เลือกออก"
+            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เหลือพื้นหลังจางๆ ของแท็บที่เลือกไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmenin arka planını kaldırır."
+            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmede yalnızca soluk bir arka plan bırakır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» прибирає тло вибраної вкладки."
+            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» залишає вибраній вкладці лише слабке тло."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng bỏ nền của thẻ đang chọn."
+            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng chỉ giữ nền mờ cho thẻ đang chọn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静会去掉选中标签页的底色。"
+            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静只为选中标签页保留很淡的底色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜會移除所選分頁的底色。"
+            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜只為所選分頁保留很淡的底色。"
           }
         }
       }
@@ -57786,127 +57786,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+            "value": "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "タブバーが上にあるブラウザのペインで、タブバーをアドレスバーの上に置くか、下に置くか。"
+            "value": "タブバーとアドレスバーが同じ端にあるブラウザのペインで、タブバーをアドレスバーの上に置くか、下に置くか。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "في جزء متصفح مع شريط علامات التبويب في الأعلى: شريط علامات التبويب فوق شريط العنوان أو تحته."
+            "value": "في جزء متصفح يكون فيه شريط علامات التبويب وشريط العنوان على الحافة نفسها: شريط علامات التبويب فوق شريط العنوان أو تحته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "U oknu preglednika s trakom kartica na vrhu: traka kartica iznad adresne trake ili ispod nje."
+            "value": "U oknu preglednika s trakom kartica i adresnom trakom na istoj ivici: traka kartica iznad adresne trake ili ispod nje."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I en browserrude med fanebjælken øverst: fanebjælken over adresselinjen eller under den."
+            "value": "I en browserrude med fanebjælken og adresselinjen i samme kant: fanebjælken over adresselinjen eller under den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In einem Browserbereich mit der Tableiste oben: die Tableiste über der Adressleiste oder darunter."
+            "value": "In einem Browserbereich mit Tableiste und Adressleiste am selben Rand: die Tableiste über der Adressleiste oder darunter."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En un panel de navegador con la barra de pestañas arriba: la barra de pestañas sobre la barra de direcciones o debajo de ella."
+            "value": "En un panel de navegador con la barra de pestañas y la barra de direcciones en el mismo borde: la barra de pestañas sobre la barra de direcciones o debajo de ella."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dans une sous-fenêtre de navigateur avec la barre d’onglets en haut : la barre d’onglets au-dessus de la barre d’adresse ou en dessous."
+            "value": "Dans une sous-fenêtre de navigateur avec la barre d’onglets et la barre d’adresse sur le même bord : la barre d’onglets au-dessus de la barre d’adresse ou en dessous."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In un riquadro del browser con la barra delle schede in alto: la barra delle schede sopra la barra degli indirizzi o sotto."
+            "value": "In un riquadro del browser con la barra delle schede e la barra degli indirizzi sullo stesso bordo: la barra delle schede sopra la barra degli indirizzi o sotto."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ក្នុងផ្ទាំងកម្មវិធីរុករកដែលមានរបារផ្ទាំងនៅខាងលើ៖ របារផ្ទាំងនៅលើរបារអាសយដ្ឋាន ឬនៅក្រោមវា។"
+            "value": "ក្នុងផ្ទាំងកម្មវិធីរុករកដែលរបារផ្ទាំង និងរបារអាសយដ្ឋាននៅគែមតែមួយ៖ របារផ្ទាំងនៅលើរបារអាសយដ្ឋាន ឬនៅក្រោមវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "탭 막대가 위에 있는 브라우저 패널에서 탭 막대를 주소 막대 위 또는 아래에 둡니다."
+            "value": "탭 막대와 주소 막대가 같은 가장자리에 있는 브라우저 패널에서 탭 막대를 주소 막대 위 또는 아래에 둡니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "I en nettleserrute med fanelinjen øverst: fanelinjen over adresselinjen eller under den."
+            "value": "I en nettleserrute med fanelinjen og adresselinjen på samme kant: fanelinjen over adresselinjen eller under den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "W panelu przeglądarki z paskiem kart na górze: pasek kart nad paskiem adresu lub pod nim."
+            "value": "W panelu przeglądarki z paskiem kart i paskiem adresu przy tej samej krawędzi: pasek kart nad paskiem adresu lub pod nim."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Em um painel de navegador com a barra de abas no topo: a barra de abas acima da barra de endereço ou abaixo dela."
+            "value": "Em um painel de navegador com a barra de abas e a barra de endereço na mesma borda: a barra de abas acima da barra de endereço ou abaixo dela."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "В панели браузера с панелью вкладок сверху: панель вкладок над адресной строкой или под ней."
+            "value": "В панели браузера, где панель вкладок и адресная строка у одного края: панель вкладок над адресной строкой или под ней."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ในบานหน้าต่างเบราว์เซอร์ที่มีแถบแท็บอยู่ด้านบน: แถบแท็บอยู่เหนือแถบที่อยู่ หรืออยู่ใต้แถบนั้น"
+            "value": "ในบานหน้าต่างเบราว์เซอร์ที่แถบแท็บและแถบที่อยู่อยู่ขอบเดียวกัน: แถบแท็บอยู่เหนือแถบที่อยู่ หรืออยู่ใต้แถบนั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sekme çubuğu üstte olan bir tarayıcı bölmesinde: sekme çubuğu adres çubuğunun üstünde ya da altında."
+            "value": "Sekme çubuğu ile adres çubuğunun aynı kenarda olduğu bir tarayıcı bölmesinde: sekme çubuğu adres çubuğunun üstünde veya altında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У панелі браузера з панеллю вкладок угорі: панель вкладок над адресним рядком або під ним."
+            "value": "У панелі браузера, де панель вкладок і адресний рядок біля одного краю: панель вкладок над адресним рядком або під ним."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trong ngăn trình duyệt có thanh tab ở trên cùng: thanh tab nằm trên thanh địa chỉ hoặc bên dưới nó."
+            "value": "Trong ngăn trình duyệt có thanh tab và thanh địa chỉ ở cùng một cạnh: thanh tab nằm trên thanh địa chỉ hoặc dưới nó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在标签栏位于顶部的浏览器窗格中：标签栏位于地址栏上方或下方。"
+            "value": "在标签栏和地址栏位于同一边缘的浏览器窗格中，标签栏位于地址栏上方或下方。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在標籤列位於頂部的瀏覽器窗格中：標籤列位於網址列上方或下方。"
+            "value": "在分頁列和網址列位於同一邊緣的瀏覽器窗格中，分頁列位於網址列上方或下方。"
           }
         }
       }
@@ -73310,6 +73310,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "此資料夾的符號連結過多。"
+          }
+        }
+      }
+    },
+    "settings.tabs.terminalFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tabs and Splits Open a Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب والتقسيمات الجديدة تفتح طرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nove kartice i podjele otvaraju terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og opdelinger åbner en terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Tabs und Teilungen öffnen ein Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas y divisiones nuevas abren una terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouveaux onglets et divisions ouvrent un terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuove schede e divisioni aprono un terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブと分割でターミナルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំង និងការបំបែកថ្មីបើកទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭과 분할에서 터미널 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nye faner og delinger åpner en terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowe karty i podziały otwierają terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novas abas e divisões abrem um terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новые вкладки и разделения открывают терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บและการแบ่งใหม่เปิดเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmeler ve Bölmeler Terminal Açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нові вкладки й поділи відкривають термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ và vùng chia mới mở terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新标签页和拆分打开终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新分頁和分割開啟終端機"
+          }
+        }
+      }
+    },
+    "settings.tabs.terminalFirst.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التشغيل، تفتح Cmd-T وCmd-D وCmd-Shift-D طرفية كما في cmux classic بدلاً من صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, Cmd-T, Cmd-D i Cmd-Shift-D otvaraju terminal, kao u cmux classic, umjesto stranice nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået til, åbner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for siden Ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn an, öffnen Cmd-T, Cmd-D und Cmd-Shift-D ein Terminal wie in cmux classic statt der Seite „Neuer Tab“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está activado, Cmd-T, Cmd-D y Cmd-Shift-D abren una terminal, como en cmux classic, en lugar de la página Nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activé, Cmd-T, Cmd-D et Cmd-Shift-D ouvrent un terminal, comme dans cmux classic, au lieu de la page Nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se attivato, Cmd-T, Cmd-D e Cmd-Shift-D aprono un terminale, come in cmux classic, invece della pagina Nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンのとき、Cmd-T、Cmd-D、Cmd-Shift-D は新規タブページではなく、cmux classic と同じようにターミナルを開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបើក Cmd-T, Cmd-D និង Cmd-Shift-D បើកទែមីណាល់ ដូចក្នុង cmux classic ជំនួសឱ្យទំព័រផ្ទាំងថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 Cmd-T, Cmd-D, Cmd-Shift-D가 새 탭 페이지 대신 cmux classic처럼 터미널을 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når på, åpner Cmd-T, Cmd-D og Cmd-Shift-D en terminal som i cmux classic i stedet for Ny fane-siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy włączone, Cmd-T, Cmd-D i Cmd-Shift-D otwierają terminal, jak w cmux classic, zamiast strony nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativado, Cmd-T, Cmd-D e Cmd-Shift-D abrem um terminal, como no cmux classic, em vez da página Nova Aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, Cmd-T, Cmd-D и Cmd-Shift-D открывают терминал, как в cmux classic, а не страницу новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิด Cmd-T, Cmd-D และ Cmd-Shift-D จะเปิดเทอร์มินัลเหมือนใน cmux classic แทนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıkken Cmd-T, Cmd-D ve Cmd-Shift-D, Yeni Sekme sayfası yerine cmux classic'teki gibi bir terminal açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, Cmd-T, Cmd-D і Cmd-Shift-D відкривають термінал, як у cmux classic, замість сторінки нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi bật, Cmd-T, Cmd-D và Cmd-Shift-D mở terminal như trong cmux classic thay vì trang Thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启时，Cmd-T、Cmd-D 和 Cmd-Shift-D 会像 cmux classic 一样打开终端，而不是新标签页页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟時，Cmd-T、Cmd-D 和 Cmd-Shift-D 會像 cmux classic 一樣開啟終端機，而不是新分頁頁面。"
           }
         }
       }
@@ -150533,19 +150795,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los chats de agentes que te necesitan, arriba en la barra lateral"
+            "value": "Chats de agentes que te esperan, arriba en la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les conversations d’agents qui vous attendent, en haut de la barre latérale"
+            "value": "Chats d’agents à traiter, en haut de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le chat degli agenti che ti aspettano, in cima alla barra laterale"
+            "value": "Chat degli agenti in attesa, in cima alla barra laterale"
           }
         },
         "ja": {
@@ -150575,13 +150837,13 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Czaty agentów, które na ciebie czekają, u góry paska bocznego"
+            "value": "Czaty agentów czekające na ciebie, u góry paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats de agentes que precisam de você, no topo da barra lateral"
+            "value": "Chats de agentes à sua espera, no topo da barra lateral"
           }
         },
         "ru": {
@@ -151414,6 +151676,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "平靜：不再滑動、彈跳或旋轉，懸停卡片不會打開，指標也不會醒目標示分頁、列和按鈕。靜止：在平靜的基礎上，所有動畫立即完成。關閉後，你的其他動態效果和懸停卡片設定會恢復。"
+          }
+        }
+      }
+    },
+    "settings.browser.toolbarPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Toolbar Position"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موضع شريط أدوات المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Položaj alatne trake preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Placering af browserens værktøjslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position der Browser-Symbolleiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posición de la barra de herramientas del navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Position de la barre d’outils du navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posizione della barra degli strumenti del browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザツールバーの位置"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទីតាំងរបារឧបករណ៍កម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 도구 막대 위치"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plassering av nettleserens verktøylinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Położenie paska narzędzi przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição da barra de ferramentas do navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Положение панели инструментов браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งแถบเครื่องมือเบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı Araç Çubuğu Konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розташування панелі інструментів браузера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí thanh công cụ trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器工具栏位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器工具列位置"
+          }
+        }
+      }
+    },
+    "settings.browser.toolbarPosition.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكان صف شريط العنوان في أجزاء المتصفح و Markdown. في الأسفل، تُفتح اقتراحاته وقوائمه إلى الأعلى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdje se nalazi red adresne trake u oknima preglednika i Markdowna. Na dnu se njeni prijedlozi i meniji otvaraju prema gore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor adresselinjens række sidder i browser- og Markdown-ruder. Nederst åbner dens forslag og menuer opad."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo die Zeile mit der Adressleiste in Browser- und Markdown-Bereichen sitzt. Unten öffnen sich ihre Vorschläge und Menüs nach oben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde se sitúa la fila de la barra de direcciones en los paneles de navegador y de Markdown. Abajo, sus sugerencias y menús se abren hacia arriba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’emplacement de la rangée de la barre d’adresse dans les sous-fenêtres de navigateur et Markdown. En bas, ses suggestions et menus s’ouvrent vers le haut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dove si trova la riga della barra degli indirizzi nei riquadri del browser e Markdown. In basso, i suggerimenti e i menu si aprono verso l’alto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ブラウザと Markdown のペインでアドレスバーの行を置く位置。下に置くと、候補とメニューは上向きに開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងដែលជួររបារអាសយដ្ឋាននៃផ្ទាំងកម្មវិធីរុករក និង Markdown ស្ថិតនៅ។ នៅខាងក្រោម សំណើ និងម៉ឺនុយរបស់វាបើកឡើងលើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저 및 Markdown 패널에서 주소 막대 행의 위치입니다. 아래에 두면 제안과 메뉴가 위쪽으로 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor adresselinjeraden står i nettleser- og Markdown-ruter. Nederst åpnes forslagene og menyene oppover."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdzie znajduje się wiersz paska adresu w panelach przeglądarki i Markdown. Na dole jego podpowiedzi i menu otwierają się w górę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onde fica a linha da barra de endereço nos painéis de navegador e Markdown. Embaixo, as sugestões e os menus abrem para cima."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Где находится строка адресной строки в панелях браузера и Markdown. Внизу её подсказки и меню открываются вверх."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตำแหน่งของแถวแถบที่อยู่ในบานหน้าต่างเบราว์เซอร์และ Markdown เมื่ออยู่ด้านล่าง คำแนะนำและเมนูจะเปิดขึ้นด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı ve Markdown bölmelerinde adres çubuğu satırının yeri. Altta olduğunda öneriler ve menüler yukarı doğru açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Де розташований рядок адресного рядка в панелях браузера й Markdown. Унизу його підказки та меню відкриваються вгору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí hàng thanh địa chỉ trong các ngăn trình duyệt và Markdown. Khi ở dưới cùng, gợi ý và menu của nó mở lên trên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器和 Markdown 窗格中地址栏一行的位置。放在底部时，其建议和菜单向上打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器和 Markdown 窗格中網址列一行的位置。放在底部時，其建議和選單會向上開啟。"
           }
         }
       }

@@ -49,7 +49,7 @@ extension SettingsSchema {
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons",
+        "tabs.barPosition", "tabs.barOrder", "tabs.toolbarButtons", "browser.toolbarPosition",
         "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode", "sidebar.minimal", "sidebar.density", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
         "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount",
@@ -60,6 +60,7 @@ extension SettingsSchema {
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",
         "tabs.cmdWClosesPinnedTabs",
+        "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
