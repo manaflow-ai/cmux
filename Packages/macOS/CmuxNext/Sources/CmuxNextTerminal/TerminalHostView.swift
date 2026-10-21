@@ -26,7 +26,7 @@ public final class TerminalHostView: NSView {
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
-    /// "Retry" above the banner once the view stopped retrying its attach.
+    /// "Retry" above the banner once the view's attach kept failing.
     private let retryButton = TerminalRetryButton()
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private let sizedForChip = TerminalSizedForChip()

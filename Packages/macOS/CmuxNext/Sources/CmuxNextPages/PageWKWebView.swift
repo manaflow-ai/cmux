@@ -196,23 +196,36 @@ final class PageWKWebView: WKWebView {
         return url
     }
 
+    /// The `NSDraggingDestination` methods WebKit implements. They are optional and NSView has no
+    /// default for every one (no WKWebView has `draggingEnded:`), so `super` for a missing one throws
+    /// "unrecognized selector" and ends the app. Each override calls `super` only when WebKit has it.
+    private enum WebKitDrag {
+        static let entered = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEntered(_:)))
+        static let updated = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingUpdated(_:)))
+        static let exited = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingExited(_:)))
+        static let ended = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.draggingEnded(_:)))
+        static let perform = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.performDragOperation(_:)))
+    }
+
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
-        return droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.entered ? super.draggingEntered(sender) : []
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dragAnswer = nil
-        super.draggingExited(sender)
+        if WebKitDrag.exited { super.draggingExited(sender) }
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         dragAnswer = nil
-        super.draggingEnded(sender)
+        if WebKitDrag.ended { super.draggingEnded(sender) }
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingUpdated(sender)
+        if droppedFile(sender) != nil { return .copy }
+        return WebKitDrag.updated ? super.draggingUpdated(sender) : []
     }
 
     /// Files dropped on the page itself (not a ``fileDrop`` the host opens): a real gesture page script can't make.
@@ -223,7 +236,7 @@ final class PageWKWebView: WKWebView {
         dragAnswer = nil
         guard let url, let fileDrop else {
             if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
-            return super.performDragOperation(sender)
+            return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
         fileDrop.open(url)
         return true

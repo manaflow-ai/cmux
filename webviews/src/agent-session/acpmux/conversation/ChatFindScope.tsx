@@ -4,7 +4,7 @@
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect } from "react";
 import type { AcpmuxRow } from "../model";
 import { type ChatFind, isFindRow, useChatFind } from "./chatFind";
-import { WORKED } from "./turns";
+import { turnFoldFor } from "./turns";
 
 export function ChatFindScope({
   rows,
@@ -36,11 +36,8 @@ export function ChatFindScope({
   const target = find.open ? find.matches[find.active] : undefined;
   useLayoutEffect(() => {
     if (!target || !shown || shown.some((row) => isFindRow(row, target.rowId))) return;
-    const user = rows
-      .slice(0, target.rowIndex + 1)
-      .reverse()
-      .find((row) => row.kind === "user");
-    if (user) openFold(`${WORKED}-${user.id}`);
+    const fold = turnFoldFor(rows, target.rowIndex);
+    if (fold) openFold(fold);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new current match opens its fold once
   }, [target?.rowId, target?.occurrence]);
   return children(find);

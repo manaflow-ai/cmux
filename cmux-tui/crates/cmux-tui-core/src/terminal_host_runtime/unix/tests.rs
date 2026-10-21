@@ -308,6 +308,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         control_responses: Arc::new(ControlResponses::new()),
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
+        viewer_size_acks: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

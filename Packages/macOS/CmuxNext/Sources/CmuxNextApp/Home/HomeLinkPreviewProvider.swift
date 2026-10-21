@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
@@ -46,17 +47,16 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
             return tabPreview(tab, pane: pane, services: services)
         case .session(let id, _):
             guard let key = services.agentTabs.tab(showing: id), let (tab, pane) = services.locateTab(key) else { return closed(.session, id) }
-            var preview = tabPreview(tab, pane: pane, services: services)
-            preview.kind = .session
-            return preview
+            return tabPreview(tab, pane: pane, services: services, kind: .session)
         case .chiefSession(let home, let session):
             guard let key = services.agentTabs.tab(showing: session, host: "chief:" + home),
                   let (tab, pane) = services.locateTab(key) else { return closed(.subagent, session) }
-            var preview = tabPreview(tab, pane: pane, services: services)
-            preview.kind = .subagent
-            return preview
-        case .legacyWorkspace, .legacyPane, .legacySurface:
-            return closed(kind, url.lastPathComponent)
+            return tabPreview(tab, pane: pane, services: services, kind: .subagent)
+        case .agent(let harness, let session): // the tab an agent link reveals (DeepLinkNavigator), never a new one
+            let shown = DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
+            guard let (tab, pane) = shown.lazy.compactMap({ services.locateTab($0) }).first else { return closed(.session, session) }
+            return tabPreview(tab, pane: pane, services: services, kind: .session)
+        case .legacyWorkspace, .legacyPane, .legacySurface: return closed(kind, url.lastPathComponent)
         }
     }
 
@@ -94,7 +94,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
     // MARK: Kinds
 
-    private func tabPreview(_ tab: TabModel, pane: PaneModel, services: AppServices) -> HomeLinkPreview {
+    private func tabPreview(_ tab: TabModel, pane: PaneModel, services: AppServices, kind chip: HomeLinkChipKind? = nil) -> HomeLinkPreview {
         let kind: HomeLinkChipKind
         var place = services.daemon(for: pane).store.workspace(containing: pane.handle)?.displayName
         if tab.agentSession != nil {
@@ -117,7 +117,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
                 kind = .tab
             }
         }
-        return HomeLinkPreview(kind: kind, title: TabTitleResolver(services: services).title(tab), place: place,
+        return HomeLinkPreview(kind: chip ?? kind, title: TabTitleResolver(services: services).title(tab), place: place,
                                status: HomeLinkPreviewStrings.open, statusTone: .success)
     }
 
