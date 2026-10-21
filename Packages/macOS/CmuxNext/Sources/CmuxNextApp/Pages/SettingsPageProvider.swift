@@ -16,7 +16,7 @@ import Observation
 @MainActor
 final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
-    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`).
+    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
