@@ -31730,7 +31730,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Chat as Read",
+      "title" : "Mark Chat as Read…",
       "title_key" : "action.sidebar.priority.markRead",
       "title_table" : "SidebarSectionActions"
     },
@@ -31758,7 +31758,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Pin or Unpin Chat in Priority",
+      "title" : "Pin\/Unpin Chat in Priority…",
       "title_key" : "action.sidebar.priority.togglePin",
       "title_table" : "SidebarSectionActions"
     },
@@ -31786,7 +31786,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Snooze Chat for 1 Hour",
+      "title" : "Snooze Chat for 1 Hour…",
       "title_key" : "action.sidebar.priority.snooze",
       "title_table" : "SidebarSectionActions"
     },
@@ -37417,6 +37417,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.priority.markRead",
           "kind" : "action",
+          "label" : "Mark as Read",
           "order" : 0,
           "visible_when" : {
             "debug_only" : false,
@@ -37443,6 +37444,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.priority.snooze",
           "kind" : "action",
+          "label" : "Snooze for 1 Hour",
           "order" : 2,
           "visible_when" : {
             "debug_only" : false,
