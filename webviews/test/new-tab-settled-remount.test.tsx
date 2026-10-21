@@ -118,3 +118,33 @@ test("a new page draws the rows another page read, then reads its own first page
   expect(reads).toBe(before + 1);
   expect(host.textContent).toContain("cg-fresh");
 });
+
+test("a chat deleted since another page read the list is gone after the new page's first read", async () => {
+  // The saved rows name a chat archived or deleted since: the first read replaces them, so the
+  // list never offers a chat that no longer opens (#22115 review).
+  const { resetSettledChatsForTests } = await import("../src/agent-session/acpmux/newtab/settledCache");
+  act(() => root!.unmount());
+  resetSettledChatsForTests({ keepStore: true });
+  page = { chats: [row("cg-fresh", 5)], ready: true };
+  await mountList();
+  await settle();
+  expect(host.textContent).toContain("cg-fresh");
+  expect(host.textContent).not.toContain("cg-steward-old");
+});
+
+test("a list mounted again with nothing changed since keeps its rows when a later push reads the first page", async () => {
+  // Only a first read over saved rows replaces them: a mount that read nothing leaves the list as
+  // any loaded list, whose later pages stay when a push reads the first page again (#22793 review).
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  act(() => root!.unmount());
+  const before = reads;
+  await mountList();
+  await settle();
+  expect(reads).toBe(before);
+  page = { chats: [row("cg-newer", 6)], ready: true };
+  act(() => setDeviceChats([{ key: "cg-newer", harness: "claude", updatedAt: 6 }]));
+  await settle();
+  expect(reads).toBe(before + 1);
+  expect(host.textContent).toContain("cg-newer");
+  expect(host.textContent).toContain("cg-fresh");
+});

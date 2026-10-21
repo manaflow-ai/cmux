@@ -116,7 +116,8 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-changes summary::-webkit-details-marker { display: none; }
 .cl-changes summary::before { content: "›"; display: inline-block; transition: transform 120ms ease; }
-.cl-changes[open] summary::before { transform: rotate(90deg); }
+.cl-changes[open] > summary::before,
+.cl-hood[open] > summary::before { transform: rotate(90deg); }
 .cl-changes summary:hover { color: var(--page-text); }
 .cl-count { font-variant-numeric: tabular-nums; }
 .cl-changes ul { margin: 6px 0 0; }
@@ -129,12 +130,16 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
-.cl-changes-internal {
-  margin: 3px 0 0;
+.cl-area { margin-top: 10px; }
+.cl-area h4 {
+  margin: 0;
   color: var(--page-text-3);
-  font-size: var(--text-detail);
-  line-height: var(--text-detail--line-height);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
 }
+.cl-area ul { margin-top: 2px; }
+.cl-hood { margin-top: 12px; }
 .cl-pr { flex: none; margin-left: auto; color: var(--page-text-3); text-decoration: none; font-variant-numeric: tabular-nums; }
 .cl-pr:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
 .cl-more {

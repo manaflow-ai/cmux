@@ -1,93 +1,104 @@
-// Another agent's message to this chat (incomingMessage.ts) as MessageCard draws one this agent
-// sent: sender to this agent, the message's first two lines, and the whole message once opened.
-// Opened, a Claude Code envelope also shows the prompt as the agent got it; a sender that is a
-// chat here opens beside this one.
-import { useId, useLayoutEffect, useRef, useState } from "react";
+// Another agent's message to this chat (incomingMessage.ts) as Claude desktop draws one: a quiet
+// line, "Received message from <sender> ›", never the person's bubble and never folded away. The
+// sender's name opens its chat beside this one when it is a chat here; › opens the message under
+// the line (and, for a Claude Code envelope, the prompt as the agent got it). Whether it is open
+// lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
+import { useContext, useId, useLayoutEffect, useState } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
 import { SentImages } from "./UserBubble";
-import { ArrowRight, ChevronDown, ChevronRight, Envelope, TerminalSquare } from "./icons";
+import { FindReveal } from "./chatFind";
+import { PromptMarksSession } from "../threadMinimap/promptMarks";
+import { ChevronRight, TerminalSquare } from "./icons";
 
-export function IncomingMessageCard({
+/// The messages the person opened, by chat and row (row ids repeat across chats).
+const opened = new Set<string>();
+
+export function IncomingMessageLine({
+  id,
   message,
   images,
   onOpen,
 }: {
+  /// The row's id, which keeps the line open across remounts.
+  id: string;
   message: IncomingMessage;
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const to = t("message.self");
-  // As MessageCard: a first guess, then the clamped body measures itself.
-  const [long, setLong] = useState(() => message.text.split("\n").length > 2 || message.text.length > 140);
-  const body = useRef<HTMLDivElement>(null);
-  const bodyId = useId();
+  const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
+  const [open, setOpen] = useState(() => opened.has(key));
+  const show = (next: boolean) => {
+    if (next) opened.add(key);
+    else opened.delete(key);
+    setOpen(next);
+  };
+  const toggle = () => show(!open);
+  // Find in Chat opens a closed message that holds its match, as a folded thought opens.
+  const reveal = useContext(FindReveal);
+  const hit = Boolean(
+    reveal && reveal.rowId === id && reveal.needle && message.text.toLocaleLowerCase().includes(reveal.needle),
+  );
   useLayoutEffect(() => {
-    const node = body.current;
-    if (!node || open) return;
-    const measure = () => setLong(node.scrollHeight > node.clientHeight + 1);
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [open, message.text]);
+    if (!hit) return;
+    show(true);
+    reveal?.repaint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+  }, [hit, reveal]);
+  const bodyId = useId();
+  // The name sits where the sentence puts it ("Received message from {title}").
+  const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sessionId = message.sessionId;
+  const label = t("message.label", { from: message.name, to: t("message.self") });
   return (
-    <div className="cv-message is-incoming">
-      <button
-        type="button"
-        className="cv-message__head"
-        aria-expanded={open}
-        aria-controls={bodyId}
-        aria-label={t("message.label", { from: message.name, to })}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <span className="cv-message__route">
-          <span className="cv-tool__icon">
-            <Envelope />
-          </span>
-          <span className="cv-message__party">{message.name}</span>
-          <ArrowRight size={12} className="cv-message__arrow" />
-          <span className="cv-message__party is-to">{to}</span>
-          <ChevronRight
-            size={14}
-            strokeWidth={1.2}
-            className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-          />
+    <div className="cv-received" data-open={open || undefined}>
+      <div className="cv-received__line">
+        {/* The sentence toggles too, for the pointer; the chevron is the control, and its label reads
+            the line. */}
+        <span className="cv-received__text" aria-hidden onClick={toggle}>
+          {before}
         </span>
-      </button>
-      <div ref={body} id={bodyId} className={`cv-message__body selectable${open ? "" : " is-clamped"}`}>
-        {message.text || t("message.noText")}
+        {sessionId ? (
+          <button
+            type="button"
+            className="cv-received__name"
+            aria-label={t("subagents.open", { name: message.name })}
+            onClick={() => onOpen(sessionId)}
+          >
+            {message.name}
+          </button>
+        ) : (
+          <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
+            {message.name}
+          </span>
+        )}
+        {after && (
+          <span className="cv-received__text" aria-hidden onClick={toggle}>
+            {after}
+          </span>
+        )}
+        <button
+          type="button"
+          className="cv-received__toggle"
+          aria-expanded={open}
+          aria-controls={open ? bodyId : undefined}
+          aria-label={label}
+          onClick={toggle}
+        >
+          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+        </button>
       </div>
-      {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
-      {(long || raw !== undefined || sessionId) && (
-        <div className="cv-message__foot">
-          {(long || raw !== undefined) && (
-            <button
-              type="button"
-              className="cv-message__more"
-              aria-expanded={open}
-              aria-controls={bodyId}
-              onClick={() => setOpen((value) => !value)}
-            >
-              {t(open ? "message.less" : "message.more")}
-              <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
-            </button>
-          )}
-          {sessionId && (
-            <button type="button" className="cv-message__more" onClick={() => onOpen(sessionId)}>
-              {t("subagents.open", { name: message.name })}
-            </button>
-          )}
+      {open && (
+        <div id={bodyId} className="cv-received__body selectable">
+          {message.text || t("message.noText")}
         </div>
       )}
       {open && raw !== undefined && <pre className="cv-tool-output selectable">{raw}</pre>}
+      {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>
   );
 }
