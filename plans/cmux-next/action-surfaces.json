@@ -763,7 +763,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Search Chats & Agents…",
+      "title" : "Search Everything…",
       "title_key" : "action.search.chats",
       "title_table" : "ActionCatalog"
     },
@@ -25225,6 +25225,34 @@
       "palette_suggested" : null,
       "title" : "Switch Update Channel…",
       "title_key" : "action.palette.switchAppChannel",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings rollback-update",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.rollback",
+      "main_menu" : "app",
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Roll Back to Previous Version…",
+      "title_key" : "action.updates.rollback",
       "title_table" : "ActionCatalog"
     },
     {

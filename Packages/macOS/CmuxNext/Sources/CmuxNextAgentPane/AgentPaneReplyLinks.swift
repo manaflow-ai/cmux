@@ -27,7 +27,13 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// Shows a folder (in Finder: nothing in it runs).
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Selects a file in Finder (the image viewer's Show in Finder).
+    public var revealFile: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
+    /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
+    public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
+    /// What the user's GitHub CLI says about a pull request (`pr.inspect`); nil when it can't say.
+    public var pullRequest: @MainActor (URL) async -> AgentPanePullRequest? = { _ in nil }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
@@ -36,6 +42,11 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     var home = NSHomeDirectory()
 
     public init() {}
+
+    /// `pr.inspect`'s reply: the pull request, or `null` when the host can't read it.
+    func respondToPullRequest(_ url: URL) async -> [String: Any] {
+        AgentPaneReply.success(["pullRequest": await pullRequest(url)?.json.foundationObject ?? NSNull()])
+    }
 }
 
 extension AgentPaneModel {
@@ -78,6 +89,8 @@ extension AgentPaneModel {
             return await loadReplyMedia(src)
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
+        case .inspectPullRequest(let url):
+            return await replyLinks.respondToPullRequest(url)
         case .openIn(let url, let browserId):
             if browserId == "cmux" {
                 guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
@@ -88,6 +101,7 @@ extension AgentPaneModel {
             guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
             replyLinks.browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
+        case .revealImage, .openImageInPane: return await AgentPaneImageCopies.respond(to: request, in: self)
         }
     }
 

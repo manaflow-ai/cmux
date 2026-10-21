@@ -221,8 +221,8 @@ final class PaneOverlayView: NSView {
         }
         Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
-            dimLayer.opacity = Float(dim)
         }
+        Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
         applyAttention(mark, animated: animated)
         applyColors()
     }
@@ -259,12 +259,13 @@ final class PaneOverlayView: NSView {
         }
         guard previous?.generation != mark.generation else { return }
         // A new notification: run the style's animation from the start and
-        // rest at its final opacity.
+        // rest at its final opacity (the steady ring swells from its rest when
+        // it already shows, rather than dropping out first).
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
+        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
