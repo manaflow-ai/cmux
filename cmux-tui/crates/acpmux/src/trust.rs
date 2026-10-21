@@ -8,9 +8,10 @@
 //! acpmux's own per-folder record (`<home>/trust.json`); level `unknown`
 //! clears it, so each agent's own level answers again.
 //!
-//! A folder in a git repository (`repository`) with no decision and no agent's own level
-//! takes its linked worktree's decision, else its repository's: "Trust this repo" answers
-//! every worktree of it once, and a worktree cmux makes for a chat is never asked about again.
+//! A folder in a git repository (`repository`) with no decision of its own takes its linked
+//! worktree's decision, else its repository's, and that answers it as its own would (before
+//! each agent's level): "Trust this repo" answers every worktree of it once, Not now holds in
+//! every one, and a worktree cmux makes for a chat is never asked about again.
 //! Nothing else is inherited: a decision for a plain folder covers that folder alone, and a
 //! repository at or above home (or with home unknown) is never answered as a whole.
 //!
@@ -229,14 +230,14 @@ fn answerable_whole(root: &Path, home: Option<&Path>) -> bool {
 }
 
 /// acpmux's decision for `cwd` and the folder it was made for: the folder's own; else its
-/// linked worktree's, else its repository's (`answerable_whole`), unless one of `agents` (each
-/// agent's own level for the folder, a more specific answer) holds the opposite.
+/// linked worktree's, else its repository's (`answerable_whole`). A person made each of them
+/// in cmux for this folder or the repository holding it, so it answers before any agent's own
+/// level, which may come from any folder above.
 fn decision(
     record: &BTreeMap<String, String>,
     cwd: &str,
     repo: Option<&Repository>,
     home: Option<&Path>,
-    agents: [Level; 2],
 ) -> Option<(String, Level)> {
     let at = |folder: &Path| {
         let folder = folder.to_str()?;
@@ -244,13 +245,7 @@ fn decision(
     };
     at(Path::new(cwd)).or_else(|| {
         let repo = repo.filter(|repo| answerable_whole(&repo.root, home))?;
-        let (folder, level) = repo.worktree.as_deref().and_then(at).or_else(|| at(&repo.root))?;
-        let opposite = match level {
-            Level::Trusted => Level::Untrusted,
-            Level::Untrusted => Level::Trusted,
-            Level::Unknown => return None,
-        };
-        (!agents.contains(&opposite)).then_some((folder, level))
+        repo.worktree.as_deref().and_then(at).or_else(|| at(&repo.root))
     })
 }
 
@@ -268,7 +263,7 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
     let repo = repository(Path::new(&cwd));
-    let found = decision(&read_record(&paths.record)?, &cwd, repo.as_ref(), home, [claude, codex]);
+    let found = decision(&read_record(&paths.record)?, &cwd, repo.as_ref(), home);
     let decided = found.as_ref().map(|(_, level)| *level);
     // The folder the decision was made for, when it is not this one: Undo forgets it there.
     let via = found.map(|(folder, _)| folder).filter(|folder| *folder != cwd);
@@ -601,35 +596,38 @@ mod scope_tests {
     }
 
     #[test]
-    fn a_repository_answer_never_overrules_an_agents_own_answer_for_the_folder() {
-        let (root, paths) = scratch("agent-own");
+    fn a_repository_answer_holds_over_agents_levels_from_folders_above() {
+        let (root, paths) = scratch("agent-above");
         let home = root.join("home");
         let main = home.join("Projects/app");
         let tree = home.join(".cmux/worktrees/app/fix-retry");
         repo_with_worktree(&main, &tree);
-        // Codex holds the worktree untrusted; Not now nowhere, Trust repo on the repository.
-        std::fs::write(
-            &paths.codex_config,
-            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", tree.display()),
-        )
-        .unwrap();
-        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
-        let reply = read(&paths, &tree, &home);
-        assert_eq!(reply["level"], "untrusted", "{reply}");
-        assert_eq!(reply["decided"], false, "{reply}");
-        // Claude Code trusted the worktree itself; Not now on the repository leaves that alone.
-        std::fs::write(&paths.codex_config, "").unwrap();
+        // Claude Code trusts every folder under home; Not now on the repository still holds in
+        // its worktrees, and no auto-trust rule answers over it.
         std::fs::write(
             &paths.claude_json,
             format!(
                 r#"{{"projects": {{"{}": {{"hasTrustDialogAccepted": true}}}}}}"#,
-                tree.display()
+                home.display()
             ),
         )
         .unwrap();
         set(&paths, &main.to_string_lossy(), "untrusted").unwrap();
-        assert_eq!(read(&paths, &tree, &home)["harnesses"]["claude"], "trusted");
-        assert_eq!(read(&paths, &tree, &home)["decided"], false);
+        let reply = read(&paths, &tree, &home);
+        assert_eq!(reply["level"], "untrusted", "{reply}");
+        assert_eq!(reply["decided"], true, "{reply}");
+        assert!(reply["auto"].is_null(), "{reply}");
+        // Codex holds home untrusted; Trust repo answers the worktree for every agent.
+        std::fs::write(&paths.claude_json, "").unwrap();
+        std::fs::write(
+            &paths.codex_config,
+            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", home.display()),
+        )
+        .unwrap();
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        let reply = read(&paths, &tree, &home);
+        assert_eq!(reply["level"], "trusted", "{reply}");
+        assert_eq!(reply["decided"], true, "{reply}");
         let _ = std::fs::remove_dir_all(&root);
     }
 

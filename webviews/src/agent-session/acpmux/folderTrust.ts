@@ -19,6 +19,8 @@ export type FolderTrust = {
   level: TrustLevel;
   harnesses?: HarnessTrust;
   decided?: boolean;
+  /// Why no question was asked (an auto-trust rule: `root`, `org`): no person answered.
+  auto?: string;
   via?: string;
   repo?: TrustRepo;
 };
@@ -45,6 +47,7 @@ export function readTrust(value: unknown): FolderTrust | undefined {
     level: reply.level as TrustLevel,
     ...(Object.keys(harnesses).length > 0 ? { harnesses } : {}),
     ...(typeof reply.decided === "boolean" ? { decided: reply.decided } : {}),
+    ...(typeof reply.auto === "string" && reply.auto ? { auto: reply.auto } : {}),
     ...(typeof reply.via === "string" && reply.via ? { via: reply.via } : {}),
     ...(repo && typeof repo.root === "string" && repo.root
       ? { repo: { root: repo.root, worktree: repo.worktree === true } }

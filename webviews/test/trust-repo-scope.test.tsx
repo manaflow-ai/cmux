@@ -210,4 +210,9 @@ test("the Access grant names where the answer lives: the repository, not the cha
     "Trusted the atlas-web repo and its worktrees",
   );
   expect(trustedLabel(t, { cwd: "/Users/you/Downloads/thing" })).toBe("Trusted thing");
+  // An auto-trust rule (or an agent's own level) trusted the repository's folder: no answer for
+  // the repository exists, so the grant names the folder.
+  expect(trustedLabel(t, { cwd: repoRoot, repo: { root: repoRoot, worktree: false }, recorded: false })).toBe(
+    "Trusted atlas-web",
+  );
 });

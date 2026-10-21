@@ -22,7 +22,8 @@ export type FolderTrustAsk = { cwd: string; repo?: TrustRepo; via?: string } & (
 
 /// Where the folder's answer lives, read or answered last: the trusted grant names it, and Undo
 /// forgets the answer there.
-export type TrustScope = { cwd: string; via?: string; repo?: TrustRepo };
+/// `recorded: false`: no answer of the person's holds it (an auto-trust rule, an agent's own level).
+export type TrustScope = { cwd: string; via?: string; repo?: TrustRepo; recorded?: false };
 
 /// The folder an answer for `ask` is recorded for: the repository when the folder is in one (one
 /// answer covers every worktree of it), else the folder.
@@ -101,7 +102,7 @@ function shownTrust(trust: FolderTrust, cwd: string, family: string | undefined,
           ? ({ ...scope, state: "decided", level } as FolderTrustAsk)
           : undefined,
     trusted: level === "trusted",
-    scope: scope as TrustScope,
+    scope: { ...scope, ...(trust.decided === false || trust.auto ? { recorded: false } : {}) } as TrustScope,
   };
 }
 

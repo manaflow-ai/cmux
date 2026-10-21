@@ -21,12 +21,13 @@ export function trustSubject(ask: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) 
 }
 
 /// What a trusted folder's answer says: through its repository, its worktree's root, the
-/// repository itself, or the folder.
-export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) {
+/// repository itself (only when a person's answer for it holds, not a rule's: `recorded`), or
+/// the folder.
+export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "repo" | "via"> & { recorded?: false }) {
   const { folder, repo, viaRepo, viaFolder, atRoot } = trustSubject(scope);
   if (viaRepo && repo) return t("trust.trustedViaRepo", { repo });
   if (viaFolder) return t("trust.trustedVia", { folder: viaFolder });
-  if (atRoot && repo) return t("trust.trustedRepo", { repo });
+  if (atRoot && repo && scope.recorded !== false) return t("trust.trustedRepo", { repo });
   return t("trust.trusted", { folder });
 }
 

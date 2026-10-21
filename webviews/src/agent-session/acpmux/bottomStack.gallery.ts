@@ -187,7 +187,7 @@ const trusted: Play = async (ctx) => {
   geometry(ctx);
 };
 // The chat's folder is a repository: the pane offers Trust repo first (one answer for every
-// worktree of it), and once trusted the Access grant names the repository.
+// worktree of it), and the answer clears the question for the permission card.
 const repoNative = {
   "acp.trust.get": { cwd: CWD, level: "unknown", repo: { root: CWD, worktree: false } },
   "acp.trust.set": { cwd: CWD, level: "trusted" },
