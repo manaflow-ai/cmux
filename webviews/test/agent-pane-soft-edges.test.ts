@@ -124,14 +124,15 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Whether each edge of the scroller fades (a mask with that edge's 18px ramp), and its box, which must not move.
+  /// Whether each edge of the scroller fades (a mask with a ramp on that edge: 18px, or 56px at the foot
+  /// while Jump to latest stands there), and its box, which must not move.
   const edges = (page: Page) =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const style = getComputedStyle(node);
       const mask = style.maskImage || style.webkitMaskImage || "none";
       const fades = (edge: string) =>
-        mask !== "none" && style.getPropertyValue(`--acpmux-fade-${edge}`).trim() === "18px";
+        mask !== "none" && parseFloat(style.getPropertyValue(`--acpmux-fade-${edge}`)) > 0;
       const box = node.getBoundingClientRect();
       return {
         top: fades("top"),

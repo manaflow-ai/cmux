@@ -275,6 +275,12 @@ impl Hub {
         if let Some(agent) = p.agent {
             queued["fromAgent"] = json!(agent);
         }
+        // Its images are kept now and named, so its row shows them before it runs
+        // (`prompt_images.rs`).
+        let images = super::prompt_images::keep(p.blocks);
+        if !images.is_empty() {
+            queued["images"] = Value::Array(images);
+        }
         self.append(
             session,
             "mux",
