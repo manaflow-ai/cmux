@@ -192,7 +192,8 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac(machine.remoteFolders == nil)
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .warmedOnThisMac(machine.remoteFolders == nil)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -203,8 +204,11 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac()
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services)).warmedOnThisMac()
     }
+
+    /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
+    static func showsAllChats(_ services: AppServices) -> Bool { services.settings?.snapshot.sidebarSections.showChats ?? true }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
     static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
@@ -309,6 +313,13 @@ extension AgentPaneNewTab {
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
         return page
     }
 }
