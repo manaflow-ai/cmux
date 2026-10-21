@@ -1,8 +1,10 @@
-// Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`), Claude Code's SendMessage and
-// cmux-sessions' send_to_session. The transcript draws
-// them as message cards (MessageCard.tsx) instead of raw shell or JSON.
+// Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`,
+// `acpmux send --no-wait`, a write into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`),
+// Claude Code's SendMessage, cmux-sessions' send_to_session and the acpmux server's send
+// (`acpmux_send` behind the cmux server). The transcript draws them as message cards
+// (MessageCard.tsx) instead of raw shell or JSON.
 import type { AcpmuxActivity } from "../model";
+import { mcpCall } from "./mcpCalls";
 
 /// How the message went out, for the card's quiet label.
 export type AgentMessageChannel = "coordinator" | "terminal" | "mailbox" | "agent";
@@ -38,6 +40,16 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
     typeof input.session === "string"
   )
     return { channel: "agent", to: input.session, text: oneMessage(typeof input.text === "string" ? input.text : "") };
+  // The acpmux MCP server's send (acpmux_mcp.rs): `acpmux_send` behind the cmux server
+  // (`mcp__cmux__acpmux_send`, Codex's `{server: "cmux", tool: "acpmux_send"}`), `send` on the
+  // acpmux server itself, or the tool's bare or dotted name.
+  const acpmux = acpmuxSendArgs(tool);
+  if (acpmux && typeof acpmux.to === "string" && acpmux.to.trim())
+    return {
+      channel: "agent",
+      to: acpmux.to.trim(),
+      text: oneMessage(typeof acpmux.text === "string" ? acpmux.text : ""),
+    };
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
   const diffs = tool.diffs ?? [];
@@ -49,6 +61,18 @@ export function agentMessage(tool: Tool): AgentMessage | undefined {
       return { channel: "mailbox", to, text: oneMessage(diff.newText.slice(before.length)) };
   }
   return undefined;
+}
+
+function acpmuxSendArgs(tool: Tool): Record<string, unknown> | undefined {
+  const call = mcpCall(tool);
+  if (call) {
+    const named =
+      (call.server === "cmux" && call.tool === "acpmux_send") || (call.server === "acpmux" && call.tool === "send");
+    return named && call.args && typeof call.args === "object" && !Array.isArray(call.args)
+      ? (call.args as Record<string, unknown>)
+      : undefined;
+  }
+  return /^(?:cmux\.)?acpmux_send$/.test(tool.title.trim()) ? parseInput(tool.inputSummary) : undefined;
 }
 
 function parseInput(summary: string | undefined): Record<string, unknown> | undefined {
@@ -104,8 +128,11 @@ export function commandMessage(command: string): AgentMessage | undefined {
 
 /// One step's message, with `input` the text a here-document or piped echo gives it.
 function stepMessage(words: string[], redirects: string[], input: string | undefined): AgentMessage | undefined {
+  words = withoutTimeout(words);
   const program = words[0]?.split("/").pop();
   if (program === "tell-coordinator") return coordinatorMessage(words.slice(1), input);
+  if (program === "acpmux" && (words[1] === "send" || words[1] === "prompt"))
+    return acpmuxMessage(words.slice(2), input);
   if ((program === "cmux" || program === "cmux-debug-cli.sh") && words[1] === "send")
     return sendMessage(words.slice(2));
   // `echo … >> coordinator-inbox/leo.jsonl` or `… | tee -a coordinator-inbox/leo.jsonl`. A write
@@ -140,6 +167,46 @@ function coordinatorMessage(args: string[], input: string | undefined): AgentMes
   const text = args.slice(index).join(" ");
   message.text = oneMessage(text === "-" || !text ? (input ?? "") : text);
   return message;
+}
+
+/// `timeout [OPTIONS] DURATION COMMAND…`: the command it runs.
+function withoutTimeout(words: string[]): string[] {
+  if (words[0]?.split("/").pop() !== "timeout") return words;
+  let index = 1;
+  while (words[index]?.startsWith("-")) index += /^(?:-[sk]|--signal|--kill-after)$/.test(words[index]!) ? 2 : 1;
+  return words.slice(index + 1);
+}
+
+/// `acpmux send` options that take a value.
+const ACPMUX_SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from"]);
+
+/// `acpmux send --no-wait [OPTIONS] SESSION TEXT|-`. A send without `--no-wait` waits for the
+/// reply and prints it: the command row keeps that conversation.
+function acpmuxMessage(args: string[], input: string | undefined): AgentMessage | undefined {
+  const rest: string[] = [];
+  let noWait = false;
+  let from: string | undefined;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!;
+    if (rest.length || !word.startsWith("-") || word === "-") {
+      rest.push(word);
+      continue;
+    }
+    if (word === "-h" || word === "--help") return undefined;
+    if (word === "--no-wait") noWait = true;
+    const name = word.split("=")[0]!;
+    if (ACPMUX_SEND_VALUES.has(name) && !word.includes("=")) index++;
+    if (name === "--from") from = word.includes("=") ? word.slice(name.length + 1) : args[index];
+  }
+  const [to, ...text] = rest;
+  if (!noWait || !to) return undefined;
+  const body = text.join(" ");
+  return {
+    channel: "agent",
+    to,
+    ...(from ? { from } : {}),
+    text: oneMessage(body === "-" || !body ? (input ?? "") : body),
+  };
 }
 
 /// `cmux send [--workspace W] [--surface S] TEXT`: typed into another terminal, usually another agent's.
