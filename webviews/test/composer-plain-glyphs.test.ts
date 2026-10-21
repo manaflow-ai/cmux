@@ -40,8 +40,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
-  const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
+  const stageURL = (entry: string, variant: string, accent?: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha", accent })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -70,9 +70,9 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
         ),
     );
 
-  const open = async (engine: string, entry: string, variant: string) => {
+  const open = async (engine: string, entry: string, variant: string, accent?: string) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
-    await page.goto(stageURL(entry, variant));
+    await page.goto(stageURL(entry, variant, accent));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
@@ -130,7 +130,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
                 stroke: stroke ? getComputedStyle(stroke).strokeWidth : "",
               }
             : null,
-          inBox: r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5,
+          inBox:
+            r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5,
         };
       },
       { selector, box },
@@ -228,7 +229,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
     });
 
     test(`${engine}: the Esc-armed Stop keeps its glyph and footprint, cued by its color`, async () => {
-      const page = await open(engine, "agent-pane.composer", "working");
+      // A theme with an accent (the app's "magenta"): a neutral theme's accent is its text color.
+      const page = await open(engine, "agent-pane.composer", "working", "magenta");
       await page.locator(`${CHAT_BOX} .acpmux-md`).first().click();
       const rest = await look(page, `${CHAT_BOX} .acpmux-cancel`, CHAT_BOX);
       await page.keyboard.press("Escape");
@@ -239,7 +241,8 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       const problems: string[] = [];
       if (!clear(armed.fill)) problems.push(`the armed Stop is filled ${armed.fill}`);
       if (!armed.glyph) problems.push("the armed Stop draws no glyph");
-      if (Math.abs(armed.width - rest.width) > 0.5) problems.push(`the armed Stop widens ${rest.width} -> ${armed.width}`);
+      if (Math.abs(armed.width - rest.width) > 0.5)
+        problems.push(`the armed Stop widens ${rest.width} -> ${armed.width}`);
       if (armed.color === rest.color) problems.push("the armed Stop looks the same as Stop");
       expect(problems).toEqual([]);
     });
@@ -256,6 +259,5 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       if (ready.color !== ready.text) problems.push(`Send with a draft is ${ready.color}, not the text ${ready.text}`);
       expect(problems).toEqual([]);
     });
-
   }
 });

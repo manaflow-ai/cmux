@@ -43,7 +43,11 @@ const SEND = /\.acpmux-(?:send|cancel|steer-now)\b/;
 /** A selector of the list that names Send, Stop or ↵ itself (not a descendant of it). */
 const namesSend = (selector: string) =>
   selector.split(",").filter((part) => {
-    const last = part.trim().split(/\s+|>|\+|~/).at(-1) ?? "";
+    const last =
+      part
+        .trim()
+        .split(/\s+|>|\+|~/)
+        .at(-1) ?? "";
     return SEND.test(last);
   });
 const background = (body: string) => /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/.exec(body)?.[1]?.trim();
@@ -86,7 +90,8 @@ test("the disc's colors are gone, and the off Send is the dimmed text color", ()
   expect(Number(off![1])).toBeLessThanOrEqual(60);
   // The empty draft's Send and Send turned off share that one color.
   const offRules = [...rules(styles), ...rules(sheet("composerStates.css"))].filter(
-    ({ selector }) => /\.acpmux-send(?::not\([^)]*\))*:not\(\.acpmux-send-ready\)/.test(selector) && !/:hover/.test(selector),
+    ({ selector }) =>
+      /\.acpmux-send(?::not\([^)]*\))*:not\(\.acpmux-send-ready\)/.test(selector) && !/:hover/.test(selector),
   );
   expect(offRules.length).toBeGreaterThan(0);
   for (const { body } of offRules) expect(body).toMatch(/color: ?var\(--acpmux-send-off-fg\)/);
