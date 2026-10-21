@@ -554,6 +554,54 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
     assert_eq!(h.brain.spawn_policy(), None);
 }
 
+/// "Allow for this turn" that only answers a subagent's card does not cover
+/// the running turn: the owner never saw a card from it.
+#[test]
+fn allow_for_this_turn_on_a_subagents_card_leaves_the_turn_asking() {
+    let mut h = harness(started());
+    h.agents.hold(true);
+    deliver(&mut h, true, "start an agent that cleans the cache");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(ask_child(
+            "running",
+        ))));
+    h.brain.step(permission_of(
+        "c1",
+        "p9",
+        "Bash",
+        json!({"command": "rm -rf ~/.cache"}),
+    ));
+    deliver(&mut h, true, "allow for this turn");
+    assert!(h.agents.inner.lock().unwrap().responses.contains(&(
+        "c1".into(),
+        "p9".into(),
+        Some("allow".into())
+    )));
+    // The turn's own shell call still waits for a person.
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    assert!(
+        !h.agents
+            .inner
+            .lock()
+            .unwrap()
+            .responses
+            .iter()
+            .any(|r| r.1 == "p1"),
+        "the turn's shell call waits"
+    );
+    assert!(sends(&h).last().unwrap().contains("rm -rf target"));
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle();
+}
+
 /// Security floor for section 9's host-served `spawn`: a subagent spawned
 /// during a remote-origin (ask) turn runs with policy ask and carries
 /// `optchat.policy=ask`; its shell call waits for a person, asked in the

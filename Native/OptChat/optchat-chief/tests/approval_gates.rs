@@ -742,6 +742,7 @@ fn a_typed_answer_is_read_loosely_and_never_swallows_a_real_message() {
         ("Allow for 2 hours", 2 * hour),
         ("allow 30m", 30 * 60 * 1000),
         ("allow for 15 min", 15 * 60 * 1000),
+        ("allow for 1h 30m", hour + 30 * 60 * 1000),
     ] {
         assert_eq!(Reply::parse(text), allow(Scope::For(ms)), "{text:?}");
     }
@@ -755,6 +756,7 @@ fn a_typed_answer_is_read_loosely_and_never_swallows_a_real_message() {
         "no idea, look at CI",
         "ok so what about the build",
         "allow for",
+        "allow for 0h",
         "",
     ] {
         assert_eq!(Reply::parse(text), None, "{text:?}");
