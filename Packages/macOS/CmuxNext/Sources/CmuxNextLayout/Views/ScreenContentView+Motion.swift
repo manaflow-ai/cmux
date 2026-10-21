@@ -44,7 +44,7 @@ extension ScreenContentView {
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
-        if closing, !panesMoving { closing = false }
+        if holdsGrids, !panesMoving { holdsGrids = false }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: cameraSpring, epsilon: 0.25) {
                 moving = true
