@@ -51,7 +51,11 @@ describe("image-only paragraphs", () => {
     ["https image as a Markdown image", `![Tabs](${PR_MEDIA})`, [[PR_MEDIA, "Tabs"]]],
     ["data URL image", "![dot](data:image/png;base64,AAAA)", [["data:image/png;base64,AAAA", "dot"]]],
     ["a sentence is not image-only", "See /tmp/a.png for the result", undefined],
-    ["a sentence ending in a colon is prose, not a label", "I saved the new sidebar screenshot here: /tmp/a.png", undefined],
+    [
+      "a sentence ending in a colon is prose, not a label",
+      "I saved the new sidebar screenshot here: /tmp/a.png",
+      undefined,
+    ],
     ["a sentence before a Markdown image is prose", "Here is what it looks like now: ![](/tmp/a.png)", undefined],
     ["a two-word label", "Dark mode: /tmp/a.png", [["/tmp/a.png", "Dark mode"]]],
     ["a non-image path", "/tmp/build.log", undefined],

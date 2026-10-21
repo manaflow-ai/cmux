@@ -41,7 +41,11 @@ export function imageOnlyItems(text: string): ThumbItem[] | undefined {
       IMAGE_TOKEN.lastIndex = at;
       const match = IMAGE_TOKEN.exec(line);
       if (!match || match[0].length === 0) return undefined;
-      const label = match[1]?.replace(/^(?:\*\*|__)|(?:\*\*|__)$/g, "").replace(/:$/, "").trim() || undefined;
+      const label =
+        match[1]
+          ?.replace(/^(?:\*\*|__)|(?:\*\*|__)$/g, "")
+          .replace(/:$/, "")
+          .trim() || undefined;
       const src = match[3] ?? bareImageSource(match[4]!);
       if (!src) return undefined;
       items.push({ src, alt: match[2] || label || "", ...(label ? { label } : {}) });
