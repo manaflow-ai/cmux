@@ -3,6 +3,20 @@
 
 use super::*;
 
+/// Most terminal-host handshakes a daemon start runs at once.
+#[cfg(any(unix, windows))]
+const MAX_PARALLEL_HANDSHAKES: usize = 16;
+
+/// A live host whose durable row passed every startup check: its handshake
+/// runs in [`Mux::adopt_handshakes_in_parallel`].
+#[cfg(any(unix, windows))]
+struct PendingHandshake {
+    terminal_id: String,
+    record: crate::terminal_host_runtime::TerminalHostRecord,
+    record_path: std::path::PathBuf,
+    restored_binding: Option<RestoredTerminalBinding>,
+}
+
 impl Mux {
     #[cfg(any(unix, windows))]
     pub(super) fn restored_terminal_binding(
@@ -87,6 +101,7 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        let mut handshakes = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
@@ -267,13 +282,40 @@ impl Mux {
                 continue;
             }
             let restored_binding = self.restored_terminal_binding(&terminal_id)?;
-            // Bound startup head-of-line blocking per host. One handshake is
-            // enough for healthy hosts; live or indeterminate failures
-            // continue on the asynchronous adoption loop instead of retrying
-            // serially ahead of every later terminal.
-            let adopted = self
-                .adopt_restored_terminal(restored_binding, &options, &record, &record_path)
-                .ok();
+            // Every path after the handshake marks it handled; marking it now
+            // keeps a second record of the same terminal out of this pass.
+            handled_terminals.insert(terminal_id.clone());
+            handshakes.push(PendingHandshake { terminal_id, record, record_path, restored_binding });
+        }
+
+        // The handshakes (connect, then replay the host's snapshot into the
+        // mirror) are independent per host and are most of a handoff's time:
+        // run them at once on a few threads (perf100: 113 terminals adopted
+        // one at a time kept every terminal blank for 8-20 s after an
+        // update). Their results then commit in record order, exactly as the
+        // serial loop did, so every registry and topology decision is
+        // unchanged. Bound startup head-of-line blocking per host: one
+        // handshake is enough for healthy hosts; live or indeterminate
+        // failures continue on the asynchronous adoption loop instead of
+        // retrying serially ahead of every later terminal.
+        // Ends the Kitty owner floor when the commits are done, also on an
+        // early error.
+        struct KittyOwnerFloor(Option<Arc<Mux>>);
+        impl Drop for KittyOwnerFloor {
+            fn drop(&mut self) {
+                if let Some(mux) = self.0.take() {
+                    mux.set_kitty_image_owner_floor(0);
+                }
+            }
+        }
+        let mut kitty_floor = KittyOwnerFloor(None);
+        if handshakes.len() > 1 {
+            self.set_kitty_image_owner_floor(handshakes.len());
+            kitty_floor.0 = Some(self.clone());
+        }
+        let adopted = self.adopt_handshakes_in_parallel(&options, &mut handshakes);
+        for (handshake, adopted) in handshakes.into_iter().zip(adopted) {
+            let PendingHandshake { terminal_id, record, record_path, .. } = handshake;
             let surface = match adopted {
                 Some(surface) => surface,
                 None => {
@@ -335,6 +377,9 @@ impl Mux {
             self.reap_if_dead(&surface);
         }
 
+        // Every adopted surface is committed (or gone): the budget follows
+        // the real owners again.
+        drop(kitty_floor);
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
 
         // No launcher survives a daemon restart. A durable lifecycle row
@@ -360,6 +405,72 @@ impl Mux {
             )?;
         }
         Ok(())
+    }
+
+    /// Adopt every pending handshake's host, several at once, and return
+    /// the results in the same order (`None`: the handshake failed).
+    #[cfg(any(unix, windows))]
+    fn adopt_handshakes_in_parallel(
+        self: &Arc<Self>,
+        options: &SurfaceOptions,
+        handshakes: &mut [PendingHandshake],
+    ) -> Vec<Option<Arc<Surface>>> {
+        let count = handshakes.len();
+        // A handshake mostly waits on its host (another process builds and
+        // sends the snapshot), so the worker count does not follow the cores.
+        let workers = MAX_PARALLEL_HANDSHAKES.min(count);
+        // Test seam: a slow host handshake (debug builds only).
+        #[cfg(debug_assertions)]
+        let test_delay = std::env::var("CMUX_TUI_TEST_ADOPT_HANDSHAKE_DELAY_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(|ms| Duration::from_millis(ms.min(5_000)));
+        type Job<'a> = Mutex<Option<(Option<RestoredTerminalBinding>, &'a PendingHandshake)>>;
+        let jobs: Vec<Job<'_>> =
+            handshakes
+                .iter_mut()
+                .map(|handshake| {
+                    let binding = handshake.restored_binding.take();
+                    Mutex::new(Some((binding, &*handshake)))
+                })
+                .collect();
+        let results: Vec<Mutex<Option<Arc<Surface>>>> =
+            (0..count).map(|_| Mutex::new(None)).collect();
+        let next = AtomicUsize::new(0);
+        let work = || {
+            loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(job) = jobs.get(index) else { return };
+                let Some((binding, handshake)) = job.lock().unwrap().take() else { continue };
+                #[cfg(debug_assertions)]
+                if let Some(delay) = test_delay {
+                    std::thread::sleep(delay);
+                }
+                let adopted = self
+                    .adopt_restored_terminal(
+                        binding,
+                        options,
+                        &handshake.record,
+                        &handshake.record_path,
+                    )
+                    .ok();
+                *results[index].lock().unwrap() = adopted;
+            }
+        };
+        if workers <= 1 {
+            work();
+        } else {
+            std::thread::scope(|scope| {
+                for _ in 1..workers {
+                    // A worker that cannot start leaves its jobs to the others.
+                    let _ = std::thread::Builder::new()
+                        .name("terminal-adopt-handshake".into())
+                        .spawn_scoped(scope, work);
+                }
+                work();
+            });
+        }
+        results.into_iter().map(|result| result.into_inner().unwrap()).collect()
     }
 
     /// Complete an adopted template terminal (complete_template_adoption),

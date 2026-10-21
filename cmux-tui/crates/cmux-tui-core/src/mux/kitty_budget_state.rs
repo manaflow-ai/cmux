@@ -101,6 +101,12 @@ pub(super) struct KittyImageBudgetState {
     pub(super) capacity: usize,
     pub(super) worker_running: bool,
     pub(super) expansion_in_flight: bool,
+    /// While a daemon start adopts many hosts at once: the owner count the
+    /// capacity is sized for at least, so reservations made side by side
+    /// get their final share at once. A reservation not yet committed
+    /// cannot be shrunk, and each one that changed the bucket used to wait
+    /// out KITTY_RESERVATION_WAIT and start with graphics disabled.
+    pub(super) owner_floor: usize,
 }
 
 pub(super) struct PendingKittyImageBudgetOperation {

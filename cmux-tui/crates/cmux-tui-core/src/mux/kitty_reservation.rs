@@ -12,6 +12,23 @@ use super::*;
 const KITTY_RESERVATION_WAIT: Duration = Duration::from_millis(500);
 
 impl Mux {
+    /// Size the Kitty budget for `extra` more owners before reserving them
+    /// side by side ([`KittyImageBudgetState::owner_floor`]); `0` ends it.
+    pub(super) fn set_kitty_image_owner_floor(self: &Arc<Self>, extra: usize) {
+        {
+            let mut budget = self.kitty_image_budget.lock().unwrap();
+            budget.owner_floor = if extra == 0 {
+                0
+            } else {
+                (Self::kitty_image_budget_owner_count(&budget) + extra)
+                    .min(KITTY_IMAGE_BUDGET_OWNER_LIMIT)
+            };
+            Self::rebalance_kitty_image_budget_owners(&mut budget);
+            self.kitty_image_budget_changed.notify_all();
+        }
+        self.start_kitty_image_budget_worker();
+    }
+
     pub(crate) fn reserve_kitty_image_surface(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -27,7 +44,10 @@ impl Mux {
             let owns_quota =
                 budget.blocked_surfaces.is_empty() && owner_count < KITTY_IMAGE_BUDGET_OWNER_LIMIT;
             if owns_quota {
-                budget.capacity = kitty_image_budget_capacity(owner_count + 1, budget.capacity);
+                budget.capacity = kitty_image_budget_capacity(
+                    (owner_count + 1).max(budget.owner_floor),
+                    budget.capacity,
+                );
             }
             budget.entries.insert(
                 surface,

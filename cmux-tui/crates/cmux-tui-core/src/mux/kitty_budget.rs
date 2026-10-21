@@ -216,7 +216,7 @@ impl Mux {
             }
         }
         budget.capacity = kitty_image_budget_capacity(
-            Self::kitty_image_budget_owner_count(budget),
+            Self::kitty_image_budget_owner_count(budget).max(budget.owner_floor),
             budget.capacity,
         );
     }
