@@ -57,6 +57,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     var barOrder: TabBarOrder = .aboveToolbar {
         didSet { if barOrder != oldValue { updateBand() } }
     }
+    /// A browser's or page's omnibar row at the top or bottom (`browser.toolbarPosition`).
+    var toolbarPosition: ToolbarPosition = .top
     /// The browser whose header band the strip uses (`PaneContentView+Band`).
     weak var bandHost: (any PaneHeaderBandHosting)?
     /// The strip's constraints to that band; empty while it is not pinned.

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 
 /// A page tab's content: the provider's view filling the pane, under the
@@ -13,6 +14,8 @@ final class InternalPageView: NSView {
     let content: NSView
     /// The native bar above the content; it sets its own height.
     let topBar: NSView?
+    /// The edge `topBar` sits on (`browser.toolbarPosition`).
+    var toolbarPosition: ToolbarPosition = .top
 
     init(key: String, page: InternalPageID, content: NSView, topBar: NSView? = nil) {
         self.key = key
@@ -69,3 +72,5 @@ final class InternalPageView: NSView {
         navigate(event.deltaX > 0)
     }
 }
+
+extension InternalPageView: ToolbarEdgeHosting {}

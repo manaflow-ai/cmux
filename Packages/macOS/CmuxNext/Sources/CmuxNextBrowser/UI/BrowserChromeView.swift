@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextIcons
 
 /// A browser pane: toolbar (back, forward, reload, omnibox, extension slot),
@@ -98,6 +98,8 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
+    public var toolbarPosition: ToolbarPosition = .top
     /// The person hid this tab's address bar row (Toggle Omnibar).
     public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
