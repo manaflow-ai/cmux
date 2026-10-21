@@ -283,11 +283,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
-            let cwd = new_session_cwd(args.host.as_deref(), args.cwd.clone())?;
+            let launch = launch::Launch::prepare(&args)?;
+            let cwd = match &launch.worktree {
+                Some((_, repo)) => repo.clone(),
+                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
+            };
             let client = connect(true).await?;
-            if let Some(n) = &args.name {
-                crate::session_name::validate(n).map_err(|e| anyhow!(e))?;
-            }
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -302,7 +303,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(h) = &args.host {
                 meta["peer"] = json!(h);
             }
-            if let Some(n) = &args.name {
+            if let Some(n) = &launch.name {
                 meta["name"] = json!(n);
             }
             if let Some(p) = &args.policy {
@@ -314,26 +315,95 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            if let Some((w, _)) = &launch.worktree {
+                meta["worktree"] = w.clone();
+            }
+            // A session of this name already running is the one asked for:
+            // found before the create, or after losing the create to another
+            // launcher with the same name.
+            let key = launch.name.as_ref().map(|n| match &args.host {
+                Some(h) => format!("{h}/{n}"),
+                None => n.clone(),
+            });
+            let mut reused = None;
+            if launch.reuse
+                && let Some(key) = &key
+            {
+                reused = launch::existing(&client, key).await?;
+            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             p["cwd"] = json!(cwd);
-            let v = client.request(method::SESSION_NEW, p).await?;
+            let v = match reused.clone() {
+                Some(info) => info,
+                None => match client.request(method::SESSION_NEW, p).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let found = match &key {
+                            Some(key) if launch.reuse && launch::name_taken(&e) => {
+                                launch::existing(&client, key).await?
+                            }
+                            _ => None,
+                        };
+                        reused = Some(found.ok_or(e)?);
+                        reused.clone().unwrap_or_default()
+                    }
+                },
+            };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-            let name =
-                v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
+            let name = v
+                .pointer("/_meta/acpmux/name")
+                .or_else(|| v.get("name"))
+                .and_then(Value::as_str)
+                .unwrap_or(&id)
+                .to_owned();
+            let show = || match &args.group {
+                Some(group) => {
+                    launch::show_in_group(&id, launch.title.as_deref().unwrap_or(&name), group)
+                }
+                None => Ok(()),
+            };
+            if let Some(info) = &reused {
+                launch::check_reusable(info, &name, launch.worktree.is_some())?;
+                // Its first prompt went with the first run; it is not sent twice.
+                show()?;
+                if json_out {
+                    let mut info = info.clone();
+                    info["reused"] = json!(true);
+                    print_json(&info);
+                } else {
+                    println!(
+                        "reused {name} ({}): it already runs, so the prompt was not sent again; \
+                         use `acpmux send {name}` to give it more",
+                        &id[..8.min(id.len())]
+                    );
+                }
+                return Ok(());
+            }
+            let first = launch.first_prompt(&args, &v);
+            // A detached launch only queues its prompt, with --json too.
+            let one_shot = first.is_some()
+                && (args.quiet || json_out || args.ephemeral)
+                && !(args.detach && launch.launches());
             if json_out && !one_shot {
-                let info = client
+                let mut info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
                     .await
                     .unwrap_or(v.clone());
+                if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
+                    info["worktree"] = w.clone();
+                }
                 print_json(&info);
             } else if !one_shot {
                 println!("created {name} ({})", &id[..8.min(id.len())]);
+                if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
+                    let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
+                    println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));
+                }
             }
-            if !args.prompt.is_empty() {
-                let text = args.prompt.join(" ");
+            if let Some(text) = first {
                 let prompt = PromptId::new(args.prompt_id.clone());
                 if one_shot {
+                    show()?;
                     let opts = CollectOpts {
                         timeout: args.timeout,
                         on_permission: OnPermission::parse(&args.on_permission)?,
@@ -357,9 +427,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     return Ok(());
                 }
                 if args.detach {
+                    // The prompt is queued before the sidebar step, so a
+                    // session never runs without its instructions.
                     queue_prompt(client, &id, &text, false, None, &prompt).await?;
-                    return Ok(());
+                    return show();
                 }
+                show()?;
                 let opts = CollectOpts {
                     timeout: args.timeout,
                     on_permission: OnPermission::parse(&args.on_permission)?,
@@ -379,6 +452,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 )
                 .await;
             }
+            show()?;
             if args.detach || json_out {
                 return Ok(());
             }
