@@ -156,3 +156,7 @@ mod stream_lifetime_tests;
 #[cfg(test)]
 #[path = "host_handshake_lifetime_tests.rs"]
 mod handshake_lifetime_tests;
+
+#[cfg(test)]
+#[path = "host_elapsed_transport_tests.rs"]
+mod elapsed_transport_tests;
