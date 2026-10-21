@@ -2088,7 +2088,9 @@ class MainDispatch(unittest.TestCase):
 class SweepAPI:
     """The sweeper's own reads: marker listings and the runs they name."""
 
-    def __init__(self, runs, *, picker=(), late=(), refusals=(), created=0, attempt_jobs=None):
+    def __init__(self, runs, *, picker=(), late=(), refusals=(), created=0, attempt_jobs=None, failed=()):
+        self.failed = list(failed)  # failed side-lane run ids (failed_runs())
+        self.failed_listings = 0
         self.runs = {run["id"]: run for run in runs}
         self.marked = {rescue.WATCH_MARKER: list(picker), rescue.LATE_WATCH_MARKER: list(late),
                        rescue.REFUSALS_WATCH_MARKER: list(refusals)}
@@ -2104,6 +2106,10 @@ class SweepAPI:
     def owned_reruns(self, count):
         return [(run["id"], int(run["run_attempt"])) for run in self.runs.values()
                 if run.get("status") != "completed" and rescue.owned_rerun(run)][:count]
+
+    def failed_runs(self, count, oldest, since=None, pages=1):
+        self.failed_listings += 1
+        return [(run_id, int(self.runs[run_id]["run_attempt"])) for run_id in self.failed][:count * pages]
 
     def run(self, run_id):
         self.reads.append(run_id)
@@ -2244,6 +2250,55 @@ class Sweeper(unittest.TestCase):
             rescue.sweep(api, "manaflow-ai/cmux", seconds=90, queue_rounds="0", now=clock.now,
                          log=lambda text: None, sweep_seconds=120, tick_seconds=60, wait=clock.sleep)
         self.assertEqual(sorted(targets), [(1, 2, True, 60), (2, 2, False, 0)])
+
+    def test_a_failed_side_lane_run_is_adopted_without_a_marker(self):
+        # Run 39638669325, 2026-10-21: cmux-next-base-autofix.yml's push run on feat-cmux-next. A mini refused
+        # its Mac exports job at job start and the run failed; the workflow uploads no marker, so before this
+        # listing no sweeper looked at it.
+        autofix = dict(path=".github/workflows/cmux-next-base-autofix.yml", event="push", pull_requests=[],
+                       head_branch="feat-cmux-next", status="completed", conclusion="failure",
+                       updated_at=stamp(-60))
+        api = SweepAPI([listed(1, **autofix), listed(2, **dict(autofix, run_attempt=2)),
+                        listed(3, **dict(autofix, run_attempt=3)), listed(4, path=".github/workflows/cmux-next.yml",
+                                                                          status="completed", conclusion="failure",
+                                                                          updated_at=stamp(-60))],
+                       picker=[4], failed=[1, 2, 3, 4])
+        # Attempts 1 and 2 are watched once each; attempt 3 has had its owned retries; the marked run 4 is
+        # already watched through its marker.
+        self.assertEqual(self.sweep(api, ticks=rescue.SIDE_FAILURE_TICKS + 1)[0],
+                         [(1, 1, False), (2, 2, False), (4, 1, False)])
+        # One listing per SIDE_FAILURE_TICKS ticks.
+        self.assertEqual(api.failed_listings, 2)
+
+    def test_failed_runs_lists_side_lanes_since_the_window_and_the_last_sweeper(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        seen = []
+        side = ".github/workflows/cmux-next-base-autofix.yml"
+        pages = {1: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)},
+                     {"id": 8, "path": ".github/workflows/ci.yml", "run_attempt": 1, "updated_at": stamp(0)}],
+                 2: [{"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(-3600)}]}
+
+        def request(method, path, **_):
+            seen.append(path)
+            page = int(path.split("&page=")[1].split("&")[0])
+            return {"workflow_runs": pages.get(page, [])}
+        api.request = request
+        self.assertEqual(api.failed_runs(2, START, since=START - dt.timedelta(minutes=30), pages=5), [(9, 1)])
+        self.assertEqual(len(seen), 2)
+        self.assertIn("status=failure", seen[0])
+        self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
+
+    def test_the_session_label_is_an_owned_pool(self):
+        # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
+        label = "glaeda-session-std-xcode-26.6"
+        self.assertEqual(rescue.job_pool({"labels": [label]}), label)
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}), "glaeda-fast-std-xcode-26.6")
+        self.assertIsNone(rescue.job_pool({"labels": ["glaeda-session"]}))
+        target = rescue.target_from_event(event(path=".github/workflows/cmux-next-base-autofix.yml", event="push",
+                                                pull_requests=[], head_branch="feat-cmux-next"),
+                                          "manaflow-ai/cmux")
+        self.assertTrue(target.side)
+        self.assertEqual(target.push_branch, "feat-cmux-next")
 
     def test_a_finished_run_only_when_it_failed_since_the_last_sweeper(self):
         recent, old = stamp(-10 * 60), stamp(-rescue.SWEEP_FINISHED_SECONDS - 60)
