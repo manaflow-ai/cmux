@@ -8,7 +8,7 @@
 
 use std::io::Write as _;
 
-use super::pty_custody::{kill_shell_then_host, send_line};
+use super::pty_custody::{kill_shell_then_host, send_line, wait_for_dead_host};
 use super::*;
 
 const MARKER: &str = "session restored (previous process ended)";
@@ -556,22 +556,39 @@ fn a_command_tab_names_its_command_after_a_daemon_restart_without_secrets() {
             .as_str()
             .expect("tab has no terminal id")
             .to_string();
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
-        );
-        let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+        // The command runs before its host dies: a host killed while it
+        // still starts is another case (a terminal that never ran).
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+        let incarnation = loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+            );
+            let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default();
+            if resolved["lifecycle"] == "running" && !incarnation.is_empty() {
+                break incarnation.to_string();
+            }
+            assert!(Instant::now() < deadline, "{name} never ran: {resolved}");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        if *name == "argv" {
+            let surface = created["surface"].as_u64().expect("surface");
+            wait_for_screen(&harness.socket, surface, "ran-42");
+        }
         terminals.push((*name, terminal_id, incarnation));
     }
     let records = wait_for_host_records(&harness.host_root(), tabs.len());
     harness.sigkill();
     for (_, terminal_id, _) in &terminals {
-        let (_, record) = records
+        let (record_path, record) = records
             .iter()
             .find(|(_, record)| &record.terminal_id == terminal_id)
             .expect("the terminal has no host record");
         // SAFETY: the record PID is the harness-owned terminal host.
         assert_eq!(unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) }, 0);
+        // A SIGKILL is delivered later: until the host has released its
+        // liveness lock, the next daemon would find it alive and adopt it.
+        wait_for_dead_host(record_path, record);
     }
     harness.restart();
 
