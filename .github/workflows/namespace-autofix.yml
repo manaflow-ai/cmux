@@ -52,7 +52,8 @@ jobs:
 
       # The App's installation may not grant contents: write (it refused with
       # a 422 on #23518). Without a token the job warns and skips; the
-      # cmux-next lint still fails the pull request on any violation.
+      # conventions lint still reports violations, as warnings only while
+      # CMUX_NEXT_STYLE_GUARDS is warn.
       - name: Mint scoped write token
         id: app-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
