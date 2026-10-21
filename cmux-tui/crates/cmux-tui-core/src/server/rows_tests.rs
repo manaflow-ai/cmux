@@ -253,12 +253,21 @@ fn set_row_heights_echoes_its_transaction() {
     assert!(echoed.contains(&Some("12".to_string())), "{echoed:?}");
 }
 
-/// Layout documents carry no rows yet: `workspace.layout.apply` on a screen
-/// with rows is refused and changes nothing (rows.md decision 5).
+/// A layout document applies to a screen with rows: the columns keep their
+/// rows and heights (`rows-v1`), so `screen.layout.export` round-trips
+/// through `workspace.layout.apply`, and a document that moves a pane inside
+/// a row applies without losing the rows. A split-tree document cannot carry
+/// rows and is still refused.
 #[test]
-fn layout_apply_on_a_screen_with_rows_is_refused() {
+fn layout_documents_apply_to_a_screen_with_rows_and_keep_them() {
     let (mut wire, pane) = Wire::lone();
     wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let column = wire.columns()[0]["id"].clone();
+    let ids: Vec<Value> = wire.rows(0).iter().map(|row| row["id"].clone()).collect();
+    wire.ok(json!({
+        "cmd": "set-row-heights", "column": column,
+        "heights": [{"row": ids[0], "height": 700}, {"row": ids[1], "height": 300}],
+    }));
     let before = wire.screen();
     let (workspace, screen) = wire.mux.with_state(|state| {
         let workspace = &state.workspaces[0];
@@ -276,14 +285,38 @@ fn layout_apply_on_a_screen_with_rows_is_refused() {
     };
     let scope = json!({"machine": "current", "session": "current", "screen": screen});
     let layout = resource("screen.layout.export", scope, None)["result"].clone();
-    assert!(layout.is_object(), "{layout}");
-    let params = json!({
-        "machine": "current", "session": "current", "workspace": workspace, "layout": layout,
-    });
-    let applied = resource("workspace.layout.apply", params, Some("rows-apply"));
+    assert_eq!(layout["root"]["kind"], "viewport", "{layout}");
+    let apply = |document: &Value, key: &str| {
+        let params = json!({
+            "machine": "current", "session": "current", "workspace": workspace,
+            "layout": document,
+        });
+        resource("workspace.layout.apply", params, Some(key))
+    };
+
+    let applied = apply(&layout, "rows-apply-same");
+    assert_eq!(applied["ok"], true, "the exported document applies: {applied}");
+    assert_eq!(wire.screen(), before, "the exported document changes nothing");
+
+    // A document that changes the screen (its active pane: the lower row's).
+    let mut focused = layout.clone();
+    let lower = &layout["root"]["columns"][0]["root"]["second"];
+    assert_eq!(lower["kind"], "leaf", "{layout}");
+    focused["active_pane_id"] = lower["pane_id"].clone();
+    let applied = apply(&focused, "rows-apply-focus");
+    assert_eq!(applied["ok"], true, "{applied}");
+    let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
+    assert_eq!(heights, [json!(700), json!(300)], "the rows and their heights stay");
+    let row_ids: Vec<Value> = wire.rows(0).iter().map(|row| row["id"].clone()).collect();
+    assert_eq!(row_ids, ids, "the rows keep their ids");
+
+    let mut tree = layout.clone();
+    tree["root"] = layout["root"]["columns"][0]["root"].clone();
+    let refused = apply(&tree, "rows-apply-tree");
     assert_eq!(
-        applied["error"]["details"]["extra"]["reason_code"], "rows-layout-replace-unsupported",
-        "{applied}"
+        refused["error"]["details"]["extra"]["reason_code"], "rows-layout-replace-unsupported",
+        "{refused}"
     );
-    assert_eq!(wire.screen(), before, "a refused apply changes nothing");
+    let heights: Vec<Value> = wire.rows(0).iter().map(|row| row["height"].clone()).collect();
+    assert_eq!(heights, [json!(700), json!(300)], "a refused document changes nothing");
 }

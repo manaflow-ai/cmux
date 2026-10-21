@@ -32,6 +32,7 @@
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
+              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -748,16 +749,6 @@
             }
           },
           {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
-            }
-          },
-          {
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
@@ -827,7 +818,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -840,6 +830,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -851,14 +851,15 @@
             }
           }
         ],
-        "id" : "chief-pet",
+        "id" : "chief",
         "lead" : [
+          "chiefs",
           "chiefPet"
         ],
-        "symbol" : "pawprint",
+        "symbol" : "crown",
         "title" : {
-          "key" : "settings.category.chiefPet",
-          "text" : "Chief Pet"
+          "key" : "settings.category.chief",
+          "text" : "Chief"
         },
         "trail" : [
 
@@ -2342,6 +2343,75 @@
     },
     {
       "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarPosition.help",
+        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarPosition",
+      "keywords" : [
+        "omnibar",
+        "address bar",
+        "toolbar",
+        "url bar",
+        "browser",
+        "markdown",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarPosition",
+        "text" : "Browser Toolbar Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2374,7 +2444,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -12075,7 +12145,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -30927,7 +30997,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "focus",
+      "default" : "click",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -31935,7 +32005,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "blink",
+      "default" : "steady",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -32302,7 +32372,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",

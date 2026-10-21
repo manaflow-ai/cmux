@@ -120,9 +120,11 @@ test("a running MCP call's line names its server and action, never the raw id", 
   expect(toolLabel(call.tool!, call.text, (line) => line)).toBe("cmux-subsessions · start session sidebar-drag-bugs");
   expect(mcpTitleName("mcp__cmux__list_workspaces")).toBe("cmux · list workspaces");
   expect(mcpTitleName("Read config.ts")).toBeUndefined();
+  // Two calls to one tool share a closed line, so the working line is what names the running one.
+  const earlier = { ...startSession(), tool: { ...startSession().tool!, id: "start-0" } };
   const rows: AcpmuxRow[] = [
     { id: "u1", version: 1, at: 0, kind: "user", text: "start one" },
-    { id: "a1", version: 1, at: 1, kind: "activity", items: [call] },
+    { id: "a1", version: 1, at: 1, kind: "activity", items: [earlier, call] },
   ];
   const working = turnView(rows, new Set(), { working: true }).find((row) => row.kind === WORKING);
   expect(working?.doing).toBe("cmux-subsessions · start session sidebar-drag-bugs");

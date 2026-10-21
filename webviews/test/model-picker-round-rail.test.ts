@@ -1,7 +1,8 @@
 // cmux-web-test-timeout: 300
 // The model picker's harness rail is plain icons on a round wash, matching the composer's round
 // pills, never a column of square tiles (Leo 2026-10-18: "grid squares"). The selected harness and a
-// hovered one both take that round wash.
+// hovered one both take that round wash. The model button opens its compact menu in every composer
+// (Leo 2026-10-20: one model button), so the rail checked is that menu's.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/model-picker-round-rail.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -89,14 +90,14 @@ await requireBrowserLane("model-picker-round-rail.test.ts", async () => {
     test(`${engine}: every rail tab is round, the selected one included`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-mp-rail-tab").first().waitFor();
+      await page.locator(".acpmux-quick-rail-tab").first().waitFor();
       const tabs = await page.evaluate(() =>
-        [...document.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")].map((tab) => {
+        [...document.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) => {
           const box = tab.getBoundingClientRect();
           const style = getComputedStyle(tab);
           return {
             name: tab.getAttribute("aria-label") ?? tab.textContent?.trim() ?? "",
-            selected: tab.getAttribute("aria-selected") === "true",
+            selected: tab.getAttribute("aria-pressed") === "true",
             round: parseFloat(style.borderTopLeftRadius) >= Math.min(box.width, box.height) / 2 - 0.5,
             filled: style.backgroundColor !== "rgba(0, 0, 0, 0)",
           };

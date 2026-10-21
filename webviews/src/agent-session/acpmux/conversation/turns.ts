@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
@@ -17,7 +17,8 @@ import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, toolLabel } from "../toolPaths";
-import { isRunning } from "./toolGroups";
+import { GROUP_TAIL } from "./ToolGroupRow";
+import { isRunning, toolGroups } from "./toolGroups";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -518,10 +519,15 @@ function liveTurn(
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
-  // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
+  // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx), unless the
+  // call's own row, right under it, already does: one running call reads once.
   else {
-    const doing = inFlightTitle(last);
-    if (doing) status.doing = doing;
+    const doing = inFlightCall(last);
+    if (doing && doing.row !== true) {
+      status.doing = doing.title;
+      if (doing.command) status.doingCommand = true;
+      if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
+    }
   }
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it. A started chats'
@@ -564,16 +570,41 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
 }
 
-/// The newest call still running in a live turn's latest row, by its title.
-function inFlightTitle(row: AcpmuxRow): string | undefined {
+/// The newest call still running in a live turn's latest row, by its title, and where the
+/// transcript draws its own row (`ownRow`).
+function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: OwnRow } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
     const tool = items[index]?.tool;
+    if (!tool || !isRunning(tool)) continue;
     // The row's own label, never the call's raw JSON input; a command reads as itself.
-    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
+    const title = toolLabel(tool, "", (command) => command).trim();
+    return title ? { title, command: tool.kind === "execute", row: ownRow(row, items[index]!) } : undefined;
   }
   return undefined;
+}
+
+/// `true` when the call's own row is always drawn; the disclosure of the group that draws it while
+/// open (`open` is its default); nil when no row of its own is drawn.
+type OwnRow = true | { key: string; open: boolean } | undefined;
+
+/// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
+/// card and a lone MCP call have their own row; a grouped call shows under its group's line while
+/// the group is open, among its latest GROUP_TAIL; a Codex-style run in flight shows only its
+/// newest entry. The key is the one groupNode gives the group's disclosure.
+function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
+  const groups = toolGroups(row.items ?? []);
+  const at = groups.findIndex((group) => ("items" in group ? group.items.includes(item) : group.item === item));
+  const group = groups[at];
+  if (!group || (row.inFlight && at < groups.length - 1)) return undefined;
+  if (group.type === "item" || group.type === "message" || (group.type === "mcp" && group.items.length === 1))
+    return true;
+  const kind = group.type === "mcp" ? "mcp" : group.kind;
+  const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
+  if (!tail) return undefined;
+  const key = `group:${kind}:${group.items[0]!.tool!.id || `${row.id}:${at}`}`;
+  return { key, open: kind !== "mcp" && kind !== "edits" };
 }
 
 /// A running turn's runs as the Codex desktop app draws them (cx-ncc.108): a run that text

@@ -84,7 +84,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   return (
     <div className="cv-user__status cv-user__status--failed" aria-live="polite">
       <div className="cv-user__failure">
-        <span>{row.error ?? t("prompt.notSentGesture")}</span>
+        <span>{row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}</span>
         <button type="button" className="cv-user__cancel" onClick={() => act("chat.retryPrompt")}>
           {t("turn.retry")}
         </button>

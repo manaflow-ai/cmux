@@ -13,8 +13,8 @@ USAGE
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
     [--icon <value>|--clear-icon]
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
-  cmux workspace <selector> run [--on-exit <close|keep>] [--correlation-key <value>] shell <script>
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
+  cmux workspace <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] shell <script>
   cmux workspace <selector> layout apply [OPTIONS]
   cmux workspace [<selector>] open-url --url <http(s) URL>
   cmux workspace <selector> screen ...
@@ -91,7 +91,7 @@ USAGE
   cmux pane <selector> zoom [--enabled <bool>]
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
-  cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> run [--on-exit <close|keep|shell>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
 
 split keeps the focus where it is unless --focus is given. With --shell or

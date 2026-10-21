@@ -12,7 +12,7 @@ import { WorktreeFailure } from "../startFolder";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
-import type { ComposerAttachment } from "../attachments";
+import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
 import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
@@ -155,12 +155,18 @@ type Props = NewTabScreenActions & {
   template?: ScreenTemplate;
   /// The widget view (Debug Settings `newTab.widgets`): the Projects and Needs you cards.
   widgets?: boolean;
+  /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
+  /// the template would list All chats.
+  allChats?: boolean;
   /// Buttons before Send, such as the dictation mic (DictationMic).
   accessory?: React.ReactNode;
   /// Why dictation did not run (DictationNotice), under the field.
   notice?: React.ReactNode;
   /// Where the page's dictation writes: the field, while the screen shows.
   dictationField?: React.MutableRefObject<DictationField | null>;
+  /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
+  /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -243,6 +249,7 @@ export function NewTabScreen(props: Props) {
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
+    ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
@@ -372,8 +379,9 @@ export function NewTabScreen(props: Props) {
     [snapshot.sessions, at, t, device, sections.recent, sections.chats],
   );
   // With All chats on the page (the host answers `chats.page`) every chat is in that list, so
-  // the cards keep only the chats that are running or need the user.
-  const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
+  // the cards keep only the chats that are running or need the user. Show All Chats off
+  // (`sidebar.showChats`) keeps the recent chats in its place.
+  const allChats = sections.allChats && props.allChats !== false && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
   // The stage layout's suggested actions start with the chats waiting on the user: one asking for
   // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed

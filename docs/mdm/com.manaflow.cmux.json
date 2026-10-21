@@ -1608,6 +1608,16 @@
       "title" : "Toolbar Buttons",
       "type" : "array"
     },
+    "browser.toolbarPosition" : {
+      "default" : "top",
+      "description" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Browser Toolbar Position",
+      "type" : "string"
+    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
@@ -2150,7 +2160,7 @@
     },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
-      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.",
       "enum" : [
         "fade",
         "tonal",
@@ -2663,7 +2673,7 @@
       "type" : "number"
     },
     "notifications.attention.moveToTop" : {
-      "default" : true,
+      "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
@@ -2687,7 +2697,7 @@
       "type" : "boolean"
     },
     "notifications.attention.style" : {
-      "default" : "blink",
+      "default" : "steady",
       "description" : "notifications.attention.style",
       "enum" : [
         "blink",
@@ -2719,7 +2729,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "focus",
+      "default" : "click",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -3929,7 +3939,7 @@
     },
     "tabs.barOrder" : {
       "default" : "aboveToolbar",
-      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "description" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
       "enum" : [
         "aboveToolbar",
         "belowToolbar"

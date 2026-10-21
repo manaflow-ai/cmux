@@ -103,7 +103,8 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
 
   for (const [engine] of engines) {
     for (const [name, selector] of [
-      ["Effort", chip("Effort")],
+      // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
+      ["Model", chip("Model")],
       ["Computer", 'button[aria-label^="Computer"]'],
     ])
       test(`${engine}: ${name}: a press outside the open menu leaves no ring`, async () => {
@@ -121,16 +122,17 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     test(`${engine}: a pick with the mouse hands focus back to the prompt, without a chip ring`, async () => {
       const page = await open(engine);
       await page.locator(".nt-field").click();
-      await press(page, chip("Effort"));
-      await press(page, ".acpmux-effort-menu [role=menuitemradio]:not([aria-checked=true])");
+      await press(page, chip("Model"));
+      await page.locator(".acpmux-quick-menu").first().waitFor();
+      await press(page, ".acpmux-quick-menu [role=menuitemradio]:not([aria-checked=true]):not([data-disabled])");
       expect(await ring(page)).toEqual({ ring: "", focused: "nt-field" });
       await page.close();
     });
 
     test(`${engine}: one press on another chip opens its picker and keeps it, focus and all`, async () => {
       const page = await open(engine);
-      await press(page, chip("Effort"));
-      await page.locator(".acpmux-effort-menu").waitFor();
+      await press(page, 'button[aria-label^="Computer"]');
+      await page.locator(".ui-popup.ui-menu").first().waitFor();
       await press(page, chip("Model"));
       // The first menu's close lands after its fade; it must not pull focus back out of the picker.
       await page.waitForTimeout(500);
@@ -138,7 +140,7 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
         expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>
           button.getAttribute("aria-label"),
         ),
-        inPopup: !!document.activeElement?.closest(".acpmux-mp"),
+        inPopup: !!document.activeElement?.closest(".acpmux-quick-menu"),
       }));
       expect(state).toEqual({ expanded: ["Model"], inPopup: true });
       await page.close();
@@ -146,15 +148,15 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
 
     test(`${engine}: Escape still puts the keyboard back on the chip, with its ring`, async () => {
       const page = await open(engine);
-      await press(page, chip("Effort"));
-      await page.locator(".acpmux-effort-menu").waitFor();
+      await press(page, chip("Model"));
+      await page.locator(".acpmux-quick-menu").first().waitFor();
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);
       const after = await page.evaluate(
         (selector) =>
           document.activeElement === document.querySelector(selector) &&
           document.activeElement!.matches(":focus-visible"),
-        chip("Effort"),
+        chip("Model"),
       );
       expect(after).toBe(true);
       await page.close();
