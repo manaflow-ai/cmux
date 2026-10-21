@@ -56,7 +56,9 @@ enum OnboardingHandlers {
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
         // Import suggestion cards (Home, New Tab, Settings › Import): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: ImportCardsHost(
-            runImport: { plan, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, progress: progress) },
+            runImport: { plan, keys, progress in
+                try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress)
+            },
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) }))
         // Every entrypoint previews the exact snapshot and waits for the

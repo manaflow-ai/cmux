@@ -381,6 +381,9 @@ public final class ImportSuggestionsCenter {
             return fail(id, .declined)
         }
         guard let source = await access.detect().first(where: { $0.browser == browser }) else { return fail(id, .sourceGone) }
+        // One job's Keychain reads, shared by its plans: macOS asks once for the browser's key, not
+        // once per profile, and a Deny is not asked again. Dropped (and zeroed) when the job's run ends.
+        let keys = OneReadSafeStorage(SafeStorageKeys().live())
         while let job = ledger.job(id), job.phase == .running, let index = job.nextStep {
             let step = job.steps[index]
             guard let profile = source.profiles.first(where: { $0.directoryName == step.profile }) else {
@@ -392,7 +395,7 @@ public final class ImportSuggestionsCenter {
                                   mergeTarget: step.intoDefault ? Self.defaultProfile : nil)
             do {
                 let summary = plan.items.isEmpty ? ImportSummary(batches: [])
-                    : try await host.runImport(plan) { [weak self] progress in
+                    : try await host.runImport(plan, keys) { [weak self] progress in
                         guard let self else { return }
                         ledger.update(id) { $0.progressed(progress.fraction, now: now()) }
                     }
