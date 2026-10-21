@@ -6,7 +6,8 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, WhatsNewCategory } from "./types";
+import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
+import { cardVersion } from "./UpdateSurfaces";
 
 export interface PartsContext {
   strings: Strings;
@@ -212,6 +213,30 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 }
 
 const CHANGES_PAGE = 20;
+
+/** The nightly reels of `builds` (in their order, newest first), one card each: a link to the
+    video, which opens as links do (the host's link setting). Only an https reel is shown. */
+export function ReelCards({
+  builds,
+  reels,
+  strings,
+}: {
+  builds: IndexEntry[];
+  reels: Record<string, string>;
+  strings: Strings;
+}) {
+  const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
+  if (shown.length === 0) return null;
+  return (
+    <div className="cl-reels">
+      {shown.map((b) => (
+        <a key={b.build} className="cl-reel" href={reels[b.build]} rel="noreferrer">
+          {strings.format("changelog.page.watchReel", cardVersion(b.shortVersion))}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {

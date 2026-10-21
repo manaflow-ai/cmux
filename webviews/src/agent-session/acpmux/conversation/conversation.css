@@ -42,6 +42,14 @@
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
+  /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
+     bands). A message's meta row (a prompt's age, ticks, actions and steer; a reply's footer) is one
+     compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
+     model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
+  --cv-meta-gap: 4px; /* a message to its meta row */
+  --cv-meta-row: 24px; /* the meta row's line */
+  --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
@@ -81,9 +89,9 @@
   flex-direction: column;
   align-items: flex-end;
 }
-/* A prompt sits on the composer's surface, solid so it reads over a wallpaper (Leo 2026-10-13): the
-   composer's tint mixed into the opaque base, a small radius, and text inset evenly, 12px from
-   each side (8px of padding plus the line's half-leading above and below). model.ts measures it. */
+/* A prompt's bubble: a small radius, and text inset evenly, 12px from each side (8px of padding
+   plus the line's half-leading above and below). model.ts measures it. Its look is the glass rule
+   below. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
@@ -94,14 +102,20 @@
   line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
-  background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
   white-space: pre-wrap;
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
+/* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the theme's text at a low
+   strength over transparent, so the window's backdrop shows through, and the composer's hairline
+   rim so it holds its shape on a busy wallpaper. The shared glass primitive (#22815, `ui-glass`)
+   replaces this block when it lands. */
+.cv-user__bubble {
+  background: var(--cv-bubble);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+}
 .acpmux-shell .cv-user__bubble {
-  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 
 /* The images a prompt sent, above its bubble. */
@@ -406,12 +420,14 @@
   background: transparent;
 }
 /* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
-   reached them, as Claude's. */
+   reached them, as Claude's. The row is one compact line right under the bubble; hidden, it keeps
+   only that line, so pointing at a prompt moves nothing. */
 .cv-user__actions {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 4px;
+  height: var(--cv-meta-row);
+  margin-top: var(--cv-meta-gap);
   padding-right: 2px;
   opacity: 0;
   transition: opacity 120ms ease-out;
@@ -693,18 +709,46 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-.cv-table-wrap {
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
+   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
+   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
+   the margin above the table. */
+.cv-table-block {
+  position: relative;
+  width: fit-content;
+  max-width: calc(100% - 48px);
   margin: var(--cv-table-before, 6.5px) 0 14px;
+}
+.cv-table-tools {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 6px;
+  left: 100%;
+  display: flex;
+  gap: 2px;
+  padding-left: 6px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-table-tools {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-table-block:hover .cv-table-tools,
+.cv-table-tools:focus-within {
+  opacity: 1;
+}
+.cv-table-wrap {
   overflow-x: auto;
 }
-/* Short columns are at least 128px and long-text columns 256px. */
+/* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
+   between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
 .cv-table {
   border-collapse: collapse;
   font-size: var(--cv-table-size, 12.25px);
   letter-spacing: var(--cv-table-tracking, 0px);
   line-height: var(--cv-table-line-height, 23px);
   width: max-content;
-  min-width: 100%;
 }
 .cv-table th,
 .cv-table td {
@@ -721,6 +765,10 @@
 }
 .cv-table td {
   border-bottom: 1px solid var(--cv-faint-rule);
+}
+/* A table with an empty top-left corner labels its rows with its first column. */
+.cv-table--labeled td:first-child {
+  font-weight: 500;
 }
 .cv-table th:last-child,
 .cv-table td:last-child {
@@ -1666,14 +1714,32 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* Another agent's images and its raw prompt, under its line. */
+/* Details under an opened message: the prompt as the agent got it, closed until asked for. */
+.cv-received__details {
+  margin: 0 0 6px 13px;
+}
+.cv-received__more {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+.cv-received__more:hover,
+.cv-received__more:focus-visible {
+  color: var(--cv-text);
+}
+/* Another agent's images, under its line. */
 .cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;
   margin: 2px 0 6px;
 }
-.cv-received > .cv-tool-output {
-  margin: 0 0 8px 13px;
+.cv-received__details > .cv-tool-output {
+  margin: 2px 0 0;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
@@ -1773,7 +1839,7 @@ button.cv-received__name:focus-visible {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  min-height: 28px;
+  min-height: var(--cv-meta-row);
   padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
@@ -1784,6 +1850,14 @@ button.cv-received__name:focus-visible {
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
+}
+/* The footer's buttons fit its compact line, with a prompt's compact radius (.cv-iconbtn--compact). */
+.cv-turn-actions .cv-iconbtn {
+  height: var(--cv-meta-row);
+  border-radius: 5px;
+}
+.cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
+  width: var(--cv-meta-row);
 }
 .cv-turn-action-group {
   display: inline-flex;
@@ -2982,6 +3056,20 @@ button.cv-received__name:focus-visible {
 }
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
+}
+/* A reply's footer hugs it as a prompt's meta row does, and closes the turn with the turn gap. */
+.acpmux-row.acpmux-assistant.acpmux-row--before-footer {
+  /* A one-line reply's 34px floor would put the band back above its footer. */
+  min-height: 0;
+  padding-bottom: var(--cv-meta-gap);
+}
+.acpmux-row.acpmux-turnSummary {
+  min-height: 0;
+  padding-bottom: var(--cv-turn-gap);
+}
+/* The chat's last footer: the message gap, so no band sits over the composer. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
+  padding-bottom: var(--cv-message-gap);
 }
 
 /* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
