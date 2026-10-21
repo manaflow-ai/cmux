@@ -137,6 +137,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_fast_gate.py
 
+      - name: Validate the gh-merge-green check-path gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_check_paths.py
+
       - name: Validate the bug-fix proof-section warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py

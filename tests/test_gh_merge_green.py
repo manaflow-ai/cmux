@@ -379,7 +379,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, check_paths=None, fast_gates_base=None, fast_gates_after=None, tip_sha=None, compare=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -418,6 +418,27 @@ class InstalledHelperRegression(unittest.TestCase):
         if base_workflow == RATE_LIMITED:
             base_workflow_route = "echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1"
         protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
+        check_paths_route = ("printf '%s' " + shlex.quote(check_paths) + "; exit 0" if check_paths is not None
+                             else "echo 'gh: Not Found (HTTP 404)' >&2; exit 1")
+
+        def fast_status(base_sha, state="success", at="2026-10-21T13:00:00Z"):
+            return json.dumps({"statuses": [{"context": "cmux-next/fast-gates", "state": state, "updated_at": at,
+                                             "description": f"base {base_sha}",
+                                             "target_url": "https://example.test/runs/7"}] if base_sha else []})
+        # The head's cmux-next/fast-gates status: fast_gates_base before a dispatch, then fast_gates_after
+        # (base, state) once the check-path gate dispatched the workflow.
+        after = fast_status(*fast_gates_after, at="2026-10-21T14:12:00Z") if fast_gates_after else fast_status(fast_gates_base)
+        check_paths_reads = (
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'commits/" + HEAD + "/status'; then "
+            "if [ -e \"$MERGE_MARKER.dispatched\" ]; then printf '%s\\n' " + shlex.quote(after) + "; "
+            "else printf '%s\\n' " + shlex.quote(fast_status(fast_gates_base)) + "; fi; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'branches/feat-cmux-next'; then "
+            "printf '%s\\n' " + shlex.quote(tip_sha or BASE) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/compare/'; then printf '%s\\n' "
+            + shlex.quote(json.dumps(compare or {"status": "diverged", "ahead_by": 0, "files": []})) + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'cmux-next-fast-gates.yml/dispatches'; then "
+            "printf '%s\\n' dispatch >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER.dispatched\"; exit 0; fi\n"
+        ) if check_paths is not None else ""
         rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
                             + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
@@ -444,6 +465,10 @@ class InstalledHelperRegression(unittest.TestCase):
             + base_workflow_route + "; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/scripts/ci/merge-fast-gate-protected-paths.txt?ref=" + base + "'; then "
             + protected_route + "; fi\n"
+            # The check-path gate's list: not on the base (a 404) unless a test gives one.
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/scripts/ci/check-paths.txt'; then "
+            + check_paths_route + "; fi\n"
+            + check_paths_reads +
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
@@ -462,7 +487,7 @@ class InstalledHelperRegression(unittest.TestCase):
         )
         gh.chmod(0o755)
         argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
-        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1", "GH_MERGE_GREEN_CHECK_PATHS_INTERVAL": "0"}
         if terminate_after is None:
             return subprocess.run(argv, env=env, capture_output=True, text=True)
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
@@ -825,6 +850,69 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
             self.assertIn(f"--override waives {self.LINT}", result.stderr)
+
+    # The check-path gate (scripts/ci/merge_check_paths.py, tests/test_merge_check_paths.py): 2026-10-21, #22975
+    # merged after #23365 landed check:fixed-waits on the base and never ran it.
+    CHECK_PATHS = "webviews/scripts/check-*\n.github/workflows/ci-web.yml\n"
+    LANDED = {"status": "ahead", "ahead_by": 1, "files": [".github/workflows/ci-web.yml", "webviews/scripts/check-fixed-waits.ts"]}
+
+    def test_the_check_path_gate_passes_a_fresh_fast_gates_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     tip_sha=ANCESTOR)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["merge"])
+            self.assertIn("check paths fresh", result.stdout + result.stderr)
+
+    def test_replay_of_22975_the_check_path_gate_reruns_the_fast_gates_and_refuses_their_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "failure"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch"])
+            self.assertIn("has changed the check path .github/workflows/ci-web.yml since", result.stderr)
+            self.assertIn("check-path gate", result.stderr)
+
+    def test_the_check_path_gate_merges_on_the_reruns_fresh_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "success"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["dispatch", "merge"])
+
+    def test_override_waives_the_check_path_gates_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     fast_gates_after=(MERGED_SHA, "failure"), tip_sha=MERGED_SHA,
+                                     compare=self.LANDED, extra_args=("--override", self.OVERRIDE))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("merge", events.read_text().splitlines())
+            self.assertIn("--override waives the check-path gate", result.stderr)
+
+    def test_a_dry_run_dispatches_nothing_for_a_stale_check_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     event_log=events, check_paths=self.CHECK_PATHS, fast_gates_base=ANCESTOR,
+                                     tip_sha=MERGED_SHA, compare=self.LANDED, extra_args=("--dry-run",))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse(events.exists() and "dispatch" in events.read_text())
+            self.assertIn("a merge would dispatch", result.stderr)
 
     def test_a_red_fast_lane_the_base_shares_merges_on_the_fast_gate(self):
         rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
@@ -1199,6 +1287,9 @@ class InstalledHelperRegression(unittest.TestCase):
                   touch "$MERGE_MARKER"
                   exit 0
                 fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/scripts/ci/check-paths.txt'; then
+                  echo 'gh: Not Found (HTTP 404)' >&2; exit 1
+                fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/contents/'; then
                   printf '%s\\n' 'HTTP/2.0 200'; exit 0
                 fi
@@ -1267,6 +1358,9 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+                    print('gh: Not Found (HTTP 404)', file=sys.stderr)
+                    sys.exit(1)
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
                     present = x['app_workflow'] if any('ci-macos.yml' in arg for arg in a) else x['workflow']
                     code = 200 if present else x['probe_status']
@@ -2138,6 +2232,9 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
         Path(os.environ['MERGE_MARKER']).write_text(joined)
     elif a[:2] == ['run', 'view']:
         print(x['logs'][a[a.index('--job') + 1]])
+    elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+        print('gh: Not Found (HTTP 404)', file=sys.stderr)
+        sys.exit(1)
     elif a[0] == 'api' and any('/contents/' in arg for arg in a):
         print('HTTP/2.0 200')
     else:

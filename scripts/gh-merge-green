@@ -1126,10 +1126,47 @@ fast_gate() {
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 }
 
+# The check-path gate (scripts/ci/merge_check_paths.py), into feat-cmux-next: when a
+# check path (the base's scripts/ci/check-paths.txt) changed after the PR's
+# cmux-next/fast-gates base, it dispatches the fast gates against the current tip and
+# waits for a fresh success. 2026-10-21: #22967, #22975 and #23094 merged after a
+# new check landed, never ran it, and turned it red on the base.
+check_paths_gate() {
+  local out err status=0 why check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  err=$(mktemp)
+  tmp_files+=("$err")
+  # Its wait (a rerun, up to 900s) adds to the fast gate's in the summary, and in a SIGTERM's.
+  gate_waiting_since=$(( $(date +%s) - waited_seconds ))
+  out=$(python3 "$script_dir/ci/merge_check_paths.py" "$repo" "$num" "$sha" --base "$base" \
+      --interval "${GH_MERGE_GREEN_CHECK_PATHS_INTERVAL:-20}" "${check_only[@]+"${check_only[@]}"}" 2>"$err") || status=$?
+  waited_seconds=$(( $(date +%s) - gate_waiting_since ))
+  gate_waiting_since=''
+  sed -n '/^note: /p' "$err" >&2
+  if [ "$status" -ne 0 ]; then
+    why=$(sed '/^note: /d' "$err")
+    rm -f "$err"
+    [ "$status" -eq 3 ] && refuse_rate_limited "the check-path gate: ${why#rate-limited: }"
+    if [ -n "$override_reason" ]; then
+      printf 'note: --override waives the check-path gate on %s: %s\n' "$sha" "${why:-merge_check_paths.py failed}" >&2
+      return 0
+    fi
+    refuse \
+      "not green: check-path gate on $sha: ${why:-merge_check_paths.py failed}" \
+      'fix what the fast gates found on the current tip (their run is linked above), or retry once they report'
+  fi
+  rm -f "$err"
+  gate_checked="${gate_checked:+$gate_checked, }$(sed -n 's/^checked=//p' <<<"$out")"
+}
+
 if [ "$fast" -eq 1 ]; then
   fast_gate
 else
   full_gate
+fi
+# gate_mode, not $fix: full_gate reuses `fix` for a refusal's advice.
+if [ "$base" = feat-cmux-next ] && [ "$gate_mode" != main-fix ]; then
+  check_paths_gate
 fi
 if ! patches=$(gh api --paginate "repos/$repo/pulls/$num/files?per_page=100" -q '.[].patch // empty' 2>/dev/null); then
   if ! patches=$(git_patches); then
