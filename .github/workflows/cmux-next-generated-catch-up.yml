@@ -86,6 +86,8 @@ jobs:
             scripts/merge-pbxproj.py
             scripts/merge-baseline.py
             scripts/merge-daemon-capabilities.py
+            scripts/ci/merge_main_resolver.py
+            scripts/normalize-pbxproj.py
           sparse-checkout-cone-mode: false
 
       - name: Check out the pull request
@@ -113,11 +115,17 @@ jobs:
           # same per clone), from the base's copy: GitHub ignores them, so a catalog or a
           # baseline both sides added entries to conflicts on every PR. Each one still
           # leaves a real conflict (the same key changed on both sides) for the author.
+          # The sparse checkout above also holds the helpers merge-pbxproj.py loads
+          # from beside itself, as install-git-hooks.sh installs them.
           trusted="$(cd ../trusted && pwd)"
-          git config merge.xcstrings-v2.driver "python3 -I $trusted/scripts/merge-xcstrings.py %O %A %B %P %L"
-          git config merge.pbxproj-v1.driver "python3 -I $trusted/scripts/merge-pbxproj.py %O %A %B %P"
-          git config merge.cmux-baseline-v1.driver "python3 -I $trusted/scripts/merge-baseline.py %O %A %B %P"
-          git config merge.cmux-capabilities-v1.driver "python3 -I $trusted/scripts/merge-daemon-capabilities.py %O %A %B %P"
+          printf -v xcstrings '%q -I %q %%O %%A %%B %%P %%L' python3 "$trusted/scripts/merge-xcstrings.py"
+          printf -v pbxproj '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-pbxproj.py"
+          printf -v baseline '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-baseline.py"
+          printf -v capabilities '%q -I %q %%O %%A %%B %%P' python3 "$trusted/scripts/merge-daemon-capabilities.py"
+          git config merge.xcstrings-v2.driver "$xcstrings"
+          git config merge.pbxproj-v1.driver "$pbxproj"
+          git config merge.cmux-baseline-v1.driver "$baseline"
+          git config merge.cmux-capabilities-v1.driver "$capabilities"
           git fetch --quiet origin "$BASE_SHA"
           if git merge --no-commit --no-ff "$BASE_SHA" >/dev/null 2>&1; then
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -168,7 +176,7 @@ jobs:
             echo "::error::paths are still unmerged after the rebuild"; git diff --name-only --diff-filter=U; exit 1
           fi
           git commit --quiet -m "Merge feat-cmux-next into $BRANCH" \
-            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh): $RUN_URL"
+            -m "Only generated files conflicted; CI kept this branch's copies and rebuilt them (scripts/cmux-next/regenerate-web-bundles.sh). The base's key-wise drivers merged catalogs, baselines and the Xcode project: $RUN_URL"
           git show --stat --oneline HEAD | sed -n '1,40p' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mint the catch-up token
