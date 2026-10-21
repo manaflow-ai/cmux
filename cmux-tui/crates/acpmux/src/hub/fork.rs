@@ -121,7 +121,9 @@ impl Hub {
                     method::SESSION_FORK,
                     json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
                 )
-                .await?;
+                .await
+                // The agent's own error is often bare ("Internal error"): say whose fork failed.
+                .map_err(|e| RpcError { message: format!("{} could not fork this chat: {}", parent_meta.harness, e.message), ..e })?;
             let new_sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
