@@ -163,6 +163,9 @@ function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initialState);
   // Rows from the settled first page: the mount reads only a change pushed since (see below).
   const [seeded] = useState(() => state.loaded);
+  // A list drawn from a saved first page takes its first read whole: a chat deleted or archived
+  // since must not stay listed (merging keeps every row the fresh page does not name).
+  const replaceSaved = useRef(seeded);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   const generation = useRef(0);
@@ -249,8 +252,15 @@ function useChatPages(load: LoadChatsPage) {
           );
         }
         if (page && ticket === generation.current) {
+          const replace = replaceSaved.current;
+          replaceSaved.current = false;
           setState((s) => {
             if (s.query) return s;
+            if (replace) {
+              const fresh = rowsOf(page);
+              const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+              return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
+            }
             const rows = mergeFirstPage(rowsOf(page), s.rows);
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
