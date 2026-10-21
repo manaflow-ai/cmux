@@ -1585,6 +1585,792 @@
         }
       }
     },
+    "settings.diagnostic.key": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: تم تجاهل %1$@: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ je zanemaren: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ blev ignoreret: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ wurde ignoriert: %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ was ignored: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: se ignoró %1$@: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json : %1$@ a été ignoré : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ è stato ignorato: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ は無視されました: %2$@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json៖ %1$@ ត្រូវបានមិនអើពើ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@이(가) 무시되었습니다: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ ble ignorert: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: zignorowano %1$@: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ foi ignorado: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ проигнорирован: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: ละเว้น %1$@: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ yok sayıldı: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ проігноровано: %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ đã bị bỏ qua: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json：已忽略 %1$@：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json：已忽略 %1$@：%2$@。"
+          }
+        }
+      }
+    },
+    "settings.diagnostic.more": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعرض الإعدادات القيم الأخرى التي تم تجاهلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke prikazuju ostale zanemarene vrijednosti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstillinger viser de andre ignorerede værdier."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungen zeigen die übrigen ignorierten Werte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings lists the other ignored values."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes muestra los demás valores ignorados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Réglages indiquent les autres valeurs ignorées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le Impostazioni elencano gli altri valori ignorati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無視されたほかの値は設定に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់បង្ហាញតម្លៃផ្សេងទៀតដែលត្រូវបានមិនអើពើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 무시된 다른 값을 확인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Innstillinger viser de andre ignorerte verdiene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia pokazują pozostałe zignorowane wartości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os Ajustes mostram os outros valores ignorados."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Остальные проигнорированные значения показаны в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่าแสดงค่าอื่นๆ ที่ถูกละเว้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer yok sayılan değerler Ayarlar'da listelenir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші проігноровані значення показано в налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt liệt kê các giá trị bị bỏ qua khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“设置”会列出其他被忽略的值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「設定」會列出其他被忽略的值。"
+          }
+        }
+      }
+    },
+    "settings.diagnostic.openFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open File"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir le fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打開檔案"
+          }
+        }
+      }
+    },
+    "settings.diagnostic.showInSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض في الإعدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži u postavkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Indstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Einstellungen zeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra nelle Impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定で表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញក្នុងការកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis i Innstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż w Ustawieniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar nos Ajustes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать в настройках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlar'da Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати в налаштуваннях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị trong Cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在设置中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在設定中顯示"
+          }
+        }
+      }
+    },
+    "settings.diagnostic.unreadable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذرت قراءة cmux-next.json (%@). تظل آخر الإعدادات التي تم تحميلها سارية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json nije moguće pročitati (%@). Posljednje učitane postavke ostaju na snazi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json kunne ikke læses (%@). De senest indlæste indstillinger gælder fortsat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json konnte nicht gelesen werden (%@). Die zuletzt geladenen Einstellungen bleiben aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json could not be read (%@). The last settings that loaded stay in effect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer cmux-next.json (%@). Siguen vigentes los últimos ajustes cargados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire cmux-next.json (%@). Les derniers réglages chargés restent en vigueur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile leggere cmux-next.json (%@). Restano in vigore le ultime impostazioni caricate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json を読み込めませんでした（%@）。最後に読み込んだ設定がそのまま有効です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអាន cmux-next.json បានទេ (%@)។ ការកំណត់ចុងក្រោយដែលបានផ្ទុកនៅតែមានប្រសិទ្ធភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json을 읽을 수 없습니다(%@). 마지막으로 불러온 설정이 계속 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke lese cmux-next.json (%@). De sist innlastede innstillingene gjelder fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można odczytać cmux-next.json (%@). Obowiązują ostatnio wczytane ustawienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler cmux-next.json (%@). Os últimos ajustes carregados continuam valendo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось прочитать cmux-next.json (%@). Действуют последние загруженные настройки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถอ่าน cmux-next.json ได้ (%@) การตั้งค่าที่โหลดล่าสุดยังคงมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json okunamadı (%@). En son yüklenen ayarlar geçerli kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося прочитати cmux-next.json (%@). Діють останні завантажені налаштування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đọc cmux-next.json (%@). Các cài đặt được tải gần nhất vẫn có hiệu lực."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 cmux-next.json（%@）。最后加载的设置仍然有效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取 cmux-next.json（%@）。最後載入的設定仍然有效。"
+          }
+        }
+      }
+    },
+    "settings.diagnostic.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: تم تجاهل %1$@ = %2$@: %3$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ je zanemaren: %3$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ blev ignoreret: %3$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ = %2$@ wurde ignoriert: %3$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ = %2$@ was ignored: %3$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: se ignoró %1$@ = %2$@: %3$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json : %1$@ = %2$@ a été ignoré : %3$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ è stato ignorato: %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ = %2$@ は無視されました: %3$@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json៖ %1$@ = %2$@ ត្រូវបានមិនអើពើ៖ %3$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json: %1$@ = %2$@이(가) 무시되었습니다: %3$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ ble ignorert: %3$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: zignorowano %1$@ = %2$@: %3$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ foi ignorado: %3$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ проигнорирован: %3$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: ละเว้น %1$@ = %2$@: %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ yok sayıldı: %3$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ проігноровано: %3$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-next.json: %1$@ = %2$@ đã bị bỏ qua: %3$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json：已忽略 %1$@ = %2$@：%3$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-next.json：已忽略 %1$@ = %2$@：%3$@。"
+          }
+        }
+      }
+    },
     "chiefPet.hide": {
       "comment": "View menu and command palette: the Show Chief Pet toggle's title while the floating Chief pet shows; running it hides the pet.",
       "extractionState": "manual",
@@ -22156,6 +22942,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "終端機在 cmux-tui 中執行，除非你終止它們，否則結束 cmux 後仍會繼續執行。"
+          }
+        }
+      }
+    },
+    "settings.app.hideDockIconWithoutWindows": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء أيقونة Dock عند عدم وجود نوافذ مفتوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakrij ikonu u Docku kada nema otvorenih prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbol, når ingen vinduer er åbne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-Symbol ausblenden, wenn keine Fenster geöffnet sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Dock Icon When No Windows Are Open"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar el icono del Dock cuando no haya ventanas abiertas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer l’icône du Dock quand aucune fenêtre n’est ouverte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi l’icona nel Dock quando non ci sono finestre aperte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開いていないときは Dock アイコンを隠す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់រូបតំណាង Dock នៅពេលគ្មានវីនដូបើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 윈도우가 없을 때 Dock 아이콘 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul Dock-symbolet når ingen vinduer er åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukryj ikonę w Docku, gdy żadne okno nie jest otwarte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar ícone do Dock quando não houver janelas abertas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывать значок в Dock, когда нет открытых окон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนไอคอนใน Dock เมื่อไม่มีหน้าต่างเปิดอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açık pencere yokken Dock simgesini gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховати значок у Dock, коли немає відкритих вікон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn biểu tượng Dock khi không có cửa sổ nào mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的窗口时隐藏程序坞图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的視窗時隱藏 Dock 圖像"
+          }
+        }
+      }
+    },
+    "settings.app.hideDockIconWithoutWindows.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يواصل cmux العمل في شريط القائمة، خارج Dock ومبدّل التطبيقات، حتى تُفتح نافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nastavlja raditi u traci menija, izvan Docka i prebacivača aplikacija, dok se ne otvori prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kører videre i menulinjen, uden for Dock og appskifteren, indtil et vindue åbnes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux läuft in der Menüleiste weiter, außerhalb von Dock und App-Umschalter, bis sich ein Fenster öffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sigue ejecutándose en la barra de menús, fuera del Dock y del selector de apps, hasta que se abra una ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux continue de tourner dans la barre des menus, hors du Dock et du sélecteur d’apps, jusqu’à l’ouverture d’une fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux resta attivo nella barra dei menu, fuori dal Dock e dal selettore di app, finché non si apre una finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが開くまで、cmux は Dock とアプリスイッチャーに表示されず、メニューバーで動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux បន្តដំណើរការនៅក្នុងរបារម៉ឺនុយ ក្រៅ Dock និងកម្មវិធីប្ដូរកម្មវិធី រហូតដល់មានវីនដូបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 열릴 때까지 cmux는 Dock과 앱 전환기에 표시되지 않고 메뉴 막대에서 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fortsetter å kjøre i menylinjen, utenfor Dock og appveksleren, til et vindu åpnes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux działa dalej na pasku menu, poza Dockiem i przełącznikiem aplikacji, dopóki nie otworzy się okno."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux continua em execução na barra de menus, fora do Dock e do alternador de apps, até que uma janela seja aberta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux продолжает работать в строке меню, вне Dock и переключателя приложений, пока не откроется окно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ยังทำงานต่อในแถบเมนู โดยไม่อยู่ใน Dock และตัวสลับแอป จนกว่าจะมีหน้าต่างเปิดขึ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, bir pencere açılana kadar Dock ve uygulama değiştiricinin dışında, menü çubuğunda çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux і далі працює в рядку меню, поза Dock і перемикачем програм, доки не відкриється вікно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux tiếp tục chạy trên thanh menu, không có trong Dock và trình chuyển ứng dụng, cho đến khi một cửa sổ mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在打开窗口之前，cmux 会在菜单栏中继续运行，不显示在程序坞和应用切换器中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在開啟視窗之前，cmux 會在選單列中繼續執行，不顯示在 Dock 和 App 切換器中。"
           }
         }
       }
@@ -54251,6 +55299,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Earlier builds kept so you can roll back. Uses almost no disk until files change."
+          }
+        }
+      }
+    },
+    "settings.updates.channel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Channel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update-Kanal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal de mise à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قناة التحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal de actualizaciones"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新頻道"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新频道"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 채널"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートチャンネル"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canal de atualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Канал обновлений"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canale di aggiornamento"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Канал оновлень"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanal ažuriranja"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanał aktualizacji"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme Kanalı"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kênh cập nhật"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ช่องทางอัปเดต"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringskanal"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆានែលបច្ចុប្បន្នភាព"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringskanal"
+          }
+        }
+      }
+    },
+    "settings.updates.channel.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary und Dev erhalten Builds, bevor sie Nightly erreichen. Stable erhält nur Builds, die eine Woche ohne Probleme gelaufen sind; nach dem Wechsel kann es eine Weile keine Updates geben."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary et Dev reçoivent les builds avant Nightly. Stable ne reçoit que les builds qui ont tourné une semaine sans problème : après le changement, il peut n’y avoir aucune mise à jour pendant un moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحصل قناتا Canary وDev على الإصدارات قبل وصولها إلى Nightly. لا تحصل Stable إلا على الإصدارات التي عملت أسبوعًا دون مشكلات، لذا قد لا تصل تحديثات لفترة بعد التبديل إليها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary y Dev reciben las compilaciones antes que Nightly. Stable solo recibe compilaciones que han funcionado una semana sin problemas, así que al cambiar puede que no haya actualizaciones durante un tiempo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary 與 Dev 會比 Nightly 更早取得版本。Stable 只取得已穩定執行一週的版本，因此切換後可能有一段時間沒有更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary 和 Dev 会比 Nightly 更早获得版本。Stable 只获得已稳定运行一周的版本，因此切换后可能有一段时间没有更新。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary와 Dev는 Nightly보다 먼저 빌드를 받습니다. Stable은 일주일 동안 문제 없이 실행된 빌드만 받으므로, 전환 후 한동안 업데이트가 없을 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary と Dev は Nightly より先にビルドを受け取ります。Stable は 1 週間問題なく動いたビルドだけを受け取るため、切り替えるとしばらく更新がないことがあります。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary e Dev recebem builds antes do Nightly. Stable recebe só builds que rodaram uma semana sem problemas, então ao mudar para ele pode ficar um tempo sem atualizações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary и Dev получают сборки раньше Nightly. Stable получает только сборки, которые неделю работали без проблем, поэтому после переключения обновлений может не быть какое-то время."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary e Dev ricevono le build prima di Nightly. Stable riceve solo build che hanno funzionato una settimana senza problemi, quindi dopo il passaggio potrebbero non esserci aggiornamenti per un po'."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary і Dev отримують збірки раніше за Nightly. Stable отримує лише збірки, що тиждень працювали без проблем, тож після перемикання оновлень може не бути деякий час."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary i Dev dobijaju buildove prije Nightly. Stable dobija samo buildove koji su sedmicu radili bez problema, pa nakon prelaska neko vrijeme možda neće biti ažuriranja."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary i Dev dostają kompilacje przed Nightly. Stable dostaje tylko kompilacje, które przez tydzień działały bez problemów, więc po przełączeniu przez jakiś czas może nie być aktualizacji."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary ve Dev, sürümleri Nightly'den önce alır. Stable yalnızca bir hafta sorunsuz çalışmış sürümleri alır; bu yüzden geçiş yaptıktan sonra bir süre güncelleme gelmeyebilir."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary và Dev nhận bản dựng trước Nightly. Stable chỉ nhận bản dựng đã chạy ổn định một tuần, nên sau khi chuyển có thể một thời gian không có cập nhật."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary และ Dev ได้รับบิลด์ก่อน Nightly ส่วน Stable ได้รับเฉพาะบิลด์ที่ทำงานได้ดีมาแล้วหนึ่งสัปดาห์ ดังนั้นหลังจากเปลี่ยนอาจไม่มีอัปเดตไปสักพัก"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary og Dev får bygg før Nightly. Stable får bare bygg som har kjørt en uke uten problemer, så etter byttet kan det gå en stund uten oppdateringer."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary និង Dev ទទួលបានកំណែមុន Nightly។ Stable ទទួលបានតែកំណែដែលដំណើរការមួយសប្ដាហ៍ដោយគ្មានបញ្ហា ដូច្នេះបន្ទាប់ពីប្ដូរ អាចគ្មានបច្ចុប្បន្នភាពមួយរយៈ។"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary og Dev får builds før Nightly. Stable får kun builds, der har kørt en uge uden problemer, så efter skiftet kan der gå et stykke tid uden opdateringer."
+          }
+        }
+      }
+    },
+    "settings.choice.updatesChannelStable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستقرة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estable"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "穩定版"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "稳定版"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安定版"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estável"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стабильный"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabile"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стабільний"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabilno"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabilny"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kararlı"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ổn định"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสถียร"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabil"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថិរភាព"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabil"
+          }
+        }
+      }
+    },
+    "settings.choice.updatesChannelNightly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nightly"
+          }
+        }
+      }
+    },
+    "settings.choice.updatesChannelCanary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canary"
+          }
+        }
+      }
+    },
+    "settings.choice.updatesChannelDev": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dev"
           }
         }
       }
@@ -106655,6 +108489,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "這台 Mac 上有代理程式工作時，防止閒置睡眠。顯示器仍可關閉，闔上螢幕仍會讓 Mac 進入睡眠。"
+          }
+        }
+      }
+    },
+    "settings.sessions.resumeAgents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Agents After Restart"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف الوكلاء بعد إعادة التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi agente nakon ponovnog pokretanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genoptag agenter efter genstart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten nach Neustart fortsetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar agentes tras reiniciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre les agents après un redémarrage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi gli agenti dopo il riavvio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再起動後にエージェントを再開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តភ្នាក់ងារបន្ទាប់ពីចាប់ផ្ដើមឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작 후 에이전트 재개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppta agenter etter omstart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznawiaj agentów po ponownym uruchomieniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomar agentes após reiniciar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возобновлять агентов после перезапуска"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทำงานเอเจนต์ต่อหลังรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden başlatmadan sonra ajanları sürdür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновлювати агентів після перезапуску"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục tác tử sau khi khởi động lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启后恢复智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新啟動後恢復代理程式"
+          }
+        }
+      }
+    },
+    "settings.sessions.resumeAgents.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal agents reopen their session after a crash or restart."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيد وكلاء الطرفية فتح جلستها بعد تعطل أو إعادة تشغيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti u terminalu ponovo otvaraju svoju sesiju nakon pada ili ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalagenter genåbner deres session efter et nedbrud eller en genstart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Agenten öffnen ihre Sitzung nach einem Absturz oder Neustart wieder."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes de terminal reabren su sesión tras un fallo o reinicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents du terminal rouvrent leur session après un plantage ou un redémarrage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti nel terminale riaprono la loro sessione dopo un arresto anomalo o un riavvio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラッシュや再起動のあと、ターミナルのエージェントが同じセッションを再開します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារក្នុងទែមីណាល់បើកវគ្គរបស់វាឡើងវិញ បន្ទាប់ពីគាំង ឬចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "충돌이나 재시작 후 터미널 에이전트가 세션을 다시 엽니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalagenter åpner økten sin igjen etter et krasj eller en omstart."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci w terminalu ponownie otwierają swoją sesję po awarii lub ponownym uruchomieniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes do terminal reabrem a sessão após uma falha ou reinício."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты в терминале снова открывают свой сеанс после сбоя или перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ในเทอร์มินัลจะเปิดเซสชันเดิมอีกครั้งหลังแครชหรือรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal ajanları bir çökme veya yeniden başlatmadan sonra oturumlarını yeniden açar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти в терміналі знову відкривають свій сеанс після збою або перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử trong terminal mở lại phiên của mình sau sự cố hoặc khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "崩溃或重启后，终端中的智能体会重新打开其会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當機或重新啟動後，終端機中的代理程式會重新開啟其工作階段。"
           }
         }
       }
