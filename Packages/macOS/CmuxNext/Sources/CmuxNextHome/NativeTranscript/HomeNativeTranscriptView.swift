@@ -214,6 +214,17 @@ public final class HomeNativeTranscriptView: NSView {
     public var debugFirstRunAgents: [HomeDebugAgentRow] { firstRun.debugAgents }
     /// Clicks the panel's agent row `index` (`HomeFirstRunView.debugClickAgent`).
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
+    /// How far the first-run panel's lowest shown part sits above the field's top (negative:
+    /// it runs under the field); nil when the panel shows nothing.
+    public var debugFirstRunFieldGap: CGFloat? {
+        firstRun.debugShownBottom.map { transcript.fieldTop - (firstRun.frame.minY + $0) }
+    }
+    /// Which parts of the first-run panel show (hero, switch_card, action_rows).
+    public var debugFirstRunParts: [String: Bool] { firstRun.debugShownParts }
+    /// The field's top in this view.
+    public var debugFieldTop: CGFloat { transcript.fieldTop }
+    /// Puts `text` in the field, as typing would (`home-chief-long-draft`).
+    public func debugSetDraft(_ text: String) { transcript.setDraft(text) }
     #endif
 
     /// A click on the header's name pill (the Chief's settings popover).
