@@ -266,3 +266,41 @@ export function splitServers(processes: readonly InspectorProcess[]): {
   }
   return { servers, tasks };
 }
+
+/// The ids of the registry's running servers: the Inspector lists those commands under Servers,
+/// never under Background tasks.
+const servingIds = (processes: readonly InspectorProcess[]): ReadonlySet<string> =>
+  new Set(splitServers(processes).servers.map((server) => server.id));
+
+const served = (command: BackgroundCommand, serving: ReadonlySet<string>) =>
+  command.processId !== undefined && serving.has(command.processId);
+
+/// What the Inspector lists: the registry's running servers under Servers, and every other
+/// command (`backgroundCommands`, with all processes passed, so a transcript task a server stands
+/// for is not listed again) under Background tasks.
+export function inspectorLists(
+  processes: readonly InspectorProcess[],
+  transcript: readonly SummaryBackgroundTask[],
+  listed: boolean,
+): { servers: InspectorServer[]; tasks: BackgroundCommand[] } {
+  const servers = splitServers(processes).servers;
+  const serving = servingIds(processes);
+  return {
+    servers,
+    tasks: backgroundCommands(processes, transcript, listed).filter((command) => !served(command, serving)),
+  };
+}
+
+/// The Inspector section the running line's background counts open (App.tsx `openBackground`,
+/// `openCommands`): Background tasks while a command that is not a dev server runs, Servers when
+/// every running command is one (the Inspector draws no Background tasks for those), else
+/// Subagents (only subagents and started chats run). `running` is the chat's running commands,
+/// servers included, as the running line counts them.
+export function backgroundSection(
+  processes: readonly InspectorProcess[],
+  running: readonly BackgroundCommand[],
+): "tasks" | "servers" | "subagents" {
+  const serving = servingIds(processes);
+  if (running.some((command) => !served(command, serving))) return "tasks";
+  return running.length > 0 ? "servers" : "subagents";
+}
