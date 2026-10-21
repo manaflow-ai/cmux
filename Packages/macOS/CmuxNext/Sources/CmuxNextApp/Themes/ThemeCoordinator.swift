@@ -40,6 +40,9 @@ final class ThemeCoordinator {
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
     let workspaceOpacities: WorkspaceBackgroundStore
+    /// Every window, workspace, pane and tab value the other stores do not keep
+    /// (`ThemeCoordinator+AppearanceScopes`), keyed `<level>:<id>|<property>`.
+    let appearanceScopes: WorkspaceBackgroundStore
     /// A workspace background the picker shows without saving it; the inner nil follows the app's.
     var backgroundPreview: (workspace: String, value: String?)?
     /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
@@ -52,13 +55,16 @@ final class ThemeCoordinator {
     private let applies = ThemeApplyLedger()
 
     init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
-         workspaceOpacities: WorkspaceBackgroundStore? = nil) {
+         workspaceOpacities: WorkspaceBackgroundStore? = nil,
+         appearanceScopes: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
         self.workspaceBackgrounds = workspaceBackgrounds
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
         self.workspaceOpacities = workspaceOpacities
             ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
+        self.appearanceScopes = appearanceScopes
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "appearance-scopes.json")
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -135,8 +141,10 @@ final class ThemeCoordinator {
             self?.resolver.changed()
         }
         catalog.load()
+        // Other sources (layout templates) keep the lists their owners installed.
+        let otherSuggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
-            source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
+            source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : otherSuggestions?(source) ?? []
         }
         registry.argumentValidation = { source, text in source != ActionSuggestions.ghosttyThemes || catalog.accepts(text) }
         let store = services.machines.local.store
@@ -145,6 +153,8 @@ final class ThemeCoordinator {
         let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
         Task { await workspaceBackgrounds.load() }
         Task { await workspaceOpacities.load() }
+        let appearanceScopes = self.appearanceScopes
+        Task { await appearanceScopes.load() }
         dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
@@ -160,6 +170,7 @@ final class ThemeCoordinator {
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
                        String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
+                       String(describing: appearanceScopes.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
@@ -173,6 +184,7 @@ final class ThemeCoordinator {
     /// A window opened or switched room: its room and its shown workspace take their themes.
     func windowDidChange(_ controller: WindowController) {
         setTheme(of: controller.themeScope, to: roomTheme(controller.state.profileID))
+        applyWindowBackground(controller)
         if let content = controller.content { contentDidShow(content) }
     }
 
@@ -181,6 +193,7 @@ final class ThemeCoordinator {
     func contentDidShow(_ content: WorkspaceContentController) {
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
         applyWorkspaceBackground(content)
+        for pane in content.panes.values { applyPaneBackground(pane) }
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
     }
 
@@ -241,7 +254,7 @@ final class ThemeCoordinator {
         if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
     }
 
-    private func setTheme(of scope: ThemeScope, to text: String?) {
+    func setTheme(of scope: ThemeScope, to text: String?) {
         let resolved = resolver.resolve(text.flatMap(ThemeSpec.init))
         // Re-resolves run on every Ghostty config reload in the process; a
         // theme this coordinator never set is not its to clear.
@@ -281,6 +294,11 @@ final class ThemeCoordinator {
                 try? AppActionContext(services: services).page(ActionInvocation(target: target))
             }
             return entry?.chrome.toolbarButtons.modes.colorScheme.rawValue
+        }
+        // A pane's own background and tint (the pane's Appearance folder checks them).
+        if action == "pane.setBackground" || action == "pane.setTint" {
+            guard let pane = paneForChoice(target) else { return nil }
+            return action == "pane.setBackground" ? ownValue(.background, of: .pane(pane)) ?? "inherit" : ownValue(.tint, of: .pane(pane)) ?? "none"
         }
         guard let resolved = previewTarget?(action, target) else { return nil }
         let current: String? = switch resolved {

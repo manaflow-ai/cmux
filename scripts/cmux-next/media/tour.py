@@ -20,7 +20,7 @@ settings. A step has a `title` and optionally:
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
               with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
-              after `cmux`; an error answer or an `error` field fails the step
+              after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
     wait      seconds to let the UI settle before the screenshot (default 1.5)
@@ -66,7 +66,13 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect"}
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows"}
+# Other windows a step shoots beside the main one (floating panels, popovers,
+# sheets), at most this many, each at least this big in points.
+MAX_OTHER_WINDOWS = 4
+MIN_OTHER_WINDOW = (40, 24)
+# All of a step's other-window shots share this many seconds.
+OTHER_WINDOWS_BUDGET = 20.0
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -137,6 +143,8 @@ def load_tour(path: Path) -> dict[str, Any]:
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(word, str) for word in command)):
             raise TourError(f"{where}: `cmux` must be a non-empty list of strings")
+        if "windows" in step and not isinstance(step["windows"], bool):
+            raise TourError(f"{where}: `windows` must be true or false")
         rpc = step.get("rpc")
         if rpc is not None and (not isinstance(rpc, dict) or set(rpc) - {"method", "params"}
                                 or not isinstance(rpc.get("method"), str) or not rpc["method"].strip()
@@ -692,6 +700,62 @@ def display_capture(app: App, screen: Screen, path: Path) -> str | None:
     return display.capture(path)
 
 
+def shoot_other_windows(app: App, main_shot: Path) -> tuple[list[dict[str, Any]], str | None]:
+    """Every other visible window of the app beside the main window's shot: a
+    floating panel, popover or sheet is its own window, which the main window's
+    snapshot leaves out unless it is a child window. `debug.window_list` names
+    them and `debug.window_snapshot` takes any window's number. A child window
+    of another window (a Chromium page, the overlay panel) is skipped: the
+    main shot composites it. A sheet is shot. An app without the list (an
+    older base build) gets no extra shots and no error. The shots share
+    OTHER_WINDOWS_BUDGET seconds and stop at the first failure past it."""
+    deadline = time.monotonic() + OTHER_WINDOWS_BUDGET
+    try:
+        listed = app.request("debug.window_list", timeout=min(SNAPSHOT_TIMEOUT, OTHER_WINDOWS_BUDGET))
+    except TourError as error:
+        text = str(error).lower()
+        unknown = "unknown method" in text or "method_not_found" in text
+        return [], None if unknown else f"debug.window_list: {error}"
+    except (OSError, ValueError) as error:
+        return [], f"debug.window_list: {error}"
+    windows = listed.get("windows") if isinstance(listed, dict) else None
+    shots: list[dict[str, Any]] = []
+    problems: list[str] = []
+    for window in windows if isinstance(windows, list) else []:
+        if len(shots) >= MAX_OTHER_WINDOWS:
+            break
+        if not isinstance(window, dict) or window.get("kind") == "main" or window.get("visible") is not True:
+            continue
+        if window.get("parent") is not None and window.get("kind") != "sheet":
+            continue
+        number, frame, alpha = window.get("id"), window.get("frame") or {}, window.get("alpha", 1)
+        if not isinstance(number, int) or isinstance(number, bool) or number <= 0 or not isinstance(frame, dict):
+            continue
+        if not isinstance(alpha, (int, float)) or alpha <= 0:
+            continue
+        width, height = frame.get("width", 0), frame.get("height", 0)
+        if not all(isinstance(v, (int, float)) for v in (width, height)) \
+                or width < MIN_OTHER_WINDOW[0] or height < MIN_OTHER_WINDOW[1]:
+            continue
+        left = deadline - time.monotonic()
+        if left <= 1:
+            problems.append("out of time for the other windows")
+            break
+        path = main_shot.with_name(f"{main_shot.stem}--w{number}.png")
+        try:
+            done = app.request("debug.window_snapshot", {"window": number, "path": str(path)},
+                               timeout=min(SNAPSHOT_TIMEOUT, left))
+        except (OSError, ValueError, TourError) as error:
+            problems.append(f"window {number}: {error}")
+            continue
+        if not isinstance(done, dict) or done.get("error") or not path.is_file() or path.stat().st_size == 0:
+            path.unlink(missing_ok=True)
+            problems.append(f"window {number}: {done.get('error') if isinstance(done, dict) else 'no image'}")
+            continue
+        shots.append({"id": number, "kind": str(window.get("kind") or "window")[:40], "shot": f"shots/{path.name}"})
+    return shots, "; ".join(problems)[:500] or None
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -712,6 +776,10 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         try:
             answer = app.request(rpc["method"], rpc.get("params") or {})
             error = answer.get("error") if isinstance(answer, dict) else None
+            # A method that answers but could not do it says so in its own `ok` (a bool, or
+            # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
+            if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
+                error = "answered ok: false"
             result["output"] = json.dumps(answer)[-1500:]
         except (OSError, ValueError, TourError, socket.timeout) as problem:
             error = str(problem)
@@ -745,6 +813,12 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
             result["shot_error"] = problem
         else:
             result["shot"] = f"shots/{path.name}"
+            if screen.app and step.get("windows", not step.get("display")):
+                windows, problem = shoot_other_windows(app, path)
+                if windows:
+                    result["windows"] = windows
+                if problem:
+                    result["windows_error"] = problem
     result["seconds"] = round(time.monotonic() - started, 2)
     return result
 

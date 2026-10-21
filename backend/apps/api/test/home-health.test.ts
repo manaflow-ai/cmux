@@ -72,6 +72,18 @@ describe("Cloud Home health probe", { timeout: 60_000 }, () => {
     expect(sent.map((s) => checkInOf(s).status)).toEqual(["error", "error", "ok"])
   })
 
+  it("HOME_HEALTH_FAULT fails the named step off production (the alert drill); production ignores it", async () => {
+    const { sent, fetcher } = recorder()
+    for (const step of ["open", "send", "read"] as const) {
+      const drill = await runHomeHealth({ ...testEnv, SENTRY_DSN: DSN, HOME_HEALTH_FAULT: step } as never, { fetcher })
+      expect(drill.probe).toMatchObject({ ok: false, step, code: "fault" })
+    }
+    expect(sent.map((s) => checkInOf(s).status)).toEqual(["error", "error", "error"])
+    const prod = await runHomeHealth({ ...testEnv, ENVIRONMENT: "production", SENTRY_DSN: DSN, HOME_HEALTH_FAULT: "send" } as never, { fetcher })
+    expect(prod.probe).toMatchObject({ ok: true, step: "done" })
+    expect(checkInOf(sent[3]!)).toMatchObject({ status: "ok", monitor_slug: "cloud-home-production" })
+  })
+
   it("with no SENTRY_DSN the probe still runs and only logs", async () => {
     const { sent, fetcher } = recorder()
     const { SENTRY_DSN: _none, ...withoutDsn } = testEnv

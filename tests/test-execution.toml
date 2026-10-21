@@ -357,6 +357,22 @@ path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_tui_latest_acpmux.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_web_base_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_web_bundle_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_builder.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
@@ -965,7 +981,43 @@ path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_format_post_edit.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_base_merge_warning.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_job_input_fingerprint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_compile_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_feat_ci_guard_group.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guards_new_reds.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_web_lint_prepush.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_store_rules.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_ios_test_notes_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1358,6 +1410,10 @@ path = "tests/test_nightly_signed_unnotarized_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_background_steps.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_daily_tree_wait.py"
 lane = "linux-guard"
 
@@ -1367,6 +1423,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_superseded_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_publisher_testing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1478,6 +1538,18 @@ path = "tests/test_nightly_next_feed_rollback.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_canary_mode.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_fix_forward.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_train.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_test_touches_diff.py"
 lane = "linux-guard"
 
@@ -1498,11 +1570,11 @@ path = "tests/test_nightly_next_promotion_queue.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_pr_proof_section.py"
+path = "tests/test_pr_capture_check.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_pr_status.py"
+path = "tests/test_pr_proof_section.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1519,4 +1591,24 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_builder.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_supplychain_security.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_autofix_settings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_car_guards.py"
 lane = "linux-guard"

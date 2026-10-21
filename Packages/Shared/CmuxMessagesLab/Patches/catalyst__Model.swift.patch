@@ -1,6 +1,17 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
-@@ -249,7 +249,13 @@
+@@ -9,6 +9,10 @@
+     var title: String
+     var participants: [Participant]
+     var messages: [Message]
++    /// cmux: a group conversation (CmuxHomeCore `ConversationSummary.kind(me:) == .group`): the transcript
++    /// names the first bubble of each run of another person's messages and draws their avatar beside the
++    /// last (RowBuilder). nil or false: a direct or Chief chat, no names or avatars.
++    var cmuxGroup: Bool? = nil
+ }
+ 
+ struct Participant: Codable, Equatable {
+@@ -249,7 +253,13 @@
      }()
      /// Timestamps keep the conversation's offset (-07:00) so rendering is
      /// independent of the machine's zone.
@@ -15,7 +26,7 @@
      private static let writer: ISO8601DateFormatter = {
          let f = ISO8601DateFormatter()
          f.formatOptions = [.withInternetDateTime]
-@@ -333,7 +339,9 @@
+@@ -333,7 +343,9 @@
  enum Fixtures {
      /// conversation.json and assets/ from shared/ are bundled (not copied
      /// into this variant's sources).

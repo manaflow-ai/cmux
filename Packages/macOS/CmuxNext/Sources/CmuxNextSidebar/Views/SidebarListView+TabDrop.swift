@@ -15,6 +15,9 @@ extension SidebarListViewComponents {
         var springTarget: WorkspaceID?
         var springGroupTarget: GroupID?
         var springTask: Task<Void, Never>?
+        /// Collapsed groups the spring-load opened: they close again when the drag leaves or ends, except the one
+        /// the drop goes into (a drag never changes a group's fold for good, Leo 2026-10-20).
+        var springOpened: [GroupID] = []
         /// The slot between two rows the pointer is in, and since when (its gap opens after the dwell).
         var slot: (drop: SidebarTabDrop, since: CFTimeInterval)?
         /// When the slot under a resting pointer opens its gap; nil when none is pending.
@@ -92,19 +95,33 @@ extension SidebarListViewComponents {
     }
     /// When the slot under a resting pointer opens its gap (`externalDragMoved`'s dwell).
     var externalDragSlotDeadline: CFTimeInterval? { external?.slotDeadline }
-    func externalDragExited() {
-        guard let external else { return }
-        external.springTask?.cancel()
-        self.external = nil
-        autoscroll.stop()
-        reload(animated: true)
-    }
+    func externalDragExited() { endExternalDrag(dropping: nil) }
     /// Ends an external drag and returns what it would do. The App commits
     /// the proposal (one daemon command) and updates the model.
     func externalDragEnded() -> SidebarTabDrop? {
         let proposal = external?.proposal
-        externalDragExited()
+        endExternalDrag(dropping: proposal)
         return proposal
+    }
+    /// Ends an external drag: the groups its spring-load opened close again, but for the one `drop` goes into.
+    private func endExternalDrag(dropping drop: SidebarTabDrop?) {
+        guard let external else { return }
+        external.springTask?.cancel()
+        self.external = nil
+        autoscroll.stop()
+        let kept = drop.flatMap { Self.dropGroup(of: $0, in: model.sections) }
+        for group in external.springOpened where group != kept && model.group(group)?.isCollapsed == false {
+            model.send(.toggleCollapse(.group(group)))
+        }
+        reload(animated: true)
+    }
+    /// The group a tab drop lands in, if any.
+    static func dropGroup(of drop: SidebarTabDrop, in sections: [SidebarSection]) -> GroupID? {
+        switch drop {
+        case let .intoGroup(group): group
+        case let .newWorkspace(_, group, _): group
+        case let .intoWorkspace(id), let .beforeTab(id, _): SidebarEdits.position(of: id, in: sections)?.group
+        }
     }
     func highlightRect(for proposal: SidebarTabDrop) -> NSRect? {
         switch proposal {
@@ -143,6 +160,7 @@ extension SidebarListViewComponents {
             if let target, self.model.activeWorkspaceID != target {
                 self.model.click(target)
             } else if let groupTarget, self.model.group(groupTarget)?.isCollapsed == true {
+                external.springOpened.append(groupTarget)
                 self.model.send(.toggleCollapse(.group(groupTarget)))
             }
             self.reload(animated: true)

@@ -15,24 +15,24 @@ enum MiscHandlerStrings {
     static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
     static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
     static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet.", table: "MiscHandlers", bundle: .module) }
-    static var vscodeServer: String { String(localized: "handlers.misc.unavailable.vscodeServer", defaultValue: "The inline VS Code server is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
-    static var reactGrab: String { String(localized: "handlers.misc.unavailable.reactGrab", defaultValue: "React Grab injection is not ported yet.", table: "MiscHandlers", bundle: .module) }
-    static var omnibarToggle: String { String(localized: "handlers.misc.unavailable.omnibarToggle", defaultValue: "The address bar cannot be hidden yet.", table: "MiscHandlers", bundle: .module) }
-    static var browserHistory: String { String(localized: "handlers.misc.unavailable.browserHistory", defaultValue: "cmux-next keeps no browser history store yet.", table: "MiscHandlers", bundle: .module) }
-    static var browserToggle: String { String(localized: "handlers.misc.unavailable.browserToggle", defaultValue: "The cmux browser is always on in cmux-next; there is no setting to turn it off yet.", table: "MiscHandlers", bundle: .module) }
+    static var reactGrabFailed: String { String(localized: "handlers.misc.reactGrabFailed", defaultValue: "React Grab could not load on this page.", table: "MiscHandlers", bundle: .module) }
+    /// A browser tab refused while `browser.enabled` is off.
+    static var browserOff: String { String(localized: "handlers.misc.browserOff", defaultValue: "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux.", table: "MiscHandlers", bundle: .module) }
     static var defaultBrowserIsCmux: String {
         String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module)
     }
     static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
-    static var sectionScreenshot: String { String(localized: "handlers.misc.unavailable.sectionScreenshot", defaultValue: "Section screenshots need a selection overlay that is not built yet.", table: "MiscHandlers", bundle: .module) }
-    static var agentChat: String { String(localized: "handlers.misc.unavailable.agentChat", defaultValue: "Agent chat views are not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
-    static var agentTeams: String { String(localized: "handlers.misc.unavailable.agentTeams", defaultValue: "The Claude and Codex Teams launcher is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
     static var computerUse: String { String(localized: "handlers.misc.unavailable.computerUse", defaultValue: "Computer Use integration is not ported to cmux-next yet.", table: "MiscHandlers", bundle: .module) }
     static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module) }
     static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
+    /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
+    static var resumeCommandTitle: String { String(localized: "handlers.misc.resumeCommand.title", defaultValue: "Resume Command", table: "MiscHandlers", bundle: .module) }
+    static var resumeCommandSave: String { String(localized: "handlers.misc.resumeCommand.save", defaultValue: "Save", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
@@ -48,6 +48,12 @@ enum MiscHandlerStrings {
     static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsAgentChat: String { String(localized: "handlers.misc.failed.switchModelNeedsAgentChat", defaultValue: "Switch Model… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var copyCodeNeedsAgentChat: String { String(localized: "handlers.misc.failed.copyCodeNeedsAgentChat", defaultValue: "Copy Last Code Block works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var noCodeBlock: String { String(localized: "handlers.misc.failed.noCodeBlock", defaultValue: "This chat has no code block to copy.", table: "MiscHandlers", bundle: .module) }
+    static var copyCodeFailed: String { String(localized: "handlers.misc.failed.copyCodeFailed", defaultValue: "The last code block could not be copied.", table: "MiscHandlers", bundle: .module) }
+    static var noWorkingChief: String { String(localized: "handlers.misc.failed.noWorkingChief", defaultValue: "No Chief is working right now.", table: "MiscHandlers", bundle: .module) }
+    static var noChief: String { String(localized: "handlers.misc.failed.noChief", defaultValue: "There is no Chief yet. Make one with New Chief.", table: "MiscHandlers", bundle: .module) }
+    static var homeChiefPaneStays: String { String(localized: "handlers.misc.failed.homeChiefPaneStays", defaultValue: "The Chief pane stays open in Home.", table: "MiscHandlers", bundle: .module) }
+    static var channelsCannotStep: String { String(localized: "handlers.misc.failed.channelsCannotStep", defaultValue: "Channels did not move to another conversation.", table: "MiscHandlers", bundle: .module) }
     static var archiveChatNeedsAgentChat: String { String(localized: "handlers.misc.failed.archiveChatNeedsAgentChat", defaultValue: "Archive Chat works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var searchFilesNeedsAgentChat: String { String(localized: "handlers.misc.failed.searchFilesNeedsAgentChat", defaultValue: "Search Files… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }

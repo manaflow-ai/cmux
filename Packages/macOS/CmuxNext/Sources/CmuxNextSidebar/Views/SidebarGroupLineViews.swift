@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Observation
 
 /// Each open group's members' line (cx-qno.17, cx-q5jw) as one view under
 /// the rows. The lines animate in the rows' own spring block (`RowMotion`),
@@ -9,6 +10,8 @@ import CmuxNextDesign
 @MainActor
 final class SidebarGroupLineViews {
     private var views: [GroupID: GroupLineView] = [:]
+    /// The lines the last `update` showed (a group's fold moves them without a pass over every row).
+    private(set) var lines: [SidebarGroupLine] = []
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
@@ -35,6 +38,7 @@ final class SidebarGroupLineViews {
             leavingViews.forEach { $0.removeFromSuperview() }
             leavingViews.removeAll()
         }
+        lines = new
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
@@ -78,10 +82,10 @@ final class SidebarGroupLineViews {
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
     /// and leaves every other line, moving or not, as it is.
-    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
+    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, below decorations: NSView) {
         for line in lines where views[line.group] == nil {
             let view = GroupLineView()
-            list.addSubview(view, positioned: .above, relativeTo: decorations)
+            list.addSubview(view, positioned: .below, relativeTo: decorations)
             views[line.group] = view
             Motion.withoutAnimation {
                 view.frame = line.frame
@@ -139,6 +143,24 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        performWithTheme { layer?.backgroundColor = color.lineFill.cgColor }
+        let look = observedLook()
+        // Under the solid band, the band's exact color (Leo 2026-10-19); else the dot's color.
+        performWithTheme { layer?.backgroundColor = (look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)).cgColor }
     }
+
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes;
+    /// one observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
+        guard !observesPalette else { return read() }
+        observesPalette = true
+        return withObservationTracking(read) { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.observesPalette = false
+                self?.needsDisplay = true
+            }
+        }
+    }
+
+    private var observesPalette = false
 }

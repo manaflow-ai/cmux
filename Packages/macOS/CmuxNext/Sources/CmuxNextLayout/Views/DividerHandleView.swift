@@ -55,9 +55,15 @@ final class DividerHandleView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         switch kind {
-        case .split: setAccessibilityLabel(LayoutStrings.dividerAccessibility)
-        case .columnEdge: setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
-        case .rowEdge: setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
+        case .split(let split):
+            setAccessibilityLabel(LayoutStrings.dividerAccessibility)
+            setAccessibilityIdentifier("cmux.pane.divider.\(split.rawValue)")
+        case .columnEdge(let column):
+            setAccessibilityLabel(LayoutStrings.columnEdgeAccessibility)
+            setAccessibilityIdentifier("cmux.pane.columnEdge.\(column.rawValue)")
+        case .rowEdge(let column, let row):
+            setAccessibilityLabel(LayoutStrings.rowEdgeAccessibility)
+            setAccessibilityIdentifier("cmux.pane.rowEdge.\(column.rawValue).\(row.rawValue)")
         }
         applyColors()
     }
@@ -133,7 +139,7 @@ final class DividerHandleView: NSView {
     }
 
     private var lineFrame: CGRect {
-        let t = isColumnEdge ? max(lineThickness, 2) : lineThickness
+        let t = isColumnEdge ? LayoutStyle.columnEdgeLineThickness(dividerThickness: lineThickness) : lineThickness
         return switch axis {
         case .horizontal: CGRect(x: (bounds.width - t) / 2, y: 0, width: t, height: bounds.height)
         case .vertical: CGRect(x: 0, y: (bounds.height - t) / 2, width: bounds.width, height: t)
@@ -216,7 +222,7 @@ final class DividerHandleView: NSView {
             } else {
                 color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
             }
-            Motion.transaction(.hover) {
+            Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor
                 line.cornerRadius = isEdge ? 1 : 0
             }

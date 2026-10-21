@@ -25,6 +25,13 @@ import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
 import { managedOf, valueOf } from "../store";
 import { t, text } from "../strings";
+import {
+  configThemeColors,
+  DEFAULT_DARK,
+  DEFAULT_LIGHT,
+  fallbackThemeName,
+  terminalThemeColors,
+} from "../themeDefaults";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { AccentPicker } from "./AccentPicker";
 import { ResetButton, ResetSpacer } from "./ResetButton";
@@ -43,8 +50,6 @@ export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn here as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
 const FOLLOW_TERMINAL = "followTerminal";
-const DEFAULT_DARK = "Apple System Colors";
-const DEFAULT_LIGHT = "Apple System Colors Light";
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const store = useStore();
@@ -113,12 +118,10 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     const next = withEdit(theme, token, color);
     return Object.keys(next).length > 0 ? store.set(THEME_EDITS_KEY, next) : store.reset(THEME_EDITS_KEY);
   };
-  const fallbackName = scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT;
+  const fallbackName = fallbackThemeName(scheme);
   // The Ghostty config's own colors, from the host while appearance.theme is unset.
   const configLabel = t("settingsWindow.themeUseConfig");
-  const configColors: GhosttyTheme | undefined = state.host?.theme?.config
-    ? { ...state.host.theme.config, name: configLabel }
-    : colors?.get(fallbackName);
+  const configColors = configThemeColors(state.host?.theme?.config, colors, scheme, configLabel);
   // appearance.appTheme: followTerminal (the default) or a theme apart from the terminal's.
   const appRow = rowsByKey.get(APP_THEME_KEY);
   const appValue = valueOf(state, APP_THEME_KEY);
@@ -154,14 +157,16 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const revealed = useRef<string | null>(null);
   const focused = state.readable && focus !== revealed.current ? focus : null;
   const markRevealed = () => void (revealed.current = focus);
+  // A route without `?focus=` forgets the revealed row, so Back to the same `?focus=` reveals it again.
+  useEffect(() => {
+    if (focus === null) revealed.current = null;
+  }, [focus]);
 
   const lookup = (name: string | null): GhosttyTheme | undefined => (name ? colors?.get(name) : undefined);
   const terminal =
     previewing?.target === "terminal"
       ? lookup(previewing.name)
-      : spec
-        ? (lookup(themeFor(spec, scheme, fallbackName)) ?? configColors)
-        : configColors;
+      : terminalThemeColors(valueOf(state, THEME_KEY), colors, scheme, configColors);
   const appSource =
     (previewing?.target === "app"
       ? lookup(previewing.name)

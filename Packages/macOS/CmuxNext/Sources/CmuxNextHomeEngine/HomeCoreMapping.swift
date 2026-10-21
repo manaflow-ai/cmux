@@ -75,6 +75,20 @@ public nonisolated enum HomeCoreMapping {
                                       poster: ref.poster.map(derived), preview: ref.preview.map(derived))
     }
 
+    /// The ref an owner stored for an upload: the owner keeps the first
+    /// record of a hash, so its type, size and derived images win.
+    static func ref(_ ref: AttachmentRef, storedAs stored: StoredConversationAttachment) -> AttachmentRef {
+        var ref = ref
+        ref.mimeType = stored.mimeType
+        ref.byteCount = stored.byteCount
+        let derived = { (image: ConversationDerivedImage) in
+            AttachmentDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
+        }
+        ref.poster = stored.poster.map(derived)
+        ref.preview = stored.preview.map(derived)
+        return ref
+    }
+
     static func reaction(_ reaction: ConversationReaction) -> Reaction {
         let kind: Reaction.Kind = switch reaction.kind {
         case .tapback(let value): Reaction.Tapback(rawValue: value).map(Reaction.Kind.tapback) ?? .emoji(value)
@@ -170,7 +184,13 @@ public nonisolated enum HomeCoreMapping {
             return (conversation.rawValue, .answerQuestion(messageID: message.rawValue, partIndex: partIndex, answer: value))
         case .updateThread(let conversation, let root, let title, let status, let owner):
             return (conversation.rawValue, .updateThread(root: root.rawValue, title: title, status: status?.rawValue, owner: owner))
-        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
+        case .renameConversation(let conversation, let title):
+            return (conversation.rawValue, .setTitle(title.trimmingCharacters(in: .whitespacesAndNewlines)))
+        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping,
+             .addParticipants, .removeParticipant, .setChiefReplies:
+            // The local owner has no settings op (its wake rule is fixed: home.md section 5).
+            // The local owner has no participants.remove, and its participants.add needs the
+            // person's record (names), which only the cloud's directory holds.
             return nil
         }
     }

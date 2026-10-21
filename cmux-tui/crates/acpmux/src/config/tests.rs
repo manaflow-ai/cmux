@@ -117,6 +117,100 @@ fn a_launcher_failure_does_not_repeat_its_full_argv() {
     assert!(!error.contains(SENTINEL), "launcher failure exposed its argv: {error}");
 }
 
+#[cfg(unix)]
+#[test]
+fn config_load_refuses_a_symlinked_state_file() {
+    use std::os::unix::fs::symlink;
+
+    let dir = std::env::temp_dir().join(format!(
+        "acpmux-config-link-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let target = dir.join("target.json");
+    let config = dir.join("config.json");
+    std::fs::write(&target, "{}").unwrap();
+    symlink(&target, &config).unwrap();
+
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a linked config loaded");
+    assert!(error.to_string().contains("config.json"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn writable_legacy_state_is_refused_before_it_is_narrowed_or_trusted() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-state-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let home = root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a writable state directory was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&home).unwrap().permissions().mode() & 0o777, 0o777);
+
+    std::fs::set_permissions(&home, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let config = home.join("config.json");
+    std::fs::write(&config, r#"{"permissionPolicy":"deny-all"}"#).unwrap();
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o666)).unwrap();
+    let error = Config::load_from_with(&config, &ProfileSources::none())
+        .expect_err("a writable config was trusted");
+    assert!(error.to_string().contains("writable"), "{error:#}");
+    assert_eq!(std::fs::symlink_metadata(&config).unwrap().permissions().mode() & 0o777, 0o666);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_state_home_below_a_non_sticky_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-writable-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let error = private_state_dir(&home).expect_err("a replaceable state pathname was trusted");
+    assert!(error.to_string().contains("writable ancestor"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = std::env::temp_dir().join(format!(
+        "acpmux-acl-parent-{}-{}",
+        std::process::id(),
+        uuid::Uuid::now_v7()
+    ));
+    let shared = root.join("shared");
+    let home = shared.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/chmod")
+        .args(["+a", "group:everyone allow add_file,delete_child", shared.to_str().unwrap()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let error =
+        private_state_dir(&home).expect_err("an ACL-replaceable state pathname was trusted");
+    assert!(error.to_string().contains("ACL"), "{error:#}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

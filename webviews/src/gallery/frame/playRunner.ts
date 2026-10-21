@@ -309,8 +309,14 @@ function measurePopups(): PopupMeasure[] {
       .filter(([, x, y]) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight)
       .map(([point, x, y]) => {
         const top = document.elementFromPoint(x, y);
-        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug.
-        const covered = !!top && !popup.contains(top) && !found.some((other) => other.contains(top));
+        // A nested popup over this one (a submenu) is fine; anything else on top is a layer bug. The
+        // popup's own positioner draws nothing over it: the point is in a rounded corner the popup
+        // does not paint (a 12 px radius leaves the 3 px inset outside it).
+        const covered =
+          !!top &&
+          !popup.contains(top) &&
+          top !== popup.closest(".ui-positioner") &&
+          !found.some((other) => other.contains(top));
         return covered ? { point, covered, by: describeElement(top!) } : { point, covered };
       });
     const clippedBy: string[] = [];

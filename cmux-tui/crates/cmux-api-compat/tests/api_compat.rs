@@ -54,6 +54,32 @@ mod api_compat {
         assert_eq!(tr(&c, 3, 1, r#"{"opts":{"zoom":2}}"#), r#"{"opts":{},"legacy":"x"}"#);
     }
 
+    /// Fleet proptest find (5f9ba6b): a rename onto a key the input already
+    /// has emitted that key twice. A rename replaces its target.
+    #[test]
+    fn api_compat_rename_onto_an_existing_key_replaces_it() {
+        let c = compat(vec![
+            vec![Change::Remove { path: "/a".into(), default: json!(0) }],
+            vec![Change::Move { from: "/a".into(), path: "/r1".into() }],
+        ]);
+        assert_eq!(tr(&c, 3, 1, r#"{"a":null}"#), r#"{"a":0}"#);
+        let c = compat(vec![vec![rename("/a", "b")]]);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1,"a":2}"#), r#"{"b":2}"#);
+        assert_eq!(tr(&c, 1, 2, r#"{"b":1}"#), r#"{}"#);
+    }
+
+    /// Fleet proptest find (ba8b81c): a move creates the missing parents of
+    /// its destination, so a later rule under that parent runs after it.
+    #[test]
+    fn api_compat_add_under_a_parent_a_move_created() {
+        let c = compat(vec![
+            vec![Change::Move { from: "/e".into(), path: "/c/r0".into() }],
+            vec![Change::Add { path: "/c/r1".into(), default: json!(1) }],
+        ]);
+        let up: Value = serde_json::from_str(&tr(&c, 1, 3, r#"{"e":null}"#)).unwrap();
+        assert_eq!(up, json!({"c": {"r0": null, "r1": 1}}));
+    }
+
     #[test]
     fn api_compat_move_across_parents_round_trips() {
         let c =

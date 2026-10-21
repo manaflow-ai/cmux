@@ -35,6 +35,8 @@ final class PaneOverlayView: NSView {
     private let glowClip = CALayer()
     private let glow = CALayer()
     private let attention = CALayer()
+    /// The attention ring's layer (for the glow, `PaneOverlayView+Glow`).
+    var attentionLayer: CALayer { attention }
     private let dimLayer = CALayer()
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
@@ -44,6 +46,8 @@ final class PaneOverlayView: NSView {
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
     private var attentionMark: AttentionMark?
+    /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
+    private var dismissingColor: ThemeRGB?
     /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
     private var attentionLook = AttentionHighlightLook.tunable.defaultValue
     /// One observation of the look is registered at a time.
@@ -66,6 +70,7 @@ final class PaneOverlayView: NSView {
         }
         glow.opacity = 1
         ring.borderWidth = 1
+        applyRingGlow()
     }
 
     @available(*, unavailable)
@@ -75,6 +80,10 @@ final class PaneOverlayView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The attention ring's running animations and model opacity (for tests and `debug.layers`).
+    var attentionAnimationKeys: [String] { attention.animationKeys() ?? [] }
+    var attentionOpacity: Float { attention.opacity }
 
     /// Whether the focus ring or glow is showing (for `debug.layers`).
     var showsRing: Bool { ring.opacity > 0 || glowClip.opacity > 0 }
@@ -158,6 +167,7 @@ final class PaneOverlayView: NSView {
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
+        attention.shadowPath = Self.ringOutline(size: rect.size, radius: radius, width: attentionSettings.width)
         CATransaction.commit()
     }
 
@@ -188,7 +198,8 @@ final class PaneOverlayView: NSView {
     }
 
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
-                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
+                readByEntry: Bool = false, animated: Bool) {
         self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
@@ -213,17 +224,17 @@ final class PaneOverlayView: NSView {
         ]
         // Split before either write: once a leaving layer is set, it no longer reads as leaving.
         let leaving = targets.map { layer, value in layer === border ? value > layer.opacity : value < layer.opacity }
-        Motion.transaction(nil) {
+        Motion.panes.transaction(nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where leaves {
                 layer.removeAnimation(forKey: "opacity")
                 layer.opacity = value
             }
         }
-        Motion.transaction(animated ? .focus : nil) {
+        Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
-            dimLayer.opacity = Float(dim)
         }
-        applyAttention(mark, animated: animated)
+        Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
+        applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
     }
 
@@ -243,28 +254,47 @@ final class PaneOverlayView: NSView {
         observesAttentionLook = false
         attentionLook = observedAttentionLook()
         if attentionMark != nil, attentionSettings.style != .none {
-            Motion.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
+            Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
         applyColors()
     }
 
-    private func applyAttention(_ mark: AttentionMark?, animated: Bool) {
+    /// `readByEntry`: the mark went away because the person went into the
+    /// pane (a click, a key, an open): the ring blinks out, as cmux classic's
+    /// dismiss flash did. A mark cleared any other way (Mark Read, a timeout,
+    /// a mute, another device) just fades.
+    private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
         attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.style != .none else {
             attention.removeAnimation(forKey: "attention")
-            Motion.transaction(animated ? .focus : nil) { attention.opacity = 0 }
+            if previous != nil, readByEntry, animated,
+               let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
+                dismissingColor = previous?.color
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                attention.opacity = 0
+                attention.add(flash, forKey: "attention-dismiss")
+                addFlashGlow(for: flash)
+                CATransaction.commit()
+                return
+            }
+            Motion.feedback.transaction(animated ? .focus : nil) { attention.opacity = 0 }
             return
         }
+        attention.removeAnimation(forKey: "attention-dismiss")
+        attention.removeAnimation(forKey: "attention-dismiss-glow")
+        dismissingColor = nil
         guard previous?.generation != mark.generation else { return }
         // A new notification: run the style's animation from the start and
-        // rest at its final opacity.
+        // rest at its final opacity (the steady ring swells from its rest when
+        // it already shows, rather than dropping out first).
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.attentionAnimation(attentionSettings, look: attentionLook) {
+        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
@@ -276,8 +306,9 @@ final class PaneOverlayView: NSView {
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
-            let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
+            let attentionColor = (attentionMark?.color ?? dismissingColor)?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor
             attention.borderColor = attentionColor.cgColor
+            attention.shadowColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
             // In glass windows the root backdrop owns the ground. An opaque
             // inactive-pane veil would hide the painting and reintroduce the

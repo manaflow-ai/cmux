@@ -18,14 +18,18 @@ extension SidebarListViewComponents {
     /// group's line goes with its card (SidebarListLift). `current` places
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
-    /// Joined (`groupLineJoinsHeader`), the list draws no line views: each header draws its line
+    /// Joined (`joinsHeaders`), the list draws no line views: each header draws its line
     /// as part of its bar (`joinHeaders`).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
-        guard !groupLineJoinsHeader else { return [] }
+        guard !joinsHeaders else { return [] }
         return SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, joined: false) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
         }
     }
+
+    /// `sidebar.groupLineJoinsHeader` under the solid band: the quieter header looks
+    /// (`SidebarGroupHeaderStyle`) have no bar to join, so their line keeps its cut.
+    var joinsHeaders: Bool { groupLineJoinsHeader && SidebarGroupHeaderStyle.tunable.value == .band }
 
     /// The list's lines for `layout`, from `start` (`SidebarGroupLineViews.update`), and the joined headers' lines.
     func updateGroupLines(_ layout: SidebarLayout, from start: [SidebarGroupLine], animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
@@ -36,7 +40,7 @@ extension SidebarListViewComponents {
     /// Joined, how far each open group's header draws its line below its bar, kept for headers
     /// configured later (`configure`) and handed to the headers on screen now; else none.
     func joinHeaders(_ layout: SidebarLayout) {
-        let lines = groupLineJoinsHeader
+        let lines = joinsHeaders
             ? SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, joined: true, frame: frame(for:)) : []
         joinedLineLengths = Dictionary(lines.map { ($0.group, $0.frame.height) }, uniquingKeysWith: { first, _ in first })
         for case (.group(let id), let header as GroupHeaderRowView) in rowViews.map({ ($0.key, $0.value) }) {
@@ -71,10 +75,9 @@ extension SidebarGroupLine {
         return headers.compactMap { id, header in
             guard !header.isCollapsed, let end = last[id], end.y > header.y else { return nil }
             let head = frame(header), tail = frame(end)
-            let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
-            let barEdge = head.midY + bar / 2
-            // Joined, the line starts at the bar's edge: the header draws it as part of its bar.
-            let top = joined ? barEdge : barEdge + SidebarStyle.groupLineCut, bottom = tail.maxY
+            // The header's bar fills its row (Lawrence 2026-10-19). Joined, the line starts at the
+            // bar's edge: the header draws it as part of its bar.
+            let top = joined ? head.maxY : head.maxY + SidebarStyle.groupLineCut, bottom = tail.maxY
             guard bottom - top >= 2 * width else { return nil }
             let x = head.minX + (joined ? 0 : SidebarStyle.groupBarX)
             return SidebarGroupLine(group: id, frame: CGRect(x: x, y: top, width: width, height: bottom - top),

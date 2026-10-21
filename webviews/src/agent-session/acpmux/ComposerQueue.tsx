@@ -4,24 +4,29 @@
 // off or drawn over, and the transcript scrolls in what is left.
 //
 // Keyboard first: ↑ on an empty prompt goes to the last row; on a row, ↑/↓ move between rows (↓
-// past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue,
-// ⌘Return sends it now and Delete removes it. Esc goes back to the prompt.
+// past the last goes back to the prompt), Return edits it in place, ⌥↑/⌥↓ move it in the queue
+// and Delete removes it. Esc goes back to the prompt.
+//
+// Every row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"): Edit,
+// Remove and Send now. The menu has them too. Send now is the user's override: it steers the prompt
+// into the running turn and stops only its current step, so the agent reads it at once and the turn
+// runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a click sends
+// now, never a key: a held or repeated key once sent row after row (claude-sr2, 2026-10-20).
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
 // A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
 // fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
-// reaches it first and no row runs under it. Opened, the list keeps about its folded height and
-// scrolls whole rows (composerStates.css), so the chat above moves one row at most. It stays open
-// for its chat until closed (not across reloads); prompts sent now always show.
+// reaches it first and no row runs under it. Opened, the list keeps about its folded height
+// (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
+// where it stops, its end too. It stays open for its chat until closed (not across reloads);
+// prompts sent now always show.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
-import { experimentArm } from "../../experiments/experiment";
-import { hoverActions } from "../../ui/hoverActions.experiment";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -35,8 +40,10 @@ const openQueues = new Set<string>();
 // The list rests on whole rows (captures of 436917b and f1a737b, 2026-10-15). Its height is the
 // bottom of the last row that fits under its cap: the CSS cap folded, the third row's bottom opened
 // (so opening moves the chat above by about a row, whatever the rows' heights), and opening lands at
-// its top. A row that takes focus scrolls in whole, its "Queued" header with it at the top; a row
-// the edge cuts while the list scrolls still draws (a blank slot read as a missing prompt).
+// its top. A row focused from the keyboard scrolls in whole, its "Queued" header with it at the top;
+// a press never scrolls the list (the row under it moved before the release, so a click on a row the
+// edge cut landed on another or none: Leo, 2026-10-20). A row the edge cuts still draws (a blank
+// slot read as a missing prompt).
 
 /** Where `el` sits in the list's content, from its top (not moved by scrolling). */
 function offsets(list: HTMLElement, el: Element) {
@@ -141,6 +148,8 @@ export function ComposerQueue({
   // The row that takes focus once it draws: the next one after a row leaves, when it was folded.
   const focusNext = useRef<string>(undefined);
   const foldButton = useRef<HTMLButtonElement>(null);
+  // A press in the list, until its release: the focus it gives a row does not scroll the list.
+  const pressing = useRef(false);
   useEffect(() => {
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
@@ -159,7 +168,7 @@ export function ComposerQueue({
   useLayoutEffect(() => {
     const current = list.current;
     if (current) fitList(current);
-    // Opening lands at the top: the header and the next prompt (row snapping kept it on row 2).
+    // Opening lands at the top: the header and the next prompt.
     if (current && unfolded && !wasOpen.current) current.scrollTop = 0;
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
@@ -235,12 +244,12 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
-  // A prompt sent now stays in place: acpmux marks it next (`queue_order`), so its row reads
-  // Steering until it runs; to an agent that steers it leaves once acpmux takes it (`dequeued`).
-  // Hiding it as leaving showed nothing until the turn it stopped had ended (live run 2026-10-14).
+  // A prompt sent now stays in place: to an agent that cannot steer acpmux marks it next
+  // (`queue_order`), so its row reads Steering until it runs; to an agent that steers it leaves
+  // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
+  // 2026-10-14).
   const sendNow =
     onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
-  const allActions = experimentArm(hoverActions) === "all";
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -274,10 +283,10 @@ export function ComposerQueue({
       event.preventDefault();
       event.stopPropagation();
     };
-    if (event.key === "Enter" && event.metaKey && sendNow) {
+    if (event.key === "Enter" && event.metaKey) {
+      // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
+      // composer otherwise.
       done();
-      sendNow(entry);
-      focusAfter(index);
     } else if (event.key === "Enter" && plain && onChange) {
       done();
       setEditing(entry.id);
@@ -319,7 +328,16 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow ? [item("send", t("composer.queueSendNow"), "⌘↩", () => sendNow(entry))] : []),
+    ...(sendNow
+      ? [
+          {
+            id: "send",
+            ariaLabel: t("composer.queueSendNow"),
+            label: t("composer.queueSendNow"),
+            onSelect: () => sendNow(entry),
+          },
+        ]
+      : []),
     ...(onChange ? [item("edit", t("composer.queueEdit"), "↩", () => setEditing(entry.id))] : []),
     ...(move
       ? [
@@ -344,6 +362,20 @@ export function ComposerQueue({
         ]
       : []),
   ];
+  // One of a row's actions: an icon button named by its tooltip.
+  const action = (id: string, icon: string, label: string, onClick: () => void) => (
+    <button
+      key={id}
+      type="button"
+      className="acpmux-queued-action"
+      data-action={id}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+    >
+      <Icon name={icon} size={14} />
+    </button>
+  );
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
@@ -393,43 +425,11 @@ export function ComposerQueue({
           </span>
         </button>
       )}
-      {/* Send now is the row's one hover action; Edit and Remove are on its menu and keys (Leo dogfood
-          2026-10-13). The `hover-actions` experiment's "all" arm shows them too. */}
-      {editing !== entry.id && (sendNow || (allActions && (onChange || remove))) && (
+      {editing !== entry.id && (onChange || remove) && (
         <span className="acpmux-queued-actions">
-          {sendNow && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueSendNow")}
-              title={t("composer.queueSendNow")}
-              onClick={() => sendNow(entry)}
-            >
-              <Icon name="composer.send" size={14} />
-            </button>
-          )}
-          {onChange && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueEdit")}
-              title={t("composer.queueEdit")}
-              onClick={() => setEditing(entry.id)}
-            >
-              <Icon name="action.edit" size={14} />
-            </button>
-          )}
-          {remove && allActions && (
-            <button
-              type="button"
-              className="acpmux-queued-action"
-              aria-label={t("composer.queueRemove")}
-              title={t("composer.queueRemove")}
-              onClick={() => remove(entry)}
-            >
-              <Icon name="action.delete" size={14} />
-            </button>
-          )}
+          {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
+          {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
+          {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
         </span>
       )}
     </>
@@ -440,10 +440,25 @@ export function ComposerQueue({
         ref={list}
         className="acpmux-composer-queue"
         data-unfolded={foldable && !folded ? "" : undefined}
-        // A row that takes focus (keys, a move, ↑ from the prompt) scrolls in whole.
+        // A row that takes focus from the keyboard (keys, a move, ↑ from the prompt) scrolls in whole.
         onFocus={(event) => {
           const row = (event.target as HTMLElement).closest("li");
-          if (row && list.current) reveal(list.current, row);
+          if (row && list.current && !pressing.current) reveal(list.current, row);
+        }}
+        onPointerDown={(event) => {
+          pressing.current = true;
+          // Released anywhere, over the list or not; a press that ends outside the page (a
+          // native menu, the window losing focus) or before a key ends there too.
+          const page = event.currentTarget.ownerDocument;
+          const ended = new AbortController();
+          const done = () => {
+            pressing.current = false;
+            ended.abort();
+          };
+          const options = { capture: true, signal: ended.signal };
+          for (const type of ["pointerup", "pointercancel", "keydown"]) page.addEventListener(type, done, options);
+          // Not capturing: a capturing window listener also hears the blur of whatever had focus.
+          page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
@@ -475,7 +490,7 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Meta+Enter Delete"
+            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete"
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >
             {editing === entry.id ? (

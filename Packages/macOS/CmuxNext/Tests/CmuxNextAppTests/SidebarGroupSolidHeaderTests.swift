@@ -77,8 +77,8 @@ import Testing
     /// Whether a shape's outline covers a point, in its layer's coordinates.
     private static func covers(_ path: CGPath?, _ x: CGFloat, _ y: CGFloat) -> Bool { path?.contains(CGPoint(x: x, y: y)) ?? false }
 
-    /// Leo 2026-10-19, measured on his Chrome reference at 2x: by default a 26 pt header bar with
-    /// 6 pt corners, an 8 pt cut (`SidebarStyle.groupLineCut`, Leo after the renders: "a liiiitle
+    /// Leo 2026-10-19, measured on his Chrome reference at 2x: by default the header bar (its row's
+    /// full height and the rows' corners since Lawrence's cb00fe652ad and bce81b40f35), an 8 pt cut (`SidebarStyle.groupLineCut`, Leo after the renders: "a liiiitle
     /// more cut-y" than Chrome's 6 pt), then a 2 pt line in the bar's color
     /// whose right edge meets the end of the bar's corner arc (bar left + corner radius), that runs to
     /// the last member row's bottom. Its ends are trimmed as Chrome's are: the left corners square,
@@ -97,7 +97,8 @@ import Testing
         #expect(abs(drawn.minY - bar.maxY - SidebarStyle.groupLineCut) < 0.01,
                 "minimal \(minimal): a \(drawn.minY - bar.maxY) pt gap below the bar, want the \(SidebarStyle.groupLineCut) pt cut")
         #expect(abs(drawn.width - Metrics.space1) < 0.01, "a \(drawn.width) pt line, want Chrome's \(Metrics.space1) pt one")
-        #expect(abs(layer.cornerRadius - Metrics.space3) < 0.51, "a \(layer.cornerRadius) pt bar corner, Chrome's is about 6 pt")
+        #expect(abs(layer.cornerRadius - SidebarStyle.groupHeaderCornerRadius) < 0.51,
+                "a \(layer.cornerRadius) pt bar corner, want the rows' \(SidebarStyle.groupHeaderCornerRadius) pt (Chrome's is about 6 pt)")
         #expect(abs(drawn.maxX - (bar.minX + layer.cornerRadius)) < 0.01,
                 "the line's right edge \(drawn.maxX) is not where the bar's corner arc ends (\(bar.minX + layer.cornerRadius))")
         #expect(abs(drawn.maxY - lastRow.maxY) < 0.01, "the line ends at \(drawn.maxY), the last member row at \(lastRow.maxY)")
@@ -125,7 +126,7 @@ import Testing
         #expect(abs(shapeFrame.minX - bar.minX) < 0.01 && abs(shapeFrame.minY - bar.minY) < 0.01, "the shape \(shapeFrame) does not start at the bar \(bar)")
         #expect(abs(shapeFrame.maxY - lastRow.maxY) < 0.01, "the shape ends at \(shapeFrame.maxY), the last member row at \(lastRow.maxY)")
         let shape = try #require((layer.mask as? CAShapeLayer)?.path, "the joined bar has no outline")
-        let b = bar.height, w = Metrics.space1, end = shapeFrame.height, r = Metrics.space3, e: CGFloat = 0.15
+        let b = bar.height, w = Metrics.space1, end = shapeFrame.height, r = SidebarStyle.groupHeaderCornerRadius, e: CGFloat = 0.15
         #expect(!Self.covers(shape, e, e) && !Self.covers(shape, bar.width - e, e) && !Self.covers(shape, bar.width - e, b - e),
                 "the bar's other corners are not round")
         #expect(Self.covers(shape, e, b - e) && Self.covers(shape, e, b + e), "the corner over the line is not square")

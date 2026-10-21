@@ -11,6 +11,11 @@ import Testing
 /// (`scripts/cmux-next/pin-cmux-tui.sh fetch`; `path` names it).
 nonisolated enum SameTreeDaemonBinary {
     static let url: URL? = {
+        // A CI lane that resolved (and fetched) the tree once names it here.
+        if let path = ProcessInfo.processInfo.environment["CMUX_NEXT_TUI_TREE_PATH"], !path.isEmpty,
+           FileManager.default.isExecutableFile(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
         let process = Process()

@@ -139,6 +139,17 @@ public final class HomeInboxSource {
         write([(id, .markUnread(on))])
     }
 
+    /// Hide Alerts (`on`) or Show Alerts for a Cloud row (`inbox.mute`); a local row has no mute.
+    /// Nothing is sent when it already is so.
+    public func setMuted(_ on: Bool, _ id: String) {
+        guard isCloud, let row = rows?.first(where: { $0.id == id }), (row.muted ?? false) != on else { return }
+        edit(id) { $0.muted = on }
+        write([(id, .mute(on))])
+    }
+
+    /// Whether this source can mute `id` (a Cloud row it lists).
+    public func canMute(_ id: String) -> Bool { isCloud && rows?.contains { $0.id == id } == true }
+
     private func edit(_ id: String, _ change: (inout HomeInboxRequest.Row) -> Void) {
         guard var list = rows, reply != nil, let index = list.firstIndex(where: { $0.id == id }) else { return }
         change(&list[index])

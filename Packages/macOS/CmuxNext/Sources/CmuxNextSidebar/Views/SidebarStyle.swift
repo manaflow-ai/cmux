@@ -6,7 +6,10 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
+    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
+    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// Height of a placeholder row's bar (about a caption's x-height).
@@ -42,9 +45,19 @@ enum SidebarStyle {
     /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
+    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
+    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
+    static var bottomInset: CGFloat { Metrics.space4 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
-    static var dragThreshold: CGFloat { Metrics.space2 }
-    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 10 }
+    /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
+    /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
+    /// or parked row view is a subtree AppKit walks per scroll frame (tracking areas, layout,
+    /// display), 10 rows a side made a scroll cost grow with the workspace count
+    /// (sidebar-scroll-perf-DESIGN.md).
+    static var overscan: CGFloat { Metrics.sidebarRowHeightWithSubtitle * 3 }
+    /// Extra distance past the realization rect before a row view is parked, so a row at the
+    /// edge does not park and come back on every small scroll.
+    static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
     /// Workspace titles: regular weight, read or unread, selected or not
     /// (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
@@ -54,6 +67,16 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var subtitleFont: NSFont { Typography.caption }
+    /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
+    static var detailLineHeight: CGFloat {
+        let font = subtitleFont
+        if let detailLine, detailLine.font == font { return detailLine.height }
+        let height = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        detailLine = (font, height)
+        return height
+    }
+    /// `detailLineHeight` for the last caption font: every row layout and render state reads it.
+    private static var detailLine: (font: NSFont, height: CGFloat)?
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.
@@ -61,13 +84,23 @@ enum SidebarStyle {
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
     static var groupMemberIndent: CGFloat { Metrics.space2 }
-    /// The header bar inside its row: 26 of 32 pt, scaled with the row height.
-    static func groupHeaderBarHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
+    /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
+    /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
+    /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
+    /// each workspace").
+    static func groupHeaderContentHeight(rowHeight: CGFloat) -> CGFloat { rowHeight - 2 * (rowHeight * 0.09).rounded() }
     /// The header's name: medium weight (cx-qno.17: more contrast on the
     /// pastel bar), 14 pt on a 26 pt bar, scaled.
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
+    /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
+    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    static func groupHeaderCountFont(name: NSFont) -> NSFont {
+        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+    }
+    /// How much of the header's ink the member count takes: lighter than the name.
+    static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// The members' line: thin, as Chrome's (Leo 2026-10-19); at the members' leading edge.
     static var groupBarWidth: CGFloat { Metrics.space1 }
     /// The line's left edge, from the bar's: its right edge meets the end of the bar's corner arc,
@@ -82,8 +115,9 @@ enum SidebarStyle {
     /// the renders "a liiiitle more cut-y": 8 pt to Chrome's 6), unless
     /// `sidebar.groupLineJoinsHeader` joins them.
     static var groupLineCut: CGFloat { Metrics.space4 }
-    /// The group header bar's corners (Chrome's, about 6 pt).
-    static var groupHeaderCornerRadius: CGFloat { Metrics.space3 }
+    /// The group header bar's corners: the rows' radius (cb00fe652ad, Lawrence 2026-10-20), where
+    /// Chrome's are about 6 pt.
+    static var groupHeaderCornerRadius: CGFloat { rowCornerRadius }
     /// The group header's color dot, on the line's x (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

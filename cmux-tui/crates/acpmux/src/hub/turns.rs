@@ -84,8 +84,11 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
-            return self.run_prompt(session, blocks, client, steer, opts).await;
+            return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
@@ -142,7 +145,7 @@ impl Hub {
             let accepted = accepted.clone();
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
-        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         if !accepted.load(Ordering::SeqCst) {
             session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
         }
@@ -265,8 +268,16 @@ impl Hub {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // Debug builds only: a test stops the daemon between a queued prompt's `dequeued` and
+        // its turn (`durable_agents.rs`). Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if waiting && std::env::var_os("ACPMUX_TEST_EXIT_AFTER_DEQUEUE").is_some() {
+            // crash-allow: debug-build test seam; the test asks for this stop, like a crash
+            std::process::exit(0);
+        }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
@@ -282,13 +293,14 @@ impl Hub {
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
         }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
-            clear_sent_draft(&mut m, &text);
+            drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
@@ -644,6 +656,23 @@ impl Hub {
         }
     }
 
+    /// A prompt that left the queue (`dequeued`, `waiting`) refused before its turn: the log
+    /// settles it with `prompt_refused`, so a restart does not queue it again (`restore_queue`).
+    fn refuse_dequeued(
+        &self,
+        session: &Arc<Session>,
+        waiting: bool,
+        prompt_id: &str,
+        turn_id: &str,
+        client: &str,
+        e: &RpcError,
+    ) {
+        if waiting {
+            let msg = json!({"promptId": prompt_id, "turnId": turn_id, "client": client, "error": e.message, "data": e.data});
+            self.append(session, "mux", "prompt_refused", msg);
+        }
+    }
+
     /// A recorded prompt whose agent could not start: the turn ends failed, so every client
     /// sees the prompt settle instead of a turn that never starts.
     fn fail_unstarted_turn(
@@ -750,6 +779,13 @@ impl Hub {
         m: &str,
         mut params: Value,
     ) -> Result<Value, RpcError> {
+        // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
+        // script), passes here: refused while `sessions.allowFullAccess` is off.
+        if super::start_mode::requests_full_access(m, &params)
+            && !super::start_mode::full_access_allowed()
+        {
+            return Err(super::start_mode::full_access_off());
+        }
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -928,6 +964,8 @@ impl Hub {
         }
         let old = {
             let mut m = session.meta.lock().unwrap();
+            // A chat renamed before it was titled asks no model for a title (`titles.rs`).
+            super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));
