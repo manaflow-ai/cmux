@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
+    "dry-run",
     // `workspace create --no-focus`: accepted and ignored (creation does not
     // move focus without `--focus`); agents pass it out of habit.
     "no-focus",
