@@ -488,6 +488,43 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         }
     }
 
+    @Test func interruptedCheckpointStillRemovesThePlannedStaleFile() throws {
+        let harness = Harness()
+        let active = harness.addTerminal()
+        let running = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: running)
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([running])
+        // A quit that is then cancelled stops the chain before it persists.
+        harness.onCapture = { _ in harness.canCheckpoint = false }
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.batches.isEmpty)
+        #expect(harness.captureCounts[active] == 1)
+
+        harness.onCapture = nil
+        harness.canCheckpoint = true
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals == [running])
+    }
+
+    @Test func seedBeforeTheStartupListingIsStillTracked() throws {
+        let harness = Harness()
+        let panel = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: panel)
+        let coordinator = harness.makeCoordinator()
+
+        coordinator.seed([.init(panelId: panel, surfaceId: panel, scrollback: "restored\n")])
+        // The listing was queued before the seed's write, so it misses it.
+        coordinator.noteExistingCheckpoints([])
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals == [panel])
+    }
+
     @Test func failedExportStaysPendingAndBacksOff() throws {
         let harness = Harness()
         let panel = harness.addTerminal(text: nil)
