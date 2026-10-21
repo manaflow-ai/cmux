@@ -5319,6 +5319,71 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    /// Portal reconciliation re-attaches every hosted terminal on each flush.
+    /// Re-attaching an unchanged live surface to the same host must not repeat
+    /// the geometry pass, the background commit or the accessibility write
+    /// (CMUXTERM-MACOS-3JMG, 3991, 3MTT; https://github.com/manaflow-ai/cmux/issues/22705).
+    func testReattachingUnchangedSurfaceSkipsGeometryBackgroundAndAccessibilityWork() throws {
+#if DEBUG
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        // Settle: the first attaches create the runtime surface and apply the
+        // initial fill and badge state.
+        hostedView.attachSurface(surface)
+        hostedView.attachSurface(surface)
+        XCTAssertTrue(
+            surface.isAttached(to: hostedView.surfaceView),
+            "The hosted surface must own a live runtime surface for this test"
+        )
+
+        hostedView.resetDebugAttachWorkCounts()
+        for _ in 0..<5 {
+            hostedView.attachSurface(surface)
+            hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
+        }
+        XCTAssertEqual(
+            hostedView.debugAttachWorkCounts,
+            GhosttySurfaceScrollView.DebugAttachWorkCounts(),
+            "Re-attaching an unchanged surface must not redo attach work"
+        )
+
+        // Real changes still apply.
+        hostedView.syncKeyStateIndicator(text: "copy")
+        hostedView.syncKeyStateIndicator(text: "copy")
+        XCTAssertEqual(hostedView.debugAttachWorkCounts.keyStateIndicatorWrites, 1)
+
+        hostedView.setBackgroundColor(.systemRed)
+        hostedView.setBackgroundColor(.systemRed)
+        XCTAssertEqual(hostedView.debugAttachWorkCounts.backgroundCommits, 1)
+
+        hostedView.frame.size.width -= 40
+        hostedView.attachSurface(surface)
+        XCTAssertGreaterThanOrEqual(
+            hostedView.debugAttachWorkCounts.geometrySyncs,
+            1,
+            "A changed host size must still run the geometry pass on attach"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
