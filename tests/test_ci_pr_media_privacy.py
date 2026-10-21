@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -79,6 +80,12 @@ class FindingsTests(unittest.TestCase):
         self.assertEqual(privacy.private_patterns(""), [])
         with self.assertRaises(privacy.BadInput):
             privacy.private_patterns('{"not": "a list"}')
+
+    def test_terms_shorter_than_the_minimum_are_ignored(self) -> None:
+        patterns = privacy.private_patterns(json.dumps(["io", "lab", " ab ", "glow"]))
+        self.assertEqual(len(patterns), 1)
+        self.assertEqual(kinds("version 10 of the lab, io 1ab", patterns), [])
+        self.assertEqual(kinds("ssh g1ow", patterns), ["private-term"])
 
 
 class LookAlikeTests(unittest.TestCase):
@@ -159,6 +166,15 @@ class TermSourceTests(unittest.TestCase):
         self.assertEqual(privacy.load_agent_authors({**env, "PR_MEDIA_AGENT_AUTHORS": "bot-b, bot-c"}),
                          frozenset({"bot-b", "bot-c"}))
 
+    def test_the_workspace_list_is_read_in_its_own_format(self) -> None:
+        # leo-workspace's file is {"_doc": ..., "authors": [...]}, as tools/agent_authors.py reads it.
+        env = {"HOME": str(self.home)}
+        self.write("Projects/leo-workspace/machines/agent-authors.json", {"_doc": "who", "authors": ["Bot-A"]})
+        self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
+        self.write("Projects/leo-workspace/machines/agent-authors.json", {"authors": "bot-a"})
+        with self.assertRaises(privacy.BadInput):
+            privacy.load_agent_authors(env)
+
     def test_the_ocr_tool_can_be_named_or_turned_off_and_is_absent_off_macos(self) -> None:
         self.assertIsNone(privacy.ocr_binary({"PR_MEDIA_PRIVACY_OCR": "none"}))
         self.assertEqual(privacy.ocr_binary({"PR_MEDIA_PRIVACY_OCR": "/opt/ocr"}), "/opt/ocr")
@@ -223,9 +239,20 @@ class CheckFilesTests(unittest.TestCase):
         self.assertEqual((actions, report["refused"]), ({}, False))
         lookup.assert_not_called()  # no hit, no lookup, nothing to fail closed on
 
-    def test_no_agent_list_reports_pull_request_hits(self) -> None:
-        actions, _ = self.check([("10/leak.png", self.file("leak.png"))], agents="")
-        self.assertEqual(actions, {"10/leak.png": "report"})
+    def test_no_agent_list_refuses_pull_request_hits(self) -> None:
+        lookup = mock.Mock(return_value={10: "teammate"})
+        actions, report = self.check([("10/leak.png", self.file("leak.png"))], authors=lookup, agents="")
+        self.assertEqual(actions, {"10/leak.png": "refuse"})
+        self.assertEqual(report["files"][0]["reason"], "PR_MEDIA_AGENT_AUTHORS is empty")
+        lookup.assert_not_called()
+
+    def test_check_upload_off_ci_without_an_agent_list_refuses(self) -> None:
+        env = {"HOME": str(self.root), "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        with contextlib.redirect_stderr(io.StringIO()) as err, self.assertRaises(privacy.Refused):
+            privacy.check_upload([("10/notes.html", self.file("notes.html", "ssh glow-box"))], env=env,
+                                 ocr=None, lookup=lambda _numbers: {10: "teammate"})
+        self.assertIn("no PR_MEDIA_AGENT_AUTHORS list", err.getvalue())
+        self.assertNotIn("glow-box", err.getvalue())
 
     def test_an_unreadable_agent_file_is_refused(self) -> None:
         actions, report = self.check([("nightly-next/broken.png", self.file("broken.png"))])
@@ -490,6 +517,77 @@ class AuthorLookupTests(unittest.TestCase):
                 mock.patch.object(privacy.subprocess, "run",
                                   return_value=subprocess.CompletedProcess([], 0, stdout=whole, stderr="")):
             self.assertEqual(privacy.github_authors([10]), {10: "teamleaderleo"})
+
+
+class WriterInventoryTests(unittest.TestCase):
+    """Every file that writes to the pr-media branch runs the shared check first.
+
+    A file counts as a writer when it names the branch and writes (a contents API
+    PUT, a git push, or pr-media.py's put_file or CLI). A new writer fails this
+    test until it is listed, and a direct writer must load pr_media_privacy.py.
+    """
+
+    MEDIA = re.compile(r"pr-media|MEDIA_BRANCH")
+    # A contents PUT in any spelling, a push (also across a line continuation),
+    # a ref update or a GraphQL commit.
+    DIRECT = re.compile(r"""\bPUT\b|(?i:-xput\b|\.put\(|--method[\s"',=]+put\b)|\bgit\b(?:[^\n]|\\\n){0,120}?\bpush\b|"push",|git/refs|createCommitOnBranch""")
+    VIA_TOOL = re.compile(r"put_file\(|pr-media\.py")
+    # Writes with its own PUT or push, after check_privacy()/check_upload().
+    CHECKS_ITSELF = {"scripts/pr-media.py", "dogfood/fuzz/cmuxfuzz/triage.py"}
+    # Writes only through scripts/pr-media.py, which checks.
+    THROUGH_PR_MEDIA_PY = {"scripts/ci/pr_media.py", "scripts/showcase-publish.py",
+                           ".github/workflows/pr-media.yml"}
+    # Remove files or rewrite the retention index; they add no capture.
+    REMOVES_ONLY = {"scripts/ci/pr_media_privacy.py", ".github/workflows/pr-media-privacy.yml",
+                    "scripts/ci/prune_pr_media.py", ".github/workflows/pr-media-prune.yml"}
+    # Names the files for CI routing; writes nothing.
+    NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
+    SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.found = cls.scan()
+
+    @classmethod
+    def scan(cls) -> dict[str, str]:
+        tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True,
+                                 check=True).stdout.split("\0")
+        found = {}
+        for path in tracked:
+            if not path or path.startswith(("tests/", "docs/")) or path.endswith(cls.SKIP_SUFFIXES):
+                continue
+            try:
+                text = (ROOT / path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
+                found[path] = text
+        return found
+
+    def test_every_writer_is_listed(self) -> None:
+        listed = self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.REMOVES_ONLY | self.NOT_WRITERS
+        found = set(self.found)
+        self.assertEqual(found - listed, set(), "a new pr-media writer: run pr_media_privacy.check_upload "
+                                                "before it pushes (or upload with scripts/pr-media.py), then list it here")
+        self.assertEqual(listed - found, set(), "a listed writer no longer writes; drop it from the list")
+
+    def test_a_writer_never_bypasses_the_check(self) -> None:
+        found = self.found
+        for path in sorted(self.CHECKS_ITSELF):
+            with self.subTest(path=path):
+                self.assertIn("pr_media_privacy", found[path])
+                self.assertRegex(found[path], r"\bcheck_(privacy|upload)\(")
+        for path in sorted(self.THROUGH_PR_MEDIA_PY):
+            with self.subTest(path=path):
+                self.assertIsNone(self.DIRECT.search(found[path]), f"{path} writes without scripts/pr-media.py")
+
+    def test_the_writer_patterns_catch_common_upload_shapes(self) -> None:
+        for line in ('gh api -X PUT "repos/o/r/contents/x"', "curl -XPUT https://api.github.com/x",
+                     "requests.put(url, json=body)", "gh api --method put x", "git -C media \\\n  push origin HEAD",
+                     '["git", "push", "origin"]', "gh api -X PATCH repos/o/r/git/refs/heads/x",
+                     "mutation { createCommitOnBranch(input: $i) { commit { oid } } }"):
+            with self.subTest(line=line):
+                self.assertIsNotNone(self.DIRECT.search(line))
 
 
 class WorkflowTests(unittest.TestCase):

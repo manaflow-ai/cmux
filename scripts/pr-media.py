@@ -91,6 +91,10 @@ class MediaError(Exception):
     """A problem worth a one-line message rather than a traceback."""
 
 
+class PrivacyError(MediaError):
+    """The privacy check refused the files or could not run; a retry gets the same answer."""
+
+
 # The one privacy check shared by every pr-media writer; it lives in scripts/ci.
 PRIVACY_MODULE = Path(__file__).resolve().parent / "ci" / "pr_media_privacy.py"
 _privacy = None
@@ -103,7 +107,7 @@ def privacy_module():
     if _privacy is None:
         spec = importlib.util.spec_from_file_location("cmux_pr_media_privacy", PRIVACY_MODULE)
         if not PRIVACY_MODULE.is_file() or spec is None or spec.loader is None:
-            raise MediaError(f"the privacy check {PRIVACY_MODULE} is missing; nothing is uploaded without it. "
+            raise PrivacyError(f"the privacy check {PRIVACY_MODULE} is missing; nothing is uploaded without it. "
                              "Add scripts/ci/pr_media_privacy.py (and pr_media_ocr.swift) to a sparse checkout.")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
@@ -115,7 +119,7 @@ def privacy_module():
 def check_privacy(items: list[tuple[str, Path]], repo: str, **options) -> None:
     """Run the shared pre-push check on (path on the branch, local file) pairs.
 
-    Raises MediaError when a file is refused; the message names paths and kinds,
+    Raises PrivacyError when a file is refused; the message names paths and kinds,
     never the text it matched. options go to check_upload (env, ocr, lookup,
     out); tests replace this module-level hook.
     """
@@ -123,9 +127,14 @@ def check_privacy(items: list[tuple[str, Path]], repo: str, **options) -> None:
     try:
         privacy.check_upload(items, repo, **options)
     except privacy.Refused as refused:
-        raise MediaError(str(refused)) from None
+        raise PrivacyError(str(refused)) from None
     except privacy.BadInput as error:
-        raise MediaError(f"privacy check: {error}") from None
+        raise PrivacyError(f"privacy check: {error}") from None
+
+
+def no_author_lookup(numbers: list[int]) -> dict[int, str]:
+    """A dry run's author lookup: it never calls GitHub, so a hit in a PR folder is held."""
+    raise MediaError("a dry run does not look pull request authors up")
 
 
 @dataclass(frozen=True)
@@ -483,9 +492,11 @@ def main(argv: list[str] | None = None, runner=None) -> int:
             for upload in uploads:
                 if not upload.source_name:
                     warnings.extend(check_size(upload.local, upload.kind))
-            print("privacy check of the files as given (a gif is checked when it is made):")
+            print("privacy check of the files as given (a gif is checked when it is made; "
+                  "PR authors are not looked up, so a hit here is held):")
             check_privacy([(remote_path(args.pr, upload.name), upload.local)
-                           for upload in uploads if not upload.source_name], args.repo)
+                           for upload in uploads if not upload.source_name], args.repo,
+                          lookup=no_author_lookup)
             print()
             print(markdown(uploads, args.pr, args.repo, args.branch), end="")
             report(warnings)
