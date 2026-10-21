@@ -132,6 +132,8 @@ jobs:
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
         run: |
+          # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
+          echo "/.guard-base/" >> .git/info/exclude
           scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           if [ -d .guard-base ]; then
             scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
