@@ -3,9 +3,10 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// The sidebar's bottom-left profile control (Leo 2026-10-20): the avatar and
-/// the profile's name on one chip where the footer has room, the Search button
-/// and the spaces dots after it; the avatar alone in a narrow sidebar.
+/// The sidebar's bottom-left profile control: the avatar and a menu chevron on
+/// one chip where the footer has room (the name only in its tooltip and menu,
+/// Lawrence 2026-10-20), the Search button and the spaces dots after it; the
+/// avatar alone in a narrow sidebar.
 @MainActor @Suite(.serialized) struct SidebarProfileChipTests {
     struct Harness {
         let sidebar: SidebarView
@@ -39,23 +40,23 @@ import Testing
         return harness
     }
 
-    @Test func aRoomyFooterShowsTheAvatarAndTheName() async throws {
+    // Lawrence (owner, 2026-10-20): "should not show name down here, only icon". The name
+    // moves to the tooltip and the menu; the chevron still marks the menu.
+    @Test func aRoomyFooterShowsTheAvatarAndChevronButNotTheName() async throws {
         let h = await make(width: 240)
         defer { h.window.close() }
         let control = try #require(h.sidebar.footerBand.profileControl?.view)
         control.layoutSubtreeIfNeeded()
         #expect(control.showsAvatar)
-        #expect(control.titleText == "Default")
-        #expect(control.titleFrame.width > 0, "the name draws beside the avatar")
+        #expect(control.titleFrame == .zero, "no name in the footer")
+        #expect(control.themedToolTip?.hasPrefix("Default") == true, "the name is the tooltip")
         let frame = h.frame(of: control)
-        #expect(frame.width > frame.height, "a chip, not the avatar's square: \(frame)")
-        // The avatar leads, then the name.
+        #expect(frame.width > frame.height && frame.width < frame.height * 2.5, "avatar and chevron only: \(frame)")
+        // The avatar leads, then the chevron.
         let circle = control.convert(control.avatarView.circleFrame, from: control.avatarView)
-        #expect(circle.minX >= 0 && circle.maxX <= control.titleFrame.minX, "avatar \(circle) before name \(control.titleFrame)")
-        // One chevron at the trailing edge, after the name (#14893).
         #expect(!control.icon.isHidden && control.icon.image != nil, "the chevron draws")
-        #expect(control.icon.frame.minX >= control.titleFrame.maxX && control.icon.frame.maxX <= control.bounds.width,
-                "chevron \(control.icon.frame) after name \(control.titleFrame)")
+        #expect(circle.minX >= 0 && control.icon.frame.minX >= circle.maxX && control.icon.frame.maxX <= control.bounds.width,
+                "chevron \(control.icon.frame) after avatar \(circle)")
 
         // The band's items end after the chip; Search and the dots sit after it.
         let row = try #require(h.sidebar.footerBand.bandFirstRow)
