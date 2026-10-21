@@ -32,6 +32,32 @@ struct SidebarScrollCostTests {
         #expect(held <= visible * 2, "the list holds \(held) row views for \(visible) visible rows")
     }
 
+    /// A slow runner, stood in deterministically: every frame and every reference sample does the
+    /// reference work `slowdown` times, so the runner is that much slower at both. This host's own
+    /// unslowed reference is the nominal one and its unslowed frames set the budget, so the host's
+    /// speed cancels out. The slowed frames break that budget as it is, and hold it once the
+    /// calibration scales it by the slowed reference.
+    @Test func aSlowRunnerScalesTheBudgetByItsReferenceWorkload() {
+        let slowdown = 3
+        func work(_ times: Int) { for _ in 0..<times { FrameBudgetCalibration.referenceWork() } }
+        func frames(_ times: Int) -> [Double] { (0..<60).map { _ in FrameBudgetCalibration.cpuMs { work(times) } } }
+        work(4) // warm up
+        let nominalMs = SidebarScrollBench.percentile(frames(1), 0.5)
+        let fast = frames(1)
+        var slow = FrameBudgetCalibration(nominalMs: nominalMs, reference: { work(slowdown) })
+        slow.checkpoint()
+        let slowed = frames(slowdown)
+        slow.checkpoint()
+        let budget = 1.5 * SidebarScrollBench.percentile(fast, 0.95)
+        let slowedP95 = SidebarScrollBench.percentile(slowed, 0.95)
+        print(String(format: "FRAME-BUDGET-CALIBRATION-TEST reference %.3f ms, budget %.3f ms, slowed p95 %.3f ms | ",
+                     nominalMs, budget, slowedP95) + slow.summary)
+        #expect(slowedP95 > budget, "the stand-in runner is not slow enough to break an unscaled budget")
+        if let reason = slow.skipReason { return print("FRAME-BUDGET-CALIBRATION-TEST skipped: \(reason)") }
+        #expect(slowedP95 < slow.budget(budget),
+                "a runner \(slowdown)x slower at the reference took \(slowedP95) ms a frame against a budget scaled to \(slow.budget(budget)) ms")
+    }
+
     @Test func scrollingFiveHundredWorkspacesStaysInsideTheFrameBudget() {
         for count in [10, 100] { _ = Self.measure(count) }
         for pointer in [false, true] {
