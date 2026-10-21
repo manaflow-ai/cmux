@@ -317,7 +317,8 @@ body {
      floor keeps `<head> -> <base>` legible; the secondaries (reason,
      ahead/behind) shed via .base-picker-meta + the toolbar-left container
      queries before the ref itself ellipsizes. Free toolbar space is left empty
-     to the right rather than padding out this button. */
+     to the right rather than padding out this button. In a narrow cell the head
+     side hides and the floor drops to fit `<base> v` (the query below). */
   flex: 0 1 auto;
   min-width: 150px;
 }
@@ -375,8 +376,8 @@ body {
   /* Read-only head side of the comparison (current branch / detached HEAD). It
      is the least important token, so it ellipsizes FIRST: a higher flex-shrink
      than the base ref and a smaller min-width floor (4ch) mean it gives up
-     characters before the base ref does, but it does not vanish entirely while
-     any space remains. */
+     characters before the base ref does, and it hides whole only in a narrow
+     toolbar-left (the container query below). */
   flex: 0 8 auto;
   min-width: 4ch;
   overflow: hidden;
@@ -430,10 +431,25 @@ body {
 /* Clean-hide the secondaries at narrow toolbar-left widths so they disappear
    whole rather than clipping mid-glyph. The .base-picker-meta flex shrink above
    is the hard guarantee that the ref always wins; these container queries only
-   make the transition tidy. Widest-first: ahead/behind, then reason. */
+   make the transition tidy. Widest-first: ahead/behind, then the head side, then
+   reason. */
 @container toolbar-left (max-width: 380px) {
   .base-picker-aheadbehind {
     display: none;
+  }
+}
+@container toolbar-left (max-width: 330px) {
+  /* The head side and its arrow, beside the files sidebar (the cell is about 313px
+     at 560px) before "HEAD" would clip to "HE…": the base ref is what it picks. */
+  .base-picker-head,
+  .base-picker-head + svg {
+    display: none;
+  }
+  /* The floor fits what is left, the ref's 6ch and the chevron in the chip's
+     padding: 150px pushed jump-to-file under the toolbar pill here, and no floor
+     let the label spill out of the chip. */
+  #base-picker {
+    min-width: calc(6ch + 50px);
   }
 }
 @container toolbar-left (max-width: 312px) {
