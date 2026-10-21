@@ -548,6 +548,19 @@ pub trait Store: Send + Sync {
         Ok(())
     }
     fn delete(&self, id: &str) -> Result<()>;
+    /// Deletes a purged session and refuses every later save or append of it for the
+    /// life of this store, so no late writer (a generated title, a status, a record that
+    /// raced the purge) can write the session back. A plain `delete` (an import rolled
+    /// back) leaves the id free for a retry.
+    fn purge(&self, id: &str) -> Result<()> {
+        self.delete(id)
+    }
+    /// Removes the records of purged sessions that a late save wrote back before
+    /// `purge` existed: closed, with no log. Run once at daemon start, before any
+    /// session loads. Returns how many were removed.
+    fn sweep_purged_leftovers(&self) -> Result<usize> {
+        Ok(0)
+    }
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
     }
@@ -575,6 +588,7 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
 #[derive(Default)]
 pub struct MemoryStore {
     inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
+    purged: Mutex<std::collections::HashSet<String>>,
 }
 
 impl Store for MemoryStore {
@@ -585,6 +599,9 @@ impl Store for MemoryStore {
         Ok(self.inner.lock().unwrap().get(id).map(|(m, _)| m.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        if self.purged.lock().unwrap().contains(&meta.id) {
+            return Ok(());
+        }
         let mut g = self.inner.lock().unwrap();
         g.entry(meta.id.clone())
             .and_modify(|(m, _)| *m = meta.clone())
@@ -613,6 +630,10 @@ impl Store for MemoryStore {
         self.inner.lock().unwrap().remove(id);
         Ok(())
     }
+    fn purge(&self, id: &str) -> Result<()> {
+        self.purged.lock().unwrap().insert(id.to_owned());
+        self.delete(id)
+    }
 }
 
 // ----------------------------------------------------------------- local
@@ -621,6 +642,9 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<HashMap<String, SegmentWriter>>,
+    /// Sessions purged by this store: never written again (`Store::purge`). Taken
+    /// with `writers` held, so an append and a purge never interleave.
+    purged: Mutex<std::collections::HashSet<String>>,
 }
 
 struct SegmentWriter {
@@ -637,6 +661,7 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(HashMap::new()),
+            purged: Mutex::new(std::collections::HashSet::new()),
         })
     }
 
@@ -935,6 +960,11 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        // Held through the write: a purge waits for it, then deletes what it wrote.
+        let purged = self.purged.lock().unwrap();
+        if purged.contains(&meta.id) {
+            return Ok(());
+        }
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
@@ -942,6 +972,9 @@ impl Store for LocalStore {
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut writers = self.writers.lock().unwrap();
+        if self.purged.lock().unwrap().contains(id) {
+            return Ok(());
+        }
         if !writers.contains_key(id) {
             writers.insert(id.to_owned(), self.open_writer(id)?);
         }
@@ -1142,6 +1175,46 @@ impl Store for LocalStore {
             Some(e) => Err(e.into()),
             None => Ok(()),
         }
+    }
+
+    fn purge(&self, id: &str) -> Result<()> {
+        {
+            // Lock order: writers, then purged (as `append`); `save` takes only purged.
+            let mut writers = self.writers.lock().unwrap();
+            self.purged.lock().unwrap().insert(id.to_owned());
+            writers.remove(id);
+        }
+        self.delete(id)
+    }
+
+    fn sweep_purged_leftovers(&self) -> Result<usize> {
+        let Ok(rd) = std::fs::read_dir(&self.root) else { return Ok(0) };
+        let mut removed = 0;
+        for entry in rd.flatten() {
+            if !entry.file_type().is_ok_and(|t| t.is_dir()) {
+                continue;
+            }
+            let id = entry.file_name().to_string_lossy().into_owned();
+            if self.has_records(&id)? {
+                continue;
+            }
+            let Ok(file) = crate::config::private_state_file(&entry.path().join("session.json"))
+            else {
+                continue;
+            };
+            let mut text = String::new();
+            if BufReader::new(file).read_to_string(&mut text).is_err()
+                || !serde_json::from_str::<StatusOnly>(&text)
+                    .is_ok_and(|m| m.status == SessionStatus::Closed)
+            {
+                continue;
+            }
+            match self.delete(&id) {
+                Ok(()) => removed += 1,
+                Err(e) => tracing::warn!(session = %id, "remove a purged leftover: {e}"),
+            }
+        }
+        Ok(removed)
     }
 
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
