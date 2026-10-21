@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
@@ -10,10 +9,11 @@ import Testing
 
 /// The pane toolbar's ⋮ next to the sidebar's (#22972, #23003): one `OverflowButton`, so the glyph,
 /// its size and the hover pill should match, with the pill as wide as each host's row of buttons.
-/// Renders both at rest, hovered and pressed, the pane's lit (zoomed) and the pane menu's rows, in a
-/// dark, a light and an accent theme, on an opaque pane and on glass (the pane's color at 60% over
+/// Renders both at rest, hovered and pressed, and the pane's lit (zoomed), in a dark, a light and an
+/// accent theme, on an opaque pane and on glass (the pane's color at 60% over
 /// stripes, so a fill that hides the glass shows), into one contact sheet a fleet run returns:
-/// `cmux-ci run ... --artifact Packages/macOS/CmuxNext/.build/pane-more-shots.png`.
+/// `cmux-ci run ... --artifact Packages/macOS/CmuxNext/.build/pane-more-shots.png`. The menu's rows draw
+/// only inside a menu window, so `PaneMoreOverflowButtonTests` checks that they are themed instead.
 @MainActor @Suite(.serialized) struct PaneMoreShotsTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -51,18 +51,12 @@ import Testing
         print("pane-more-shots: wrote \(out.path)")
     }
 
-    /// One theme on one surface: a row per host (sidebar, pane) with a cell per look, then the menu's rows.
+    /// One theme on one surface: a row per host (sidebar, pane) with a cell per look.
     static func render(theme: String, glass: Bool) throws -> CGImage {
-        let cell: CGFloat = 44, label: CGFloat = 70, menuWidth: CGFloat = 240
+        let cell: CGFloat = 44, label: CGFloat = 70
         let looks = Look.allCases
-        let width = label + CGFloat(looks.count) * cell + 16 + menuWidth
-        let registry = ActionRegistry.standard()
-        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
-        toolbar.update(target: "tab0", kind: .terminal)
-        let menu = try #require(toolbar.view.moreMenu?())
-        let rows = menu.items.filter { !$0.isSeparatorItem }.prefix(6)
-        let rowHeight: CGFloat = 24
-        let height = max(2 * cell, CGFloat(rows.count) * rowHeight) + 8
+        let width = label + CGFloat(looks.count) * cell + 8
+        let height = 2 * cell + 8
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: width, height: height), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -114,18 +108,13 @@ import Testing
                     root.addSubview(bar)
                     bar.show(more: true, lit: look == .lit)
                     bar.reveal.setPointerInside(true)
+                    // The reveal fades "⋮" in, and an offscreen fade never ends: show it revealed.
+                    bar.moreButton.alphaValue = 1
                     bar.layoutSubtreeIfNeeded()
                     bar.moreButton.frame = bar.moreFrame(revealed: true)
                     apply(look, to: bar.moreButton)
                 }
             }
-        }
-        for (index, item) in rows.enumerated() {
-            guard let view = item.view else { continue }
-            view.removeFromSuperview()
-            view.frame = NSRect(x: label + CGFloat(looks.count) * cell + 16, y: height - 4 - CGFloat(index + 1) * rowHeight,
-                                width: menuWidth, height: rowHeight)
-            root.addSubview(view)
         }
         window.orderFrontRegardless()
         root.layoutSubtreeIfNeeded()
