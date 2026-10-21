@@ -31,6 +31,16 @@ extension AgentTabStore {
         }
     }
 
+    /// Agent chat tab `key`'s exact folder for a terminal opened from it
+    /// (``AgentPaneModel/terminalFolder``). Only a folder that exists on this Mac on this Mac's
+    /// daemon: a Cloud, SSH or peer chat's folder is another machine's path.
+    func terminalFolder(of key: String) -> String? {
+        let key = resolve(key)
+        guard let folder = views[key]?.model.terminalFolder, daemonForTab?(key)?.isLocal == true,
+              WorkingURL.isDirectory(folder) else { return nil }
+        return folder
+    }
+
     /// The workspace that holds agent tab `key`, on its local store.
     func workspace(holding key: String) -> WorkspaceModel? {
         guard let store = tabStores[key] else { return nil }
