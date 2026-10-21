@@ -18,9 +18,12 @@ neither. The other branch is read with `git show`; under GitHub Actions the
 test fetches it (one shallow, blob-less fetch, then the files it reads) and
 fails if it still cannot read it. Off CI a missing ref only skips that branch.
 
-The tree is feat-cmux-next's when it has .github/workflows/cmux-next.yml, a
-workflow only that branch carries; CMUX_OWNED_POOL_OTHER_REF names the other
-ref explicitly.
+Which branch the tree is: CMUX_OWNED_POOL_BRANCH when set; under Actions the
+branch the event targets (GITHUB_BASE_REF for a pull request, else
+GITHUB_REF_NAME, a merge queue's gh-readonly-queue/<branch>/... included, and
+main for any other branch); off CI the branch with fewer commits between it and
+HEAD, skipped when either ref is missing. (Both branches carry a cmux-next.yml,
+so no file tells them apart.)
 """
 
 from __future__ import annotations
@@ -36,21 +39,44 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import owned_pool_sources as sources  # noqa: E402
 
-FEAT_ONLY_WORKFLOW = ".github/workflows/cmux-next.yml"
-BRANCHES = {"origin/main": "main", "origin/feat-cmux-next": "feat-cmux-next"}
+FEAT = "feat-cmux-next"
+BRANCHES = {"main": "origin/main", FEAT: "origin/feat-cmux-next"}
 ON_CI = os.environ.get("GITHUB_ACTIONS") == "true"
-
-
-def on_feat() -> bool:
-    return (ROOT / FEAT_ONLY_WORKFLOW).is_file()
-
-
-def other_ref() -> str:
-    return os.environ.get("CMUX_OWNED_POOL_OTHER_REF") or ("origin/main" if on_feat() else "origin/feat-cmux-next")
 
 
 def git(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(ROOT), *args], input=stdin, capture_output=True, text=True)
+
+
+def branch() -> str | None:
+    """main or feat-cmux-next: the branch this tree is (or is going into), or None when it cannot be told."""
+    named = os.environ.get("CMUX_OWNED_POOL_BRANCH")
+    if named:
+        return named
+    if ON_CI:
+        ref = os.environ.get("GITHUB_BASE_REF") or os.environ.get("GITHUB_REF_NAME") or ""
+        if ref.startswith("gh-readonly-queue/"):
+            ref = ref[len("gh-readonly-queue/"):].rsplit("/pr-", 1)[0]
+        if ref in BRANCHES:
+            return ref
+        # A dispatch on a topic branch: judged as main's, the rescue's home.
+        print(f"owned pool sources: {ref or 'no ref'} is neither branch; checking it as main", file=sys.stderr)
+        return "main"
+    ahead = {}
+    for name, ref in BRANCHES.items():
+        counted = git("rev-list", "--count", f"{ref}..HEAD")
+        if counted.returncode != 0:
+            return None
+        ahead[name] = int(counted.stdout.strip() or 0)
+    return min(ahead, key=ahead.get)
+
+
+def on_feat() -> bool:
+    return branch() == FEAT
+
+
+def other_ref() -> str:
+    return BRANCHES["main"] if on_feat() else BRANCHES[FEAT]
 
 
 def has_ref(ref: str) -> bool:
@@ -59,11 +85,11 @@ def has_ref(ref: str) -> bool:
 
 def fetch(ref: str) -> None:
     """The other branch's tip with no blobs, then the blobs of the files the detector reads, in two requests."""
-    branch = BRANCHES.get(ref)
-    if branch is None:
+    name = next((name for name, known in BRANCHES.items() if known == ref), None)
+    if name is None:
         return
     git("fetch", "--no-tags", "--depth=1", "--filter=blob:none", "origin",
-        f"+refs/heads/{branch}:refs/remotes/{ref}")
+        f"+refs/heads/{name}:refs/remotes/{ref}")
     listing = git("ls-tree", ref, f"{sources.WORKFLOWS_DIR}/", "scripts/ci/")
     blobs = [line.split()[2] for line in listing.stdout.splitlines() if line.split()[1:2] == ["blob"]]
     if blobs:
@@ -74,6 +100,10 @@ def fetch(ref: str) -> None:
 class OwnedPoolSources(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.branch = branch()
+        if cls.branch is None:
+            raise unittest.SkipTest("cannot tell whether this tree is main or feat-cmux-next (a ref is missing); "
+                                    "set CMUX_OWNED_POOL_BRANCH")
         cls.ref = other_ref()
         if not has_ref(cls.ref) and ON_CI:
             fetch(cls.ref)
