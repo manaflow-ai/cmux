@@ -55,13 +55,16 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
-    /// The menu bar reads each action's name from the catalog, never a string of its own.
-    @Test func menuBarItemsUseTheCatalogName() {
+    /// The menu bar reads each action's name from the catalog, never a string of its own: every
+    /// item an action's descriptor places in a menu carries that descriptor's title.
+    @Test func menuBarItemsUseTheCatalogName() throws {
         let registry = ActionRegistry.standard()
         for menu in ActionMainMenu.allCases {
-            for item in registry.makeMainMenuItems(for: menu) where !item.isSeparatorItem {
-                guard let raw = item.representedObject as? String else { continue }
-                #expect(item.title == registry.title(for: ActionID(rawValue: raw)), "\(menu) \(raw) reads \(item.title)")
+            let items = registry.makeMainMenuItems(for: menu).filter { !$0.isSeparatorItem }
+            let placed = registry.descriptors.filter { $0.mainMenu == menu }
+            #expect(items.count == placed.count, "\(menu): \(items.count) items for \(placed.count) actions")
+            for (item, descriptor) in zip(items, placed) {
+                #expect(item.title == descriptor.title, "\(menu) \(descriptor.id) reads \(item.title), not \(descriptor.title)")
             }
         }
     }
