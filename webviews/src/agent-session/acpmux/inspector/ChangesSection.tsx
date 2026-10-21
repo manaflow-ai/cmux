@@ -129,6 +129,7 @@ function PullRequestRow({
   return (
     <li className="acpmux-inspector-pr" data-state={state}>
       <a className="acpmux-inspector-pr__link" href={pr.url}>
+        {/* tooltip-allow: the state icon shows no text; its label is for screen readers only */}
         <span className="acpmux-inspector-pr__icon" title={stateLabel}>
           <Icon name="git.pullrequest" size={ROW_ICON} row />
           <span className="acpmux-inspector-sr-only">{stateLabel}</span>
@@ -153,6 +154,7 @@ function PullRequestRow({
                 )}
               </span>
             ) : checks && CHECK_LABELS[checks] ? (
+              // tooltip-allow: the checks mark shows no text; its label is for screen readers only
               <span className="acpmux-inspector-pr__checks" data-checks={checks} title={t(CHECK_LABELS[checks]!)}>
                 <span className="acpmux-inspector-sr-only">{t(CHECK_LABELS[checks]!)}</span>
               </span>
