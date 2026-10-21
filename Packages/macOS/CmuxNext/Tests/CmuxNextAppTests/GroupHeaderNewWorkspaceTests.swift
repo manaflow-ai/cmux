@@ -29,6 +29,22 @@ struct GroupHeaderNewWorkspaceTests {
         return sidebar.group(shown) != nil ? shown : nil
     }
 
+    /// What the sidebar document and the window's sidebar hold, for a wait that times out.
+    static func docReport(_ group: WorkspaceGroupID, _ sidebar: SidebarModel) -> String {
+        let store = SidebarDocStore.current
+        let items = (store?.records.items.values.map { "\($0.id)@\($0.section)/\($0.parent ?? "-")" } ?? []).sorted()
+        let shown = store?.shown.map { "\($0.items.count) items" } ?? "nil"
+        let nodes = sidebar.sections.map { $0.nodes.map { node -> String in
+            switch node {
+            case .workspace(let row): "ws:\(row.id.rawValue)"
+            case .group(let g): "group:\(g.id)"
+            case .item(let i): "item:\(i.id)"
+            }
+        }.joined(separator: " ") }
+        return "group \(group) active \(store?.isActive ?? false) version \(store?.version ?? 0)/\(store?.shownVersion ?? 0) shown \(shown) "
+            + "items \(items) sidebar \(nodes) groupID \(sidebar.groupID(personal: group.rawValue))"
+    }
+
     private struct Launched {
         let services: AppServices
         let root: URL
@@ -101,7 +117,7 @@ struct GroupHeaderNewWorkspaceTests {
         }
         let group = try #require(personal.groups.first { $0.name == "plus-group" })
         // The id the window's sidebar lists the group under (the document's `itm_g_<id>`).
-        let header = try #require(Self.headerID(of: group.id, in: sidebar))
+        let header = try #require(Self.headerID(of: group.id, in: sidebar), Comment(rawValue: Self.docReport(group.id, sidebar)))
         let before = Set(store.workspaces.map(\.id))
 
         // A person's New Workspace in Group, by the group's own id (the CLI's and MCP's target).
