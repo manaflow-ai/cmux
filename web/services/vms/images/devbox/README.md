@@ -583,10 +583,12 @@ snapshot to address an attach failure:
 ```bash
 # From web/, using the Freestyle account that owns this snapshot.
 # Load FREESTYLE_API_KEY from ~/.secrets/cmux.env without printing it.
-bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui
+bun run devbox:verify:private-link sh-<snapshot-id> /path/to/cmux-tui [--client-grant]
 ```
 
-For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
+Pass `--client-grant` for a pre-promotion image whose manifest row does not yet
+carry `cmuxRemoteAuth`; promoted images are also safe to test explicitly this
+way. For a Mac app, use its `Contents/Resources/bin/cmux-tui` binary. The probe
 first requires the client's `wireguard-hub` capability; an older client must
 be updated before a private-network image can be assessed. Rebuilding a guest
 image cannot add that missing capability to an installed Mac app.
