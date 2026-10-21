@@ -35,9 +35,14 @@ class ScanFileTests(unittest.TestCase):
         hits = guard.scan_file(f"{SOURCES}/CmuxNextApp/Theme/Blend.swift", "let image = window.compositedSnapshot(in: r)\n")
         self.assertEqual(len(hits), 1)
         self.assertIn("window capture", hits[0])
+        # The screenshot folder's other files are not the capture.
+        self.assertEqual(len(guard.scan_file(f"{SOURCES}/CmuxNextApp/Screenshots/ScreenshotsPageService.swift",
+                                             "let image = window.compositedSnapshot(in: r)\n")), 1)
 
-    def test_the_capture_helpers_and_debug_tools_may_capture(self):
+    def test_the_capture_helpers_screenshot_actions_and_debug_tools_may_capture(self):
         for rel in (f"{SOURCES}/CmuxNextDesign/Windows/NSWindow+Snapshot.swift",
+                    f"{SOURCES}/CmuxNextDesign/Windows/NSWindow+Screenshot.swift",
+                    f"{SOURCES}/CmuxNextApp/Screenshots/AppWindowImage.swift",
                     f"{SOURCES}/CmuxNextApp/Control/DebugCapture.swift"):
             self.assertEqual(guard.scan_file(rel, "let image = window.compositedSnapshot(in: r)\n"), [], rel)
 

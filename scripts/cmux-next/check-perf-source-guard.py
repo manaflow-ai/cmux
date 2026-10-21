@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Perf source guard (invariant I5, plans/cmux-next/perf-speed-of-light.md): no CATransaction.flush
-and no window capture in Packages/macOS/CmuxNext/Sources outside the capture helpers and the
-debug tools. A theme change captures no window and forces no commit.
+and no window capture in Packages/macOS/CmuxNext/Sources outside the capture helpers, the
+screenshot actions and the debug tools. A theme change captures no window and forces no commit.
 
 A reviewed exception carries `// perf-gate-ok: <reason>` on the line or the line above it.
 
@@ -27,7 +27,9 @@ CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshot
                      r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
 CAPTURE_FILES = re.compile(
     # The capture helpers.
-    r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|WindowFrame)\.swift$"
+    r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|NSWindow\+Screenshot|WindowFrame)\.swift$"
+    # The window, pane and tab screenshot actions' image: a capture is what the person asked for.
+    r"|/CmuxNextApp/Screenshots/AppWindowImage\.swift$"
     # The debug tools.
     r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
     r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
@@ -44,7 +46,7 @@ def scan_file(rel: str, text: str) -> list[str]:
         if FLUSH.search(code):
             rule = "CATransaction.flush forces a commit"
         elif CAPTURE.search(code) and not CAPTURE_FILES.search("/" + rel):
-            rule = "window capture outside the capture helpers and debug tools"
+            rule = "window capture outside the capture helpers, screenshot actions and debug tools"
         if rule and not (ALLOW.search(line) or (i and ALLOW.search(lines[i - 1]))):
             hits.append(f"{rel}:{i + 1}: {rule}: {line.strip()[:120]}")
     return hits
