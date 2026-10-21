@@ -98,6 +98,16 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
     /// is staged.
     public var showsTips = true
+    /// The Priority view (`sidebar.priorityView.enabled`): an optional App Store item, off by
+    /// default. On, a bell in the sidebar's titlebar row shows or hides it.
+    public var priorityViewEnabled = false
+    /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
+    /// at the top of the sidebar. Off, the sidebar is unchanged.
+    public var priorityViewShown = true
+    /// `sidebar.sessionTree` (Claude desktop's Code tab): a workspace started by another
+    /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
+    /// first rows their Command-number keycaps. Off by default: it changes the list's look.
+    public var sessionTree = false
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

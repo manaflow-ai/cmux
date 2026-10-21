@@ -48,6 +48,7 @@ public final class SettingsApplier {
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
         if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
+        if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
@@ -63,6 +64,7 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
+        if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions

@@ -88,6 +88,12 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+            failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
         // The density card draws appearance.density and the custom density keys (SectionView).
         if (DENSITY_ROWS.has(row.key)) {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);

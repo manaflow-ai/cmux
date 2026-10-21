@@ -9,12 +9,11 @@ nonisolated extension PaletteScopeID {
     public static let settings: PaletteScopeID = "settings"
     public static let shortcuts: PaletteScopeID = "shortcuts"
     public static let scopes: PaletteScopeID = "scopes"
-    /// Search (Cmd-P and the sidebar's Search button, plans/cmux-next/sidebar-search.md,
+    /// Search (Cmd-Shift-A and the sidebar's Search button, plans/cmux-next/sidebar-search.md,
     /// search-everything-DESIGN.md section 10): every kind the other scopes and the App's
-    /// contributed pages list, in one page.
+    /// contributed pages (history, agent chats) list, in one page. Cmd-P is `workspaces`.
     public static let search: PaletteScopeID = "search"
-    /// Chats & agents (Cmd-Shift-A, `search.chats`): Search narrowed to the agent chats and
-    /// sessions the App contributes; it opens on top of Search, so Backspace searches everything.
+    /// Chats & agents: Search narrowed to the agent chats and sessions the App contributes.
     public static let chats: PaletteScopeID = "chats"
 }
 
@@ -32,9 +31,9 @@ nonisolated extension PaletteScopeDescriptor {
         // Search goes first in the scope list: it is the one that finds everything.
         var scopes: [PaletteScopeDescriptor] = [
             scope(PaletteScopeID.search, PaletteStrings.searchEverythingTitle, "magnifyingglass", PaletteStrings.searchEverythingPlaceholder,
-                  keywords: ["search", "everything", "all"], openAction: "goToWorkspace"),
+                  keywords: ["search", "everything", "all", "history"], openAction: "search.chats"),
             scope(PaletteScopeID.chats, PaletteStrings.chatsAndAgentsTitle, "bubble.left.and.bubble.right", PaletteStrings.chatsAndAgentsPlaceholder,
-                  keywords: ["chats", "agents", "chat"], openAction: "search.chats"),
+                  keywords: ["chats", "agents", "chat"]),
         ]
         if tabs {
             scopes.append(scope(PaletteScopeID.tabs, PaletteStrings.sectionTabs, "rectangle.on.rectangle", PaletteStrings.tabSearchPlaceholder,
@@ -42,7 +41,7 @@ nonisolated extension PaletteScopeDescriptor {
         }
         if workspaces {
             scopes.append(scope(PaletteScopeID.workspaces, PaletteStrings.sectionWorkspaces, "rectangle.stack", PaletteStrings.workspacesPlaceholder,
-                                prefix: "#", keywords: ["workspaces", "workspace"]))
+                                prefix: "#", keywords: ["workspaces", "workspace"], openAction: "goToWorkspace"))
         }
         scopes.append(scope(PaletteScopeID.commands, PaletteStrings.commandsTitle, "command", PaletteStrings.searchPlaceholder,
                             prefix: ">", keywords: ["commands", "actions"]))

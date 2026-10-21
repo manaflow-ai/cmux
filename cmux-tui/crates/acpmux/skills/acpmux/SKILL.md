@@ -25,7 +25,16 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
-Start a session only when the user asked for one.
+Start a session only when the user asked for one. If they refuse with "this
+session's caller token is not one this acpmux daemon knows", run
+`acpmux session restart @`: your agent restarts in the same conversation when
+the turn ends, with tools that work again; your sub-sessions keep running.
+
+To put a session's chat in front of the user without moving their focus, run
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
+sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
+attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -70,8 +79,9 @@ acpmux --json run -m claude "…"                    # {"sessionId","name","repl
 acpmux exec -m claude "…"                          # run, then delete the session
 acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only
-acpmux send NAME --no-wait "…"                     # queue and return; says what it is behind
-acpmux send NAME --steer "stop, do X instead"      # interrupt the running turn (when the harness supports it)
+acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
+acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
+acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
@@ -79,6 +89,7 @@ acpmux session info NAME                           # model, mode, policy, pendin
 acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
+acpmux session restart NAME                        # restart its agent process after the turn, same conversation
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 

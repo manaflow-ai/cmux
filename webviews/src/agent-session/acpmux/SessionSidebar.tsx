@@ -2,6 +2,7 @@ import React, { createContext, memo, useContext, useEffect, useId, useMemo, useR
 import {
   filterSessions,
   groupMark,
+  activityTime,
   sessionMark,
   sessionPlace,
   sortByRecency,
@@ -475,7 +476,7 @@ function FlatView({
         ? []
         : sessions
             .filter((session) => view === "history" || session.status === "closed")
-            .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
+            .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0)),
     [sessions, view],
   );
   const now = Date.now();
@@ -495,7 +496,7 @@ function FlatView({
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
-              trailing={shortAge(session.updatedAt, now, t)}
+              trailing={shortAge(activityTime(session), now, t)}
             />
           ))}
         </ul>
@@ -585,7 +586,10 @@ const SessionRow = memo(function SessionRow({
   const placeLabel =
     place &&
     `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
-  const previewStatus = mark ? t(MARK_LABELS[mark]) : undefined;
+  // A chat whose sub-session waits for a folder's trust says so, not just "Needs your input".
+  const markKey: StringKey | undefined =
+    mark && (mark === "input" && session.trustPending ? "sidebar.markTrust" : MARK_LABELS[mark]);
+  const previewStatus = markKey ? t(markKey) : undefined;
   const menuItems: ContextMenuItem[] = [];
   if (section === "settled" && onContinue) {
     menuItems.push({
@@ -612,7 +616,7 @@ const SessionRow = memo(function SessionRow({
       aria-describedby={previewText && previewIntent.shown ? previewId : undefined}
       aria-label={
         mark || place || trailing || open
-          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
+          ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, markKey && t(markKey)]
               .filter(Boolean)
               .join(", ")
           : undefined
@@ -645,13 +649,13 @@ const SessionRow = memo(function SessionRow({
         // A chat waiting on the person says so with the Needs you dot and its label.
         <span className="acpmux-session-mark acpmux-session-mark-input acpmux-session-mark-labeled" aria-hidden="true">
           {MARK_GLYPHS.input}
-          {t(MARK_LABELS.input)}
+          {t(markKey ?? MARK_LABELS.input)}
         </span>
       ) : mark ? (
         <span
           className={`acpmux-session-mark acpmux-session-mark-${mark}`}
           aria-hidden="true"
-          title={t(MARK_LABELS[mark])}
+          title={t(markKey ?? MARK_LABELS[mark])}
         >
           {MARK_GLYPHS[mark]}
         </span>

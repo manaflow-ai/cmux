@@ -289,6 +289,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_pair_resume",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/process/list",
       "params": true,
       "result": true
@@ -2281,6 +2287,14 @@
             "string",
             "null"
           ]
+        },
+        "pullRequests": {
+          "default": [],
+          "description": "The pull request URLs its `gh pr create` calls printed, oldest first;\nabsent from a peer on an older acpmux.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "queue": {
           "items": {

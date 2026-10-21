@@ -1,6 +1,7 @@
 // The thread minimap's model: one tick per user message at the transcript's left edge
 // (the Codex desktop app's prompt rail). Pure functions, so geometry and previews need no DOM.
 import type { AcpmuxRow } from "../model";
+import { opensTurn } from "../turnStart";
 
 export type ReplySpan = { text: string; bold: boolean };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
@@ -143,7 +144,8 @@ export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previou
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
     const row = rows[index]!;
-    if (row.kind === "user") {
+    // A steer goes on with its turn (turnStart.ts): it starts no minimap turn.
+    if (opensTurn(row)) {
       close();
       user = row;
       userIndex = index;

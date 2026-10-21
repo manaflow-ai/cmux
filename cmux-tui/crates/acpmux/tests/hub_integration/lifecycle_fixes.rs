@@ -25,7 +25,7 @@ async fn a_prompt_during_a_slow_session_load_waits_for_the_load() {
     let warmer = {
         let hub = hub.clone();
         let id = id.clone();
-        tokio::spawn(async move { hub.warm_sessions(&[id], 1).await })
+        tokio::spawn(async move { hub.warm_sessions(&[id], 1, false).await })
     };
     let load_sent = || {
         hub.events(&id, 0, 10_000)

@@ -182,6 +182,34 @@
       "title" : "Deepest Nesting",
       "type" : "number"
     },
+    "agents.trust.autoTrust" : {
+      "default" : false,
+      "description" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.",
+      "title" : "Trust My Own Folders Without Asking",
+      "type" : "boolean"
+    },
+    "agents.trust.ownOrgs" : {
+      "default" : [
+
+      ],
+      "description" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted GitHub Owners",
+      "type" : "array"
+    },
+    "agents.trust.projectRoots" : {
+      "default" : [
+
+      ],
+      "description" : "Everything inside these folders is trusted. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Trusted Project Roots",
+      "type" : "array"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {
@@ -211,6 +239,12 @@
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
       "title" : "Global Hot Key",
+      "type" : "boolean"
+    },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
     },
     "app.quitBehavior" : {
@@ -852,6 +886,14 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Hue",
+      "type" : "number"
+    },
+    "appearance.inactiveWindowDim" : {
+      "default" : 0,
+      "description" : "How much more theme color covers a window while another one is in front. 0 keeps the same look.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Dim Inactive Windows",
       "type" : "number"
     },
     "appearance.interfaceScale" : {
@@ -2327,7 +2369,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
       "enum" : [
         "split-right",
         "new-column",
@@ -3013,6 +3055,12 @@
       "title" : "More Screenshot Folders",
       "type" : "array"
     },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Off, cmux won't switch an agent into a mode that skips approvals.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -3023,6 +3071,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.resumeAgents" : {
+      "default" : true,
+      "description" : "Terminal agents reopen their session after a crash or restart.",
+      "title" : "Resume Agents After Restart",
+      "type" : "boolean"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
@@ -3286,6 +3340,18 @@
       "title" : "Scroll Tall Sections",
       "type" : "boolean"
     },
+    "sidebar.priorityView.enabled" : {
+      "default" : false,
+      "description" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle.",
+      "title" : "Priority View",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.shown" : {
+      "default" : true,
+      "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
+      "title" : "Show Priority View",
+      "type" : "boolean"
+    },
     "sidebar.sectionLook" : {
       "default" : "quiet",
       "description" : "How the sections above and below the workspace list draw.",
@@ -3298,6 +3364,12 @@
       ],
       "title" : "Section Look",
       "type" : "string"
+    },
+    "sidebar.sessionTree" : {
+      "default" : false,
+      "description" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.",
+      "title" : "Session Tree",
+      "type" : "boolean"
     },
     "sidebar.showChats" : {
       "default" : true,
@@ -3876,7 +3948,7 @@
       "type" : "string"
     },
     "tabs.cmdWClosesPinnedTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
@@ -4080,6 +4152,17 @@
       "title" : "Animations",
       "type" : "string"
     },
+    "ui.calm" : {
+      "default" : "off",
+      "description" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.",
+      "enum" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "title" : "Calm Mode",
+      "type" : "string"
+    },
     "ui.paneAnimations" : {
       "default" : true,
       "description" : "Splits, closes, moves, zooms, column scrolls and screen switches slide into place. Off: they change at once.",
@@ -4093,6 +4176,18 @@
         "nightly"
       ],
       "title" : "UpdateChannel",
+      "type" : "string"
+    },
+    "updates.channel" : {
+      "default" : "nightly",
+      "description" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.",
+      "enum" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "title" : "Update Channel",
       "type" : "string"
     },
     "updates.checkAutomatically" : {
