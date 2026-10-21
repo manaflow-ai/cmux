@@ -844,8 +844,11 @@ def wipe_state():
     stays. Runs only between runs, with the tag's processes ended (end_tag)."""
     if ".debug." not in BUNDLE_ID:
         raise SystemExit(f"refusing to wipe the state of non-DEV bundle {BUNDLE_ID}")
-    library = os.path.expanduser("~/Library")
     slug = re.sub(r"[^a-z0-9]+", ".", TAG.lower()).strip(".")
+    # An empty or foreign tag would name every tag's folder, or another tag's.
+    if not slug or "/" in TAG or TAG in (".", "..") or not BUNDLE_ID.endswith("." + slug):
+        raise SystemExit(f"refusing to wipe: tag {TAG!r} is not the tag of bundle {BUNDLE_ID}")
+    library = os.path.expanduser("~/Library")
     for path in (os.path.join(library, "Application Support", BUNDLE_ID, "Chromium"),
                  os.path.join(library, "Application Support/cmux/tags", TAG),
                  os.path.join(library, "Saved Application State", BUNDLE_ID + ".savedState"),
