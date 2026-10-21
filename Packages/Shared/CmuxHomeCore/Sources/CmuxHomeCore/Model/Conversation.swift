@@ -39,6 +39,9 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     /// A large Cloud group's member count (`member_count`): its `participants` are then only a
     /// roster. Nil when `participants` lists everyone.
     public var memberCount: Int?
+    /// When the group's Chiefs answer (the owner's `settings.wake_policy`); nil when the owner
+    /// names none (a local conversation, or an owner before settings), which means ``ChiefReplyPolicy/default``.
+    public var chiefReplies: ChiefReplyPolicy?
 
     public init(
         id: ConversationID,
@@ -57,7 +60,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         previewAttachments: AttachmentPreview? = nil,
         mentionCount: Int = 0,
         declaredKind: Kind? = nil,
-        memberCount: Int? = nil
+        memberCount: Int? = nil,
+        chiefReplies: ChiefReplyPolicy? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -76,6 +80,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.mentionCount = mentionCount
         self.declaredKind = declaredKind
         self.memberCount = memberCount
+        self.chiefReplies = chiefReplies
     }
 
     public enum Kind: String, Hashable, Sendable, Codable {

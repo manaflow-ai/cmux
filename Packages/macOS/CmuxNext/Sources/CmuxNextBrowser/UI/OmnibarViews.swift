@@ -153,7 +153,7 @@ final class OmnibarPillView: NSView {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
-        Motion.transaction(animated ? fade : nil) {
+        Motion.feedback.transaction(animated ? fade : nil) {
             performWithTheme {
                 let fill: NSColor
                 if glassy {
@@ -167,7 +167,7 @@ final class OmnibarPillView: NSView {
                     // ring shows focus); on hover the toolbar buttons' see-through
                     // hover fill, not the opaque lift; the opaque card top.
                     fill = switch state {
-                    case .idle: isHovering ? Palette.hoverFill : .clear
+                    case .idle: isHovering && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear
                     case .editing: .clear
                     case .card: OmnibarStyle.cardFill
                     }

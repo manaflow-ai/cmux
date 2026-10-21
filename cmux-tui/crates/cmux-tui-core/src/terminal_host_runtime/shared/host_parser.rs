@@ -214,15 +214,17 @@ pub(crate) fn run_host_parser(
                 source_cursor,
                 acknowledge_with_replay,
                 targeted_ack,
+                pty_previous,
                 response,
             } => {
-                let result = parser_host.apply_parser_resize(
+                let result = parser_host.apply_parser_resize_after_pty(
                     cols,
                     rows,
                     source_cursor,
                     acknowledge_with_replay,
                     targeted_ack,
                     cell_pixels,
+                    pty_previous,
                 );
                 flush_pending_responses();
                 let _ = response.send(result);

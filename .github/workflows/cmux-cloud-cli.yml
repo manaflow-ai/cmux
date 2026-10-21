@@ -3,12 +3,18 @@ on:
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cloud-cli/**"
+      - "cmux-tui/crates/cmux-cloud-wire/**"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-vectors.json"
       - "cmux-tui/Cargo.*"
       - ".github/workflows/cmux-cloud-cli.yml"
   push:
     branches: [main]
     paths:
       - "cmux-tui/crates/cmux-cloud-cli/**"
+      - "cmux-tui/crates/cmux-cloud-wire/**"
+      - "backend/catalog/cloud-operations.json"
+      - "backend/catalog/cloud-vectors.json"
       - "cmux-tui/Cargo.*"
       - ".github/workflows/cmux-cloud-cli.yml"
   workflow_dispatch:
@@ -28,9 +34,9 @@ jobs:
       - uses: ./.github/actions/setup-cmux-tui-rust
       - working-directory: cmux-tui
         run: |
-          cargo fmt -p cmux-cloud-cli --check
-          cargo clippy -p cmux-cloud-cli --locked --all-targets -- -D warnings
-          cargo test -p cmux-cloud-cli --locked
+          cargo fmt -p cmux-cloud-cli -p cmux-cloud-wire --check
+          cargo clippy -p cmux-cloud-cli -p cmux-cloud-wire --locked --all-targets -- -D warnings
+          cargo test -p cmux-cloud-cli -p cmux-cloud-wire --locked
           rustup target add x86_64-unknown-linux-musl
           cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -105,6 +105,14 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # The package conventions lint (namespace types, free functions, singletons,
+  # ...) is a style guard. For pull requests and merge groups into
+  # feat-cmux-next it prints its findings as warnings and passes (Leo,
+  # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
+  # tests still fail the job, and so the ios-tests gate.
+  # Everywhere else it still fails. Change `warn` to `fail` to make it block
+  # feat-cmux-next again.
+  CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
 
 
 # A newer push to the same pull request replaces its run; dispatches never
@@ -117,6 +125,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     # The macOS pool mobile-core-package and ios-simulator-build run on.
     # ios_runner_pool.py still sizes the simulator need for the deleted
     # per-family ios-simulator test jobs, which over-reserves until the
@@ -312,6 +321,8 @@ jobs:
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      # `warn`: the conventions lint is advisory, and the suites run whatever it reports.
+      style_guards: ${{ env.CMUX_NEXT_STYLE_GUARDS }}
       target_sha: ${{ steps.target.outputs.sha }}
       device_families: ${{ steps.families.outputs.json }}
     steps:
@@ -330,14 +341,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.ref }}
-          # Manual dispatch only needs this workflow revision. Preserve full
-          # history automatically if pull_request routing is re-enabled later,
-          # because that path computes a merge base below.
-          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
-          # Routing needs only commits and trees (merge-base, diff --name-only).
-          # A blobless full-history fetch fits the job timeout; fetching every
-          # blob of every branch did not, which cancelled the job and failed
-          # the required ios-tests aggregate.
+          # Manual dispatch only needs this workflow revision. A pull request
+          # checks out its merge commit and the base tip it was merged onto
+          # (depth 2): diffing the two names the pull request's own files. A
+          # full-history fetch took 40-110 s of this five-minute job.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
+          # Routing needs only commits and trees (diff --name-only).
           filter: blob:none
           persist-credentials: false
           submodules: false
@@ -385,7 +394,6 @@ jobs:
       - name: Detect iOS changes
         id: detect
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -394,14 +402,21 @@ jobs:
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          # HEAD is GitHub's merge of HEAD_SHA onto the base tip. Anything
+          # else (no merge ref, a stale one) runs everything.
+          if [ "$(git rev-parse HEAD^2 2>/dev/null)" != "$HEAD_SHA" ]; then
+            echo "HEAD is not the merge of $HEAD_SHA; running iOS tests and lint."
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "should_lint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # --no-renames keeps this diff inside the blobless clone. Rename
           # detection scores content, so an inexact rename makes git lazily
           # fetch blobs from the promisor remote, and the whole step exits
           # 128 if that fetch fails. It also hides a file moved out of ios/
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
-          git diff --name-only --no-renames "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
+          git diff --name-only --no-renames HEAD^1 HEAD > /tmp/changed-files.txt
           if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
@@ -437,9 +452,16 @@ jobs:
         env:
           GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: |
+          # The lint's own tests always gate: they protect the lint itself.
           python3 scripts/tests/test_ios_package_conventions.py
           python3 scripts/tests/test_pr_scoped_lint_gates.py
-          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
+          rc=0
+          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"} || rc=$?
+          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=package conventions (warn-only)::the package conventions lint reported findings; see this step's log"
+            exit 0
+          fi
+          exit "$rc"
 
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]
@@ -447,6 +469,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
@@ -641,6 +664,7 @@ jobs:
       ${{ !cancelled() && needs.runner.result == 'success' && needs.detect-ios-changes.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true'
           && (needs.package-conventions-lint.result == 'success'
+              || needs.detect-ios-changes.outputs.style_guards == 'warn'
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}

@@ -120,11 +120,52 @@ enum HomeMapping {
     /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
-        if case .text(let text, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
-           let split = diagramParts(text, diagrams: diagrams, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+        // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
+        func text(_ piece: String) -> [Part] {
+            if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+                return split
+            }
+            return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
+        }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
+           let split = diagramParts(whole, diagrams: diagrams, text) {
             return split
         }
+        if case .text(let whole, let mentions) = p, mentions.isEmpty, markdown {
+            return text(whole)
+        }
         return textParts(p, media: media, progress: progress, markdown: markdown, links: links)
+    }
+
+    /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
+    /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
+    /// is installed: the text then maps as it always did, tables as written in the bubble.
+    static func tableParts(_ text: String, _ textParts: (String) -> [Part]) -> [Part]? {
+        guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
+        let segments = HomeTableSplitter().segments(in: text)
+        guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
+        var out: [Part] = []
+        var pending = ""
+        func flush() {
+            let piece = pending.trimmingCharacters(in: .newlines)
+            pending = ""
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for segment in segments {
+            switch segment {
+            case .text(let piece):
+                pending += pending.isEmpty ? piece : "\n" + piece
+            case .table(let table, let raw):
+                if let card = HomeTableRowProvider.part(table, raw: raw) {
+                    flush()
+                    out.append(card)
+                } else {
+                    pending += pending.isEmpty ? raw : "\n" + raw
+                }
+            }
+        }
+        flush()
+        return out
     }
 
     /// `text` cut at its Mermaid fences: the text pieces by `textParts`, each fence the renderer
@@ -165,10 +206,23 @@ enum HomeMapping {
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
             return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
         }
+        // A person's reply that starts with a quote (Reply to Selection, ReplyQuote): the quote shows
+        // quietly at the top of the first text bubble, the reply below it.
+        if !markdown, let (quote, body) = ReplyQuote.split(text) {
+            let (head, run) = ReplyQuote.head(quote)
+            var shown = body.isEmpty ? [] : TextParts.parts(for: body)
+            if case let .text(t, runs)? = shown.first, !t.isEmpty {
+                let shift = (head as NSString).length + 1
+                shown[0] = .text(head + "\n" + t, runs: [run] + runs.map { var r = $0; r.start += shift; return r })
+            } else {
+                shown.insert(.text(head, runs: [run]), at: 0)
+            }
+            return shown
+        }
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t, chips: true)
+                let (rendered, runs) = HomeMarkdown.render(t, chips: HomeLinkChip.showsInTranscript)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -215,7 +269,7 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text, chips: true)
+            let (shown, runs) = HomeMarkdown.render(text, chips: HomeLinkChip.showsInTranscript)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {

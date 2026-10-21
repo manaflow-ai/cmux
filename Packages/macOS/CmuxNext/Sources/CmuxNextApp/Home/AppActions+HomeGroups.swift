@@ -55,6 +55,57 @@ extension AppActions {
                 if let message = outcome.message { registry.refuse(message) }
             })
         }
+        // Group chats with Chiefs (chief-group-chats-DESIGN.md): the CLI and MCP get the new
+        // group's id back; a person's run (palette) also shows it on the Home page.
+        registry.bind("home.createGroup", invoke: { invocation in
+            let members = invocation["members"]?.stringValue ?? ""
+            let title = invocation["title"]?.stringValue ?? ""
+            var replies: ChiefReplyPolicy?
+            if let text = invocation["replies"]?.stringValue, !text.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard let parsed = ChiefReplyPolicy(argument: text) else {
+                    return registry.refuse(HomeGroupOutcome.refused("").message ?? "")
+                }
+                replies = parsed
+            }
+            let actions = services.home.groupActions
+            let shows = invocation.origin == .user
+            // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
+            registry.track(result: Task { @MainActor in
+                switch await actions.create(named: members, title: title, replies: replies) {
+                case .created(let id):
+                    if shows { services.home.pendingSelection = id }
+                    return .success(["conversation": .string(id.rawValue)])
+                case .refused(let outcome):
+                    let reason = outcome.message ?? ""
+                    registry.refuse(reason)
+                    return .failure(ActionWorkFailure(refusal: outcome == .unknownConversation ? .notFound : .unavailable, reason: reason))
+                }
+            })
+        })
+        registry.bind("home.setChiefReplies", invoke: { invocation in
+            guard let id = conversation(invocation, services) else { return }
+            guard let policy = invocation["replies"]?.stringValue.flatMap(ChiefReplyPolicy.init(argument:)) else {
+                return registry.refuse(HomeGroupOutcome.refused("").message ?? "")
+            }
+            runGroup(services) { await $0.setChiefReplies(policy, id) }
+        })
+        // One pin path for a Home conversation: the row's Pin/Unpin and grid drags call it too.
+        registry.bind("home.togglePin", invoke: { invocation in
+            guard let id = conversation(invocation, services) else { return }
+            let source = pinSource(services)
+            let pinned = invocation["pinned"]?.boolValue ?? !source.isPinned(id)
+            source.setPinned(pinned, id)
+            shownPage(services)?.listPinsChanged()
+        })
+        ActionTargetTitles.set("home.togglePin", in: registry) { invocation in
+            let text = invocation["conversation"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+            guard let id = text.flatMap({ $0.isEmpty ? nil : ConversationID($0) }) ?? shownPage(services)?.shown else { return nil }
+            return pinSource(services).isPinned(id) ? PinStrings.unpinConversation : PinStrings.pinConversation
+        }
+        ActionTargetTitles.setPaletteState("home.togglePin", in: registry) {
+            guard let id = shownPage(services)?.shown else { return false }
+            return pinSource(services).isPinned(id)
+        }
         registry.bind("home.sendMessage", invoke: { invocation in
             guard let id = conversation(invocation, services) else { return }
             let text = invocation["text"]?.stringValue ?? ""
@@ -78,6 +129,12 @@ extension AppActions {
     static func shownPage(_ services: AppServices) -> TopHomePageView? {
         if services.home.dock.isClassic { return services.windows.active?.topPages.views[.home] as? TopHomePageView }
         return HomeDockTab.view(services)?.messages
+    }
+
+    /// The pins a Home pin change goes to: the shown page's sidebar (its list redraws), else a
+    /// source over the same stores (pins live with the owner or in this account's store, not in a page).
+    private static func pinSource(_ services: AppServices) -> HomeSidebarSource {
+        shownPage(services)?.sidebar ?? services.home.makeSidebarSource()
     }
 
     /// Runs a group action; the caller that waits (socket, CLI) gets its refusal as the failure.

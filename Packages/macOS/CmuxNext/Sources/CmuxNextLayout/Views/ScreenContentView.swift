@@ -16,7 +16,7 @@ final class ScreenContentView: NSView {
     var carriedDividers: [DividerHandleView.Kind: CGFloat] = [:]
     /// Frames before the rows' vertical offsets: what the springs target.
     private(set) var baseGeometry: ScreenGeometry
-    /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
+    /// `baseGeometry` at the presented row and scroll area offsets (`shiftingRows`, `shiftingAreas`): what
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
@@ -27,9 +27,11 @@ final class ScreenContentView: NSView {
     /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom covers, unchanged under it.
     internal(set) var zoomMotion = PaneZoomMotion()
     var covered: Set<PaneID> { zoomMotion.covered }
-    /// A close: the strip camera moves on the panes' spring until they rest, so a column whose
-    /// strip move the camera cancels (the one right of a closed column, as the focus goes left)
-    /// stays still instead of sliding in and out on two springs.
+    /// A close: the strip camera and each row column's move on the panes' (close) spring until
+    /// everything rests, so a column whose strip move the camera cancels (the one right of a
+    /// closed column, as the focus goes left) stays still instead of sliding in and out on two
+    /// springs, and the shift after the last column or row closed is the close's own curve. A user
+    /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
@@ -50,6 +52,9 @@ final class ScreenContentView: NSView {
     /// Each column whose rows overflow scrolls vertically with its own
     /// instance of the same rules (ScreenContentView+Rows.swift).
     var rowScrolls: [ColumnID: RowScroll] = [:]
+    /// Each horizontal scroll area keeps its own instance of the same rules
+    /// (ScreenContentView+ScrollAreas.swift).
+    var areaScrolls: [SplitID: ScrollAreaScroll] = [:]
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
@@ -104,6 +109,14 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
+    /// Ends pane and divider motion where it was going before a hidden workspace's clock stops.
+    /// A pane spring left mid-flight could park its pane off screen. Column and row camera
+    /// springs may resume when the workspace shows (Lucas 2026-10-19).
+    func settleMotion() {
+        guard hasMotion else { return }
+        reconcileAndScroll()
+    }
+
     /// A window resize: frames snap, and the scroll keeps the focused column
     /// in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll() {
@@ -147,7 +160,7 @@ final class ScreenContentView: NSView {
         let style = context.style
         applyCamera()
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
-        geometry = baseGeometry.shiftingRows(rowOffsets)
+        geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout

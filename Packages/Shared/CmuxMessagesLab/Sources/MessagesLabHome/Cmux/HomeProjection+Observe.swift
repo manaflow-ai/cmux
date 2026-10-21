@@ -14,7 +14,7 @@ extension HomeProjection {
         withObservationTracking {
             _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
             _ = homeStore.typing[id, default: []]
-            _ = homeStore.drafts[id] // the agent's running reply grows its bubble
+            _ = homeStore.streams(in: id) // the running replies grow their bubbles
             _ = homeStore.liveRun(in: id) // a Chief's live run: its reply so far and activity line
             _ = homeStore.isConfirmed(id) // a send held for the owner goes once it names this conversation
             _ = homeStore.rows

@@ -148,5 +148,5 @@ private struct UnreachableEngine: HomeChiefEngineSource {
     var isLocal: Bool { true }
     var place: String? { nil }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot { throw .localUnreachable }
 }

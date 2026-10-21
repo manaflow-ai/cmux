@@ -339,3 +339,55 @@ fn a_subagent_works_for_the_message_its_tell_was_for() {
     done.subs[0].status = SubStatus::Reported;
     assert!(!done.working_for("msg_1"), "a2 works for msg_5, not msg_1");
 }
+
+/// The user (2026-10-20): Chief reacts with 👍 ❤️ 😂 ‼️ ❓ "and any emoji". The iMessage tapback
+/// emoji map to their tapbacks; any other single emoji is an emoji reaction.
+#[test]
+fn react_takes_tapback_emoji_and_any_other_emoji() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", "shipped it");
+    h.settle_posts();
+    let line = line_of(&h, 1);
+    for reaction in ["😂", "‼️", "❓", "🔥"] {
+        let sp = spawner(&h);
+        let answer = run(&mut h, move || sp.react(line, reaction)).expect("react answers");
+        assert!(answer.starts_with("outcome: done"), "{reaction}: {answer}");
+    }
+    let reactions: Vec<ReactionKind> = h
+        .owner
+        .lock()
+        .unwrap()
+        .ops
+        .iter()
+        .filter_map(|(_, op)| match op {
+            Op::ReactionAdd { reaction, .. } => Some(reaction.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        reactions,
+        vec![
+            ReactionKind::Tapback(Tapback::Laugh),
+            ReactionKind::Tapback(Tapback::Emphasize),
+            ReactionKind::Tapback(Tapback::Question),
+            ReactionKind::Emoji("🔥".to_owned()),
+        ]
+    );
+    // The same emoji again is a noop; words that are no reaction stay refused.
+    let sp = spawner(&h);
+    let again = run(&mut h, move || sp.react(line, "🔥")).expect("react answers");
+    assert!(again.starts_with("outcome: noop"), "{again}");
+    let sp = spawner(&h);
+    assert!(
+        run(&mut h, move || sp.react(line, "wink"))
+            .unwrap_err()
+            .contains("no reaction")
+    );
+    let sp = spawner(&h);
+    assert!(
+        run(&mut h, move || sp.react(line, "🔥 🔥"))
+            .unwrap_err()
+            .contains("no reaction")
+    );
+}

@@ -78,6 +78,10 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     // the machine uses it to fix the second click of a double-click that
     // follows an unelision (Chromium crbug.com/40693090).
     case fieldMouseDown(clickCount: Int, button: MouseButton = .left, word: NSRange? = nil)
+    /// The pointer moved past the drag threshold while the press was down
+    /// (Chromium `OnMouseDragged` past `ExceededDragThreshold`): the press is
+    /// a drag, so a focusing click keeps what it selected.
+    case fieldMouseDragged
     case fieldMouseUp
 
     // Mouse over suggestion rows. `row` nil: the pointer left the rows.

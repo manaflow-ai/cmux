@@ -9,6 +9,7 @@ import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
 import { claudeRoute, isMetered } from "../model-gateway/routes.ts"
 import { gatewayMessages } from "../model-gateway/http.ts"
 import { payerTeam } from "../credits.ts"
+import { messagesEffectAuthorized } from "../chief-brain/effect-policy.ts"
 import type { CpNote, CpRun, CpWake } from "./contract.ts"
 import { brainModel, hostCall, HostRefused, type Who } from "./host.ts"
 import { LiveRuns } from "./live-runs.ts"
@@ -174,12 +175,14 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     }
   }
 
-  private async who(): Promise<Who | { refused: string }> {
+  private async who(turnWake?: number): Promise<Who | { refused: string }> {
     const agent = this.get("agent")
     const owner = this.get("owner")
     if (!agent || !owner) return { refused: "unbound" }
     const a = (await this.settings(agent).admit(agent, owner, false)) as Admission
-    const effects = this.hasSchema() ? this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM oc_wake WHERE state = 'running'`).toArray() : []
+    const effects = this.hasSchema() && turnWake !== undefined
+      ? this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM oc_wake WHERE n = ? AND state = 'running'`, turnWake).toArray()
+      : []
     return a.ok ? { agent, owner, effects_authorized: effects.length > 0 && effects.every((r) => r.effect_authorized === 1), config: { ...a.config, model: brainModel(a.config.model) } } : { refused: a.reason }
   }
 
@@ -386,12 +389,15 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     const id = (body?.id ?? null) as string | number | null
     const reply = (r: { result: unknown } | { error: { code: number; message: string } }) => Response.json({ jsonrpc: "2.0", id, ...r })
     if (!body || typeof body.method !== "string") return reply({ error: { code: -32600, message: "invalid request" } })
-    // Brain requests are served only for a running turn, and only for that turn's conversation.
-    const running = new Set(this.sql.exec<{ conversation: string }>(`SELECT conversation FROM oc_wake WHERE state = 'running'`).toArray().map((r) => r.conversation))
     let params = (body.params ?? {}) as Record<string, unknown>
-    if (body.method !== "initialize" && running.size === 0) return reply({ error: { code: -32003, message: "no turn is running" } })
-    if ("conversation" in params && !running.has(String(params.conversation))) return reply({ error: { code: -32003, message: "not this turn's conversation" } })
-    const who = await this.who()
+    const turnWake = Number(params._turn_wake)
+    const running = Number.isSafeInteger(turnWake) && turnWake > 0
+      ? this.sql.exec<{ conversation: string }>(`SELECT conversation FROM oc_wake WHERE n = ? AND state = 'running'`, turnWake).toArray()[0]
+      : undefined
+    if (body.method !== "initialize" && !running) return reply({ error: { code: -32003, message: "no matching turn is running" } })
+    if (running && "conversation" in params && String(params.conversation) !== running.conversation) return reply({ error: { code: -32003, message: "not this turn's conversation" } })
+    delete params._turn_wake
+    const who = await this.who(running ? turnWake : undefined)
     if ("refused" in who) return reply({ error: { code: -32003, message: who.refused } })
     if (body.method === "chief/ack") {
       // The wake id names the conversation; the brain reports the newest message it read.
@@ -402,7 +408,16 @@ export class OpencodeBrainDO extends DurableObject<Env> {
       params = { conversation: wake.conversation, cursor }
     }
     try {
-      return reply({ result: await hostCall(this.env, who, body.method, params) })
+      const result = await hostCall(this.env, who, body.method, params)
+      // The returned view is the exact prompt input. Taint the bound turn before the brain can
+      // make a tool call when any participant other than the owner contributed to that view.
+      if (body.method === "conversation/read" && running) {
+        const messages = (result as { messages?: ReadonlyArray<{ author?: { id?: unknown; kind?: unknown } }> }).messages ?? []
+        if (!messagesEffectAuthorized(messages, who.owner)) {
+          this.sql.exec(`UPDATE oc_wake SET effect_authorized = 0 WHERE n = ? AND state = 'running'`, turnWake)
+        }
+      }
+      return reply({ result })
     } catch (e) {
       return reply({ error: { code: e instanceof HostRefused ? e.code : -32000, message: e instanceof Error ? e.message.slice(0, 500) : String(e) } })
     }

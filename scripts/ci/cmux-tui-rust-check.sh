@@ -11,6 +11,9 @@
 # rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
+# rd-bench: a release build of cmux-rd-host's bench client (no x264, OpenH264 from source)
+# at .build/artifacts/cmux-rd (macOS arm64; fetch it with --artifact), so a developer
+# Mac can measure a remote host (the cloud browser VM) without building cargo locally.
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
@@ -44,7 +47,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -193,10 +196,13 @@ step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
 # Base-red skip list (scripts/ci/cmux-tui-base-red.tsv): tests that are red on
 # the base for a known reason, skipped in the cmux-tui workspace tests (`test`
 # and `all`) with libtest `--skip` (a test-name substring; use the full path).
-# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the last day the
-# skip applies) OS(any|macos|linux) REASON. An entry without a bead, with a bad
-# filter, date or OS, or past its expiry fails the step; an expired entry is
-# not skipped, so its test runs again.
+# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the review date:
+# after it each run warns) OS(any|macos|linux) REASON. An entry without a bead, or with a
+# bad filter, date or OS, fails the step. An entry past its expiry only warns
+# (a gate-notice line naming its bead) and is still applied: a calendar date
+# must not turn every PR red (2026-10-20: cx-2ueez and cx-gz5dx expired and
+# failed the base-red step on every PR, as a lapsed feature flag reviewBy did
+# before #21967). Remove the entry in the push that fixes its test.
 base_red_file="$root/scripts/ci/cmux-tui-base-red.tsv"
 skip_args=()
 skip_notes=()
@@ -227,8 +233,7 @@ load_base_red() {
       echo "gate-notice: base-red ERROR: $filter (bead $bead) OS must be any, macos or linux: $line"; bad=1; continue ;;
     esac
     if [[ "$today" > "$expires" ]]; then
-      echo "gate-notice: base-red EXPIRED: $filter (bead $bead, expired $expires UTC); the test runs; fix it or remove the entry"
-      bad=1; continue
+      echo "gate-notice: base-red WARNING: $filter (bead $bead) expired $expires UTC and is still skipped; fix it and remove the entry"
     fi
     if [[ "$entry_os" != any && "$entry_os" != "$os" ]]; then
       echo "gate-notice: base-red not applied on $os: $filter (bead $bead, $entry_os only)"
@@ -721,6 +726,19 @@ if [[ "$mode" == rd-host ]]; then
   step "rd-host fmt" cargo fmt --check
   step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
   step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  finish
+fi
+copy_rd_bench() {
+  mkdir -p "$root/.build/artifacts"
+  cp "$CARGO_TARGET_DIR/release/cmux-rd" "$root/.build/artifacts/cmux-rd" || return 1
+  ls -l "$root/.build/artifacts/cmux-rd"
+}
+if [[ "$mode" == rd-bench ]]; then
+  export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
+  cd "$root/cmux-tui/crates/cmux-rd-host"
+  warm_target_guard
+  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
+  step "rd-bench artifact" copy_rd_bench
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go

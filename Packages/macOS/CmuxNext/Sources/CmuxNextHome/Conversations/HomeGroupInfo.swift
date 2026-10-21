@@ -18,9 +18,12 @@ public struct HomeGroupInfo: Hashable, Sendable {
     public var muted: Bool
     /// A large group's member count (``members`` is then a roster); nil when ``members`` is everyone.
     public var memberCount: Int?
+    /// When the group's Chiefs answer (the Chiefs Reply row); nil hides the row (a DM, a group
+    /// without a Chief, or a local group, whose owner has no such setting).
+    public var chiefReplies: ChiefReplyPolicy?
 
     public init(conversation: ConversationID, isGroup: Bool, title: String, displayTitle: String, members: [HomeGroupMember],
-                canMute: Bool, muted: Bool, memberCount: Int? = nil) {
+                canMute: Bool, muted: Bool, memberCount: Int? = nil, chiefReplies: ChiefReplyPolicy? = nil) {
         self.conversation = conversation
         self.isGroup = isGroup
         self.title = title
@@ -29,6 +32,7 @@ public struct HomeGroupInfo: Hashable, Sendable {
         self.canMute = canMute
         self.muted = muted
         self.memberCount = memberCount
+        self.chiefReplies = chiefReplies
     }
 
     /// The members list's header: "Members", or "5,000 members" for a large group.

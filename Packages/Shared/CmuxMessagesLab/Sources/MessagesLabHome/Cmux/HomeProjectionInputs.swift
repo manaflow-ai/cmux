@@ -15,7 +15,7 @@ struct HomeProjectionInputs: Equatable {
     var summary: ConversationSummary?
     var row: InboxRow?
     var typing: Set<ParticipantID>?
-    var draft: HomeTurnDraft?
+    var streams: [HomeStreamRow]
     var live: HomeLiveRun?
     var confirmed: Bool
     var hasOlder: Bool
@@ -27,8 +27,8 @@ struct HomeProjectionInputs: Equatable {
         transcriptVersion = store.transcriptVersion[conversation, default: 0]
         summary = store.summary(conversation)
         row = store.rows.first { $0.summary.id == conversation }
-        typing = store.typing[conversation]
-        draft = store.drafts[conversation]
+        typing = store.typing.value(for: conversation)
+        streams = store.streams(in: conversation)
         live = store.liveRun(in: conversation)
         confirmed = store.isConfirmed(conversation)
         hasOlder = store.hasOlderMessages(in: conversation)

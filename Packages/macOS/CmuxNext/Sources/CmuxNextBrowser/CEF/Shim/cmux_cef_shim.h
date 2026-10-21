@@ -164,6 +164,15 @@ typedef enum {
   // tab navigated or closed and the prompt can no longer be answered.
   // Answer once with cmux_shim_password_prompt_answer.
   CMUX_SHIM_PASSWORD_PROMPT = 43,
+  // The page's beforeunload asks before it unloads (a navigation, a reload,
+  // or a close the host started with cmux_shim_try_close); Chromium's own
+  // dialog does not show. request = the question's token, a = 1 for a
+  // reload. Chromium waits for cmux_shim_before_unload_reply (Leave or
+  // Stay). A close by cmux_shim_close or cmux_shim_close_all never asks.
+  CMUX_SHIM_BEFORE_UNLOAD_DIALOG = 44,
+  // Chromium ended a waiting BEFORE_UNLOAD_DIALOG itself (the renderer
+  // ended, the page navigated or closed). Not sent after the host's answer.
+  CMUX_SHIM_BEFORE_UNLOAD_DISMISSED = 45,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -239,6 +248,12 @@ CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
 // default_search_provider_data.template_url_data as JSON (browser.searchEngine);
 // NULL or "" restores Chromium's own default. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json);
+// Chrome enterprise policies Chromium reads natively (CefSettings.chrome_policy_id):
+// a managed preference domain such as "com.google.Chrome", read the way Chrome
+// reads it (forced values mandatory, others recommended). NULL or "" reads none.
+// Call before cmux_shim_initialize; later calls do nothing.
+// plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
+CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
@@ -332,7 +347,18 @@ CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
+// Closes the browser without asking: a beforeunload question is answered
+// Leave (quit, a replaced page, a tab the daemon removed).
 CMUX_SHIM_EXPORT void cmux_shim_close(int browser_id);
+// A person's close (CefBrowserHost::TryCloseBrowser): returns 1 when the
+// browser closes now without a question (or is gone), 0 when its
+// beforeunload runs first. After 0 the page may ask (BEFORE_UNLOAD_DIALOG);
+// BEFORE_CLOSE follows only if the close goes on, and nothing follows when
+// the person stays. Calling it again while it waits is ignored by Chromium.
+CMUX_SHIM_EXPORT int cmux_shim_try_close(int browser_id);
+// Answers BEFORE_UNLOAD_DIALOG `token` (accept = 1: Leave or Reload).
+// Returns 0 when the token is unknown or already answered.
+CMUX_SHIM_EXPORT int cmux_shim_before_unload_reply(int token, int accept);
 // DevTools protocol message ids. Raw sends (cmux_shim_devtools_send) and
 // shim-internal calls (cmux_shim_devtools_call, the DevTools calls of a CEF
 // tab) share ONE id space per browser. Raw sends use ids >= 2^30

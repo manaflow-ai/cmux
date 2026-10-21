@@ -84,8 +84,9 @@ test("the Updated card's change titles show no hover preview", async () => {
   await render((strings) => (
     <UpdatedCard data={data} strings={strings as never} actions={{ openChangelog: noop, dismiss: noop }} />
   ));
-  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(2);
-  expect(titleTooltips(".wn-card-changes")).toEqual([]);
+  // One line per area (updateSummary.ts); no line, area name or change has a tooltip.
+  expect(host.querySelectorAll(".wn-card-areas li").length).toBe(2);
+  expect(titleTooltips(".wn-card-areas")).toEqual([]);
 });
 
 test("the Update Ready popover's change titles show no hover preview", async () => {

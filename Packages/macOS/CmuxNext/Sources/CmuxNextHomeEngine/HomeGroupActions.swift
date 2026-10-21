@@ -39,7 +39,14 @@ public struct HomeGroupActions: Sendable {
         let title = row.summary.title.isHomeInternalID ? "" : row.summary.title
         return HomeGroupInfo(conversation: id, isGroup: row.kind == .group, title: title, displayTitle: row.title,
                              members: ordered, canMute: muting.canMute(id), muted: muting.isMuted(id) || row.summary.muted,
-                             memberCount: row.summary.memberCount)
+                             memberCount: row.summary.memberCount, chiefReplies: Self.chiefReplies(of: row))
+    }
+
+    /// The Chiefs Reply setting the group info shows: nil for a DM, a group without a Chief, or a
+    /// local group (its owner has no setting); else the owner's, ``ChiefReplyPolicy/default`` when it names none.
+    static func chiefReplies(of row: InboxRow) -> ChiefReplyPolicy? {
+        guard row.kind == .group, row.summary.owner == .cloud, row.summary.participants.contains(where: \.isChief) else { return nil }
+        return row.summary.chiefReplies ?? .default
     }
 
     /// The people the user can add to `id`: contacts not already in it.
@@ -59,12 +66,14 @@ public struct HomeGroupActions: Sendable {
         return Self.match(text, in: participants.map { ($0.id, $0.visibleName) })
     }
 
-    /// The contact `text` names: by id, else by name (any case), else a person of another
+    /// The contact `text` names: by id, else by name (any case), else a person or Chief of another
     /// conversation of mine with that name.
     public func contact(_ text: String) -> ParticipantID? {
         if let id = Self.match(text, in: contacts().map { ($0.id, $0.name) }) { return id }
         let me = store.me?.id
-        let known = store.rows.flatMap(\.summary.participants).filter { $0.id != me && $0.kind == .human && $0.membership == .active }
+        let known = store.rows.flatMap(\.summary.participants).filter {
+            $0.id != me && ($0.kind == .human || $0.isChief) && $0.membership == .active
+        }
         return Self.match(text, in: known.map { ($0.id, $0.visibleName) })
     }
 
@@ -127,6 +136,58 @@ public struct HomeGroupActions: Sendable {
         guard let me = store.me?.id else { return .offline }
         let outcome = await run(on: id, naming: "") { .removeParticipant(conversation: id, participant: me) }
         return outcome == .done ? .left : outcome
+    }
+
+    /// Starts a group of the people and Chiefs a comma-separated list names (`cmux chat create
+    /// --members "Chief, Unii, aziz@manaflow.com"`), as New Message's first send does, then sets
+    /// its Chiefs Reply setting when `replies` asks for one. The first name nobody matches is
+    /// refused before anything is sent.
+    public func create(named list: String, title: String, replies: ChiefReplyPolicy? = nil) async -> HomeGroupCreation {
+        let names = Self.names(in: list)
+        guard !names.isEmpty else { return .refused(.noPeople) }
+        var people: [ParticipantID] = []
+        for name in names {
+            if let person = contact(name) {
+                if person != store.me?.id, !people.contains(person) { people.append(person) }
+            } else if let address = ContactAddress.parse(name), address.isEmail {
+                guard case .member(let person)? = try? await store.resolve(address) else { return .refused(.notReachable(name)) }
+                if !people.contains(person.id) { people.append(person.id) }
+            } else {
+                return .refused(.unknownPerson(name))
+            }
+        }
+        guard !people.isEmpty else { return .refused(.noPeople) }
+        let op = HomeOp.createGroup(title: title.trimmingCharacters(in: .whitespacesAndNewlines), participants: people)
+        let id: ConversationID
+        do {
+            guard let made = try await store.perform(op).conversation else { return .refused(.refused("")) }
+            id = made
+        } catch let rejection as HomeRejection {
+            return .refused(HomeGroupOutcome(rejection: rejection, naming: names.joined(separator: ", ")))
+        } catch {
+            return .refused(.refused(""))
+        }
+        if let replies, replies != .default {
+            let outcome = await setChiefReplies(replies, id, waiting: true)
+            guard outcome.succeeded else { return .refused(outcome) }
+        }
+        return .created(id)
+    }
+
+    /// Sets when the Chiefs of the group `id` answer (`cmux chat replies`, the group info's
+    /// Chiefs Reply row). `waiting`: a group just made may not be listed yet; the op goes anyway.
+    public func setChiefReplies(_ policy: ChiefReplyPolicy, _ id: ConversationID, waiting: Bool = false) async -> HomeGroupOutcome {
+        if waiting, summary(id) == nil {
+            do {
+                _ = try await store.perform(.setChiefReplies(conversation: id, policy: policy))
+                return .done
+            } catch let rejection as HomeRejection {
+                return HomeGroupOutcome(rejection: rejection, naming: "")
+            } catch {
+                return .refused("")
+            }
+        }
+        return await run(on: id, naming: "") { .setChiefReplies(conversation: id, policy: policy) }
     }
 
     /// Hide Alerts (`on`) or Show Alerts for `id`.

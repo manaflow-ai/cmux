@@ -25,7 +25,7 @@ public struct TabStripMetrics: Equatable, Sendable {
 
     /// Contents width (the tab less both content insets) from which a
     /// hovered inactive tab shows its x. Chromium's
-    /// `Tab::kMinimumContentsWidthForCloseButtons` (68 DIP).
+    /// `Tab::kMinimumContentsWidthForCloseButtons`, as Helium sets it (56 DIP; Chromium 68).
     public var closeMinContentsWidth: CGFloat
     /// Narrowest title fragment worth showing after the icon; below it the
     /// icon centers instead (Chromium shows any positive width, which
@@ -58,6 +58,9 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var tearOffDistance: CGFloat
 
     public var cornerRadius: CGFloat
+    /// Corner of the close button's hover and pressed fill: Helium's rounded
+    /// rect (`TabCloseButton` `kCornerRadius`, 4), not Chrome's circle.
+    public var closeCornerRadius: CGFloat
 
     // MARK: Groups
 
@@ -150,14 +153,15 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        // The strip's edges are the content border's edges (the chrome line).
-        stripHorizontalPadding = PaneChromeMetrics.pillLeading
+        // The first and last pills keep the gap above them to the strip's ends (the chrome line).
+        stripHorizontalPadding = Metrics.paneChromeInset
         stripTopOutset = Metrics.stripTopOutset
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
+        closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value
         groupChipHeight = max(Metrics.space6, Metrics.tabHeight - 2 * Metrics.space2)

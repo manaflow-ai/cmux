@@ -27,6 +27,7 @@ struct HomeGroupInfoView: View {
             }
             members
             if model.info.isGroup { addPeople }
+            if let replies = model.info.chiefReplies { chiefRepliesRow(replies) }
             if model.info.canMute {
                 Toggle(HomeConversationStrings.infoHideAlerts, isOn: Binding(get: { model.info.muted }, set: { model.setMuted($0) }))
                     .toggleStyle(.switch)
@@ -83,6 +84,27 @@ struct HomeGroupInfoView: View {
             }
             .frame(maxHeight: 200)
             .fixedSize(horizontal: false, vertical: fits)
+        }
+    }
+
+    /// When the group's Chiefs answer (plans/cmux-next/chief-group-chats-DESIGN.md section 3).
+    private func chiefRepliesRow(_ replies: ChiefReplyPolicy) -> some View {
+        let current: HomeGroupInfoModel = model
+        return VStack(alignment: .leading, spacing: Metrics.space1) {
+            Picker(HomeConversationStrings.infoChiefReplies, selection: Binding(get: { replies }, set: { current.setChiefReplies($0) })) {
+                ForEach(ChiefReplyPolicy.allCases, id: \.self) { policy in
+                    Text(HomeConversationStrings.chiefReplies(policy)).tag(policy)
+                }
+            }
+            .pickerStyle(.menu)
+            .font(Font(Typography.body))
+            .foregroundStyle(colors.primary)
+            .disabled(model.isRunning)
+            .accessibilityIdentifier("cmux.home.groupInfo.chiefReplies")
+            Text(HomeConversationStrings.chiefRepliesDetail(replies))
+                .font(Font(Typography.caption))
+                .foregroundStyle(colors.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -84,6 +85,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.onTerminalGridHold = { [weak layoutView] held in
             if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
         }
+        // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
+        layoutView.linkDropHandler = { [weak self] url, target, perform in
+            guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
+                  let plan = LinkDropPlan(target, takesTabs: { self.panes[$0]?.stripModel.showsNewTabButton == true }) else { return false }
+            return !perform || self.services.linkOpener.drop(item, plan: plan, in: self)
+        }
         _ = screenBar
         _ = contentView
         let fallbackCreate = emptyWorkspaceRepair.create
@@ -100,7 +107,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
@@ -300,6 +307,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens

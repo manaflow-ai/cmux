@@ -100,7 +100,8 @@ nonisolated enum CloudHomeMapping {
             updatedAt: HomeCoreMapping.date(summary.updatedAt) ?? .distantPast,
             lastMessage: summary.lastMessage.map { message($0, identity: identity) },
             readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max),
-            declaredKind: kind(summary.kind), memberCount: summary.memberCount)
+            declaredKind: kind(summary.kind), memberCount: summary.memberCount,
+            chiefReplies: summary.wakePolicy.flatMap(ChiefReplyPolicy.init(rawValue:)))
     }
 
     /// The owner's conversation kind (`group`, `dm`, `chief`); nil for one it does not name.

@@ -6,12 +6,13 @@ import CmuxNextSettings
 private typealias JSON = CmuxNextSettings.JSONValue
 
 /// `debug.new_tab {action: "bench_create", command}` (DEBUG builds): the instant-create budget of
-/// Cmd-N, Cmd-T, Cmd-D and Cmd-Shift-D, each driven through the real key path (`debug.key`).
+/// Cmd-N, Cmd-T, Ctrl-` (New Terminal Tab), Cmd-D and Cmd-Shift-D, each driven through the real
+/// key path (`debug.key`).
 ///
 /// Per run it reports, in ms after the key:
 /// - `key_ms`: the key's synchronous main-thread time (handler included);
 /// - `visible_ms`: the first display frame at which the result shows (Cmd-N: the window shows
-///   another workspace; Cmd-T: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
+///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
@@ -22,12 +23,13 @@ enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", splitRight = "split_right", splitDown = "split_down"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down"
 
         var key: (String, [String]) {
             switch self {
             case .newWorkspace: ("n", ["command"])
             case .newTab: ("t", ["command"])
+            case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
             }
@@ -86,7 +88,7 @@ enum DebugInstantCreateBench {
         func changed(_ command: Command, _ now: Probe) -> Bool {
             switch command {
             case .newWorkspace: now.workspace != nil && now.workspace != workspace
-            case .newTab: now.pane == pane && now.tab != nil && now.tab != tab
+            case .newTab, .newTerminal: now.pane == pane && now.tab != nil && now.tab != tab
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
             }
         }
@@ -94,7 +96,7 @@ enum DebugInstantCreateBench {
         func confirmed(_ command: Command) -> Bool {
             let realTab = tab.map { !$0.hasPrefix(ProvisionalTab.idPrefix) } ?? false
             switch command {
-            case .newWorkspace, .newTab: return realTab
+            case .newWorkspace, .newTab, .newTerminal: return realTab
             case .splitRight, .splitDown: return realTab && (paneHandle ?? .max) < (1 << 62)
             }
         }

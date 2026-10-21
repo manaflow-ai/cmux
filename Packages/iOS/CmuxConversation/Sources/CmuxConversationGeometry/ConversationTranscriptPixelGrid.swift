@@ -8,6 +8,7 @@ import CoreGraphics
 /// above them change (an older page landing, history trimmed): otherwise
 /// the new rows' fractional height re-rounds every row below, and rows on
 /// screen step a pixel against their neighbors.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTranscriptPixelGrid {
     /// A raw top (stacked from the top padding) on the grid.
     public static func snap(_ rawTop: CGFloat, phase: CGFloat, scale: CGFloat) -> CGFloat {

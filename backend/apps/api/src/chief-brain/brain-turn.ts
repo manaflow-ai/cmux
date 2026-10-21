@@ -247,7 +247,9 @@ export async function runTurn(b: ChiefBrainDO, id: string): Promise<void> {
   let reason: string | null = null
   let timer: ReturnType<typeof setTimeout> | undefined
   // The Claude Code route (chief-brain-cc/): the turn runs as Claude Code in its own VM; everything else here is the same.
-  const cc = !child && ccRoute(b.doEnv, b.config().owner)
+  // Claude Code creates a VM and runs with bypass permissions. A participant-authored turn must
+  // stay on the Pi path, where effectful tools return an owner-approval request.
+  const cc = !child && b.effectsAuthorized() && ccRoute(b.doEnv, b.config().owner)
   try {
     if (cc) {
       const model = isClaude(row.model) ? row.model : OPUS

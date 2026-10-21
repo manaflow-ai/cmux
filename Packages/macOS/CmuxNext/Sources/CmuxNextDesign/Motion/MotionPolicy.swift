@@ -3,7 +3,9 @@ public import Foundation
 /// Resolves motion tokens for one speed setting and Reduce Motion state.
 /// Pure, so the rules are unit-tested without AppKit.
 ///
-/// - `off`: nothing animates; every change applies in one frame.
+/// - `off`, the master switch `ui.animations.enabled` false, or this
+///   policy's ``category`` turned off: nothing animates; every change
+///   applies in one frame.
 /// - Reduce Motion: movement (position, size, scale, scroll) is instant;
 ///   opacity changes stay as a short crossfade (hover feedback is
 ///   instant); loops stop.
@@ -19,25 +21,54 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// The kinds turned on one by one (`ui.animations.*` true).
     public var enabledKinds: Set<MotionKind>
     public var liveResize: Bool
+    /// `ui.animations.enabled`, the master switch: false makes every
+    /// category instant, whatever its own switch says.
+    public var animationsEnabled: Bool
+    /// The categories whose `ui.animations.<category>` is false.
+    public var disabledCategories: Set<MotionCategory>
+    /// The category this policy decides for (``MotionGate``); nil decides
+    /// with the master switch only (reports, the debug window).
+    public var category: MotionCategory?
 
     public init(speed: MotionSpeed, reduceMotion: Bool, bounce: MotionBounce = .none,
-                enabledKinds: Set<MotionKind> = [], liveResize: Bool = false) {
+                enabledKinds: Set<MotionKind> = [], liveResize: Bool = false,
+                animationsEnabled: Bool = true, disabledCategories: Set<MotionCategory> = [],
+                category: MotionCategory? = nil) {
         self.speed = speed
         self.reduceMotion = reduceMotion
         self.bounce = bounce
         self.enabledKinds = enabledKinds
         self.liveResize = liveResize
+        self.animationsEnabled = animationsEnabled
+        self.disabledCategories = disabledCategories
+        self.category = category
+    }
+
+    /// This policy deciding for `category`.
+    public func `for`(_ category: MotionCategory) -> MotionPolicy {
+        var policy = self
+        policy.category = category
+        return policy
+    }
+
+    /// The master switch is on, this policy's category is on, and the speed
+    /// is not "off". When false nothing in the category animates: moves,
+    /// fades and loops all apply in one frame (as speed "off").
+    public var categoryAnimates: Bool {
+        guard animationsEnabled, speed != .off else { return false }
+        guard let category else { return true }
+        return !disabledCategories.contains(category)
     }
 
     /// Position, size, scale and scroll animate. When false, snap.
-    public var animatesMovement: Bool { speed != .off && !reduceMotion && !liveResize }
+    public var animatesMovement: Bool { categoryAnimates && !reduceMotion && !liveResize }
     /// `kind` moves: movement animates and its switch is on. Off means the
     /// change applies in one frame (Reduce Motion: no crossfade either).
     public func animates(_ kind: MotionKind) -> Bool { animatesMovement && enabledKinds.contains(kind) }
     /// Opacity and color changes animate. When false, apply at once.
-    public var animatesFades: Bool { speed != .off }
+    public var animatesFades: Bool { categoryAnimates }
     /// Repeating indicators (spinner, pulse) run.
-    public var animatesLoops: Bool { speed != .off && !reduceMotion }
+    public var animatesLoops: Bool { categoryAnimates && !reduceMotion }
 
     /// The spring for `token` at this speed. Callers still snap when
     /// `animatesMovement` is false; `off` returns the `fast` spring so a

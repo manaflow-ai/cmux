@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextFileGrid
+public import CmuxNextFiles
 import Observation
 
 /// The Screenshots pane: a source menu (all folders, or one), a name
@@ -15,7 +16,8 @@ public final class ScreenshotsView: NSView {
     private let sourceMenu = NSPopUpButton(frame: .zero, pullsDown: false)
     private let search = NSSearchField()
     private let count = NSTextField(labelWithString: "")
-    private let importer = FileGridDropImporter()
+    private let saver: ScreenshotDropSaver
+    private let commands: ScreenshotsCommands
     private var shownSources: [ScreenshotSource] = []
     private static let headerHeight: CGFloat = 36
 
@@ -29,13 +31,17 @@ public final class ScreenshotsView: NSView {
     /// - Parameters:
     ///   - model: the pane's state.
     ///   - cache: the app's thumbnail cache.
-    ///   - workspace: opens, reveals and trashes files.
+    ///   - workspace: opens and reveals files.
+    ///   - files: copies drops in, renames and trashes (CmuxNextFiles).
     ///   - appearance: grid colors and tile size.
-    public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any FileGridWorkspace,
-                appearance: FileGridAppearance = FileGridAppearance()) {
+    public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
+                files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance()) {
         self.model = model
-        self.grid = FileGridView(cache: cache, appearance: appearance, workspace: workspace)
+        self.grid = FileGridView(cache: cache, appearance: appearance)
+        self.saver = ScreenshotDropSaver(files: files)
+        self.commands = ScreenshotsCommands(workspace: workspace, files: files)
         super.init(frame: .zero)
+        grid.onCommand = { [weak self] command, items in self?.commands.perform(command, on: items, in: self?.window) }
         sourceMenu.target = self
         sourceMenu.action = #selector(sourceChanged)
         sourceMenu.controlSize = .small
@@ -134,25 +140,27 @@ public final class ScreenshotsView: NSView {
         model.query = search.stringValue
     }
 
-    /// Saves a drop into ``ScreenshotsModel/dropDestination`` and selects the first saved file.
+    /// Saves a drop into ``ScreenshotsModel/dropDestination`` (through CmuxNextFiles) and selects the
+    /// first saved file. The drop is read at once; the copy runs after the drag ends.
     private func saveDrop(_ pasteboard: NSPasteboard) -> Bool {
-        guard let folder = model.dropDestination else { return false }
-        do {
-            let saved = try importer.importItems(from: pasteboard, into: folder)
-            guard !saved.isEmpty else { return false }
-            // task-owner: adds the saved files at once; the folder watch confirms them.
-            Task { [weak self] in
+        guard let folder = model.dropDestination, saver.canSave(pasteboard) else { return false }
+        let drop = ScreenshotDropValue(droppedFileURLs: pasteboard.droppedFileURLs,
+                                       droppedImage: pasteboard.droppedFileURLs.isEmpty ? pasteboard.droppedImage : nil)
+        let saver = saver
+        // task-owner: one drop's save; ends when the files are copied in
+        Task { @MainActor [weak self] in
+            do {
+                let saved = try await saver.save(drop, into: folder)
                 await self?.model.noteSaved(saved)
                 self?.refresh()
                 if let first = saved.first { self?.grid.reveal(path: first.path) }
+            } catch {
+                // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
+                let alert = NSAlert(error: error)
+                alert.messageText = ScreenshotsStrings.dropFailed
+                if let window = self?.window { alert.beginSheetModal(for: window, completionHandler: nil) }
             }
-            return true
-        } catch {
-            // dialog-keys-exempt: CmuxNextScreenshots depends only on the system-frameworks-only CmuxNextFileGrid, so it cannot reach CmuxDialogCenter
-            let alert = NSAlert(error: error)
-            alert.messageText = ScreenshotsStrings.dropFailed
-            if let window { alert.beginSheetModal(for: window) }
-            return false
         }
+        return true
     }
 }

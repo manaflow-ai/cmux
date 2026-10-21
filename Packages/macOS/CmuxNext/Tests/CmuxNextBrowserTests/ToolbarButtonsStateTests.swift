@@ -97,7 +97,8 @@ import Testing
 
     /// The Extensions button is pressed while its bubble is open and normal after every way
     /// the bubble closes: Escape, the close button, a second click, a pick, a click outside.
-    @Test(arguments: ["close", "toggle", "manage", "dismiss"])
+    @Test(.enabled("a bubble needs a screen to show") { await ExtensionsMenuPerformanceTests.hasDisplay() },
+          arguments: ["close", "toggle", "manage", "dismiss"])
     func theExtensionsButtonIsPressedOnlyWhileItsBubbleIsOpen(_ path: String) async throws {
         let tab = Self.chromiumTab([Self.action("a", pinned: false)])
         let chrome = BrowserChromeView(tab: tab)

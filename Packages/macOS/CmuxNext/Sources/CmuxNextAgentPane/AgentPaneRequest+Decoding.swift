@@ -77,6 +77,19 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDisplay":
+            // Only the chat's own look keys: the page can never write another setting.
+            if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
+                let raw = params?["value"]
+                let value = raw == nil || raw is NSNull ? nil : raw.flatMap(JSONValue.init(foundation:))
+                if raw == nil || raw is NSNull || value != nil {
+                    self = .displaySetting(path: path, value: value)
+                } else {
+                    self = .unsupported(method)
+                }
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":
@@ -183,6 +196,7 @@ extension AgentPaneRequest {
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
+        case "chat.attach.choose": self = .chooseAttachments
         case "workspace.useFolder":
             // Any text: a path that is not an existing absolute folder is refused by the host
             // (`transport.path_invalid`), so the page never takes it for an older host.
@@ -331,6 +345,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case _ where AgentPaneEnvironmentRequest.methods.contains(method):
+            self = AgentPaneEnvironmentRequest(method: method, params: params).map(AgentPaneRequest.environment) ?? .unsupported(method)
         case _ where AgentPaneReplyRequest.methods.contains(method):
             self = AgentPaneReplyRequest(method: method, params: params).map(AgentPaneRequest.reply) ?? .unsupported(method)
         default:
