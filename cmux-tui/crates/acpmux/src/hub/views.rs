@@ -387,6 +387,10 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        // The newest command list: a client that has it needs no read of the log for it.
+        if let Some(commands) = &m.available_commands {
+            v["availableCommands"] = commands.clone();
+        }
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
         // The folder's HEAD when the session started (`git_state.rs`); its

@@ -3,10 +3,10 @@ import CmuxNextDaemon
 import Foundation
 
 /// Find in Directory (⇧⌘F): ripgrep over the targeted terminal's working
-/// directory. The old app showed matches in the right sidebar's Find mode;
-/// cmux-next has no right sidebar, so the query is the action's text
-/// argument (the palette asks for it inline from the menu or shortcut, the
-/// CLI passes it) and the matches open as a palette page.
+/// directory. The query is the action's text argument (the palette asks for
+/// it inline from the menu or shortcut, the CLI passes it) and the matches
+/// open as a palette page; the right sidebar's Find section (Show Find) runs
+/// the same search as a list.
 enum FindInDirectoryHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("findInDirectory", invoke: { invocation in
