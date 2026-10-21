@@ -64,7 +64,7 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = self.send_queued_now(session, prompt_id, control).await?;
+                let sent = self.send_queued_now(session, prompt_id, control)?;
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
@@ -152,20 +152,18 @@ impl Hub {
         true
     }
 
-    /// Sends a waiting prompt now. With no turn running it goes next (`next`); into a running turn
-    /// of an agent that steers it is steered in (`steer`) by the task that waits with it, so its
-    /// `session/prompt` answers how it ran; otherwise it goes next and the running turn stops
-    /// (`interrupt`). `None` when it no longer waits. A failed turn no longer holds it.
-    async fn send_queued_now(
+    /// Sends a waiting prompt now. Into a running turn of an agent that steers it is steered in
+    /// (`steer`) by the task that waits with it, so its `session/prompt` answers how it ran;
+    /// otherwise it goes next (`next`) and runs once the turn ends. It never stops the turn: that
+    /// is Stop & send (`interrupt`). `None` when it no longer waits. A failed turn no longer holds
+    /// it.
+    fn send_queued_now(
         self: &Arc<Self>,
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
     ) -> Result<Option<&'static str>, RpcError> {
-        let Some(running) = session.turn().map(|t| t.turn_id) else {
-            return Ok(self.put_next(session, prompt_id).then_some("next"));
-        };
-        if session.steering.load(Ordering::SeqCst) {
+        if session.turn().is_some() && session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
             else {
                 return Ok(None);
@@ -190,11 +188,7 @@ impl Hub {
             session.queue_moved.notify_waiters();
             return Ok(Some("steer"));
         }
-        if !self.put_next(session, prompt_id) {
-            return Ok(None);
-        }
-        self.cancel_turn(session, &running).await;
-        Ok(Some("interrupt"))
+        Ok(self.put_next(session, prompt_id).then_some("next"))
     }
 
     /// Stop & send: a waiting prompt goes next and the running turn stops, whether or not its
