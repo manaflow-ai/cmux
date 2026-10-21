@@ -1,6 +1,7 @@
-// A reply's Markdown table, with Copy and Open on hover or keyboard focus (the message rows'
-// icon buttons). Copy puts the Markdown, TSV and an HTML table on the clipboard, so it pastes into
-// Sheets, Numbers or Notes as cells (tableFormats.ts); Open shows the table in the side panel.
+// A reply's Markdown table, with Copy and Open just right of its header row on hover or keyboard
+// focus (the message rows' icon buttons). Copy puts the Markdown, TSV and an HTML table on the
+// clipboard, so it pastes into Sheets, Numbers or Notes as cells (tableFormats.ts); Open shows the
+// table in the side panel.
 import { useContext, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";

@@ -693,23 +693,24 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-/* A reply's table (TableBlock.tsx): as wide as the table, so Open and Copy sit at its top right
-   corner, in the space between the text above and the header's words (the paragraph's 14px margin
-   and the header's 11px top padding), shown on hover or keyboard focus like the message rows'. */
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
+   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
+   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
+   the margin above the table. */
 .cv-table-block {
   position: relative;
   width: fit-content;
-  max-width: 100%;
+  max-width: calc(100% - 48px);
   margin: var(--cv-table-before, 6.5px) 0 14px;
 }
 .cv-table-tools {
   position: absolute;
   z-index: var(--layer-raised);
-  top: -13px;
-  right: 0;
+  top: 6px;
+  left: 100%;
   display: flex;
   gap: 2px;
-  padding: 2px 0;
+  padding-left: 6px;
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {

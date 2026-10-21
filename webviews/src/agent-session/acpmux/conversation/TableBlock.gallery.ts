@@ -21,6 +21,12 @@ const aligned = `Retries by failure:
 | Timeout | yes | 500 ms | Same budget as a 5xx. |
 | 4xx | no | 0 ms | A client error repeats the same way. |`;
 
+// A reply that opens with a wide table (one wider than the column scrolls): its buttons keep their room.
+const wide = `| Check | Base | Head | Change | Runner | Notes |
+| --- | ---: | ---: | ---: | --- | --- |
+| webviews check | 41 s | 43 s | +2 s | linux-8 | Oxlint, Oxfmt and the type check in one pass. |
+| bun test | 2 m 10 s | 2 m 12 s | +2 s | linux-8 | The browser lane runs separately. |`;
+
 const snapshot = chat([
   user("How many tooltips are left?", 5),
   assistant(audit, 4.9),
@@ -42,11 +48,22 @@ export default agentPaneEntry({
       snapshot,
     },
     hover: {
-      note: "Hovering a table shows Open and Copy over its top right corner.",
+      note: "Hovering a table shows Open and Copy just right of its header row.",
       snapshot: chat([
         user("How many tooltips are left?", 5),
         assistant(audit, 4.9),
         summary(4.9, { status: "completed", durationMs: 12_000 }),
+      ]),
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".cv-table-block" });
+      },
+    },
+    "first-block": {
+      note: "A reply that opens with a wide table: Open and Copy sit right of its header row, uncut.",
+      snapshot: chat([
+        user("CI times?", 2),
+        assistant(wide, 1.9),
+        summary(1.9, { status: "completed", durationMs: 5_000 }),
       ]),
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-table-block" });
