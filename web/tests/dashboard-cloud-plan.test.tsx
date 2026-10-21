@@ -72,12 +72,14 @@ describe("dashboard Cloud plan prompt", () => {
   test.each([
     { name: "Free to Team", previous: free, next: team },
     { name: "Team to Free", previous: team, next: free },
-  ])("a $name refresh waits for the current team's plan", async ({ previous, next }) => {
+  ])("a $name switch waits for the current team's plan", async ({ previous, next }) => {
     const queryClient = createScreenQueryClient();
     queryClient.setQueryData(planQuery.queryKey, previous);
     const before = await renderCloudWithClient(queryClient);
     expect(before.includes('data-testid="requires-pro"')).toBe(previous.teamPlanId === "free");
 
+    // A team switch invalidates every dashboard query before refetching.
+    await queryClient.invalidateQueries({ queryKey: planQuery.queryKey, refetchType: "none" });
     let finish!: (plan: Plan) => void;
     const response = new Promise<Plan>((resolve) => { finish = resolve; });
     const refresh = queryClient.fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => response });
@@ -100,6 +102,7 @@ describe("dashboard Cloud plan prompt", () => {
     queryClient.setQueryData(planQuery.queryKey, { ...free, planId: "pro", isPro: true });
     expect(await renderCloudWithClient(queryClient, "?welcome=pro")).toContain('data-testid="plan-welcome"');
 
+    await queryClient.invalidateQueries({ queryKey: planQuery.queryKey, refetchType: "none" });
     let finish!: (plan: Plan) => void;
     const response = new Promise<Plan>((resolve) => { finish = resolve; });
     const refresh = queryClient.fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => response });
@@ -113,6 +116,24 @@ describe("dashboard Cloud plan prompt", () => {
     }
 
     expect(await renderCloudWithClient(queryClient, "?welcome=pro")).toContain('data-testid="requires-pro"');
+    queryClient.clear();
+  });
+
+  test("a background refetch keeps the Free prompt in place", async () => {
+    const queryClient = createScreenQueryClient();
+    queryClient.setQueryData(planQuery.queryKey, free);
+
+    // Window focus refetches a stale plan without invalidating it; the
+    // prompt must not disappear and reappear around that request.
+    let finish!: (plan: Plan) => void;
+    const response = new Promise<Plan>((resolve) => { finish = resolve; });
+    const refetch = queryClient.fetchQuery({ ...planQuery, staleTime: 0, queryFn: () => response });
+    try {
+      expect(await renderCloudWithClient(queryClient)).toContain('data-testid="requires-pro"');
+    } finally {
+      finish(free);
+      await refetch;
+    }
     queryClient.clear();
   });
 
