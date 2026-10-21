@@ -17,7 +17,10 @@ an entry for something that is not a workspace, or a `covered_by` workflow that
 does not name its root. `plan` prints, as JSON for a job matrix, the `run = true`
 workspaces a change between --base and HEAD reaches: a file under the workspace,
 or under a package it uses by path (any dependency kind of its own members; normal
-and build dependencies further down), or the manifest such a package inherits from. With no usable base, or when the list or
+and build dependencies further down), the manifest such a package inherits from, a
+file those packages' sources read from elsewhere in the tree (an `include_str!`,
+`include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path), or a path in the
+entry's `inputs`. With no usable base, or when the list or
 this check changes, it plans every one. `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
@@ -30,6 +33,7 @@ from fnmatch import fnmatch
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import subprocess
 import sys
 import tempfile
@@ -47,8 +51,11 @@ EVERYTHING = frozenset({
     "cmux-tui/rust-toolchain.toml",
 })
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
-# Docs never change what clippy or the tests see.
-IGNORED_SUFFIXES = frozenset({".md"})
+# A literal path a source file reads: include_str!("p"), include_bytes!(concat!("p", ...)),
+# relative to the file; or env!("CARGO_MANIFEST_DIR") joined with "p", relative to the package.
+INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*(concat!\(\s*)?"([^"]+)"')
+MANIFEST_DIR = re.compile(
+    r'(?:env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*\)?\s*\.join\(\s*|concat!\(\s*env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)"([^"]+)"')
 
 
 def git(repo: Path, *args: str) -> str:
@@ -60,6 +67,7 @@ class Tree:
 
     def __init__(self, repo: Path):
         self.repo = repo
+        self.sources = [path for path in git(repo, "ls-files", "-z", "--", "*.rs").split("\0") if path]
         self.manifests: dict[str, dict] = {}
         for path in git(repo, "ls-files", "-z", "--", "*Cargo.toml", "Cargo.toml").split("\0"):
             if PurePosixPath(path).name == "Cargo.toml" and (repo / path).is_file():
@@ -127,9 +135,9 @@ class Tree:
         return found
 
     def reach(self, root: str) -> set[str]:
-        """The workspace's members and every package directory they use by path."""
+        """The workspace's root and members, and every package directory they use by path."""
         members = self.members(root)
-        seen = set(members)
+        seen = members | {root}
         manifest = self.manifests[root]
         for spec in manifest.get("patch", {}).values():
             for patched in spec.values():
@@ -143,6 +151,24 @@ class Tree:
                     seen.add(dependency)
                     queue.append((dependency, ("dependencies", "build-dependencies")))
         return seen
+
+    def read_paths(self, directories: set[str]) -> set[str]:
+        """Repository paths outside `directories` that their Rust sources read by literal path."""
+        found = set()
+        for directory in directories:
+            for source in self.sources:
+                if not under(source, directory) or not (self.repo / source).is_file():
+                    continue
+                text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
+                # A concat! prefix may stop inside a file name: watch its directory.
+                read = [(PurePosixPath(source).parent, literal if not prefix or literal.endswith("/")
+                         else str(PurePosixPath(literal).parent)) for prefix, literal in INCLUDE.findall(text)]
+                read += [(PurePosixPath(directory), literal) for literal in MANIFEST_DIR.findall(text)]
+                for base, literal in read:
+                    path = os.path.normpath(str(base / literal.lstrip("/")))
+                    if not path.startswith("..") and not any(under(path, d) for d in directories):
+                        found.add(path)
+        return found
 
     def uses_package(self, directories: set[str], name: str) -> bool:
         return any(self.manifests.get(d, {}).get("package", {}).get("name") == name for d in directories)
@@ -192,7 +218,8 @@ def changed(repo: Path, base: str) -> list[str] | None:
 
 
 def under(path: str, directory: str) -> bool:
-    return directory == "." or path.startswith(directory + "/")
+    """`path` is `directory` or inside it."""
+    return directory == "." or path == directory or path.startswith(directory + "/")
 
 
 def plan(repo: Path, base: str) -> list[dict]:
@@ -200,19 +227,18 @@ def plan(repo: Path, base: str) -> list[dict]:
     paths = changed(repo, base)
     if paths is not None and any(path in EVERYTHING for path in paths):
         paths = None
-    if paths is not None:
-        paths = [path for path in paths if PurePosixPath(path).suffix not in IGNORED_SUFFIXES]
     jobs = []
     for entry in load_list(repo):
         if entry.get("run") is not True:
             continue
         root = entry["root"]
         reach = tree.reach(root)
-        # A dependency outside the workspace may inherit from its own workspace's manifest.
-        manifests = {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
-        if paths is not None and not any(path in manifests or any(under(path, directory) for directory in reach)
-                                         for path in paths):
-            continue
+        if paths is not None:
+            # A dependency outside the workspace may inherit from its own workspace's manifest.
+            watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
+            watched |= tree.read_paths(reach) | set(entry.get("inputs", []))
+            if not any(under(path, directory) for path in paths for directory in watched):
+                continue
         jobs.append({
             "root": root,
             "ghostty": tree.uses_package(reach, "ghostty-vt-sys"),

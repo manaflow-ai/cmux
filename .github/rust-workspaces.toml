@@ -13,7 +13,10 @@
 #                          of it (--locked when it tracks a Cargo.lock). Optional:
 #                          `args` (added to both commands), `apt` (packages to
 #                          install), `ghostty` is derived (ghostty-vt-sys in its
-#                          path dependencies).
+#                          path dependencies), `inputs` (more paths whose change
+#                          plans it, for files its code reads that the source scan
+#                          cannot see). Without a tracked Cargo.lock the dependencies
+#                          resolve fresh each run.
 #   covered_by = "FILE"    another workflow runs clippy --all-targets and the tests
 #                          on its own paths; FILE must name the root.
 #   skip = "why"           nothing checks it, for the reason given.

@@ -16,7 +16,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: rust-workspaces-${{ github.workflow }}-${{ github.ref }}
+  # Every feat-cmux-next push gets its own run: the next one only diffs against its own parent.
+  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -108,11 +109,14 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      # A workspace with its own rust-toolchain.toml builds with that pin.
+      # A workspace with its own rust-toolchain.toml builds with that pin. The setup
+      # action puts cmux-tui's toolchain first on PATH, so this and the run step go
+      # through rustup's cargo, which reads the pin from the working directory.
       - name: Install the workspace's own toolchain pin
         working-directory: ${{ matrix.root }}
         run: |
-          rustup toolchain install 2>/dev/null || rustup show active-toolchain
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install
           rustup component add clippy
           cargo --version
 
@@ -127,7 +131,7 @@ jobs:
       - name: cargo clippy --all-targets and cargo test
         env:
           ROOT: ${{ matrix.root }}
-        run: python3 .github/scripts/rust-workspaces.py run "$ROOT"
+        run: PATH="$HOME/.cargo/bin:$PATH" python3 .github/scripts/rust-workspaces.py run "$ROOT"
 
   # One stable check name for the whole matrix (a skipped matrix is green).
   summary:

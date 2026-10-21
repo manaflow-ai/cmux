@@ -45,6 +45,11 @@ skip = "vendored"
 [[workspace]]
 root = "term"
 run = true
+
+[[workspace]]
+root = "vws"
+run = true
+inputs = ["docs/vws-protocol.json"]
 """
 
 
@@ -70,8 +75,24 @@ class RustWorkspacesTests(unittest.TestCase):
         self.write("ws/vendor/up/Cargo.toml", '[package]\nname = "up"\n')
         # solo: a package outside every workspace, using b (and through it a).
         self.write("solo/Cargo.toml", '[package]\nname = "solo"\n\n[target.\'cfg(unix)\'.dependencies]\nb = { path = "../ws/crates/b" }\n')
-        self.write("solo/src/main.rs", "fn main() {}\n")
+        # solo embeds a schema and a skill file, and a sibling's file through concat!.
+        self.write("solo/src/main.rs", 'const S: &str = include_str!("../../schemas/s.json");\n'
+                   'const K: &str = include_str!("../skills/k/SKILL.md");\n'
+                   'const P: &str = include_str!(concat!("../../proto/v1_", "x.json"));\nfn main() {}\n')
+        self.write("solo/skills/k/SKILL.md", "---\nname: k\n---\n")
         self.write("solo/README.md", "solo\n")
+        self.write("schemas/s.json", "{}\n")
+        self.write("proto/v1_x.json", "{}\n")
+        # own's tests read fixtures from the tree through CARGO_MANIFEST_DIR.
+        self.write("ws/crates/own/tests/t.rs", 'let dir = Path::new(env!("CARGO_MANIFEST_DIR"))\n    .join("../../../fixtures");\n')
+        self.write("fixtures/f.json", "{}\n")
+        # vws: a virtual workspace (no [package] at its root) with a lockfile and toolchain pin.
+        self.write("vws/Cargo.toml", '[workspace]\nmembers = ["m"]\n')
+        self.write("vws/Cargo.lock", "# lock\n")
+        self.write("vws/rust-toolchain.toml", '[toolchain]\nchannel = "1.91.0"\n')
+        self.write("vws/m/Cargo.toml", '[package]\nname = "m"\n')
+        self.write("docs/vws-protocol.json", "{}\n")
+        self.write("docs/other.md", "other\n")
         # term: uses the ghostty-vt-sys crate.
         self.write("term/Cargo.toml", '[package]\nname = "term"\n\n[dependencies]\nghostty-vt-sys = { path = "../gvs" }\n')
         self.write("gvs/Cargo.toml", '[package]\nname = "ghostty-vt-sys"\n\n[workspace]\n')
@@ -171,12 +192,37 @@ class RustWorkspacesTests(unittest.TestCase):
         # Both reach ws's members (own through a, solo through b and a).
         self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
 
-    def test_docs_plan_nothing(self) -> None:
-        self.change("solo/README.md", "more\n")
+    def test_a_file_outside_every_workspace_and_its_reads_plans_nothing(self) -> None:
+        self.change("docs/other.md", "more\n")
         self.assertEqual(self.planned(), [])
 
+    def test_any_file_in_a_workspace_plans_it_markdown_too(self) -> None:
+        # A skill file is code here (include_str!), so no suffix is ignored.
+        self.change("solo/skills/k/SKILL.md", "---\nname: broken\n")
+        self.assertEqual(self.planned(), ["solo"])
+
+    def test_a_virtual_workspaces_lockfile_or_toolchain_pin_plans_it(self) -> None:
+        for path in ("vws/Cargo.lock", "vws/rust-toolchain.toml"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "# bumped\n")
+                self.assertEqual(self.planned(), ["vws"])
+
+    def test_files_read_from_elsewhere_in_the_tree_plan_their_readers(self) -> None:
+        cases = {
+            "schemas/s.json": ["solo"],          # include_str! relative to the source file
+            "proto/v1_y.json": ["solo"],         # a concat! prefix: its directory
+            "fixtures/f.json": ["ws/crates/own"],  # CARGO_MANIFEST_DIR joined with a path
+            "docs/vws-protocol.json": ["vws"],   # the entry's inputs
+        }
+        for path, planned in cases.items():
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "{\"v\": 2}\n")
+                self.assertEqual(self.planned(), planned)
+
     def test_no_usable_base_or_a_list_change_plans_every_run_entry(self) -> None:
-        everything = ["ws/crates/own", "solo", "term"]
+        everything = ["ws/crates/own", "solo", "term", "vws"]
         for base in ("", "0" * 40, "f" * 40):
             with self.subTest(base=base):
                 self.assertEqual(self.planned(base), everything)
