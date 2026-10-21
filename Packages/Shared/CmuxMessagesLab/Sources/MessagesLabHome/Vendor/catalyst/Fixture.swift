@@ -131,6 +131,24 @@ enum Fixture {
     /// The text caret (and field tint): screencapture -l of a focused Messages field,
     /// 2 px wide at 2x, Display P3 (63, 143, 247). cmux: the theme's on a light theme.
     static var caret: UIColor { themed(\.caret) ?? p3(63, 143, 247) }
+    /// The capture caret after a send (cx-3cb parity26; Messages' macOS 26 original recording 4.65-5.30 s and
+    /// macOS 27 send-typed-take1, lossless): it stays on the field's first line while the field collapses (the
+    /// compose view moves it with the placeholder), starts in the accent colour and turns grey 0.04-0.22 s after
+    /// the send (ease-out; macOS 26 blue channel 255 -> 112 by 0.22 s), is off 0.59-0.65 s and is back in the
+    /// accent colour (then the 1 s blink) at 0.65 s.
+    enum SendCaret {
+        static let grayFrom = 0.04, grayTo = 0.22, offFrom = 0.59, end = 0.65
+        static let gray = (r: 128.0, g: 128.0, b: 128.0), accent = (r: 63.0, g: 143.0, b: 247.0)
+        /// Opacity and colour `s` seconds after the send; nil from `end` on (the normal caret).
+        static func state(_ s: Double) -> (alpha: Double, color: UIColor)? {
+            guard s >= 0, s < end else { return nil }
+            let u = min(1, max(0, (s - grayFrom) / (grayTo - grayFrom)))
+            let m = 1 - (1 - u) * (1 - u)
+            let c = Fixture.p3(CGFloat(accent.r + (gray.r - accent.r) * m), CGFloat(accent.g + (gray.g - accent.g) * m),
+                               CGFloat(accent.b + (gray.b - accent.b) * m))
+            return (s < 0.02 || s >= offFrom ? 0 : 1, c)
+        }
+    }
     static var connector: UIColor { themed(\.connector) ?? (lightAppearance ? UIColor(white: 235 / 255, alpha: 1) : UIColor(white: 66 / 255, alpha: 1)) }
     static var badge: UIColor { themed(\.badge) ?? (lightAppearance ? p3(233, 233, 235) : p3(59, 59, 61)) }
     /// Outgoing bubbles shade with their position in the window (measured:
