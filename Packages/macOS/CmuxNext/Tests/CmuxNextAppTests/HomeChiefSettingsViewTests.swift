@@ -51,6 +51,24 @@ import Testing
         #expect(HomeEngineStrings.reply(text) == "\u{201C}Done.\u{201D} claude")
     }
 
+    /// The popover is the quick version (Leo 2026-10-20): its All Chief Settings link opens the
+    /// Settings page with every Chief setting, whichever brain the card shows.
+    @Test func allChiefSettingsOpensTheSettingsPage() throws {
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
+        var opened = 0
+        view.onAllSettings = { opened += 1 }
+        let link = try #require(Self.subviews(of: view).compactMap { $0 as? NSButton }
+            .first { $0.accessibilityIdentifier() == "cmux.home.chief.allSettings" })
+        #expect(!link.isHidden)
+        #expect(link.accessibilityLabel() == HomeEngineStrings.allChiefSettings)
+        link.performClick(nil)
+        #expect(opened == 1)
+    }
+
+    private static func subviews(of view: NSView) -> [NSView] {
+        view.subviews + view.subviews.flatMap { subviews(of: $0) }
+    }
+
     @Test func diagnosticsStartClosedAndTheNameIsTheOnlyField() throws {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: OfflineChief())
         #expect(!view.showsDiagnostics)

@@ -107,6 +107,11 @@ final class HomeHostView: NSView {
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
         settingsView.recents = services.chiefModelRecents
+        // All Chief Settings…: Settings > Chief, the page with every Chief setting.
+        settingsView.onAllSettings = { [weak self, weak services] in
+            self?.settings.close()
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+        }
         settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
         settingsView.onRename = { [weak service] name in
             // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
