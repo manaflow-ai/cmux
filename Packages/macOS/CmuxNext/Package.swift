@@ -512,6 +512,16 @@ let package = Package(
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // The Cloud Home source over a fake daemon client (no daemon, no app): the server
+        // choice's lease, Cloud attachments, and pin and mute of Cloud conversations.
+        .testTarget(
+            name: "CmuxNextHomeEngineTests",
+            dependencies: [
+                "CmuxNextHomeEngine", "CmuxNextDaemon",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
         // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
         // models and the Chief switch. No AppServices; the App's HomeService wires it.
@@ -641,7 +651,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1043,6 +1053,7 @@ let package = Package(
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1352,6 +1363,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
+                "CmuxNextDesign",
                 "CmuxNextDiff",
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",

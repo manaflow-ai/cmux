@@ -74,7 +74,7 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
     case "trust-pending":
       return t("trust.answerFirst");
     case "trust-untrusted":
-      return t("trust.untrustedNoPrompts");
+      return t("trust.notTrustedNoPrompts");
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":

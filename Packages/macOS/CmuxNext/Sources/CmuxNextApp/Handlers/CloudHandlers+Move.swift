@@ -18,6 +18,14 @@ extension CloudHandlers {
         services.agentTabs.uploader = { [weak services] tab in
             services.flatMap { $0.cloud.uploads.uploader(tab: tab, services: $0) ?? AgentChatUploads.uploader(tab: tab, services: $0) }
         }
+        // Files dropped or pasted from Finder into a chat on this Mac go as their own paths, never a
+        // copy (``AgentPaneDroppedPaths``); a moved chat's still go to its machine. A New Tab page
+        // answers as the chat it starts: its tab's record names this Mac's acpmux, or another
+        // machine's, whose page model refuses first (``AgentPaneModel/remoteChat``).
+        services.agentTabs.localPaths = { [weak services] tab in
+            guard let services else { return false }
+            return services.cloud.uploads.uploader(tab: tab, services: services) == nil && services.agentTabs.gitLink?(tab)?.isLocal == true
+        }
         bind(CloudMove.action, registry, reason: reason) { invocation in
             if CloudMoveAsks.isAgent(invocation) { return try services.cloud.moveAsks.ask(invocation, services: services) }
             try CloudMove(services: services).start(invocation, context: context)
