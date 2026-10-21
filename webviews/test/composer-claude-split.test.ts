@@ -2,9 +2,10 @@
 // Claude Code's composer split (Leo 2026-10-19: "just follow how Claude Code does these", "stick it
 // to the bottom"), in the chat composer and the New Tab page alike (ComposerFoot.tsx):
 //
-// - The box keeps +, the prompt, the mic and Send or Stop. The mode, model and effort sit in a quiet
-//   row under the box: the mode on the left, on the prompt's text edge; the model and effort on the
-//   right, their labels about 8 px apart (Claude Code's spacing).
+// - The box keeps +, the prompt, the mic and Send or Stop. The mode and one model button sit in a
+//   quiet row under the box: the mode on the left, on the prompt's text edge; on the right the model
+//   button, which names the model and then its effort ("Opus 5.5  Medium", Leo 2026-10-20: one
+//   button, no effort chip of its own), then the chat's context ring.
 // - The chat's Send comes in after the mic with a draft; an empty chat draft draws the mic alone
 //   (Claude desktop's box: no Send until there is a draft, Leo 2026-10-20). The New Tab page keeps Send.
 // - The mic never leaves, at a roomy width or a narrow one.
@@ -148,16 +149,21 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           foot: rect(foot),
           inBox: {
             model: !!card.querySelector(".acpmux-model"),
-            effort: !!card.querySelector(".acpmux-effort"),
+            effort: !!card.querySelector(".acpmux-effort, .acpmux-model-detail"),
             mode: !!card.querySelector(".acpmux-access"),
           },
           mode: text(root.querySelector(".acpmux-composer-foot .acpmux-mode-text")),
           model: text(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button > span")),
-          effort: text(root.querySelector(".acpmux-composer-foot .acpmux-effort [data-fit-part='effort']")),
+          effort: text(
+            root.querySelector(
+              ".acpmux-composer-foot .acpmux-model .acpmux-model-detail[data-fit-forms~='full']:not(.acpmux-fit-label)",
+            ),
+          ),
           modelButton: rect(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button")),
-          effortButton: rect(root.querySelector(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button")),
+          // An effort chip of its own is gone since Leo 2026-10-20.
+          effortChip: !!root.querySelector(".acpmux-composer-foot .acpmux-effort"),
           ring: rect(root.querySelector(".acpmux-composer-foot .acpmux-context-ring")),
-          // The row's rightmost control: the context ring once the chat reports usage, else effort.
+          // The row's rightmost control: the context ring once the chat reports usage, else the model.
           end: Math.max(
             ...[...root.querySelectorAll(".acpmux-composer-foot button")].map(
               (button) => button.getBoundingClientRect().right,
@@ -176,7 +182,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
 
   for (const [engine] of engines) {
     for (const stage of COMPOSERS)
-      test(`${engine}: ${stage.name}: the box keeps the prompt, mic and Send; mode, model and effort sit in the quiet row under it`, async () => {
+      test(`${engine}: ${stage.name}: the box keeps the prompt, mic and Send; the mode and the model button sit in the quiet row under it`, async () => {
         const page = await open(engine, stage);
         const at = await layout(page, stage);
         await page.close();
@@ -189,7 +195,7 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         else expect(at.send, "no Send with an empty draft").toBeNull();
         if (stage.plus) expect(at.plus, "+ is in the box").not.toBeNull();
         // The mode on the left, on the prompt's text edge (16 px in from the box, Claude Code's). A
-        // New Tab page before its chat starts may have no mode yet; the model and effort stay right.
+        // New Tab page before its chat starts may have no mode yet; the model button stays right.
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
         if (at.mode) {
           expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(
@@ -200,17 +206,19 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(
           at.box.left + at.box.width / 2,
         );
-        // The model and effort chips side by side (each chip's 4 px hover inset is their spacing).
-        expect(
-          Math.abs(at.effortButton!.left - at.modelButton!.right),
-          "model and effort chips touch",
-        ).toBeLessThanOrEqual(2);
+        // One button: the effort follows the model's name inside it, never a chip of its own.
+        expect(at.effortChip, "no effort chip of its own").toBe(false);
+        expect(at.effort, "the model button names its effort").not.toBeNull();
+        expect(at.effort!.left, "the effort follows the model's name").toBeGreaterThan(at.model!.right);
+        expect(at.effort!.right, "the effort is inside the model button").toBeLessThanOrEqual(
+          at.modelButton!.right + 0.5,
+        );
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
-        // Claude Code ends the row on the context ring, right of effort, once there is usage.
+        // Claude Code ends the row on the context ring, right of the model button, once there is usage.
         // The chat's ring keeps its place from the start; the New Tab page has no chat yet, so no ring.
         expect(Boolean(at.ring), "the chat's quiet row ends on the context ring").toBe(stage.plus);
         if (at.ring)
-          expect(at.ring.left, "the ring follows effort").toBeGreaterThanOrEqual(at.effortButton!.right - 0.5);
+          expect(at.ring.left, "the ring follows the model button").toBeGreaterThanOrEqual(at.modelButton!.right - 0.5);
       });
 
     for (const stage of COMPOSERS)
