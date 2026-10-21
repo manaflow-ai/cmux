@@ -27,6 +27,8 @@ struct MacScreenColors: Equatable {
     /// The theme's accent: the default button's fill, a viewer's status.
     var accent = ThemeTokens.unresolved.accent.swiftUIColor
     var onAccent = ThemeTokens.unresolved.onAccent.swiftUIColor
+    /// A lit (on, connected) glyph: the accent, never fainter than the rest ink.
+    var litGlyph = ThemeTokens.unresolved.litGlyph.swiftUIColor
     /// Control tint (switches): the theme's focus color, never blue.
     var focus = ThemeTokens.unresolved.focusRing.swiftUIColor
     var success = ThemeTokens.unresolved.success.swiftUIColor
@@ -48,7 +50,7 @@ struct MacScreenColors: Equatable {
                 popup: color(Palette.popupSurface), card: card,
                 primary: color(Palette.textPrimary), secondary: color(Palette.textSecondary), tertiary: color(Palette.textTertiary),
                 hover: color(Palette.hoverFill), selection: color(Palette.selectionFill), pressed: color(Palette.pressedFill),
-                separator: color(Palette.separator), accent: color(Palette.accentFill), onAccent: color(Palette.onAccent),
+                separator: color(Palette.separator), accent: color(Palette.accentFill), onAccent: color(Palette.onAccent), litGlyph: color(Palette.litGlyph),
                 focus: color(Palette.focusRing), success: color(Palette.success), attention: color(Palette.attention),
                 danger: color(Palette.danger), borders: Borders.drawsLines, isDark: isDark)
         }

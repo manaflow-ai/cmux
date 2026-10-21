@@ -172,7 +172,7 @@ struct MacScreenHomeDeviceSections: View {
 
     private func sessionRow(_ hubHost: MacScreenHubHost) -> some View {
         HStack(spacing: 8) {
-            Circle().fill(hubHost.session?.connected == true ? colors.accent : colors.success).frame(width: 8, height: 8)
+            Circle().fill(hubHost.session?.connected == true ? colors.litGlyph : colors.success).frame(width: 8, height: 8)
             Text(sessionText(hubHost)).accessibilityIdentifier("macScreen.home.hubStatus")
             Spacer()
             if hubHost.session != nil {
