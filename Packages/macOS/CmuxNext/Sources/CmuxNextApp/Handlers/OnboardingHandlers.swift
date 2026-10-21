@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
