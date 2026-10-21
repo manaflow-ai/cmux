@@ -242,6 +242,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
+            // The Chief's workspaces are a group only while it has some: nobody made the section, so an
+            // empty one draws nothing (a drop still opens it).
+            if section.machine?.id.isLocalChief == true && nodes.isEmpty && !gapHere { continue }
             // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
             // their own in one list too.
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
@@ -253,7 +256,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             firstSection = false
             if section.machine != nil { chats.placePinned(&y) }
             previousWasBlock = blockHeight > 0 && nodes.isEmpty
-            previousWasMachine = section.machine != nil
+            // Only a headerless computer joins the next one: rows after a headed section (a remote group,
+            // the Chief's) never read as its members.
+            previousWasMachine = section.machine != nil && flat
             if let docID, blockHeight > 0 {
                 rows.append(SidebarRow(
                     key: .block(docID), y: y, height: blockHeight, section: section.id,
