@@ -212,16 +212,10 @@ impl Translator {
                             };
                             self.background_shells.lock().await.insert(id.to_owned(), shell);
                         }
-                        let mut call = json!({
-                            "sessionUpdate": "tool_call",
-                            "toolCallId": c.get("id"),
-                            "title": tool_title(name, &input),
-                            "kind": tool_kind(name),
-                            "status": "in_progress",
-                            "rawInput": input,
-                            "_meta": {"claude": {"tool": name}}
-                        });
-                        with_edit(&mut call, name, &input);
+                        let mut call = tool_call_fields(name, &input);
+                        call["sessionUpdate"] = json!("tool_call");
+                        call["toolCallId"] = c.get("id").cloned().unwrap_or(Value::Null);
+                        call["status"] = json!("in_progress");
                         if let (Some(diffs), Some(id)) =
                             (call.get("content"), c.get("id").and_then(Value::as_str))
                         {
@@ -489,6 +483,10 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("now-") {
+                    // A step stopped for a steer sent now (`MUX_STEP_NOW`).
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    out.push(Message::ok(id, json!({"interrupted": ok})));
                 }
                 // "int-*" acks need no reply; the result message ends the turn.
             }
@@ -859,16 +857,6 @@ impl Translator {
     }
 }
 
-/// Adds a file edit's diff and location to its ACP tool call.
-fn with_edit(call: &mut Value, name: &str, input: &Value) {
-    if let Some(diffs) = edit_diffs(name, input) {
-        call["content"] = diffs;
-        if let Some(locations) = tool_locations(input) {
-            call["locations"] = locations;
-        }
-    }
-}
-
 /// TodoWrite's `todos` as an ACP `plan` update: each item's text and status
 /// (pending, in_progress or completed, as ACP names them). Nil for input
 /// that is not a todo list.
@@ -892,6 +880,8 @@ fn todo_plan(input: &Value) -> Option<Value> {
 
 /// A `compaction` update: a compaction of the chat's context `state`
 /// (`running`, `completed`, `failed`), with what Claude's line says about it.
+/// Claude Code repeats `running` every 30 seconds while it compacts; clients
+/// keep one compaction on one row.
 /// `reason` is set by a wrapper that compacted for its own purpose (the
 /// subrouter relay compacts before moving the chat to another account).
 fn compaction_update(state: &str, line: &Value) -> Value {
@@ -907,6 +897,13 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         if let Some(v) = field(from) {
             update[to] = v;
         }
+    }
+    // Why it failed, in Claude Code's words (2.1.305 `compact_error`).
+    if state == "failed"
+        && let Some(error) = line.get("compact_error").and_then(Value::as_str)
+        && !error.trim().is_empty()
+    {
+        update["error"] = json!(error.trim());
     }
     update
 }

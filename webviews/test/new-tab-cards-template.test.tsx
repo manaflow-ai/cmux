@@ -2,7 +2,7 @@
 // like this. Have an option for this version of it"). One rounded field (no Search | Ask switch,
 // Leo 2026-10-20: the field picks the action); under the field, one row with the project, the agent's
 // chips and the mic (no Send disc: Return sends); then "Chats"
-// with "All Chats >" and three tall chat cards. It is the page an unset `tabs.newTabTemplate`
+// with "All Chats >" and three chat cards. It is the page an unset `tabs.newTabTemplate`
 // shows; Default and the others stay one pick away.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -130,7 +130,7 @@ test("the Cards page: one field, a chip row under it, three chat cards", async (
     // Return sends; the page draws no Send disc and no create row.
     expect(host.querySelector(".nt-send")).toBeNull();
     expect(host.querySelector(".nt-create")).toBeNull();
-    // Three tall cards in a grid, "All Chats >" beside the Chats header.
+    // Three cards in a grid, "All Chats >" beside the Chats header.
     expect(host.querySelectorAll(".nt-cards[data-variant=cards] .nt-card").length).toBe(3);
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
     expect(showAll).toBe(1);

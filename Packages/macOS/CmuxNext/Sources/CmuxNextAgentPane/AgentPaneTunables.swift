@@ -219,6 +219,15 @@ public nonisolated struct AgentPaneTunables {
         help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
+    /// A turn that started or mentioned a local web page gets a preview card under its answer
+    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
+    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
+    /// address stays a link in the reply. New agent tabs read it.
+    public static let turnPreviewCards = Tunable<Bool>.toggle(
+        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
+        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
+        default: false, code: "AgentPaneTunables.turnPreviewCards")
+
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -273,19 +282,21 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
-                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport) -> [String: String] {
+                           thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
+                           turnPreviewCards: Bool = false) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
+        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         return attributes
     }
 
@@ -350,6 +361,9 @@ public nonisolated struct AgentPaneTunables {
 
     public static var all: [TunableDescriptor] {
         [
+            agentPairGuard.descriptor,
+            agentPairCap.descriptor,
+            agentPairWindow.descriptor,
             chatWidth.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
@@ -358,7 +372,7 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
-            newTabPicksFollowLinks.descriptor,
+            pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
@@ -373,6 +387,7 @@ public nonisolated struct AgentPaneTunables {
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
+            turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
         ]
     }

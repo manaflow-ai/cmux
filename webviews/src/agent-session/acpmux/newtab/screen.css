@@ -773,7 +773,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-screen[data-template="cards"] .nt-card {
   gap: 4px;
-  min-height: min(260px, 40vh);
+  /* Sized to its content (the card's own 84px floor): a fixed 260px card held ~70px of text. */
   padding: 14px 16px;
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));

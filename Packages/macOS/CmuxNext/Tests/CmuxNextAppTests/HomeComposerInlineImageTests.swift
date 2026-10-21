@@ -67,13 +67,13 @@ import UniformTypeIdentifiers
         return Home(window: window, store: store, view: view, blobs: blobs)
     }
 
-    /// A 600 x 400 px opaque PNG.
-    private static func png() throws -> Data {
+    /// A 600 x 400 px opaque PNG, blue unless RED is given.
+    private static func png(red: CGFloat = 0.2) throws -> Data {
         let w = 600, h = 400
         let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
-        ctx.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+        ctx.setFillColor(CGColor(red: red, green: 0.5, blue: 0.9, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         let image = try #require(ctx.makeImage())
         let out = NSMutableData()
@@ -190,5 +190,132 @@ import UniformTypeIdentifiers
         #expect(attachments == 1)
         #expect(texts.joined().contains("look"))
         #expect(!texts.joined().contains("\u{FFFC}"))
+    }
+
+    /// The field draws the pasted picture, not AppKit's blank document page (Austin 2026-10-20: a
+    /// screenshot pasted in the Chief's box showed as a white page with a folded corner). Renders
+    /// the field as the window would and looks for the picture's blue where the attachment sits.
+    @Test func theFieldDrawsThePastedPicture() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        let a = try #require(h.inline.first).attachment
+        a.loadThumbnailNow(scale: 2)
+        let field = h.field
+        field.layoutSubtreeIfNeeded()
+        field.display()
+        let views = field.subviews.map { String(describing: Swift.type(of: $0)) }
+        let textKit2 = field.textLayoutManager != nil
+        let rep = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
+        field.cacheDisplay(in: field.bounds, to: rep)
+        var blue = 0, white = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9 else { continue }
+                let (r, g, b) = (c.redComponent, c.greenComponent, c.blueComponent)
+                // The picture's blue after color management (sRGB 0.2, 0.5, 0.9 draws as about 0.3, 0.7, 0.9).
+                if b > 0.8, r < 0.45, g > 0.4, g < 0.8 { blue += 1 }
+                if r > 0.95, g > 0.95, b > 0.95 { white += 1 }
+            }
+        }
+        let seen = "blue \(blue), white \(white), TextKit 2 \(textKit2), subviews \(views)"
+        #expect(blue > 200, "the picture is drawn in the field (\(seen))")
+        #expect(white < 50, "no blank white page where the picture goes (\(seen))")
+    }
+    /// The thumbnail decoded in the background (as after a real paste, no `loadThumbnailNow`)
+    /// reaches the field: the picture is drawn once it arrives, not the placeholder for good.
+    @Test func theDecodedThumbnailReachesTheField() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        let a = try #require(h.inline.first).attachment
+        h.field.display()
+        for _ in 0..<100 where a.thumbnail == nil { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(a.thumbnail != nil, "the thumbnail decodes in the background")
+        h.field.layoutSubtreeIfNeeded()
+        h.field.display()
+        let rep = try #require(h.field.bitmapImageRepForCachingDisplay(in: h.field.bounds))
+        h.field.cacheDisplay(in: h.field.bounds, to: rep)
+        var blue = 0
+        for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+            for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9 else { continue }
+                if c.blueComponent > 0.8, c.redComponent < 0.45, c.greenComponent > 0.4, c.greenComponent < 0.8 { blue += 1 }
+            }
+        }
+        #expect(blue > 200, "the picture is drawn after its thumbnail arrives (blue \(blue))")
+    }
+
+    /// Typing hides the hover remove button: the edit may have moved the picture under it.
+    @Test func typingHidesTheRemoveButton() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let hover = h.compose.inlineHover
+        let picture = try #require(hover.attachmentRects().first)
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        #expect(!hover.button.isHidden)
+        type("a", caret: 0, in: h)
+        #expect(hover.button.isHidden, "an edit hides the button")
+    }
+
+    /// Hovering a picture in the field shows a remove button at its top right; the button takes
+    /// the picture out (Austin 2026-10-20: hovering a pasted picture showed no remove button).
+    @Test func hoveringAPictureShowsItsRemoveButton() async throws {
+        let h = try await home()
+        defer { h.close() }
+        type("hi", caret: 2, in: h)
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let hover = h.compose.inlineHover
+        let picture = try #require(hover.attachmentRects().first)
+        #expect(picture.rect.width > 20 && picture.rect.height > 20, "the picture's box in the field (\(picture.rect))")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        #expect(!hover.button.isHidden, "the remove button shows over the hovered picture")
+        #expect(hover.button.superview === h.field)
+        #expect(picture.rect.contains(CGPoint(x: hover.button.frame.midX, y: hover.button.frame.midY)), "on the picture (\(hover.button.frame))")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.maxX + 40, y: picture.rect.midY))
+        #expect(hover.button.isHidden, "and hides off it")
+        hover.pointerMoved(to: CGPoint(x: picture.rect.midX, y: picture.rect.midY))
+        #expect(hover.button.accessibilityPerformPress())
+        #expect(h.inline.isEmpty, "the button takes the picture out of the text")
+        #expect(h.view.transcript.draftAttachments.isEmpty, "and out of the draft")
+        #expect(h.field.string == "hi")
+    }
+
+    /// Two different pictures pasted one after the other both sit in the text (Austin 2026-10-20:
+    /// "I can't paste more than 1 image").
+    @Test func twoPastedPicturesBothSitInTheText() async throws {
+        let h = try await home()
+        defer { h.close() }
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png()])))
+        await h.view.attachmentsReady()
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png(red: 0.8)])))
+        await h.view.attachmentsReady()
+        h.view.layoutSubtreeIfNeeded()
+        #expect(h.view.transcript.draftAttachments.count == 2, "the draft holds both pictures")
+        #expect(h.inline.count == 2, "the field's text holds both pictures")
+    }
+
+    /// After a picture the caret sits on the text's line at the bottom of the picture's tall line,
+    /// not halfway up the picture (Austin 2026-10-20: the caret floated above the text).
+    @Test func theCaretSitsOnTheTextBesideAPicture() async throws {
+        let h = try await home()
+        defer { h.close() }
+        try await attach(.pastePicture, to: h.view)
+        h.field.insertText("hi", replacementRange: h.field.selectedRange())
+        h.view.layoutSubtreeIfNeeded()
+        let end = (h.field.string as NSString).length
+        let caret = try #require(h.field.caretRects(at: [end]).fresh.first ?? nil)
+        let tlm = try #require(h.field.textLayoutManager)
+        var line = CGRect.zero
+        tlm.enumerateTextLayoutFragments(from: tlm.documentRange.location, options: [.ensuresLayout]) { f in
+            line = f.layoutFragmentFrame
+            return false
+        }
+        let bottom = line.maxY + h.field.textContainerOrigin.y
+        #expect(line.height > Fixture.lineHeight + 4, "the picture makes the line taller (\(line))")
+        #expect(caret.maxY > bottom - Fixture.lineHeight - 2, "the caret is on the bottom text line (caret \(caret), line \(line))")
     }
 }

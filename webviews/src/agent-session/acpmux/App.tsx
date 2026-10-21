@@ -7,6 +7,7 @@ import React, {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -50,7 +51,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -150,7 +151,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
+import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -235,6 +236,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
@@ -290,7 +292,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedPrompt } from "./FailedPrompt";
+import { DeliveryFailure } from "./conversation/PromptDelivery";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
@@ -369,7 +371,7 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
-      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, off by
+      /// Suggested tasks on or off (the Debug toggle `agent.suggestedTasks`, DEV and NIGHTLY, on by
       /// default): an agent's offers draw as the suggested tasks card (offer/offersShown.ts).
       applySuggestedTasks?(on: boolean): void;
       applyHeaderState?(state: unknown): void;
@@ -468,6 +470,12 @@ function refusedMachine(error: unknown): string | undefined {
   return typeof name === "string" && name ? name : undefined;
 }
 
+/// The failed prompt row a refused send left (direct.ts `send`), when it left one.
+function failedRowOf(error: unknown): string | undefined {
+  const row = (error as { failedRow?: unknown } | null)?.failedRow;
+  return typeof row === "string" ? row : undefined;
+}
+
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -498,6 +506,9 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   );
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
+/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach: the
+/// scroll anchor's read, then the client's open hold (direct.ts OPEN_HOLD_MS), with a frame to spare.
+const CHAT_DRAW_HOLD_MS = SCROLL_ANCHOR_READ_MS + 1_500 + 50;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -621,15 +632,14 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
-    // Another agent's message as a card from it; a task notification as one quiet line
+    // Another agent's message as one "Received message from" line; a task notification as one quiet line
     // (conversation/incomingMessage.ts).
-    // Its images and a steer's read state show with it, as under a bubble.
+    // Its images show with it; a steer's read state does not: the message is the agent's to read.
     if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
-          {row.steer && <SteerMark steer={row.steer} />}
+          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -650,8 +660,9 @@ const MessageRow = memo(
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
-          <FailedPrompt row={row} />
+          <DeliveryFailure row={row} />
           {row.steer && <SteerMark steer={row.steer} />}
+          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -998,18 +1009,33 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 
 /// Slides the thread from `step` px below (above, when negative) to its place over 180 ms, so
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
-/// before one paint move the text by their sum. None under Reduce Motion.
-function glide(node: HTMLElement | null, step: number): void {
+/// before one paint move the text by their sum. None under Reduce Motion (undefined).
+function glide(node: HTMLElement | null, step: number): Animation | undefined {
   // Content that grew while the chat was hidden, or as it shows again, is drawn in place.
-  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return;
-  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-  node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
+  if (isAgentMotionOff() || !entranceAllowed() || !node || typeof node.animate !== "function") return undefined;
+  if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return undefined;
+  return node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
     easing: "cubic-bezier(0.2, 0, 0, 1)",
     composite: "add",
   });
 }
 const GLIDE_MS = 180;
+/// How many rows from the end a glide looks for the row it holds.
+const FOLLOWED_ROW_SEARCH = 64;
+
+/// Where `id` sits in `layout`'s content (its top), looked for among the last rows; undefined when gone.
+function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string }[], id: string): number | undefined {
+  for (let at = rows.length - 1; at >= Math.max(0, rows.length - FOLLOWED_ROW_SEARCH); at -= 1)
+    if (rows[at]!.id === id) return layout.tops[at];
+  return undefined;
+}
+
+/// What a followed view's glides hold still: the latest row as the reader last saw it (`id`, drawn
+/// `top` px down the view, its glides aside), and the glides started since then (`added` px in all).
+/// A frame can lay the rows out several times before it paints (each streamed snapshot, then its
+/// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
+type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
@@ -1312,6 +1338,8 @@ const JUMP_LATEST_SETTLE_MS = 600;
 /// the latest line, which stopped the chat following for good (cx-02st5).
 const READER_SCROLL_MS = 1000;
 const STRAY_SCROLL_PX = 24;
+/// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
+const FLOOR_HOLD_MS = 1000;
 /// How long a reopened chat stays unseen while older pages bring back the row the reader left it on
 /// (cx-odzaz): each page must land within OPEN_AT_PAGE_MS and the whole walk within OPEN_AT_SEEK_MS,
 /// else the chat opens at its latest message.
@@ -1444,6 +1472,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  historyFrom,
   githubRepository,
   find,
   reveal,
@@ -1480,6 +1509,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
+  historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
@@ -1514,6 +1545,22 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// A queued prompt left the bottom stack this frame: it is about to come in as the latest row.
+  const queueLeft = useRef(false);
+  const queueCount = useRef(0);
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  /// Counts the stack's queued prompts; called first by each size observer (the stack's, and the
+  /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
+  const noteQueue = useCallback(() => {
+    const count = dockRef.current?.querySelectorAll(".acpmux-queued").length ?? 0;
+    if (count < queueCount.current && !queueLeft.current) {
+      queueLeft.current = true;
+      // Only the size change of this frame is the card leaving.
+      requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
+    }
+    queueCount.current = count;
+  }, []);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -1529,13 +1576,15 @@ export function VirtualTranscript({
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
     const observer = new ResizeObserver(() => {
+      noteQueue();
       const next = over();
       if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
     });
     observer.observe(dock);
+    noteQueue();
     setDockSpace(over());
     return () => observer.disconnect();
-  }, [dock]);
+  }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -1761,11 +1810,14 @@ export function VirtualTranscript({
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
+    const observer = new ResizeObserver(() => {
+      noteQueue();
+      flushSync(() => measure(true));
+    });
     observer.observe(node);
     measure(false);
     return () => observer.disconnect();
-  }, []);
+  }, [noteQueue]);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
@@ -1773,6 +1825,8 @@ export function VirtualTranscript({
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
   const thread = useRef<HTMLDivElement>(null);
+  /// What the glides hold since the last paint (GlideHold); cleared once a frame paints.
+  const glideHold = useRef<GlideHold | undefined>(undefined);
   // The reader scrolls: a glide in flight ends at once, so the view goes where they scroll.
   useEffect(() => {
     const node = ref.current;
@@ -1890,9 +1944,28 @@ export function VirtualTranscript({
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
+  // A followed view does not move down when a queued prompt's card leaves the stack: its offset stays,
+  // and the room the card leaves stays under the last row for the prompt, which arrives as the latest
+  // row a moment later. Dropping it moved the view down a card's height, and the prompt moved it back
+  // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
+  // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
+  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view glides down.
+  const floor = useRef({ height: 0, width, sessionId });
+  const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
+  const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(floorTimer.current), []);
+  const kept = following && floor.current.width === width && floor.current.sessionId === sessionId;
+  const box = previousViewport.current;
+  const footDropped = height - dockSpace > box.height - box.dockSpace;
+  const floorHeight = !kept
+    ? 0
+    : queueLeft.current && footDropped && previousLayout.current
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
+      : floor.current.height;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
   const layout = useMemo(
-    () => ({ ...measured.layout, totalHeight: measured.layout.totalHeight + THREAD_TOP + dockSpace }),
-    [measured, dockSpace],
+    () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
+    [measured, rowsHeight, floorHeight],
   );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
@@ -2099,12 +2172,26 @@ export function VirtualTranscript({
       // the new end; the offset recorded before this commit is where the reader was.
       // A clamp lands exactly on the scroller's own end, which rounds the layout's
       // fractional height, so compare with that rather than allow for the rounding.
+      // A viewport that grew clamps at the end the content had then: the room a queued prompt's
+      // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= node.scrollHeight - node.clientHeight - 0.5;
+      // The browser rounds the height it clamps to, so the old end allows a pixel either way.
+      const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
+      // The reader scrolled up and its scroll event has not come yet: WebKit moves the offset with
+      // the wheel and reports it a frame later, and a snapshot that lands between them put the view
+      // back at the latest row. A move up past a stray's (or past the deadband, right after the
+      // reader's own input) is theirs, so the view stops following now.
+      const readerLeft =
+        followingRef.current &&
+        !clamped &&
+        scrolledTo.current.top - live >
+          (performance.now() - readerAt.current <= READER_SCROLL_MS ? FOLLOW_BOTTOM_DEADBAND_PX : STRAY_SCROLL_PX);
+      if (readerLeft) follow(false);
       const atLatest = followingRef.current
         ? true
         : clamped || unmoved
@@ -2117,8 +2204,26 @@ export function VirtualTranscript({
       if (didOpenAtLatest.current && atLatest) {
         // At the latest row: stay there as rows settle to their drawn heights.
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
-        const step = latest - node.scrollTop;
-        const settled = settleFollowBottom(node, latest);
+        // A clamp moved the offset already (content that shrank under the view): from where it was.
+        const before = top;
+        const settled = settleFollowBottom(node, latest) || clamped;
+        // The glide holds the latest row the reader saw where it was painted, then slides it to its
+        // place. Gliding by the offset's step alone also moved it by what grew above it (a working
+        // line opening over a turn's first tool call), and by layouts of the same frame that never
+        // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
+        // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
+        const lastSeen = oldRows.at(-1);
+        if (!glideHold.current && lastSeen) {
+          const was = trailingRowTop(old, oldRows, lastSeen.id);
+          if (was !== undefined) {
+            glideHold.current = { id: lastSeen.id, top: was - before, added: 0, glides: [] };
+            // After this frame paints (a task queued from its animation frame runs after it).
+            requestAnimationFrame(() => setTimeout(() => (glideHold.current = undefined), 0));
+          }
+        }
+        const hold = glideHold.current;
+        const heldTop = hold && trailingRowTop(layout, rows, hold.id);
+        const step = hold && heldTop !== undefined ? hold.top - (heldTop - node.scrollTop) - hold.added : 0;
         if (settled) followTrace.set(latest);
         // Growth glides in instead of stepping a line per frame (acp-streaming.md "Scroll"); a
         // resized viewport only moves the offset. A row that grew is placed by its estimate, then
@@ -2129,8 +2234,20 @@ export function VirtualTranscript({
         // then drawn height, at every frame of the drag: none of that glides, and a glide in
         // flight ends, so the text sits at the end of the view on every frame.
         if (rewrapped) for (const animation of thread.current?.getAnimations?.() ?? []) animation.finish();
-        if (settled && Math.abs(step) < node.clientHeight && !resized && !reflowing.current)
-          glide(thread.current, step);
+        const glided =
+          settled && Math.abs(step) >= 0.5 && Math.abs(step) < node.clientHeight && !resized && !reflowing.current
+            ? glide(thread.current, step)
+            : undefined;
+        if (glided) {
+          hold!.added += step;
+          hold!.glides.push(glided);
+        } else if (settled || resized) {
+          // The view moved without a glide: what it holds is placed again from here. A resize also
+          // takes back this frame's glides: they slid toward a layout the resize has replaced (a
+          // queued prompt's card leaving clamps the offset, which the room it leaves then restores).
+          if (resized) for (const each of hold?.glides ?? []) each.cancel();
+          glideHold.current = undefined;
+        }
       } else if (top > 0 || rows[0]?.id !== oldRows[0]?.id) {
         // Keep the row at the top of the viewport where it is as rows above it change height.
         // Rows that arrived or left (a new reply segment below, older history above) move indexes,
@@ -2185,6 +2302,16 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
+    // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
+    const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
+    if (holding && !floor.current.height) {
+      clearTimeout(floorTimer.current);
+      floorTimer.current = setTimeout(() => {
+        floor.current = { ...floor.current, height: 0 };
+        releaseFloor();
+      }, FLOOR_HOLD_MS);
+    } else if (!holding) clearTimeout(floorTimer.current);
+    floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
       scrolledTo.current = scrollPosition(node, layout.totalHeight);
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
@@ -2521,7 +2648,8 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
@@ -2852,6 +2980,9 @@ function AcpmuxPane() {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
+  /// first frame (its rows, title and modes) is in, or the open's hold has passed.
+  const [awaitsChat, setAwaitsChat] = useState(false);
   /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
   const pendingSubmits = useRef<Array<() => void>>([]);
   const whenHandshaken = (run: () => void) => {
@@ -3906,7 +4037,7 @@ function AcpmuxPane() {
   const showAllChats = () => void callNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutLabels>({});
   const [preview, setPreview] = useState(false);
-  // SSH… opens Connect to Machine; cmux Cloud… opens New Cloud Machine (Lawrence 2026-10-06).
+  // SSH… opens Connect to Machine; New Cloud Machine opens the host's create flow (Lawrence 2026-10-06).
   const connectMachine = (kind: "ssh" | "cloud") =>
     void callNative("action.run", { id: kind === "ssh" ? "remote.connect" : "newCloudMachine" }).catch(() => undefined);
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
@@ -4168,8 +4299,17 @@ function AcpmuxPane() {
   // the same way).
   const paintReported = useRef(false);
   // A New Tab page is what it is from its first render: its frame draws before the handshake
-  // (cx-0rpl.10), and the host shows no loading mark over it.
-  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
+  // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
+  // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
+  // the host faded that in, then the rows, title and modes popped in (Leo 2026-10-20).
+  const chatDrawn = !awaitsChat || clientSnapshot.connection !== "connecting";
+  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  useEffect(() => {
+    if (!handshaken || chatDrawn) return;
+    // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
+    const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [handshaken, chatDrawn]);
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
@@ -4487,6 +4627,11 @@ function AcpmuxPane() {
       postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
     );
     holdPrompt.current = () => void heldPrompt.hold();
+    /// The gesture a failed prompt row kept for its Trust re-send, apart from `heldPrompt`, which
+    /// the next ordinary send takes: a prompt typed before Trust never goes under the row's id.
+    const heldRowPrompt = heldPrompts((intent) =>
+      postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket),
+    );
     const restorePrompt = (text: string, attachments: ComposerAttachment[]) => {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
@@ -4536,6 +4681,13 @@ function AcpmuxPane() {
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
+        if (!reconnect)
+          setAwaitsChat(
+            Boolean(host.sessionId) &&
+              (host.transport === "mock" ||
+                host.transport === "acpmux-bridge" ||
+                (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
+          );
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4604,6 +4756,7 @@ function AcpmuxPane() {
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -4735,11 +4888,19 @@ function AcpmuxPane() {
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
           const refused = (error: unknown, inComposer: boolean): never => {
             if (isTrustRefusal(error)) {
+              // A prompt kept as its own failed row: Trust sends that row again (with the gesture its
+              // send kept, under its own prompt id), never what the composer holds by then.
+              const row = failedRowOf(error);
               // The send's own gesture is kept for this prompt now, before the Trust click, whose
               // gesture goes to the trust answer (heldPrompt.ts).
-              void heldPrompt.hold();
-              if (!inComposer) restorePrompt(text, attachments);
-              trustRefused.current?.(error, () => composerHandle.current?.send());
+              if (row) {
+                void heldRowPrompt.hold(client.promptDelivery(row)?.promptId);
+                trustRefused.current?.(error, () => void client.retryPrompt(row, heldRowPrompt.take()?.ticket));
+              } else {
+                void heldPrompt.hold();
+                if (!inComposer) restorePrompt(text, attachments);
+                trustRefused.current?.(error, () => composerHandle.current?.send());
+              }
             }
             throw error;
           };
@@ -4896,6 +5057,13 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
+          // composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId }) => {
+            const failed = client.takeFailedPrompt(String(rowId));
+            if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
+          },
+          "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
           // says why), so the retry never runs on the old model.
@@ -5744,6 +5912,7 @@ function AcpmuxPane() {
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
                                         }
                                         canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
                                         onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                         openAt={
                                           !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
@@ -6095,6 +6264,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          headerCwd={snapshot.summary?.cwd ?? ""}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}
@@ -6138,8 +6308,26 @@ function AcpmuxPane() {
             // Shell mode's chips carry their commands' output as it is now.
             const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
             if (!snapshot.sessionId) claimShellRuns.current = true;
-            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-            // remote guard, the sandbox) leaves it there to send again.
+            // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
+            // it leaves the composer at once and shows as its own row, which says how far it got,
+            // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
+            // row showed (the chat could not take prompts) comes back to the composer.
+            if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+              const holder = composerHandle.current;
+              callNative("chat.send", { text, attachments, steer }).then(
+                () => promptLanded.current(),
+                (error: unknown) => {
+                  cancelOpenInWindow();
+                  if (failedRowOf(error) || isTrustRefusal(error)) return;
+                  // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                  if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                  (composerHandle.current ?? holder)?.restore(text, attachments);
+                },
+              );
+              return true;
+            }
+            // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
+            // trust, the remote guard, the sandbox) leaves it there to send again.
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {
