@@ -47,8 +47,7 @@ final class DiffPageService: InternalPageProvider {
                                              viewed: DiffViewedFiles(url: DiffViewedFiles.standardURL(recents: recentsStore.url)))
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
-    /// A folder dropped on the page opens its changes (`fileDrop`), a WebKit-only hook so far.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
     private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
