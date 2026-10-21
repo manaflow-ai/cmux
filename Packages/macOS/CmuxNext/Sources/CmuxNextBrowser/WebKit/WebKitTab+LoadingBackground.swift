@@ -31,11 +31,7 @@ extension WebKitTab {
     func pageDidCommit() {
         guard BrowserPageTunables.loadingBackground.value else { return }
         setDrawsPageBackground(false)
-        let clock = pageBaseHoldClock
-        pageBaseHold?.cancel()
-        pageBaseHold = Task { [weak self] in
-            try? await clock.sleep(for: Self.pageBaseHoldLimit)
-            guard !Task.isCancelled else { return }
+        pageBaseHold.schedule(after: Self.pageBaseHoldLimit) { @MainActor [weak self] in
             self?.pageDidFinish()
         }
     }
@@ -49,8 +45,7 @@ extension WebKitTab {
     /// loading, and a dead web content process -- which would otherwise leave
     /// the page area with no background for good.
     func pageDidFinish() {
-        pageBaseHold?.cancel()
-        pageBaseHold = nil
+        pageBaseHold.cancel()
         guard !PageBackground.isBlank(webView.url) else { return }
         setDrawsPageBackground(true)
     }

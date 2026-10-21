@@ -56,10 +56,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private(set) var isClosed = false
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
-    /// The committed document's hold on the page area (`pageDidCommit`), and
-    /// the clock that bounds it (tests pin it).
-    @ObservationIgnored var pageBaseHold: Task<Void, Never>?
-    @ObservationIgnored var pageBaseHoldClock: any Clock<Duration> = ContinuousClock()
+    /// Bounds how long the theme color stands in for a committed document
+    /// (`pageDidCommit`). Replaceable, so a test can give it a clock that
+    /// does not wait.
+    @ObservationIgnored var pageBaseHold = DemandTimer(owner: "browser.pageBase")
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
@@ -108,7 +108,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         MainActor.assumeIsolated {
             faviconTask?.cancel()
             rateReshow?.cancel()
-            pageBaseHold?.cancel()
+            pageBaseHold.cancel()
         }
     }
 
@@ -248,7 +248,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         isClosed = true
         faviconTask?.cancel()
         rateReshow?.cancel()
-        pageBaseHold?.cancel()
+        pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
