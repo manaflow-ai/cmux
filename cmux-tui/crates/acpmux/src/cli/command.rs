@@ -350,6 +350,8 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    ResumeQueue { session: String },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -612,6 +614,9 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// Run the queued prompts a failed turn held. An agent or a script may resume a
+    /// queue; only answering a permission or a question needs the cmux app.
+    Resume { session: String },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -952,6 +957,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Resume { session } => Command::ResumeQueue { session },
             SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
