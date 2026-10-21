@@ -46,6 +46,16 @@ import Testing
         #expect(PopupAnchor(rect: nearRight, edge: .leading, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window).maxX == 880)
     }
 
+    /// A card with no room under or over the control in its window slides up or down to stay
+    /// inside it.
+    @Test func aCardWithNoRoomAboveOrBelowStaysInsideTheWindow() {
+        let window = CGRect(x: 200, y: 100, width: 700, height: 400)
+        let button = CGRect(x: 600, y: 380, width: 20, height: 20)
+        let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window)
+        #expect(card.minY == 104, "card \(card) in window \(window)")
+        #expect(window.contains(card), "card \(card) in window \(window)")
+    }
+
     /// A window too small for the card keeps the card on the screen instead.
     @Test func aCardWiderThanItsWindowKeepsToTheScreen() {
         let window = CGRect(x: 200, y: 100, width: 200, height: 600)
