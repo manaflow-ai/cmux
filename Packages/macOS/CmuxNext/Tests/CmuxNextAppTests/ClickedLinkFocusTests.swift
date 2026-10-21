@@ -226,6 +226,10 @@ struct ClickedLinkFocusTests {
 
     private static func describe(_ content: WorkspaceContentController, _ tab: String) -> String {
         let focused = content.focusedPane
-        return "focused pane \(String(describing: focused?.layoutPaneID)) selects \(String(describing: focused?.stripModel.selectedID?.rawValue)), wanted \(tab)"
+        let panes = content.panes.values.map { pane in
+            "\(pane.layoutPaneID)\(pane === focused ? " (focused)" : ""): \(pane.stripModel.selectedID?.rawValue ?? "none") of \(pane.pane.tabs.map(\.id))"
+        }
+        return "focused pane \(String(describing: focused?.layoutPaneID)) selects \(String(describing: focused?.stripModel.selectedID?.rawValue)), wanted \(tab); "
+            + panes.sorted().joined(separator: "; ")
     }
 }
