@@ -87,9 +87,12 @@
 //! (`hub/subsession_answer.rs`), while `agents.subsessions.answerQuestions`
 //! is on. A question's answer is text the agent reads; the same caller may
 //! already prompt that session with any text (`_acpmux/subsession/send`), so
-//! it widens nothing. Only a normalized question (`questions.rs`) with its
-//! `allow_once` option counts, checked again under the prompt's lock
-//! ([`Answerer`] `ancestor`, set by the hub, never from a request), and the
+//! it widens nothing. Only a prompt recorded as a question when it was asked
+//! counts (`questions::ancestor_answerable`: Claude Code's AskUserQuestion by
+//! the tool name its adapter writes, or a Grok or Cursor ask acpmux builds
+//! itself; never a tool call whose input merely holds `questions`), with its
+//! `allow_once` option, checked again under the prompt's lock ([`Answerer`]
+//! `ancestor`, set by the hub, never from a request), and the
 //! decision record names the caller in `answeredBy {session, name}`. Never a
 //! permission prompt, a plan approval, a lasting grant, the caller's own
 //! question or its parent's, or one under a chat the person started from a

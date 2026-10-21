@@ -5,7 +5,7 @@ extension SubsessionSettings {
     /// `agents.subsessions.enabled`: Off: no session gets the cmux-subsessions tools, and a start is refused (subsessions.disabled).
     public nonisolated static let subsessionsEnabledPath = ["agents", "subsessions", "enabled"]
     public nonisolated static let subsessionsEnabledDefault = true
-    /// `agents.subsessions.answerQuestions`: On: a session answers the questions (AskUserQuestion, Codex user input) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).
+    /// `agents.subsessions.answerQuestions`: On: a session answers the questions (Claude Code AskUserQuestion, Grok and Cursor asks) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).
     public nonisolated static let subsessionsAnswerQuestionsPath = ["agents", "subsessions", "answerQuestions"]
     public nonisolated static let subsessionsAnswerQuestionsDefault = false
     /// `agents.subsessions.maxChildren`: Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.

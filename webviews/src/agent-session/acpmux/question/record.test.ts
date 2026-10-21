@@ -181,7 +181,7 @@ describe("answerFromOutcome", () => {
     const bySession = decidedQuestion(acp, outcome, { session: "s-parent", name: "coordinator" });
     expect(bySession.state).toMatchObject({
       kind: "answered",
-      answer: { respondent: { displayName: "coordinator", isRemote: false } },
+      answer: { respondent: { displayName: "coordinator", isRemote: false, isSession: true } },
     });
     const byDevice = decidedQuestion(acp, outcome, { device: "phone", feedItem: "f1" });
     expect(byDevice.state.kind === "answered" && byDevice.state.answer.respondent).toBe(undefined);

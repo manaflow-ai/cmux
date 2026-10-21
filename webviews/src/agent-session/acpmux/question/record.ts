@@ -95,7 +95,7 @@ export function answerFromOutcome(question: AgentQuestion, outcome: Json): Answe
 function respondentOf(answeredBy: Json): Respondent | undefined {
   if (!isObject(answeredBy) || typeof answeredBy.session !== "string") return undefined;
   const name = typeof answeredBy.name === "string" && answeredBy.name ? answeredBy.name : answeredBy.session;
-  return { displayName: name, isRemote: false };
+  return { displayName: name, isRemote: false, isSession: true };
 }
 
 /// `question` as its decision left it: answered with what was chosen (and by whom, when a session

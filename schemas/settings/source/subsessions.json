@@ -36,7 +36,7 @@
         {
           "key": "agents.subsessions.answerQuestions",
           "name": "subsessionsAnswerQuestions",
-          "note": "On: a session answers the questions (AskUserQuestion, Codex user input) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).",
+          "note": "On: a session answers the questions (Claude Code AskUserQuestion, Grok and Cursor asks) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).",
           "title": {
             "key": "settings.agents.subsessions.answerQuestions",
             "text": "Let Sessions Answer Their Sub-sessions' Questions"

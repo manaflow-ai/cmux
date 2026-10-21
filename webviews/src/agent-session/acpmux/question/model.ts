@@ -68,6 +68,9 @@ export type Respondent = {
   device?: string;
   /// True when the answer came through the remote relay from a paired device.
   isRemote: boolean;
+  /// True when an agent session above this one answered (acpmux `subsession_answer.rs`): its
+  /// `displayName` is that session's name, which its agent may choose, so it never reads as a person.
+  isSession?: boolean;
 };
 
 /// A person's answer, harness-neutral: one selection per item id.

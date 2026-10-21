@@ -708,6 +708,7 @@ impl Hub {
         session.permissions.lock().unwrap().pending.insert(
             permission_id.clone(),
             PendingPermission {
+                ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
                 request: request.clone(),
                 reply: tx,
                 decision_nonce: decision_nonce.clone(),

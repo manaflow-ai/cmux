@@ -2,9 +2,11 @@
 //! questions (`_acpmux/subsession/answer`, the `answer_question` tool of
 //! `subsession_mcp.rs`).
 //!
-//! A question is an agent's AskUserQuestion, Codex user input, Grok or
-//! Cursor ask: a permission request that carries a normalized
-//! `toolCall._meta.acpmux.question` (`questions.rs`). Its answer is text the
+//! A question here is Claude Code's AskUserQuestion or a Grok or Cursor ask:
+//! a permission request recorded as answerable when it was asked
+//! (`PendingPermission::ancestor_may_answer`, `questions::ancestor_answerable`),
+//! from who asked and never from its input's shape, so a tool call whose
+//! input merely holds `questions` is not one. Its answer is text the
 //! agent reads, which the same caller could already send the child as a
 //! prompt (`_acpmux/subsession/send`): it starts nothing, allows no tool and
 //! changes no mode, policy or rule. So the caller may answer one when:
@@ -13,17 +15,23 @@
 //!   (`Hub::subsession_write_target`): never its own question, its parent's,
 //!   another family's, or one under a chat the person started from a
 //!   suggested task;
-//! - the request is a question with a one-time allow option (`allow_once`).
-//!   A permission prompt, a plan approval (ExitPlanMode, `x.ai/exit_plan_mode`,
-//!   `cursor/create_plan`), a lasting grant and a question without
-//!   normalized items stay the person's, and the refusal names the child;
+//! - the request is such a question with a one-time allow option
+//!   (`allow_once`). A permission prompt, a plan approval (ExitPlanMode,
+//!   `x.ai/exit_plan_mode`, `cursor/create_plan`), any tool whose input holds
+//!   `questions`, a question that offers only a lasting allow, a Codex
+//!   user-input request (its adapter's shape is unverified) and a writer's
+//!   own `_meta.acpmux.question` stay the person's; the refusal names the
+//!   child;
 //! - the person turned `agents.subsessions.answerQuestions` on (off by
 //!   default: it loosens the rule that only the person answers). Off, every
 //!   question is the person's (`subsessions.answers_off`).
 //!
 //! The answers are checked as a person's are (`questions::check_answers`)
 //! and go through `Hub::respond_permission`, whose rule under the prompt's
-//! lock checks the same conditions again (`Answerer::ancestor`). The
+//! lock checks the prompt's conditions again (`Answerer::ancestor`, the
+//! recorded flag, the one-time allow). The setting is read once per answer,
+//! before the lock: a person who turns it off during that one call does not
+//! stop it. The
 //! decision record's `answeredBy` is `{session, name}` of the caller, so the
 //! child's transcript shows who answered.
 //!
@@ -87,16 +95,16 @@ fn harness_answers(question: &Value, answers: Value) -> Value {
 }
 
 impl Hub {
-    /// The pending questions of `s` an ancestor may answer, oldest first:
-    /// `{permissionId, agent, items: [{id, header?, prompt, options: [{label,
-    /// detail?}], multiSelect, allowsOther}]}`, with the text masked
-    /// (`secret_scan`) as everything else the tools read back.
+    /// The pending questions of `s`, oldest first: `{permissionId, agent,
+    /// answerable, items: [{id, header?, prompt, options: [{label, detail?}],
+    /// multiSelect, allowsOther}]}`, with the text masked (`secret_scan`) as
+    /// everything else the tools read back. `answerable` false: only the
+    /// person answers it (module docs).
     pub fn subsession_questions(&self, s: &Session) -> Value {
         let state = s.permissions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut rows: Vec<(String, Value)> = state
             .pending
             .iter()
-            .filter(|(_, p)| answer_option(&p.request).is_some())
             .filter_map(|(id, p)| {
                 let q = super::questions::question(&p.request)?;
                 let mask = |v: &Value| v.as_str().map(crate::secret_scan::mask);
@@ -121,7 +129,11 @@ impl Hub {
                         })
                     })
                     .collect();
-                Some((id.clone(), json!({"permissionId": id, "agent": q["agent"], "items": items})))
+                Some((
+                    id.clone(),
+                    json!({"permissionId": id, "agent": q["agent"], "items": items,
+                           "answerable": p.ancestor_may_answer}),
+                ))
             })
             .collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0));
@@ -154,13 +166,14 @@ impl Hub {
             let pending = state.pending.get(permission_id).ok_or_else(|| {
                 RpcError::not_found(format!("no pending permission {permission_id}"))
             })?;
-            let question = super::questions::question(&pending.request);
+            let question = super::questions::question(&pending.request)
+                .filter(|_| pending.ancestor_may_answer);
             let option = answer_option(&pending.request);
             let (Some(question), Some(option)) = (question, option) else {
                 return Err(super::subsessions::refused(
                     "subsessions.not_a_question",
                     format!(
-                        "{child} is asking for permission (or to approve a plan), not asking a question: only the user allows that, in cmux NEXT. Tell them {child} is waiting"
+                        "{child} is asking for permission (or to approve a plan), or asks in a way only the user answers: only the user answers that, in cmux NEXT. Tell them {child} is waiting"
                     ),
                     data(),
                 ));

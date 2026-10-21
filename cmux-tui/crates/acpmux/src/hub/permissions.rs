@@ -538,6 +538,11 @@ impl Hub {
             state.pending.insert(
                 permission_id.clone(),
                 PendingPermission {
+                    // Who asked: acpmux itself (Grok's, Cursor's asks) or the agent.
+                    ancestor_may_answer: super::questions::ancestor_answerable(
+                        &request,
+                        agent_request_id.is_some(),
+                    ),
                     request: request.clone(),
                     reply: tx,
                     decision_nonce: decision_nonce.clone(),
@@ -654,13 +659,15 @@ impl Hub {
                 });
                 let allows = option_id.is_some() && !rejects;
                 // An ancestor session's answer to a question
-                // (`subsession_answer.rs`): answers to a normalized question,
-                // with its one-time allow and the hub's own `answeredBy`;
-                // never a permission prompt, a lasting grant or a plan.
+                // (`subsession_answer.rs`): answers to a prompt recorded as a
+                // question when it was asked (`questions::ancestor_answerable`,
+                // never from its input's shape), with its one-time allow and
+                // the hub's own `answeredBy`; never a permission prompt, a
+                // lasting grant or a plan.
                 let ancestor_answers = answerer.ancestor.is_some()
                     && answered_by.is_some()
                     && answers.is_some()
-                    && super::questions::question(&p.request).is_some()
+                    && p.ancestor_may_answer
                     && option_id.as_deref().is_some_and(|o| {
                         option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
                             == Some("allow_once")

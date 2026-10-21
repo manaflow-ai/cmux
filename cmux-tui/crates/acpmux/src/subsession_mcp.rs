@@ -121,7 +121,7 @@ fn tools() -> Value {
         },
         {
             "name": "answer_question",
-            "description": "Answer a question one of your sub-sessions (or a session under them) is asking: its agent's AskUserQuestion or user-input request, shown under questions in get_session and wait_for_sessions. Its agent gets your answer as its user's answer, and its transcript says you gave it. Permission requests and plan approvals are not questions: only the user allows those, in cmux NEXT, so tell the user which sub-session is waiting. It works only after the user turned it on (Settings > Agents > Sub-sessions); otherwise it is refused and you tell the user what the sub-session asks.",
+            "description": "Answer a question one of your sub-sessions (or a session under them) is asking: a Claude Code AskUserQuestion or a Grok or Cursor ask, listed under questions in get_session and wait_for_sessions with answerable true. Any other ask (answerable false, such as a Codex user-input request) only the user answers. Its agent gets your answer as its user's answer, and its transcript says you gave it. Permission requests and plan approvals are not questions: only the user allows those, in cmux NEXT, so tell the user which sub-session is waiting. It works only after the user turned it on (Settings > Agents > Sub-sessions); otherwise it is refused and you tell the user what the sub-session asks.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
