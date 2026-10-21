@@ -84,6 +84,12 @@ class WiringTests(unittest.TestCase):
         owner_wait = self.WORKFLOW[self.WORKFLOW.index("sparse-checkout: |\n            scripts/ci/cmux-tui-tree-claim.sh"):]
         self.assertIn("scripts/ci/cmux_tui_publisher_testing.py", owner_wait.split("- name:", 1)[0])
 
+    def test_the_job_name_matches_the_daemon_test_job(self):
+        # A renamed job reads as "not created yet", which defers forever.
+        job = self.WORKFLOW[self.WORKFLOW.index("\n  cmux-next-daemon-tests:\n"):]
+        job = job[:job.index("\n    runs-on:")]
+        self.assertIn(f"\n    name: {publisher.JOB_NAME}\n", job)
+
     def test_the_pool_matches_the_daemon_test_job(self):
         # The job's runs-on takes CI_NEXT_DAEMON_POOL first, then CI_NEXT_PROMOTE_POOL.
         runs_on = next(line for line in self.WORKFLOW.splitlines() if "vars.CI_NEXT_DAEMON_POOL != ''" in line)

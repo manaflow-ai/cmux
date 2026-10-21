@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
 /// How long a kill waits for Claude Code's `stop_task` or Codex's terminate,
-/// and Ctrl-B for Claude Code's `background_tasks`.
-const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// and Ctrl-B for Claude Code's `background_tasks` (`Hub::set_background_timeout`).
+pub(super) const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
 const TAIL_DEFAULT: u64 = 64 << 10;
@@ -530,6 +530,12 @@ impl Hub {
         Err(refused)
     }
 
+    /// How long Ctrl-B waits for Claude Code's `background_tasks` answer
+    /// (`STOP_TIMEOUT` until set; tests shorten it).
+    pub fn set_background_timeout(&self, timeout: std::time::Duration) {
+        *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner()) = timeout;
+    }
+
     /// `_acpmux/process/background` (Ctrl-B): asks Claude Code to move the
     /// chat's running work to the background (`background_tasks`): the task
     /// tool call `tool` started, or every foreground task. What moved
@@ -555,9 +561,15 @@ impl Hub {
             None => false,
         };
         let Some(child) = child.filter(|_| alive) else { return Ok(nothing) };
-        let params = json!({"sessionId": session.meta().agent_session_id, "toolCallId": tool});
+        let timeout = *self.background_timeout.lock().unwrap_or_else(|e| e.into_inner());
+        // The translator drops the request's marks when this wait ends (`timeoutMs`).
+        let params = json!({
+            "sessionId": session.meta().agent_session_id,
+            "toolCallId": tool,
+            "timeoutMs": u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX),
+        });
         let ask = child.request(crate::claude_stdio::BACKGROUND_TASKS, params);
-        match tokio::time::timeout(STOP_TIMEOUT, ask).await {
+        match tokio::time::timeout(timeout, ask).await {
             Ok(Ok(answer)) => {
                 let moved = answer.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
                 Ok(json!({"backgrounded": moved}))
