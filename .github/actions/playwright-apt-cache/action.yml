@@ -14,9 +14,11 @@ runs:
   steps:
     # --with-deps fetched 129 MB of system packages from the Ubuntu mirror on every run, 38 s of a
     # 48 s step (react-apps-check, job 119051224848). apt takes a .deb already in its archive when
-    # name, version and hash match the index, and downloads only what changed, so a stale or
-    # tampered cache costs a download, never a wrong package. The key rolls weekly so security
-    # updates come back into the cache.
+    # its file name (package, version, architecture) and size match the index, and downloads only
+    # what changed, so a stale cache costs a download. apt does not hash a cached file, so the
+    # trust is in who writes the cache: only push runs on this repository's branches save it.
+    # The key rolls weekly so security updates come back in; a new week starts from last week's
+    # entry, since most packages are unchanged.
     - name: Open apt's archive to the cache
       id: week
       if: runner.os == 'Linux'
@@ -36,6 +38,7 @@ runs:
         key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
         restore-keys: |
           playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-
     - name: Restore Playwright's apt packages
       if: runner.os == 'Linux' && github.event_name != 'push'
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -44,3 +47,4 @@ runs:
         key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
         restore-keys: |
           playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-
