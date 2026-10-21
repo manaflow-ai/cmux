@@ -453,6 +453,15 @@ fn prepare_with_tail(dir: &Path, session: &str, tail_output: usize) -> Prepared 
 
     let owner = Owner::start(dir, session, "prepare-3", &[]);
     owner.cli(&["workspace", "create", "--empty", "--name", "after-output"]);
+    // A closed workspace leaves a rowid gap that a copy must keep.
+    owner.cli(&["workspace", "create", "--empty", "--name", "closed-later"]);
+    owner.cli(&["workspace", "create", "--empty", "--name", "last"]);
+    let closed = workspaces(&owner)
+        .into_iter()
+        .find(|(_, name)| name == "closed-later")
+        .map(|(id, _)| id)
+        .unwrap();
+    owner.cli(&["workspace", &closed, "close"]);
     let workspaces = workspaces(&owner);
     let (journal, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed", "the prepared journal reads to its head");
