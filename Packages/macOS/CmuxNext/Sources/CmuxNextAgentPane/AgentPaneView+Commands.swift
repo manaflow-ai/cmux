@@ -16,7 +16,7 @@ extension AgentPaneView {
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
     private func showWithKeyboard(_ command: String) {
-        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
+        focusPage()
         send(command)
     }
     /// Palette and page buttons enter the same inline checkpoint review.

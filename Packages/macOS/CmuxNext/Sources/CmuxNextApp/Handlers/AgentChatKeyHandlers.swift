@@ -12,7 +12,7 @@ enum AgentChatKeyHandlers {
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
             Task {
                 let script = "return window.cmuxAcpmuxBridge?.lastCodeBlock?.() ?? null;"
-                guard let code = try? await view.webView.callAsyncJavaScript(script, arguments: [:], contentWorld: .page) as? String else { return }
+                guard let code = await view.pageFunction(script, arguments: [:]) as? String else { return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(code, forType: .string)
             }

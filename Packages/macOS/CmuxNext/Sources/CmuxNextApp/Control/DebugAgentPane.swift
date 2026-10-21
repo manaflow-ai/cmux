@@ -131,7 +131,7 @@ enum DebugAgentPane {
             // The page as WebKit draws it (`WKWebView.takeSnapshot`), PNG at `path`: a window
             // snapshot draws no web content, and a build host may have no screen recording.
             let path = params["path"]?.stringValue ?? NSTemporaryDirectory() + "agent-pane-\(pane).png"
-            guard let image = try? await view.webView.takeSnapshot(configuration: nil),
+            guard let image = await view.pageSnapshot(),
                   let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
                   let png = rep.representation(using: .png, properties: [:]),
                   (try? png.write(to: URL(fileURLWithPath: path))) != nil else {
@@ -153,17 +153,13 @@ enum DebugAgentPane {
               menus: document.querySelectorAll('.acpmux-menu, .acpmux-slash-menu').length
             });
             """
-            do {
-                let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
-                guard let text = result as? String,
-                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                      let value = JSONValue(foundation: object) else {
-                    return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
-                }
-                return .object(["pane": .string(pane), "result": value])
-            } catch {
-                return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+            let result = await view.pageFunction(script, arguments: [:])
+            guard let text = result as? String,
+                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let value = JSONValue(foundation: object) else {
+                return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
             }
+            return .object(["pane": .string(pane), "result": value])
         }
         if action == "click" {
             return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
@@ -177,21 +173,15 @@ enum DebugAgentPane {
         guard let function = functions[action] else {
             return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
-        do {
-            let result = try await view.webView.callAsyncJavaScript(
-                script, arguments: ["fn": function, "args": arguments(action, params)], in: nil, contentWorld: .page
-            )
-            guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  let value = JSONValue(foundation: object) else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
-            }
-            guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
-            members["pane"] = .string(pane)
-            return .object(members)
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        let result = await view.pageFunction(script, arguments: ["fn": function, "args": arguments(action, params)])
+        guard let text = result as? String,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+              let value = JSONValue(foundation: object) else {
+            return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
         }
+        guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
+        members["pane"] = .string(pane)
+        return .object(members)
     }
 
     private static func readiness(pane: String, view: AgentPaneView, waitForAnimations: Bool = false) async -> JSONValue {
@@ -220,21 +210,16 @@ enum DebugAgentPane {
           animations_pending: animationsPending
         });
         """
-        do {
-            // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
-            let result = try await view.webView.callAsyncJavaScript(script, arguments: ["waitForAnimations": waitForAnimations],
-                                                                    in: nil, contentWorld: .page)
-            guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
-                  let value = JSONValue(foundation: object),
-                  case .object(var members) = value else {
-                return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
-            }
-            members["pane"] = .string(pane)
-            return .object(members)
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
+        let result = await view.pageFunction(script, arguments: ["waitForAnimations": waitForAnimations])
+        guard let text = result as? String,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+              let value = JSONValue(foundation: object),
+              case .object(var members) = value else {
+            return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])
         }
+        members["pane"] = .string(pane)
+        return .object(members)
     }
 
     /// Calls the page bridge that Show ACP Inspector calls
@@ -244,17 +229,11 @@ enum DebugAgentPane {
             const bridge = window.cmuxAcpmuxBridge;
             return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
             """
-        do {
-            let result = try await view.webView.callAsyncJavaScript(
-                script, arguments: ["open": open.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page
-            )
-            guard let isOpen = result as? Bool else {
-                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
-            }
-            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
-        } catch {
-            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        let result = await view.pageFunction(script, arguments: ["open": open.map { $0 as Any } ?? NSNull()])
+        guard let isOpen = result as? Bool else {
+            return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
         }
+        return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
     }
 
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it.

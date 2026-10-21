@@ -6,7 +6,7 @@ import WebKit
 /// The agent pane's web view on the old host: WebKit's context menu goes through the pane
 /// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
 /// `contextMenuEditor` does the same.
-// webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
+// webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
 final class AgentPaneWKWebView: WKWebView {
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
     /// Files the person dropped on the page: a real gesture page script can't make (``AgentPaneUpload``).
@@ -91,18 +91,31 @@ extension AgentPaneView {
     /// a native file drop on the page as the person's gesture (an upload's, ``AgentPaneUpload``).
     func installContextMenu() {
         let dropped: @MainActor () -> Void = { [weak self] in self.map { AgentPanePersonInput.record($0.model.transport.gestures) } }
-        if let page { page.onFilesDropped = dropped } else { (webView as? AgentPaneWKWebView)?.onFilesDropped = dropped }
-        // A page host view can come back from its pool: never add the handler twice (WebKit throws).
+        let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
+        if let page {
+            page.onFilesDropped = dropped
+            // Both engines: the page host relays the report (a Chromium page's menu waits for it).
+            page.addMessageHandler(Self.contextMenuHandler) { [weak self] body in
+                self?.receiveContextMenuReport(body)
+                self?.menuReports.reported()
+            }
+            page.chromiumMenuWait = { [weak self] in await self?.menuReports.untilReported() }
+            page.contextMenuEditor = edit
+            return
+        }
+        (webView as? AgentPaneWKWebView)?.onFilesDropped = dropped
+        // Never add the handler twice (WebKit throws).
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
         webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
                                                         name: Self.contextMenuHandler)
-        let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
-        if let page { page.contextMenuEditor = edit } else { (webView as? AgentPaneWKWebView)?.contextMenuEditor = edit }
+        (webView as? AgentPaneWKWebView)?.contextMenuEditor = edit
     }
 
     /// Undoes ``installContextMenu()`` when the pane closes.
     func removeContextMenu() {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
+        page?.removeMessageHandler(Self.contextMenuHandler)
+        page?.chromiumMenuWait = nil
         page?.contextMenuEditor = nil
         page?.onFilesDropped = nil
         (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil

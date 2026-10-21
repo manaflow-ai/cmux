@@ -13,9 +13,7 @@ enum AgentPanePageHost {
                                documentAttributes: AgentPaneTunables.documentAttributes,
                                options: PageEngineOptions(fullFrameRate: renderRate != .capped))
         // The composer menu's edits run as the page view's own responder actions.
-        provider.onEdit = { [weak page] command in
-            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
-        }
+        provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page
     }
 

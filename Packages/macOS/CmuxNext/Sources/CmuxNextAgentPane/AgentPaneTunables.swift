@@ -120,12 +120,13 @@ public nonisolated enum AgentPaneSidebarPreviewVariant: String, Sendable, CaseIt
 public nonisolated struct AgentPaneTunables {
     public nonisolated init() {}
     /// The agent pane move (react-pages.md): host new agent tabs on the shared page host
-    /// (`cmux-page://cmux.agent/`) instead of the pane's own host. Off until the move is done; this
-    /// tunable goes with the old host (P5).
+    /// (`cmux-page://cmux.agent/`) instead of the pane's own host. On: the page host is where the
+    /// agent chat and New Tab page follow `browser.defaultEngine` (Chromium). Off keeps the old
+    /// WebKit host; this tunable goes with the old host (P5).
     public static let pageHost = Tunable<Bool>.toggle(
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
-        default: false, code: "AgentPaneTunables.pageHost")
+        default: true, code: "AgentPaneTunables.pageHost")
     /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
     /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
     /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.

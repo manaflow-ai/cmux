@@ -7,9 +7,6 @@ public import Foundation
 public nonisolated enum PageWebKitReason: String, Sendable, Hashable, CaseIterable {
     /// The person chose WebKit (`browser.defaultEngine` is `webkit`).
     case personChoseWebKit = "setting"
-    /// The agent chat and New Tab page keep their warmed WebKit host until their own Chromium port:
-    /// typing latency there is measured against WebKit and a spare view is kept ready.
-    case agentChat = "agent-chat"
     /// The page floats over the window as a transparent panel (the update island, the icon
     /// picker's glass panel). A Chromium page is an opaque child window that takes the keys, which
     /// cannot float over the window's backdrop or keep a panel that closes when it loses them.
