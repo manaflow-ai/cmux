@@ -44,6 +44,7 @@ export function Thinking({
   doingShell = false,
   untimed = false,
   quietKey,
+  below = false,
 }: {
   status?: string;
   onCancel?: () => void;
@@ -54,6 +55,8 @@ export function Thinking({
   doingShell?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
+  below?: boolean;
 } = {}) {
   const t = useT();
   const from = doing !== undefined ? doingAt : untimed ? undefined : since;
@@ -70,7 +73,7 @@ export function Thinking({
           : t("tools.runningUnnamed")
         : doing);
   return (
-    <div className={quiet ? "cv-worked" : "cv-worked is-quiet"} data-find-skip>
+    <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {status && onCancel && (

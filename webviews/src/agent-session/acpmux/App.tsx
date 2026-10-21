@@ -777,6 +777,7 @@ const ThinkingRow = memo(
         doingShell={row.doingShell}
         untimed={row.untimed}
         quietKey={row.quietKey}
+        below={row.below}
         onCancel={
           queued
             ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
@@ -796,7 +797,8 @@ const ThinkingRow = memo(
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
     a.row.untimed === b.row.untimed &&
-    a.row.quietKey === b.row.quietKey,
+    a.row.quietKey === b.row.quietKey &&
+    a.row.below === b.row.below,
 );
 const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
@@ -809,7 +811,8 @@ const WorkingRow = memo(
     a.row.durationMs === b.row.durationMs &&
     a.row.doing === b.row.doing &&
     a.row.thinkingNow === b.row.thinkingNow &&
-    a.row.below === b.row.below,
+    a.row.below === b.row.below &&
+    a.row.doingCommand === b.row.doingCommand,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
@@ -2320,7 +2323,10 @@ export function VirtualTranscript({
         // line opening over a turn's first tool call), and by layouts of the same frame that never
         // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
         // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
-        const lastSeen = oldRows.at(-1);
+        // The row the reader reads, not the running turn's line under it (`below`): that line
+        // leaves when the turn ends, and its footer takes its place at the same height.
+        let lastSeen = oldRows.at(-1);
+        if (lastSeen?.below && oldRows.length > 1) lastSeen = oldRows.at(-2);
         if (!glideHold.current && lastSeen) {
           const was = trailingRowTop(old, oldRows, lastSeen.id);
           if (was !== undefined) {

@@ -584,8 +584,11 @@ function liveTurn(
       return [...work, plan, activityLine(user, work, plan, clockOffset)];
     }
     const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
-    const doing = last && inFlightTitle(last);
-    if (doing) status.doing = doing;
+    const doing = last && inFlightCall(last);
+    if (doing) {
+      status.doing = doing.title;
+      if (doing.command) status.doingCommand = true;
+    }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
     else if (!last) status.thinkingNow = true;
     // The answer streams under the list, and the line stays under both.
@@ -600,8 +603,11 @@ function liveTurn(
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
   else {
-    const doing = inFlightTitle(last);
-    if (doing) status.doing = doing;
+    const doing = inFlightCall(last);
+    if (doing) {
+      status.doing = doing.title;
+      if (doing.command) status.doingCommand = true;
+    }
   }
   // The Codex-style runs hold no streaming thought (codexRuns).
   const shown = liveRuns ? rows : withLiveStep(rows, last);
@@ -718,13 +724,15 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 }
 
 /// The newest call still running in a live turn's latest row, by its title.
-function inFlightTitle(row: AcpmuxRow): string | undefined {
+function inFlightCall(row: AcpmuxRow): { title: string; command: boolean } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
     const tool = items[index]?.tool;
+    if (!tool || !isRunning(tool)) continue;
     // The row's own label, never the call's raw JSON input; a command reads as itself.
-    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
+    const title = toolLabel(tool, "", (command) => command).trim();
+    return title ? { title, command: tool.kind === "execute" } : undefined;
   }
   return undefined;
 }

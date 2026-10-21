@@ -196,6 +196,8 @@ export type AcpmuxRow = {
   doingShell?: boolean;
   untimed?: boolean;
   quietKey?: string;
+  /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
+  doingCommand?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -659,6 +661,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
+  // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
+  // `.cv-worked.is-below`) and its row's gap, the footer's too.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return META_ROW + MESSAGE_GAP;
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
   if (row.kind === ACTIVITY_LINE) return 36;
