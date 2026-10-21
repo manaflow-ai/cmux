@@ -779,3 +779,87 @@ async fn agents_rules_past_one_blocks_share_wait_for_later_prompts() {
     assert_eq!(notes(&third), 0, "{third}");
     assert!(!third.contains("cmux-rules-context"), "{third}");
 }
+
+/// `hub` on a unix socket of its own, as the daemon listens; its path.
+async fn listen(hub: &Arc<Hub>) -> std::path::PathBuf {
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
+    let path = std::path::PathBuf::from("/tmp").join(format!(
+        "acpmux-forum-{}-{}.sock",
+        std::process::id(),
+        uuid::Uuid::now_v7().simple()
+    ));
+    let listener = acpmux::server::bind_unix(&path).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    path
+}
+
+/// The agent's `cmux-forum` MCP server posts, reads and acks as its session,
+/// proven by the caller token in its env, never by an argument.
+#[tokio::test]
+async fn the_forum_mcp_server_posts_reads_and_acks_as_its_session() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let id = app.new_session().await;
+    let socket = listen(&hub).await;
+    let scratch = std::env::temp_dir().join(format!("amx-forum-{}", std::process::id()));
+    let mut mcp = daemon_env::tokio_command(&scratch, daemon_env::Agents::Deny)
+        .arg("forum-mcp")
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_SESSION_ID", &id)
+        .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&id))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", &socket)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut stdin = mcp.stdin.take().unwrap();
+    let mut lines = BufReader::new(mcp.stdout.take().unwrap()).lines();
+    let mut ask = async |id: i64, method: &str, params: Value| -> Value {
+        let r = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
+        stdin.write_all(format!("{r}\n").as_bytes()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+                .await
+                .expect("forum-mcp timed out")
+                .unwrap()
+                .expect("forum-mcp closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == id {
+                return reply["result"].clone();
+            }
+        }
+    };
+    ask(1, "initialize", json!({"protocolVersion": "2025-06-18"})).await;
+    let tools = ask(2, "tools/list", json!({})).await;
+    let names: Vec<&str> =
+        tools["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    assert_eq!(names, ["announce", "rules", "ack"], "{tools}");
+
+    // An `account` argument does not make the agent a person.
+    let posted = ask(
+        3,
+        "tools/call",
+        json!({"name": "announce", "arguments": {"key": "merges", "body": "Merge with gh-merge-green.", "account": "leo"}}),
+    )
+    .await;
+    assert_eq!(posted["isError"], false, "{posted}");
+    let post = &posted["structuredContent"]["post"];
+    assert_eq!(post["author"]["kind"], "agent", "{posted}");
+    assert_eq!(post["author"]["sessionId"], id.as_str(), "{posted}");
+
+    let rules = ask(4, "tools/call", json!({"name": "rules", "arguments": {}})).await;
+    let text = rules["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("[merges]") && text.contains("gh-merge-green"), "{text}");
+    assert!(text.contains("information"), "{text}");
+
+    let post_id = post["id"].as_str().unwrap();
+    let acked =
+        ask(5, "tools/call", json!({"name": "ack", "arguments": {"postId": post_id}})).await;
+    assert_eq!(acked["isError"], false, "{acked}");
+    let rule = app.rule("merges").await.unwrap();
+    assert_eq!(rule["acks"][0]["sessionId"], id.as_str(), "{rule}");
+    let _ = std::fs::remove_file(&socket);
+}
