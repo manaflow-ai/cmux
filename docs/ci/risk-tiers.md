@@ -52,10 +52,11 @@ clears this; no person is needed.
 - **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
   broke the build (#16319, #15747, #11163). The compile checks catch that, and the fix is a
   one-line pin move. The takeback check above catches the stale-squash cause.
-- **The update channel setting** (`CmuxNextUpdater/UpdateTrack.swift`, `UpdatePreferences.swift`,
-  and the settings schema). Choosing a channel or ring reuses the feeds the release pipeline
-  already signs, and the updater still verifies every download (Leo, 2026-10-21, after #22781).
-  The code that parses, probes, installs or verifies an update stays high.
+- **The update channel setting** (`CmuxUpdater/UpdateRing.swift`, `CmuxNextUpdater/UpdatePreferences.swift`,
+  and the settings schema). Choosing a ring reuses the feeds the release pipeline already signs,
+  and the updater still verifies every download (Leo, 2026-10-21, after #22781). The code that
+  decides whether the updater runs (`UpdateTrack`), or parses, probes, installs or verifies an
+  update, stays high.
 - **Defaults** (`schemas/defaults/`). A default ships with its setting, so undo is the setting
   (#21686).
 - **The daemon, protocol and terminal paths.** These had real regressions (a render deadlock

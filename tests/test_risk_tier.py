@@ -259,13 +259,16 @@ class ClassifyTests(unittest.TestCase):
     def test_an_update_channel_setting_is_normal_and_the_update_path_stays_high(self):
         # Leo, 2026-10-21: a settings-only channel toggle that reuses the signed feeds is normal;
         # updater install, signing and feed-verification code stays high.
-        setting = (NEXT + "CmuxNextUpdater/UpdateTrack.swift", NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+        setting = ("Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+                   NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
                    NEXT + "CmuxNextSettings/UpdatesSettings.swift",
                    NEXT + "CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
                    "schemas/settings/source/updates.json", "schemas/settings/settings-schema.json",
                    NEXT + "CmuxNextSettings/Localizable.xcstrings")
         self.assertEqual(self.tier(*setting), "normal")
-        for path in ("AppcastParser.swift", "AppcastSelector.swift", "UpdateProber.swift", "UpdaterService+Flow.swift",
+        # UpdateTrack decides whether Sparkle runs at all, so it is the update path, not a setting.
+        for path in ("UpdateTrack.swift", "AppcastParser.swift", "AppcastSelector.swift", "UpdateProber.swift",
+                     "UpdaterService+Flow.swift",
                      "UpdateInstallPreflight.swift", "RollbackSwap.swift", "UpdateTransfer.swift"):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(*setting, NEXT + "CmuxNextUpdater/" + path), "high")
