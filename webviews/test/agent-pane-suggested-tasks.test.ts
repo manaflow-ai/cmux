@@ -923,8 +923,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      // "Steered · the agent read it" is for the person's own prompts, not a message to the agent.
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(0);
+      // No read receipt or "Steered" line: a message to the agent is the agent's to read.
+      expect(await page.locator(".cv-incoming .cv-user__read, .cv-incoming .cv-user__steer").count()).toBe(0);
       await page.close();
     });
   });
