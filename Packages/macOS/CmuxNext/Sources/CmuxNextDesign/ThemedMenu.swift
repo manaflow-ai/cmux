@@ -20,11 +20,11 @@ extension NSMenu {
         return self
     }
 
-    private func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
+    fileprivate func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
         // Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and
         // passes every call on to the delegate the menu had (a choices submenu's coordinator).
         if !(delegate is ThemedMenuHighlightRelay) {
-            let relay = ThemedMenuHighlightRelay(forward: delegate)
+            let relay = ThemedMenuHighlightRelay(forward: delegate, scope: scope, session: session)
             session.keep(relay)
             delegate = relay
         }
@@ -89,9 +89,14 @@ final class ThemedMenuDispatch: NSObject, NSMenuItemValidation {
 /// forwards to the menu's previous delegate, which keeps its own behavior.
 final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     private weak var forward: (any NSMenuDelegate)?
+    private let scope: ThemeScope
+    /// The session keeps this relay, so it outlives it; weak only to make no cycle.
+    private weak var session: ThemedMenuSession?
 
-    init(forward: (any NSMenuDelegate)?) {
+    init(forward: (any NSMenuDelegate)?, scope: ThemeScope, session: ThemedMenuSession) {
         self.forward = forward
+        self.scope = scope
+        self.session = session
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
@@ -103,5 +108,9 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) { forward?.menuWillOpen?(menu) }
     func menuDidClose(_ menu: NSMenu) { forward?.menuDidClose?(menu) }
-    func menuNeedsUpdate(_ menu: NSMenu) { forward?.menuNeedsUpdate?(menu) }
+    /// A submenu filled as it opens (Open With ▸) themes the rows its delegate just added.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        forward?.menuNeedsUpdate?(menu)
+        if let session { menu.themeRows(in: scope, session: session) }
+    }
 }

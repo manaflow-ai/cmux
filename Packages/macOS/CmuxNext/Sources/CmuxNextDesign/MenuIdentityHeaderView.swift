@@ -103,8 +103,11 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
             closeMenu()
             return true
         case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
-            // The arrows leave the field for the menu's rows (the name typed so far is kept).
+            // The arrows leave the field for the menu's rows (the name typed so far is kept); the
+            // same press then moves the menu's highlight.
+            let window = window
             window?.makeFirstResponder(nil)
+            if let event = NSApp.currentEvent, event.type == .keyDown { window?.sendEvent(event) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             // Escape puts the name back and closes the menu, as Escape on any menu does.

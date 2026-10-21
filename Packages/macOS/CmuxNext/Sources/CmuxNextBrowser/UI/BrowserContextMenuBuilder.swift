@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Turns an engine's context menu model into an `NSMenu` and shows it. The
 /// host may put its own items (cmux actions) before and after the engine's.
@@ -55,6 +56,8 @@ public final class BrowserContextMenuBuilder {
             for item in extra { menu.addItem(item) }
         }
         let point = view.isFlipped ? request.location : CGPoint(x: request.location.x, y: view.bounds.height - request.location.y)
+        // The page's rows highlight as the rest of cmux's menus do: a wash of the tab's theme accent.
+        menu.themeRows(in: view.themeScope.fullStrength)
         presentedMenu = menu
         menu.popUp(positioning: nil, at: point, in: view)
         presentedMenu = nil
