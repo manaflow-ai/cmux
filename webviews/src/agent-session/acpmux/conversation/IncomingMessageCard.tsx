@@ -38,21 +38,23 @@ export function IncomingMessageLine({
     setOpen(next);
   };
   const toggle = () => show(!open);
-  // Find in Chat opens a closed message that holds its match, as a folded thought opens.
-  const reveal = useContext(FindReveal);
-  const hit = Boolean(
-    reveal && reveal.rowId === id && reveal.needle && message.text.toLocaleLowerCase().includes(reveal.needle),
-  );
-  useLayoutEffect(() => {
-    if (!hit) return;
-    show(true);
-    reveal?.repaint();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
-  }, [hit, reveal]);
   const bodyId = useId();
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
   const [details, setDetails] = useState(false);
+  // Find in Chat opens a closed message that holds its match, as a folded thought opens; a match
+  // only in the envelope (Find searches the whole prompt) opens Details too.
+  const reveal = useContext(FindReveal);
+  const needle = reveal && reveal.rowId === id ? reveal.needle : "";
+  const inText = Boolean(needle && message.text.toLocaleLowerCase().includes(needle));
+  const inRaw = Boolean(needle && !inText && message.raw.toLocaleLowerCase().includes(needle));
+  useLayoutEffect(() => {
+    if (!inText && !inRaw) return;
+    show(true);
+    if (inRaw) setDetails(true);
+    reveal?.repaint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+  }, [inText, inRaw, reveal]);
   // The name sits where the sentence puts it ("Received message from {title}").
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
