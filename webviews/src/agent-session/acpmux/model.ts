@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -10,10 +11,9 @@ import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./conversation/backgroundWork";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -24,6 +24,10 @@ export type AcpmuxBackgroundTask = {
   command: string;
   state: "completed" | "failed" | "stopped";
   reason?: string;
+  /// Claude Code's own words on how it ended (its task notification's summary).
+  summary?: string;
+  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  exitCode?: number;
 };
 
 /// A shell call's life in the background, on the call that started it (direct.ts
@@ -501,6 +505,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -697,10 +704,7 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-/// The "Running in background" row after it (summary/backgroundWork.ts) leaves it the last: the
-/// row comes and goes under the footer without moving it.
-export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "turnSummary" && (!next || next.kind === BACKGROUND_WORK);
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -770,7 +774,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === BACKGROUND_WORK ||
+    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "plan" ||

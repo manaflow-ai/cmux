@@ -5,6 +5,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
+import type { AcpmuxActivity } from "../model";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
 import {
@@ -181,6 +182,29 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
     summary(at - 1, { status: "completed" }),
   ];
 }).flat();
+
+/// A thought of a few lines, and a live turn whose step holds `items` and a call, then `after` and a
+/// second call (ThoughtRow.tsx, thoughts.ts).
+const SHORT_THOUGHT =
+  "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.";
+const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
+  chat(
+    [
+      user(prompt, 2),
+      activity(
+        [
+          ...items,
+          tool("Read client.ts", "read", "completed", {
+            locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+          }),
+          ...after,
+          ...(after.length ? [tool("Search for parseError", "search", "completed")] : []),
+        ],
+        1.5,
+      ),
+    ],
+    { isWorking: true },
+  );
 
 /// A thought taller than the transcript's view (ThoughtRow.tsx folds it once done).
 const LONG_THOUGHT = [
@@ -740,42 +764,82 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: "Play: a thought shows in full on its row, wrapped after a muted Thought label, with nothing to open and no tooltip (Leo 2026-10-13).",
-      snapshot: chat(
-        [
-          user(prompt, 2),
-          activity(
-            [
-              thought(
-                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
-              ),
-              tool("Read client.ts", "read", "completed", {
-                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
-              }),
-            ],
-            1.5,
-          ),
-        ],
-        { isWorking: true },
-      ),
+      note: 'Play: a finished thought is one quiet row, "Thought for 12s" with none of its text inline and no tooltip, as Claude Desktop and Codex draw it (Leo 2026-10-20: "Thought <first line>" read weird). Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
-        // Hovering the thought used to pop its full text as a tooltip.
-        await ctx.hover({ selector: ".cv-thought__text" });
-        if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
-          throw new Error("a thought is a row of text, not a toggle");
+        await ctx.waitFor(() => row()?.textContent === "Thought for 12s");
+        await ctx.hover({ selector: ".cv-thought" });
+        if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
+          throw new Error("a finished thought is a closed toggle");
+        if (ctx.document.querySelector(".cv-thought__text") || ctx.document.body.textContent?.includes("jittered"))
+          throw new Error("a folded thought shows none of its text");
         if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
+    "thought-expanded": {
+      note: "Play: the folded thought opens to its full text under one left rule; the line still reads Thought for 12s.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
+      snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
+      play: async (ctx) => {
+        await ctx.click({ selector: "button.cv-thought" });
+        const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
+        await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
+          throw new Error("the opened thought is not expanded");
+      },
+    },
+    "thoughts-merged": {
+      note: "Play: two thoughts side by side in one step (as when a call a permission ask holds out of the transcript sat between them) are one row for the sum of their times, 4s and 8s, opening to both texts.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
+      snapshot: thoughtChat([
+        thought("Check how the helper parses errors first.", { startedAt: 0, endedAt: 4_000 }),
+        thought("On second thought, the retry wrapper swallows the status, so a 429 looks like a network failure.", {
+          startedAt: 9_000,
+          endedAt: 17_000,
+        }),
+      ]),
+      play: async (ctx) => {
+        const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-thought")];
+        await ctx.waitFor(() => rows()[0]?.textContent === "Thought for 12s");
+        if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
+        await ctx.click({ selector: "button.cv-thought" });
+        const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
+        await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
+      },
+    },
+    "thought-quiet": {
+      note: "Play: an empty thought (Claude's omitted or redacted thinking) and a short one done in under a second draw no row; the step shows its calls alone.",
+      snapshot: thoughtChat(
+        [thought("", { startedAt: 0, endedAt: 0 })],
+        [thought("I am here", { startedAt: 0, endedAt: 300 })],
+      ),
+      play: async (ctx) => {
+        // The step draws its calls (a live run may show only its newest), and nothing else.
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
+        await ctx.hover({ selector: ".cv-tools .cv-tool" });
+        if (ctx.document.querySelector(".cv-thought")) throw new Error("a quiet thought draws a row");
+        if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
+      },
+    },
     "long-thought-streaming": {
-      note: "A long thought still streaming shows in full. With the Debug toggle agentPane.debug.foldLongThoughts on, it holds a seven-line viewport with its newest line in view (agentPane.debug.liveThoughtViewport) and folds once done.",
+      note: "A long thought still streaming holds a seven-line viewport with its newest line in view (Debug toggle agentPane.debug.liveThoughtViewport) and folds once done; with agentPane.debug.foldLongThoughts off, it shows in full.",
       snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
         isWorking: true,
       }),
     },
     "long-thought-done": {
-      note: 'A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to "Thought for 12s" (with agentPane.debug.thoughtHeader preview, "Thought" and its first line); off, it shows in full as before.',
+      note: 'A long thought followed by a step folds to "Thought for 12s" (with Debug Settings agentPane.debug.thoughtHeader preview, "Thought" and its first line); with agentPane.debug.foldLongThoughts off (data-fold-long-thoughts="off" on <html>), it shows in full as before.',
       snapshot: chat(
         [
           user(prompt, 2),
