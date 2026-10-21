@@ -32,6 +32,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 pub use open_guard::RegistryQuarantined;
 use open_guard::preflight_unsupported_schema;
 
+pub(crate) mod agent_cli_intents;
 mod compact;
 mod detached_terminals;
 pub(crate) use detached_terminals::DETACHED_TERMINAL_WORKSPACE_KEY;
@@ -77,6 +78,7 @@ mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_respawn_store;
+pub(crate) mod terminal_resume_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
@@ -3960,6 +3962,7 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     )?;
     idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
     terminal_keep_store::create_terminal_keep_schema(transaction)?;
+    terminal_resume_store::create_terminal_resume_schema(transaction)?;
     relaunch_store::create_schema(transaction)?;
     Ok(())
 }

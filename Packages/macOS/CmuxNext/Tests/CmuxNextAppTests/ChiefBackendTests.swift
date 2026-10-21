@@ -41,9 +41,9 @@ import Testing
     }
 
     @MainActor @Test func theHarnessPickerOffersUniiChatWithAndWithoutTheCodeRouterRoute() {
-        #expect(HomeChiefSidebar.harnesses(routeConfigured: false) == ["claude", "codex", "unii"])
-        #expect(HomeChiefSidebar.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "unii"])
-        let items = HomeChiefSidebar.harnessItems(routeConfigured: true)
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: false) == ["claude", "codex", "unii"])
+        #expect(HomeChiefSettingsView.harnesses(routeConfigured: true) == ["claude", "claude-cr", "codex", "unii"])
+        let items = HomeChiefSettingsView.harnessItems(routeConfigured: true)
         #expect(items.first { $0.value == "unii" }?.title == ChiefBackend.unii.title)
         #expect(items.first { $0.value == "claude-cr" }?.title == "claude-cr")
     }

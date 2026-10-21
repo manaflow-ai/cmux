@@ -175,6 +175,9 @@ public nonisolated final class CloudHomeSource: HomeSource {
             break
         case .live(let live): applyLive({ $0.event(live) }, conversation: live.conversation)
         case .runChanged(let changed): applyLive({ $0.event(changed) }, conversation: changed.conversation)
+        case .typing(let typing):
+            guard let identity = state.withLock({ $0.identity }) else { break }
+            publish(.typing(ConversationID(typing.conversation), identity.toHome(typing.participant), on: typing.on))
         }
         if case .changed(let changed) = event { echoed(ConversationID(changed.conversation), rev: changed.rev) }
         if case .resynced(let resynced) = event { echoed(ConversationID(resynced.conversation), rev: resynced.rev) }
@@ -220,6 +223,7 @@ public nonisolated final class CloudHomeSource: HomeSource {
         case .sessionNeeded, .hostReplicaNeeded: return true
         case .live(let live): account = live.account
         case .runChanged(let changed): account = changed.account
+        case .typing(let typing): account = typing.account
         }
         guard let account else { return false }
         return cloudID == CloudIdentity.cloudID(stackUserID: account)

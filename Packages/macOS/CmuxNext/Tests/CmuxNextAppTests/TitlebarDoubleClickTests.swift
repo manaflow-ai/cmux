@@ -60,7 +60,8 @@ import Testing
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         defer { window.close() }
-        let views = sequence(state: [NSView](arrayLiteral: root.sidebar)) { stack -> NSView? in
+        // The handle lies across the sidebar edge in the root view (SidebarResizeHitAreaTests).
+        let views = sequence(state: [NSView](arrayLiteral: root)) { stack -> NSView? in
             guard !stack.isEmpty else { return nil }
             let view = stack.removeLast()
             stack.append(contentsOf: view.subviews)

@@ -27,12 +27,11 @@ public final class AgentLaneStore {
 }
 
 extension AgentActivityModel {
-    /// Shows `store`'s lanes while `enabled` (Labs preview features: off by default until the
-    /// lanes view is styled), else none.
-    public func follow(_ store: AgentLaneStore, while enabled: @escaping @MainActor @Sendable () -> Bool) -> Task<Void, Never> {
+    /// Shows `store`'s lanes (Leo 2026-10-20: always, not only with Labs preview features on).
+    public func follow(_ store: AgentLaneStore) -> Task<Void, Never> {
         // task-owner: the caller (the page tab cancels it in `close`); event-driven (Observation)
         Task { [weak self] in
-            for await value in ObservationStream({ enabled() ? store.shown : nil }) {
+            for await value in ObservationStream({ store.shown }) {
                 guard let self else { return }
                 lanes = value
             }

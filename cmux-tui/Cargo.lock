@@ -15,6 +15,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-sdk",
  "cmux-unix-socket",
  "crossterm",
@@ -28,6 +29,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rustls",
  "schemars",
  "serde",
@@ -1123,6 +1125,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "url",
 ]
 
@@ -1236,6 +1239,14 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "cmux-panic-log"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
 ]
 
 [[package]]
@@ -1515,6 +1526,7 @@ dependencies = [
  "cmux-config",
  "cmux-host",
  "cmux-link",
+ "cmux-panic-log",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1539,6 +1551,7 @@ dependencies = [
  "ratatui",
  "regex",
  "reqwest",
+ "ring",
  "rquickjs",
  "rusqlite",
  "rustls",
@@ -1586,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",

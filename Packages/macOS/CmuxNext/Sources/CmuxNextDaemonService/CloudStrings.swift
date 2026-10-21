@@ -35,7 +35,6 @@ public enum CloudStrings {
     public static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
     public static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }
     public static var noTeams: String { String(localized: "cloud.failed.noTeams", defaultValue: "This account has no teams.", table: "Cloud", bundle: .module) }
-    public static var mobilePairing: String { String(localized: "cloud.unavailable.mobilePairing", defaultValue: "Mobile pairing arrives with the iOS phase of cmux-next (plans/cmux-next/cloud-ios.md).", table: "Cloud", bundle: .module) }
     public static var invalidPort: String { String(localized: "cloud.failed.invalidPort", defaultValue: "Port must be between 1 and 65535.", table: "Cloud", bundle: .module) }
     public static var noAddress: String { String(localized: "cloud.failed.noAddress", defaultValue: "The machine has no private address yet.", table: "Cloud", bundle: .module) }
     public static var renameMachineTitle: String { String(localized: "cloud.prompt.renameMachine", defaultValue: "Rename Machine", table: "Cloud", bundle: .module) }

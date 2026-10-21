@@ -9,13 +9,13 @@ final class WorkspaceRowView: SidebarRowView {
     let icon = SidebarIconView()
     /// Fades a clipped title and scrolls it while the pointer rests on the
     /// row (TitleFade); NSTextField would end it in an ellipsis instead.
-    let title = MarqueeLabel()
+    let title = MarqueeLabel(gate: Motion.sidebar)
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
-    internal let agentMark = NSImageView()
+    internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
@@ -26,7 +26,12 @@ final class WorkspaceRowView: SidebarRowView {
     let presenceDots = PresenceDotsView()
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
-    let mutedMark = NSImageView()
+    let mutedMark = DecorativeImageView()
+    /// The workspace's tabs play sound (or are muted): a small speaker in the
+    /// trailing cluster, always shown while they do, crossed out while they
+    /// are muted. A click mutes or unmutes them (`onToggleAudio`).
+    let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
+    internal(set) var audio: SidebarWorkspaceAudio?
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
@@ -76,6 +81,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
+    var onToggleAudio: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     internal(set) var isShowingPlaceholder = false
     /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
@@ -107,8 +113,7 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.isHidden = true
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
-        mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
             .forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
@@ -120,6 +125,7 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
+        audioButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -128,9 +134,10 @@ final class WorkspaceRowView: SidebarRowView {
         moreButton.onPress = { [weak self] in self?.onMore?() }
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
+        audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, audioButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -162,6 +169,7 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
+        onToggleAudio = nil
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
@@ -225,7 +233,7 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         lastTitle = ws.title
         let arrival = priorTitle?.isEmpty == true && !ws.title.isEmpty && !isPlaceholderRow
-            && tunables.workspaceTitleMotion != .instant && !Motion.reduceMotion
+            && tunables.workspaceTitleMotion != .instant && Motion.sidebar.animatesMovement
         if arrival {
             titleArrivalPending = true
             titleArrivalVariant = tunables.workspaceTitleMotion
@@ -252,6 +260,10 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        audio = isShowingPlaceholder ? nil : ws.audio
+        audioButton.isHidden = audio == nil
+        audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
+        audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
@@ -271,6 +283,9 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] {
+            button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
+        }
         setAccessibilityLabel(accessibilityText(ws, content: shown))
         needsLayout = true
         needsDisplay = true
@@ -283,14 +298,14 @@ final class WorkspaceRowView: SidebarRowView {
                                     variant: SidebarWorkspaceTitleMotionVariant,
                                     placeholder: Bool) {
         guard !placeholder, let old, !old.isEmpty, !new.isEmpty, old != new,
-              variant != .instant, !Motion.reduceMotion else { return }
+              variant != .instant, Motion.sidebar.animatesMovement else { return }
         let transition: CATransition
         switch variant {
         case .instant: return
         case .crossfade: transition = Motion.crossfadeAction
         case .lift: transition = Motion.pushUpAction
         }
-        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
         title.layer?.add(transition, forKey: "workspace-title-motion")
     }
@@ -312,10 +327,10 @@ final class WorkspaceRowView: SidebarRowView {
         case .crossfade: Motion.crossfadeAction
         case .lift: Motion.pushUpAction
         }
-        transition.duration = variant == .crossfade ? Motion.duration(.crossfade) : Motion.duration(.fadeIn)
+        transition.duration = variant == .crossfade ? Motion.sidebar.duration(.crossfade) : Motion.sidebar.duration(.fadeIn)
         transition.timingFunction = Motion.fadeCurve
         title.layer?.add(transition, forKey: "workspace-title-motion")
-        Motion.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
+        Motion.sidebar.animate(.fadeOut, in: placeholderBar, { [weak placeholderBar] in
             placeholderBar?.animator().alphaValue = 0
         }, completion: { [weak self] in
             guard let self, self.titleArrivalGeneration == generation else { return }

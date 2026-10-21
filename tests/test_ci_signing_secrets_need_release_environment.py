@@ -23,6 +23,12 @@ A job without such an environment would read nothing once the repository-level
 copies are deleted, so this guard fails before that breaks a release. It also
 refuses workflow-level `env:` that names a signing secret, because that leaks
 it into every job of the workflow.
+
+A secret-reading job must also remain a trusted control boundary: it cannot
+run a rolling remote installer, and a workflow triggered by a wildcard branch
+pattern cannot let that job run on the push. Wildcard push workflows may still
+carry a dispatch-only signer when its job condition binds the event and exact
+protected ref.
 """
 
 from __future__ import annotations
@@ -62,6 +68,13 @@ QUOTED = re.compile(r"'([^']*)'")
 RESULT_LITERAL = re.compile(r"(?:&&|\|\|)\s*'([^']*)'")
 NEEDS_ENVIRONMENT = re.compile(r"^\$\{\{\s*needs\.([A-Za-z0-9_-]+)\.outputs\.environment\s*\}\}$")
 SET_ENVIRONMENT = re.compile(r"setOutput\(\s*['\"]environment['\"]\s*,\s*([^;\n]+)\)")
+REMOTE_SHELL_INSTALLER = re.compile(r"\bcurl\b[^\n|]*\|\s*(?:ba)?sh\b")
+DISPATCH_ONLY = re.compile(r"github\.event_name\s*==\s*['\"]workflow_dispatch['\"]")
+EXACT_BRANCH_REF = re.compile(r"github\.ref\s*==\s*['\"]refs/heads/[A-Za-z0-9._/-]+['\"]")
+# Round-2 update-1 already owns nightly.yml's rc/** promotion/signing debt.
+# Keep this regression focused on newly introduced paths instead of relabeling
+# the same known release-surface finding.
+WILDCARD_PUSH_EXCEPTIONS = {"nightly.yml"}
 
 
 def allowed_for(secret: str, reader: tuple[str, str] | None = None) -> set[str]:
@@ -109,6 +122,20 @@ def environment_values(document: dict, job: dict) -> set[str] | None:
     return set(RESULT_LITERAL.findall(environment)) or None
 
 
+def wildcard_push_branches(document: dict) -> list[str]:
+    # PyYAML 1.1 parses the plain key `on` as boolean true.
+    triggers = document.get("on", document.get(True, {}))
+    if not isinstance(triggers, dict):
+        return []
+    push = triggers.get("push")
+    if not isinstance(push, dict):
+        return []
+    branches = push.get("branches") or []
+    if isinstance(branches, str):
+        branches = [branches]
+    return [str(branch) for branch in branches if "*" in str(branch)]
+
+
 def main() -> int:
     failures: list[str] = []
     signing_jobs = 0
@@ -117,6 +144,7 @@ def main() -> int:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(document, dict):
             continue
+        wildcard_branches = wildcard_push_branches(document)
         top_level, top_dynamic = referenced_secrets(document.get("env") or {})
         if top_level or top_dynamic:
             failures.append(
@@ -136,6 +164,23 @@ def main() -> int:
             where = f"{path.name} {job_name}"
             if any(secret.startswith("CMUX_FFI_RELEASE_APP_") for secret in secrets):
                 ffi_readers.add((path.name, job_name))
+            scripts = "\n".join(
+                str(step.get("run", ""))
+                for step in (job.get("steps") or [])
+                if isinstance(step, dict)
+            )
+            if REMOTE_SHELL_INSTALLER.search(scripts):
+                failures.append(
+                    f"{where}: runs a rolling curl-to-shell installer in a signing-secret job; "
+                    "install tools in the credential-free build job or consume a pinned/pre-provisioned tool"
+                )
+            if wildcard_branches and path.name not in WILDCARD_PUSH_EXCEPTIONS:
+                condition = str(job.get("if", ""))
+                if not (DISPATCH_ONLY.search(condition) and EXACT_BRANCH_REF.search(condition)):
+                    failures.append(
+                        f"{where}: reads signing secrets on wildcard push branches {wildcard_branches}; "
+                        "the signer must be dispatch-only and bind an exact protected ref"
+                    )
             if "uses" in job:
                 failures.append(
                     f"{where}: passes signing secrets {sorted(secrets)} into a reusable workflow; "
