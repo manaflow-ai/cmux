@@ -17,7 +17,7 @@ afterAll(() => restore());
 const { renderPage, rowElement } = await import("./testing");
 
 const LIMIT = 60;
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = import.meta.dir;
 const catalogFile = path.resolve(
   here,
   "../../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings",
