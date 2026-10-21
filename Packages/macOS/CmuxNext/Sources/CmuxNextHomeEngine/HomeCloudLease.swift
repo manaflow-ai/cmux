@@ -14,6 +14,15 @@ public protocol CloudLeaseTokens: AnyObject {
 public nonisolated protocol CloudLeaseSessions: Sendable {
     func setSession(_ request: CloudSessionSetRequest) async throws -> CloudSessionState
     func clearSession() async throws -> CloudSessionState
+    /// `cloud-selfhost-info`: the person on the self-hosted server the lease names.
+    func selfHostInfo() async throws -> CloudSelfHostInfo
+}
+
+extension CloudLeaseSessions {
+    /// A daemon without self-hosted servers.
+    public func selfHostInfo() async throws -> CloudSelfHostInfo {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.cloudSelfHost])
+    }
 }
 
 extension CloudConversationClient: CloudLeaseSessions {}
