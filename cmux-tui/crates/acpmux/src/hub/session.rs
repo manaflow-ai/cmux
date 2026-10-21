@@ -61,7 +61,8 @@ pub struct Session {
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
     /// Ctrl-B moves its work: decided by the harness kind it last started as
-    /// (`processes.rs` `backgrounds_work`), never by the config read later.
+    /// (`processes.rs` `backgrounds_work`), or by what an adopted host runs
+    /// (`hosts.rs`), never by the config read later.
     pub(super) backgrounds_work: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).

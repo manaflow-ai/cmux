@@ -292,6 +292,10 @@ impl Hub {
             crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
         });
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
+        // Ctrl-B goes by what the host runs (`processes.rs`): only Claude Code's translator
+        // answers the query with its state, whatever the chat saved or the config says now.
+        let moves = child.claude_state().await.is_some();
+        session.backgrounds_work.store(moves, Ordering::SeqCst);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
