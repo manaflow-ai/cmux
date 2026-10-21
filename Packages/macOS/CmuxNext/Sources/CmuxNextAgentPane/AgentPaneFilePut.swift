@@ -13,7 +13,7 @@ public nonisolated enum AgentPaneFilePutFailure: Error, Equatable, Sendable {
 
     /// The failure an acpmux call threw: an older daemon, or a peer it refused for that
     /// (`filePut.unsupported`, JSON-RPC "Method not found"), is ``unsupported``.
-    init(_ error: any Error) {
+    public init(_ error: any Error) {
         if let failure = error as? Self {
             self = failure
         } else if let failure = error as? AcpmuxStatusClient.Failure, case .unsupportedFeature = failure {

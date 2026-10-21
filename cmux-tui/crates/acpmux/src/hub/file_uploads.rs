@@ -33,14 +33,19 @@ fn session_dir(id: &str) -> Option<PathBuf> {
 }
 
 /// A name a folder holds as one plain file (the app's `AgentPaneUpload.isFileName`): 1 to 255
-/// UTF-8 bytes, not a dot file (nor `.` or `..`), no `/` (nor `\` on Windows), and no control or
-/// bidirectional formatting character.
+/// UTF-8 bytes, not a dot file (nor `.` or `..`), no `/` (nor `\` or `:` on Windows, where a
+/// drive prefix such as `C:x` replaces the folder it is joined to), one plain path component, and
+/// no control or bidirectional formatting character.
 pub fn is_file_name(name: &str) -> bool {
     if !(1..=255).contains(&name.len())
         || name.starts_with('.')
         || name.contains('/')
-        || (cfg!(windows) && name.contains('\\'))
+        || (cfg!(windows) && (name.contains('\\') || name.contains(':')))
     {
+        return false;
+    }
+    let mut parts = std::path::Path::new(name).components();
+    if !matches!((parts.next(), parts.next()), (Some(std::path::Component::Normal(_)), None)) {
         return false;
     }
     !name.chars().any(|c| {
@@ -77,10 +82,17 @@ pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
         .get("data")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
-    if data.len() > MAX_BYTES.div_ceil(3) * 4 {
+    if decoded_len(data) > MAX_BYTES {
         return Err(too_large());
     }
     Ok((name, data))
+}
+
+/// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
+/// so a file one byte past [`MAX_BYTES`] is refused here and never sent on.
+fn decoded_len(data: &str) -> usize {
+    let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
+    (data.len() / 4 * 3).saturating_sub(pad)
 }
 
 /// `_acpmux/file_put` for one of this daemon's chats: an unknown or purged one is refused.
@@ -146,6 +158,26 @@ mod tests {
             long.as_str(),
         ] {
             assert!(!is_file_name(bad), "{bad:?}");
+        }
+        // A drive prefix or a data stream on Windows, which a join would take out of the folder.
+        if cfg!(windows) {
+            for bad in ["C:evil.txt", "a.txt:stream", "a\\b"] {
+                assert!(!is_file_name(bad), "{bad:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn one_byte_past_the_cap_is_refused_before_it_is_sent() {
+        use base64::Engine;
+        let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
+        for n in [0, 1, 2, 3, 4, MAX_BYTES] {
+            assert_eq!(decoded_len(&encode(n)), n, "{n}");
+        }
+        for n in [MAX_BYTES + 1, MAX_BYTES + 2] {
+            let params = json!({"fileName": "big.bin", "data": encode(n)});
+            let err = check(&params).expect_err("past the cap");
+            assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.tooLarge", "{n}");
         }
     }
 

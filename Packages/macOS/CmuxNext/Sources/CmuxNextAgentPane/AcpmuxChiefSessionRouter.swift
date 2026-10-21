@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
 /// home's acpmux (`mux.parent` = `optchat-chief:<home id>` in that one daemon's listing) attaches

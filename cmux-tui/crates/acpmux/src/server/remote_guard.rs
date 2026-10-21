@@ -48,10 +48,12 @@
 //! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
 //!   of the caller's bytes on this machine (under acpmux's own `uploads`
 //!   folder, never a path of the caller's), for a file the person dropped
-//!   into a chat in the app: the unix socket, the app (LocalApp, whose page
-//!   never sends it: the app does, after the person's gesture) and a peer
+//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
 //!   forwarding for either take it; a peer forwarding for its own Web client
-//!   does not.
+//!   does not. The app sends it over the unix socket after the person's
+//!   gesture, but a LocalApp page could send it itself with no gesture: that
+//!   is accepted, since the page can already prompt the agent, and it writes
+//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
 //!
 //! The unix socket keeps today's behavior.
 
