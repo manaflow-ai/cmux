@@ -192,7 +192,8 @@ export const Speaker = (p: CvIconProps) => (
   </Svg>
 );
 
-/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx). */
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
+ * agent's current step to end (PendingSteer.tsx). */
 export const Clock = (p: CvIconProps) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="5.5" />
@@ -407,14 +408,6 @@ export const PauseCircle = (p: CvIconProps) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="5.75" />
     <path d="M6.5 6v4M9.5 6v4" />
-  </Svg>
-);
-
-/** A steer waiting for the agent's current step to end (PendingSteer.tsx). */
-export const Clock = (p: CvIconProps) => (
-  <Svg {...p}>
-    <circle cx="8" cy="8" r="5.75" />
-    <path d="M8 5v3.25l2 1.25" />
   </Svg>
 );
 
