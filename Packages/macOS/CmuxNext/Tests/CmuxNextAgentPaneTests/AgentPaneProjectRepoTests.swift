@@ -67,6 +67,7 @@ struct AgentPaneProjectRepoTests {
             var reader = live
             reader.stat = { touches.add($0); return live.stat($0) }
             reader.read = { touches.add($0); return live.read($0) }
+            reader.readManifest = { touches.add($0); return live.readManifest($0) }
             reader.list = { touches.add($0); return live.list($0) }
             return reader
         }
@@ -233,6 +234,9 @@ struct AgentPaneProjectRepoTests {
         try fixture.write(#"{"name":"x"}"#, "code/bun/package.json")
         try fixture.write("", "code/bun/bun.lock")
         try fixture.write("not json", "code/broken/package.json")
+        try fixture.write(#"{"dependencies":{"react":"19","electron":"38"}}"#, "code/desktop/package.json")
+        let padding = String(repeating: "x", count: AgentPaneProjectIcon.maximumBytes * 2)
+        try fixture.write(#"{"description":""# + padding + #"","dependencies":{"react":"19"}}"#, "code/large/package.json")
         try fixture.folder("code/mac/Mac.xcodeproj")
         try fixture.write("dependencies:\n  flutter:\n    sdk: flutter\n", "code/flutter/pubspec.yaml")
         try fixture.write("const std = @import(\"std\");\n", "code/zig/build.zig")
@@ -240,7 +244,7 @@ struct AgentPaneProjectRepoTests {
         for (folder, glyph) in [("next", "next"), ("react-vite", "react"), ("vite", "vite"), ("vue", "vue"),
                                 ("svelte", "svelte"), ("expo", "expo"), ("prose", "node"), ("tauri", "tauri"),
                                 ("bun", "bun"), ("broken", "node"), ("mac", "swift"), ("flutter", "flutter"),
-                                ("zig", "zig")] {
+                                ("zig", "zig"), ("desktop", "electron"), ("large", "react")] {
             #expect(reader.glyph(in: fixture.home + "/code/" + folder) == glyph, "\(folder)")
         }
     }

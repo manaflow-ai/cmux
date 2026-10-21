@@ -19,6 +19,9 @@ import CmuxNextSettings
 nonisolated struct AgentPaneProjectIcon: Sendable {
     /// Larger files are skipped: a tile is 20pt, and the answer crosses the bridge as base64.
     static let maximumBytes = 64 * 1024
+    /// A package.json is read whole up to this size: cut short it is no JSON, and some (an editor
+    /// extension's) run well past an icon's limit.
+    static let maximumManifestBytes = 1024 * 1024
     /// Best first: a vector or a 180px touch icon draws sharper in the tile than a 16px `.ico`.
     static let names = ["favicon.svg", "icon.svg", "apple-touch-icon.png", "favicon.png", "icon.png", "favicon.ico"]
     /// The folder itself and where web frameworks keep their icons (Next.js `app/`, Vite and
@@ -35,6 +38,8 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     /// A regular file's size and modification date, or nil (the cache key with its path).
     var stat: @Sendable (String) -> File?
     var read: @Sendable (String) -> Data?
+    /// A manifest's bytes, up to `maximumManifestBytes`, or nil.
+    var readManifest: @Sendable (String) -> Data?
     /// A folder's entry names, or nil (the AppIcon set's images).
     var list: @Sendable (String) -> [String]?
     private let validator: ChatRootValidator
@@ -55,6 +60,11 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
             defer { try? handle.close() }
             return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
+        }
+        readManifest = { path in
+            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            defer { try? handle.close() }
+            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumManifestBytes)
         }
         list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
@@ -119,18 +129,20 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     }
 
     /// The web, desktop and mobile frameworks a package.json can name, most specific first: a
-    /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a UI library over its
-    /// bundler (a React app built with Vite shows React), so the mark says what kind of app it is.
+    /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a desktop or mobile shell
+    /// over the UI library inside it (an Electron app built with React shows Electron), a UI library
+    /// over its bundler (a React app built with Vite shows React), so the mark says what kind of app
+    /// it is.
     static let packageFrameworks: [(glyph: String, packages: [String])] = [
         ("next", ["next"]),
         ("nuxt", ["nuxt", "nuxt3"]),
         ("remix", ["@remix-run/react", "@remix-run/node", "@react-router/dev"]),
         ("astro", ["astro"]),
-        ("svelte", ["@sveltejs/kit", "svelte"]),
-        ("angular", ["@angular/core"]),
         ("expo", ["expo", "react-native"]),
         ("electron", ["electron"]),
         ("tauri", ["@tauri-apps/api", "@tauri-apps/cli"]),
+        ("svelte", ["@sveltejs/kit", "svelte"]),
+        ("angular", ["@angular/core"]),
         ("vue", ["vue"]),
         ("react", ["react"]),
         ("vite", ["vite"]),
@@ -158,7 +170,7 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         }
         if has("Package.swift") || hasXcodeProject(base) { return "swift" }
         if let package = regularFile(base + "/package.json") {
-            let names = read(package).map(Self.dependencies(of:)) ?? []
+            let names = readManifest(package).map(Self.dependencies(of:)) ?? []
             if let framework = Self.packageFrameworks.first(where: { !names.isDisjoint(with: $0.packages) }) {
                 return framework.glyph
             }
