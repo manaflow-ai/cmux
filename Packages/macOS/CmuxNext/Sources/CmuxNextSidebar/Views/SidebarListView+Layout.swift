@@ -157,7 +157,7 @@ extension SidebarListViewComponents {
             let target = frame(for: row)
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
-            guard existing != nil || target.intersects(realize) else { continue }
+            guard existing != nil || reach(of: row).intersects(realize) else { continue }
             keep.insert(row.key)
             // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
             // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
@@ -235,8 +235,7 @@ extension SidebarListViewComponents {
         decorations.setGap(gapFrame, animated: animate || adopting)
         chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics, in: self,
                           animated: animate || adopting)
-        let lines = groupLineViews.update(groupLines(layout), from: animate || adopting ? groupLines(layout, current: true) : [], in: self, above: decorations,
-                                          animated: animate || adopting)
+        let lines = updateGroupLines(layout, from: animate || adopting ? groupLines(layout, current: true) : [], animated: animate || adopting)
         if adopting { return adoptRows(targets: targets, leaving: leaving, lines: lines) }
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
     }
@@ -266,6 +265,7 @@ extension SidebarListViewComponents {
             var details = model.groupHeaderDetails
             details.otherStates = model.detailedStatus
             view.configure(group, row: row, details: details, animated: animated)
+            view.joinedLineLength = joinedLineLengths[id] ?? 0
             view.isDropTarget = drag?.target == .intoGroup(id) || external?.proposal == .intoGroup(id)
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
@@ -312,11 +312,10 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         let realize = realizationRect()
-        for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
-            let row = displayed.rows[index]
+        for row in displayed.rowIndices(from: realize.minY, to: realize.maxY).map({ displayed.rows[$0] }) + joinedHeaders(reaching: realize) {
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
-            guard target.intersects(realize) else { continue }
+            guard reach(of: row).intersects(realize) else { continue }
             let opening = openingRows[row.key] != nil
             let view = dequeue(row.key, rebinding: !opening)
             view.targetSize = target.size
@@ -335,7 +334,7 @@ extension SidebarListViewComponents {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
-            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),
+            guard let row = displayed.row(for: key), !reach(of: row).intersects(keepRect),
                   inlineRename.session?.key != key, key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[key] = nil
