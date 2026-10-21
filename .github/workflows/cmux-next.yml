@@ -3847,6 +3847,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
     needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]

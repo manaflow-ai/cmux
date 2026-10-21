@@ -249,6 +249,8 @@ jobs:
       contents: read
       pull-requests: write
     uses: ./.github/workflows/pr-red-checks-comment.yml
+    with:
+      own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   # The defaults guard's tests and the settings export stamp, in seconds (the
   # defaults snapshot is bot-only); cmux-next-defaults-guard.yml judges the changes and
