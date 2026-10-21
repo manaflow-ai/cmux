@@ -90,10 +90,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       // textarea's own paste, the prompt's handler), without the images.
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
-      if (files.length === 0) return;
       if (!other) event.preventDefault();
-      else if (other.text !== undefined) pasteTextInto(event, other.text);
-      void attach(files, owned.uploads);
+      if (files.length) void attach(files, owned.uploads);
+      if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true), setDropping);
     document.addEventListener("paste", paste);
@@ -108,12 +107,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
 /// Puts `text` in place of a paste's own text in a plain text field (the New Tab prompt), so the
 /// images lifted out of it never land there as base64; the prompt field takes its paste itself.
 function pasteTextInto(event: ClipboardEvent, text: string) {
-  const field = event.target;
-  if (!(field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement)) return;
+  const target = event.target as Node | null;
+  const view = target?.ownerDocument?.defaultView;
+  if (!view || !(target instanceof view.HTMLTextAreaElement || target instanceof view.HTMLInputElement)) return;
   event.preventDefault();
-  if (!text || document.execCommand?.("insertText", false, text)) return;
-  field.setRangeText(text, field.selectionStart ?? field.value.length, field.selectionEnd ?? field.value.length, "end");
-  field.dispatchEvent(new Event("input", { bubbles: true }));
+  if (!text || target.ownerDocument.execCommand?.("insertText", false, text)) return;
+  const end = target.value.length;
+  target.setRangeText(text, target.selectionStart ?? end, target.selectionEnd ?? end, "end");
+  target.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
 /// The staged attachments' chips over the prompt, with the drop hint or a refusal's note.

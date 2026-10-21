@@ -396,24 +396,28 @@ export function htmlImageFiles(html: string): File[] {
 export function textImageFiles(plain: string): { text: string; files: File[] } {
   const lifted = liftInlineImages(plain);
   if (!lifted.attachments.length) return { text: plain, files: [] };
-  const files = lifted.attachments.flatMap((chip) => imageFile(chip.mimeType, chip.data ?? "") ?? []);
+  // An image written into a prompt was meant: no size floor.
+  const files = lifted.attachments.flatMap((chip) => imageFile(chip.mimeType, chip.data ?? "", 1) ?? []);
   return { text: lifted.text, files };
 }
 
-/// The images a paste carries other than as files: an HTML `<img>`'s, else the plain text's.
+/// The images a paste carries other than as files (an HTML `<img>`'s, else the plain text's), and
+/// the plain text without its markdown images when it had any.
 export function pastedImageFiles(transfer: DataTransfer | null): { text?: string; files: File[] } {
+  const plain = transfer?.getData("text/plain") ?? "";
+  const fromText = textImageFiles(plain);
+  const text = fromText.text === plain ? undefined : fromText.text;
   const html = htmlImageFiles(transfer?.getData("text/html") ?? "");
-  if (html.length) return { files: html };
-  return textImageFiles(transfer?.getData("text/plain") ?? "");
+  return { text, files: html.length ? html : fromText.files };
 }
 
 /// A file of base64 `data` of an image type an agent takes; none for another type, data that is not
-/// base64, or an image as small as a spacer.
-function imageFile(mimeType: string, data: string): File | undefined {
+/// base64, or an image smaller than `minimum` bytes (a spacer).
+function imageFile(mimeType: string, data: string, minimum = MIN_HTML_IMAGE_BYTES): File | undefined {
   if (!IMAGE_TYPES.has(mimeType)) return undefined;
   try {
     const binary = atob(data.replace(/\s+/g, ""));
-    if (binary.length < MIN_HTML_IMAGE_BYTES) return undefined;
+    if (binary.length < minimum) return undefined;
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType });
   } catch {
