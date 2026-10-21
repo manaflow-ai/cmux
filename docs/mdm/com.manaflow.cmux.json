@@ -1233,6 +1233,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.wallpaperTint" : {
+      "default" : true,
+      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+      "title" : "Tint with Desktop Wallpaper",
+      "type" : "boolean"
+    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -1607,16 +1613,6 @@
       },
       "title" : "Toolbar Buttons",
       "type" : "array"
-    },
-    "browser.toolbarPosition" : {
-      "default" : "top",
-      "description" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.",
-      "enum" : [
-        "top",
-        "bottom"
-      ],
-      "title" : "Browser Toolbar Position",
-      "type" : "string"
     },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
@@ -2160,7 +2156,7 @@
     },
     "focus.inactiveTabStyle" : {
       "default" : "fade",
-      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
       "enum" : [
         "fade",
         "tonal",
@@ -2697,7 +2693,7 @@
       "type" : "boolean"
     },
     "notifications.attention.style" : {
-      "default" : "steady",
+      "default" : "blink",
       "description" : "notifications.attention.style",
       "enum" : [
         "blink",
@@ -2729,7 +2725,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "click",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -3939,7 +3935,7 @@
     },
     "tabs.barOrder" : {
       "default" : "aboveToolbar",
-      "description" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
       "enum" : [
         "aboveToolbar",
         "belowToolbar"
