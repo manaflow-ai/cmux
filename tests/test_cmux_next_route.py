@@ -50,6 +50,38 @@ def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str
     return outputs(route(ROOT, event, changed, set(labels)))
 
 
+def graph_dependencies(name: str) -> set[str]:
+    """Every target `name` depends on, directly or not, read straight from the graph."""
+    found: set[str] = set()
+    pending = list(GRAPH["targets"][name]["targets"])
+    while pending:
+        dependency = pending.pop()
+        if dependency not in found:
+            found.add(dependency)
+            pending.extend(GRAPH["targets"][dependency]["targets"])
+    return found
+
+
+def graph_dependents(changed_targets: set[str]) -> set[str]:
+    """The test targets a change to `changed_targets` can break: each test target that is
+    one of them or depends on one of them. Expectations come from the regenerated graph,
+    so a new target or dependency (#22683's CmuxNextChiefViewsTests) moves them with it."""
+    return {
+        name for name, target in GRAPH["targets"].items()
+        if target["kind"] == "test" and (name in changed_targets or graph_dependencies(name) & changed_targets)
+    }
+
+
+def graph_readers(path: str) -> set[str]:
+    """The test targets whose sources name `path` (the graph's `reads`; a trailing / is a directory)."""
+    return {
+        name for name, target in GRAPH["targets"].items()
+        if target["kind"] == "test" and any(
+            path.startswith(read) if read.endswith("/") else path == read for read in target.get("reads", [])
+        )
+    }
+
+
 class GraphCoversThePackage(unittest.TestCase):
     """The graph names every target directory, so no source falls through it."""
 
@@ -125,6 +157,18 @@ class PullRequestTiers(unittest.TestCase):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
         self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextPhoneAccessTests", "CmuxNextWorkspaceNamingTests"])
         self.assertEqual(result["daemon"], "false")
+
+    def test_every_target_selects_the_tests_that_reach_it(self):
+        """A source file in any target selects exactly the test targets that are it, depend on
+        it, or read the file, so no target in the graph is under- or over-routed."""
+        for name, target in sorted(GRAPH["targets"].items()):
+            if not target["path"]:
+                continue
+            path = f"{target['path']}/RouteProbe.swift"
+            with self.subTest(target=name):
+                result = tiers([path])
+                self.assertEqual(result["full"], "false", path)
+                self.assertEqual(result["swift_targets"].split(), sorted(graph_dependents({name}) | graph_readers(path)))
 
     def test_daemon_client_sources_run_the_daemon_tier(self):
         result = tiers([f"{PACKAGE}/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift"])
