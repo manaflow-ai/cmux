@@ -8,8 +8,6 @@ mod events;
 mod mailbox;
 mod presets;
 
-/// Subscribe the connection to a session and, when that is new, count it
-/// as attached (remote sessions are not counted; their host does that).
 /// `_meta.acpmux.disallowedTools`: Claude Code built-in tools the new chat
 /// never gets (`acpmux new --worktree` sends `["AskUserQuestion"]`). Each is
 /// a tool's name, letters, digits and `_`, so none is a permission rule
@@ -33,6 +31,8 @@ fn disallowed_tools(meta: Option<&Value>) -> Result<Vec<String>, RpcError> {
     }
 }
 
+/// Subscribe the connection to a session and, when that is new, count it
+/// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
     let resolved = hub.resolve(id).ok();
     if conn.subscribe(id)
