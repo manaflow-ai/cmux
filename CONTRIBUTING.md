@@ -12,9 +12,10 @@ and pull requests the way the short [writing guide](STYLE.md) says.
 Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` and
 `web/` work on Linux; see [what you can fix without a Mac build](docs/start-here.md#2-things-you-can-fix-without-a-mac-build).
 
-- macOS 26 (the app's deployment target)
+- macOS 14+
 - Xcode 26 (the pinned toolchain)
-- Metal toolchain support. If Xcode has not installed it yet, run:
+- The Xcode 26 Metal compiler, which is a separate download. Select the Xcode you
+  build with first (`DEVELOPER_DIR` overrides `xcode-select`), then:
 
   ```bash
   xcodebuild -downloadComponent MetalToolchain
