@@ -137,7 +137,7 @@ final class HomeHostView: NSView {
         }
         // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
         transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
-        // Forward… on a bubble: Send to… with its text (the palette asks where).
+        // Forward… on a bubble: Send To… with its text (the palette asks where).
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }

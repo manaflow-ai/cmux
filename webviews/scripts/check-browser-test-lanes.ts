@@ -102,24 +102,6 @@ export const EVERY_ENTRY_PENDING = new Map<string, string>([
   // Files other lanes' open PRs change.
   ["test/suggestion-lists-float.test.ts", "#22795 (directional-motion) changes this file"],
   ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
-  // Transcript, changes, markdown and the rest.
-  ["test/changes-address-thread.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/changes-review-threads.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/changes-stage-hunk-keys.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/code-block-highlight-height.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/history-closed-rows.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/instructions-notice.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-table-obsidian.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-table-scroll-cases.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-wide-table-scroll.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-wide-width-layout.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/secret-card.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/session-hover-card-surface.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/sources-changes.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/status-glyphs.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/text-field-focus.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/turn-fork.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/worktree-creating.test.ts", "narrowed in the transcript and markdown batch"],
 ]);
 
 /**

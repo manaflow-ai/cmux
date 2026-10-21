@@ -15,8 +15,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -49,8 +49,11 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     for (const [name, type] of engines) browsers.set(name, await type.launch({ headless: true }));
+    await warmGalleryFrame(vite, "pages.markdown", {
+      browser: browsers.get("chromium") ?? browsers.get("webkit"),
+      params: { variant: "wide-table" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -61,7 +64,7 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 700 } });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     for (let attempt = 1; ; attempt++) {
-      await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.markdown&variant=wide-table`);
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame("pages.markdown", { variant: "wide-table" })}`);
       try {
         await page.waitForSelector(".md-prose .tableWrapper table td", { timeout: 60_000 });
         await page.waitForSelector(".md-prose .md-code pre code", { timeout: 60_000 });
