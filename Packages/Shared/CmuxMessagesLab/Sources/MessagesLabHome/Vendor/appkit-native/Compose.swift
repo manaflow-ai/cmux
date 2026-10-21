@@ -416,6 +416,12 @@ final class FieldTextView: NSTextView {
         }
         guard let l = line else { return nil }
         let o = textContainerOrigin
+        // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment): right
+        // after one the caret starts the next line, where the next character goes.
+        if index > 0, let s = textStorage, index <= s.length, l.height > Fixture.lineHeight + 0.5,
+           s.attribute(.attachment, at: index - 1, effectiveRange: nil) is ComposeInlineAttachment {
+            return CGRect(x: o.x, y: l.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        }
         // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
         // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
         let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
