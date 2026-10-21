@@ -72,7 +72,7 @@ struct NewWorkspaceInGroupTests {
 
         var failures: [String] = []
         /// Runs `action` on `anchor` and expects one new workspace listed right below it in the group.
-        func make(_ action: String, from anchor: String) async -> String? {
+        func make(_ action: ActionID, from anchor: String) async -> String? {
             let before = Set(store.workspaces.map(\.id))
             _ = services.registry.perform(action, invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: anchor), origin: .user))
             func created() -> String? { store.workspaces.first { !before.contains($0.id) }?.id }
