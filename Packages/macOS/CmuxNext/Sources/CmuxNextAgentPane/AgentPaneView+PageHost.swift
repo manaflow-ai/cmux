@@ -47,7 +47,7 @@ extension AgentPaneView {
     }
 
     /// Gives the chat the keyboard unless ``focusTarget`` already has it.
-    func focusChat() {
+    public func focusChat() {
         guard let window, window.firstResponder !== focusTarget else { return }
         if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
     }
