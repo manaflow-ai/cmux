@@ -286,7 +286,9 @@ class CampaignOutcomeTests(unittest.TestCase):
         os.makedirs(os.path.join(d, "bin"))
         fake = os.path.join(d, "bin", "cmux-ci")
         with open(fake, "w") as f:
-            f.write(f"#!/bin/sh\necho \"$*\" >> {d}/calls\necho {json.dumps(stderr)} >&2\nexit {rc}\n")
+            f.write(f"#!/bin/sh\necho \"$*\" >> {d}/calls\n"
+                    f"[ \"$1\" = workers ] && {{ echo '{{\"m1\": {{}}, \"m2\": {{}}}}'; exit 0; }}\n"
+                    f"echo {json.dumps(stderr)} >&2\nexit {rc}\n")
         os.chmod(fake, 0o755)
         opts = argparse.Namespace(ledger=os.path.join(d, "l.json"), cap_usd=100, out=os.path.join(d, "out"), reps=1,
                                   task=["t"], arm=["A"], name="x", run_budget=25, margin=12, ref="r", base_url="u",
@@ -318,6 +320,14 @@ class CampaignOutcomeTests(unittest.TestCase):
         runs = [c.split() for c in open(self.calls).read().splitlines() if c.startswith("run ")]
         self.assertEqual(len(runs), 3)
         self.assertTrue(all(c[c.index("--target-worker") + 1] in ("m1", "m2") for c in runs))
+
+    def test_an_unknown_worker_stops_the_campaign_before_any_reservation(self):
+        with self.assertRaises(SystemExit):
+            self.campaign_with("", 0, worker=["m1", "typo"])
+
+    def test_no_worker_means_no_target(self):
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1)
+        self.assertNotIn("--target-worker", open(self.calls).read())
 
     def test_a_short_ref_is_refused_before_any_reservation(self):
         import argparse

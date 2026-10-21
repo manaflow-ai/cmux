@@ -723,6 +723,13 @@ def campaign(opts):
     import queue
     from concurrent.futures import ThreadPoolExecutor
 
+    if opts.worker:
+        # A targeted step waits for its worker with no limit, so a name the
+        # controller does not know would hang the campaign on its reservation.
+        known = json.loads(subprocess.run(["cmux-ci", "workers"], capture_output=True, text=True, check=True).stdout)
+        unknown = [w for w in opts.worker if w not in known]
+        if unknown:
+            sys.exit(f"team-eval campaign: not controller workers: {unknown}")
     ledger = Ledger(opts.ledger, opts.cap_usd)
     # A step must run where --base-url resolves (a tailnet host, not an AWS Mac):
     # with --worker each step takes a free one of these, so no two share one.
