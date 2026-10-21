@@ -1480,6 +1480,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
