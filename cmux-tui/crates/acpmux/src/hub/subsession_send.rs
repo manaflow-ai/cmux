@@ -39,11 +39,11 @@ impl Hub {
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
             ));
         }
-        if deliver == Delivery::Interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let steer = deliver == Delivery::NextStep;
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id, steer).await?;
+        // An interrupt stops the running turn only once the message is accepted, so a message the
+        // agent pair guard holds never cancels it (`Hub::interrupt_once_queued`).
+        let (steer, interrupt) = (deliver == Delivery::NextStep, deliver == Delivery::Interrupt);
+        let accepted =
+            self.send_family_prompt(caller, target, text, prompt_id, steer, interrupt).await?;
         Ok(sent_reply(target, &accepted))
     }
 }

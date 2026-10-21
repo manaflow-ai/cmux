@@ -641,7 +641,8 @@ impl Hub {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
         }
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
+        let accepted =
+            self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -705,8 +706,9 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family
-    /// provenance; answers once it is accepted (started or queued).
+    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
+    /// `interrupt`: `Hub::interrupt_once_queued`.
     pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
@@ -714,6 +716,7 @@ impl Hub {
         text: &str,
         prompt_id: Option<String>,
         steer: bool,
+        interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
@@ -728,9 +731,11 @@ impl Hub {
             provenance["fromShortName"] = json!(link.short_name);
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
+                stop(&v);
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
