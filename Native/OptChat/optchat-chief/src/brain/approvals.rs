@@ -107,15 +107,21 @@ impl Brain {
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
     pub(super) fn internal_allowed(&self, tool: &str, request: &Value) -> bool {
-        self.internal_allowed_input(tool, request.pointer("/toolCall/rawInput"))
+        self.internal_allowed_input(tool, request.pointer("/toolCall/rawInput"), self.turn_ask)
     }
 
-    /// [`Self::internal_allowed`] on a call's `input` (its arguments).
-    pub(super) fn internal_allowed_input(&self, tool: &str, input: Option<&Value>) -> bool {
+    /// [`Self::internal_allowed`] on a call's `input` (its arguments), in
+    /// an ask turn when `ask`.
+    pub(super) fn internal_allowed_input(
+        &self,
+        tool: &str,
+        input: Option<&Value>,
+        ask: bool,
+    ) -> bool {
         if !crate::approval::CHIEF_TOOLS.contains(&tool) {
             return false;
         }
-        if !self.turn_ask {
+        if !ask {
             return true;
         }
         let get = |key: &str| input.and_then(|i| i.get(key));
@@ -161,7 +167,8 @@ impl Brain {
     /// no permission request, so this is where a turn another person
     /// started is held to [`Self::internal_allowed`].
     pub fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
-        if !self.turn_ask || self.internal_allowed_input(tool, Some(input)) {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if self.internal_allowed_input(tool, Some(input), ask) {
             return Ok(());
         }
         (self.log)(&format!("refused {tool} ({REFUSED_BY})"));

@@ -672,6 +672,10 @@ pub struct Brain {
     /// The running turn carries another person's text: it runs with policy
     /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
     /// Requests refused in the running turn (`approval::signature`): a
     /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
@@ -796,6 +800,7 @@ impl Brain {
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
             turn_ask: false,
+            last_turn_ask: false,
             turn_denied: Vec::new(),
             repeat_denials: 0,
             after_turn: None,

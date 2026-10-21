@@ -38,13 +38,13 @@ impl Memory for OptChat {
     }
 }
 
-/// Section 9's subagent tools, answered by the host (subagents.rs).
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
 const TURN_GATED: [&str; 9] = [
     "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile",
 ];
 
+/// Section 9's subagent tools, answered by the host (subagents.rs).
 pub trait Orchestrator: Send + Sync {
     /// Starts one subagent per task, in `cwd` when it exists on this host;
     /// answers their ids, each one's workspace (or why it has none) and the
@@ -92,14 +92,14 @@ pub trait Orchestrator: Send + Sync {
         let _ = queue;
         self.tell_keyed(id, message, key)
     }
-    /// `control(action, ...)`: see, interrupt, answer, pause, resume,
-    /// cancel, restart, reorder subagents and set the live cap.
     /// Whether the running turn may call Chief tool `tool` with `input`
     /// (`Brain::turn_gate`); a host with no turns allows it.
     fn turn_gate(&self, _tool: &str, _input: &Value) -> Result<(), String> {
         Ok(())
     }
 
+    /// `control(action, ...)`: see, interrupt, answer, pause, resume,
+    /// cancel, restart, reorder subagents and set the live cap.
     fn control(&self, request: ControlCall) -> Result<String, String> {
         let _ = request;
         Err("this Chief host has no subagent control".into())
