@@ -214,7 +214,8 @@ final class HostView: NSView {
     /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
     /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
     /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
-    /// view's own bounds do not. Both come back when the resize ends (the still pixels are the resting ones).
+    /// view's own bounds do not, except a bare top's fade (HeaderGlass.swift `useBareTop`), which pauses during the
+    /// drag. Both come back when the resize ends (the still pixels are the resting ones).
     private var restingClipMask: CALayer?
     override func viewWillStartLiveResize() {
         super.viewWillStartLiveResize()

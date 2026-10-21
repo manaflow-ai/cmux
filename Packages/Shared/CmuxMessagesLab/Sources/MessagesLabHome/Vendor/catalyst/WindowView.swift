@@ -497,6 +497,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// cmux: the oldest row's top at rest, from the window's top. Messages: 8 pt under its 80 pt
     /// header. A Home pane with no header puts the rows near the top (HeaderGlass.swift `useBareTop`).
     var rowsTopInset: CGFloat = Fixture.headerHeight + 8
+    /// cmux: the top of the transcript's visible area (Messages: its header's bottom, 80 pt).
+    var visibleTop: CGFloat { rowsTopInset - 8 }
     /// cmux: the rows fade out over this many points at the window's top, as they scroll away
     /// (a Home pane with no header); 0, Messages: none, its header blurs them.
     var topFade: CGFloat = 0 { didSet { if topFade != oldValue { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } } }
@@ -2059,7 +2061,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     struct WindowGeometry { var viewport: CGFloat; var distanceToTop: CGFloat; var distanceToBottom: CGFloat }
     var windowGeometry: WindowGeometry {
         let y = collection.contentOffset.y
-        return WindowGeometry(viewport: anchorY - Fixture.headerHeight, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
+        return WindowGeometry(viewport: anchorY - visibleTop, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
     }
 
     var firstVisibleRow: Int {

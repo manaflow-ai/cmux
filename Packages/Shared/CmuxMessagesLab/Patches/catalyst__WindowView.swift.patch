@@ -10,7 +10,7 @@
      /// The transcript list: UICollectionView (default) or the row recycler
      /// (`--transcript recycler`), both over `ChatLayout`.
      let collection: TranscriptList
-@@ -492,7 +493,13 @@
+@@ -492,7 +493,15 @@
      }
      var pinnedOffset: CGFloat { layout.contentHeight - cvHeight }
      /// Lowest allowed offset: the oldest loaded row just under the header.
@@ -19,13 +19,15 @@
 +    /// cmux: the oldest row's top at rest, from the window's top. Messages: 8 pt under its 80 pt
 +    /// header. A Home pane with no header puts the rows near the top (HeaderGlass.swift `useBareTop`).
 +    var rowsTopInset: CGFloat = Fixture.headerHeight + 8
++    /// cmux: the top of the transcript's visible area (Messages: its header's bottom, 80 pt).
++    var visibleTop: CGFloat { rowsTopInset - 8 }
 +    /// cmux: the rows fade out over this many points at the window's top, as they scroll away
 +    /// (a Home pane with no header); 0, Messages: none, its header blurs them.
 +    var topFade: CGFloat = 0 { didSet { if topFade != oldValue { placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop) } } }
  
      private var laidOutSize = CGSize.zero
      private func layoutFrames() {
-@@ -540,6 +547,8 @@
+@@ -540,6 +549,8 @@
      private var ownWidthPasses = 0
      /// Width passes run, and width changes that only recorded their width (bench evidence).
      static var widthPasses = 0, widthPassesDeferred = 0
@@ -34,7 +36,7 @@
  
      override func layoutSubviews() {
          super.layoutSubviews()
-@@ -564,8 +573,15 @@
+@@ -564,8 +575,15 @@
              // seen). The first width change of a frame runs the pass now; a later one in the
              // same frame only records its width, and the next frame's tick runs one pass at the
              // last width (`widthTick`).
@@ -52,7 +54,7 @@
                  MessagesWindowView.widthPassesDeferred += 1
                  widthPassPending = true
              } else {
-@@ -672,6 +688,17 @@
+@@ -672,6 +690,17 @@
      /// The rows at the new width: re-measured from the last width change's rows when the state,
      /// the day and the strings are the same (RowBuilder.rewidth: the derivation over every loaded
      /// message was about a third of each divider-drag step), else derived.
@@ -70,7 +72,7 @@
      private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
          let msgs = st.conversation.messages
          let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
-@@ -682,7 +709,30 @@
+@@ -682,7 +711,30 @@
             let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
                                           width: bounds.width, exact: near, scale: renderScale) {
              return rows
@@ -101,7 +103,7 @@
          let rows = RowBuilder.rows(st, messages: msgs, now: now, width: bounds.width, exact: near, scale: renderScale)
          widthDerived = (msgs, st.me, st.atNewest, st.ui.typing, st.ui.notice, st.ui.streams, day, strings, rows)
          return rows
-@@ -807,6 +857,17 @@
+@@ -807,6 +859,17 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          clipMask.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: top - 4 + 200)
          clipMask.position = CGPoint(x: bounds.width / 2, y: -200)
@@ -119,7 +121,7 @@
          CATransaction.commit()
      }
  
-@@ -901,6 +962,18 @@
+@@ -901,6 +964,18 @@
          if case let .status(id, st) = action, st != .sending, st != .sent, crispSends.values.contains(id) {
              releaseCrisp { $0 == id }
          }
@@ -138,7 +140,7 @@
          // this view's width (several Home tabs), not the process-wide `Metrics.current`.
          if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: bounds.width, scale: renderScale) }
          // Rows configured in this transaction draw now (RowCell.transitionDepth).
-@@ -1036,7 +1109,7 @@
+@@ -1036,7 +1111,7 @@
                  newOffset = pinnedOffset
              } else if target < state.conversation.messages.count, let id = state.conversation.messages[checked: target]?.id { // checked
                  if let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) {
@@ -147,7 +149,7 @@
                  }
              }
          }
-@@ -1158,6 +1231,8 @@
+@@ -1158,6 +1233,8 @@
          // A stream's rows follow the newest loaded message (which may lose its tail to it); a final message is new.
          case .streamBegin, .streamSet, .streamAppend, .streamEnd: idx.append(max(0, old.conversation.messages.count - 1))
          case let .status(id, _): if let i = index(id) { idx.append(i) }
@@ -156,7 +158,7 @@
          case let .react(ref, _, _):
              guard let i = index(ref.messageId) else { return nil }
              idx.append(i)
-@@ -1511,8 +1586,15 @@
+@@ -1511,8 +1588,15 @@
          for case let cell as RowCell in collection.visibleCells {
              if let b = map[cell.key] { cell.renameRow(to: b) }
          }
@@ -172,7 +174,7 @@
      /// Live container motions: (displacement, spring, begin, end, rows it covered). A row that
      /// shows up while one runs (inserted later, or outside its band) gets the opposite motion,
      /// so it moves as it did with per-row springs.
-@@ -1885,7 +1967,7 @@
+@@ -1885,7 +1969,7 @@
              cell.setConnector(top: nil, bottom: 0, mirrored: false)
          }
          step(1)
@@ -181,7 +183,13 @@
          for e in ledger.live(r.spec.key) where !cell.applied.contains(e.id) {
              cell.applied.insert(e.id)
              // The previous receipt text is drawn once, when its fade starts on this cell.
-@@ -1982,17 +2064,9 @@
+@@ -1977,23 +2061,15 @@
+     struct WindowGeometry { var viewport: CGFloat; var distanceToTop: CGFloat; var distanceToBottom: CGFloat }
+     var windowGeometry: WindowGeometry {
+         let y = collection.contentOffset.y
+-        return WindowGeometry(viewport: anchorY - Fixture.headerHeight, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
++        return WindowGeometry(viewport: anchorY - visibleTop, distanceToTop: y - minOffset, distanceToBottom: pinnedOffset - y)
+     }
  
      var firstVisibleRow: Int {
          guard model.count > 0 else { return 0 }
@@ -189,7 +197,7 @@
 +        let top = collection.contentOffset.y + rowsTopInset - MessagesWindowView.cvTop - layout.rowsTop
          let r = model.range(top, top + 1)
          return min(model.count - 1, r.first { model.contentTop($0) + (model.rows[checked: $0]?.spec.height ?? 0) > top } ?? r.lowerBound) // checked
--    }
+     }
 -    /// True when an outgoing row (the model's outgoing flag) shows a link card for
 -    /// `url` in a visible cell: the LinkPresentation fallback runs only then.
 -    func outgoingLinkOnScreen(_ url: String) -> Bool {
@@ -197,10 +205,11 @@
 -            if case let .part(pr)? = cell.spec?.kind, pr.outgoing, case let .link(u, _, _, _, _) = pr.part, u == url { return true }
 -        }
 -        return false
-     }
+-    }
      /// Outgoing link cards on screen with no title yet (a pending or domain card, no image).
      func visibleUntitledOutgoingLinks() -> [String] {
-@@ -2045,7 +2119,7 @@
+         var out: [String] = []
+@@ -2045,7 +2121,7 @@
          let msgs = store.state.conversation.messages
          guard index >= 0, index < msgs.count, let id = msgs[checked: index]?.id else { return } // checked
          guard let i = model.rows.firstIndex(where: { RowBuilder.key($0.spec.key, belongsTo: id) }) else { return }
@@ -209,7 +218,7 @@
          collection.setNeedsLayout(); collection.layoutIfNeeded()
          userScrolled()
      }
-@@ -2727,7 +2801,7 @@
+@@ -2727,7 +2803,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)

@@ -61,7 +61,9 @@ import Testing
         demo.collection.contentOffset = CGPoint(x: demo.collection.contentOffset.x, y: demo.minOffset)
         demo.userScrolled()
         #expect(demo.rowsTopInset == HostView.bareTopInset)
-        #expect(demo.windowY(contentY: demo.layout.rowsTop) == HostView.bareTopInset)
+        // The offset snaps to device pixels: within half a point.
+        #expect(abs(demo.windowY(contentY: demo.layout.rowsTop) - HostView.bareTopInset) <= 0.5)
+        #expect(demo.visibleTop == HostView.bareTopInset - 8)
 
         // The fade: nothing at the very top, about half way through it, full strength from its end down.
         let fade = HostView.bareTopInset
