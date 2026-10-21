@@ -24,9 +24,9 @@ extension SidebarPriorityFeed {
     }
 
     /// Opens a row's chat: the tab that shows it here, else the tab of the other machine's tree
-    /// that shows it (its chat runs there), else a new tab here (the `cmux://session/<id>` path).
+    /// the row came from (its chat runs there), else a new tab here (the `cmux://session/<id>` path).
     private static func open(_ lane: AgentActivityLane, services: AppServices) {
-        if services.agentTabs.tab(showing: lane.id) == nil, let tab = services.machines.remoteAgentTab(showing: lane.id),
+        if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
            services.revealTab(tab) { return }
         services.agentActivityPage.jump(to: lane)
     }

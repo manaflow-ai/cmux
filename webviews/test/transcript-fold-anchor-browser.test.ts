@@ -82,10 +82,38 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
 
   const show = (page: Page, rows: Row[]) =>
     page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
-  const settle = async (page: Page) => {
-    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
-    await page.waitForTimeout(400);
-  };
+  /// Resolves once the view is at rest: no glide or fold running, and three painted frames in a row
+  /// show the transcript scrolled and sized as the frame before.
+  const settle = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((done, fail) => {
+          let last = "";
+          let alike = 0;
+          const deadline = performance.now() + 10_000;
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            if (!scroller) return;
+            const moving = scroller
+              .getAnimations({ subtree: true })
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+              );
+            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight}`;
+            alike = !moving && now === last ? alike + 1 : 0;
+            last = now;
+            if (alike >= 3) {
+              done();
+              return false;
+            }
+            if (performance.now() > deadline) {
+              fail(new Error(`the view did not come to rest in 10 s (moving: ${moving})`));
+              return false;
+            }
+          });
+        }),
+    );
   const atLatest = (page: Page) =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;

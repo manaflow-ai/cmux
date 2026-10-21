@@ -18,8 +18,14 @@ final class SidebarPriorityPanelView: NSView {
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
     private let document = FlippedDocument()
     private var rows: [String: SidebarPriorityRowView] = [:]
-    /// Rows that left and still close their slot; they go when their move ends.
+    /// Rows that left and still close their slot; they go when their move ends. They take no clicks
+    /// (`FlippedDocument.hitTest`), so a right-click there opens no menu for a chat that left.
     private var closing: [SidebarPriorityRowView] = []
+    /// The number of the last animated placement (`placeRows`), and for each row still opening its
+    /// slot the placement whose end unclips it: a row whose slot changes again while it opens keeps
+    /// clipping until the later move ends, as the main list's `opens` count does.
+    private var placement = 0
+    private var opensUntil: [ObjectIdentifier: Int] = [:]
     private(set) var panel = SidebarPriorityPanel(entries: [])
     /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
@@ -32,6 +38,7 @@ final class SidebarPriorityPanelView: NSView {
         scroll.automaticallyAdjustsContentInsets = false
         scroll.contentView.drawsBackground = false
         scroll.documentView = document
+        document.passesThrough = { [weak self] view in self?.closing.contains { $0 === view } ?? false }
         SystemScrollers.follow(scroll)
         empty.isHidden = true
         [header, count, fade, empty].forEach(addSubview)
@@ -92,6 +99,7 @@ final class SidebarPriorityPanelView: NSView {
             let top = runTop ?? frame.minY
             runTop = top
             row.onAction = nil
+            opensUntil[ObjectIdentifier(row)] = nil
             leaving.append((row, NSRect(x: frame.minX, y: top, width: frame.width, height: 0)))
         }
         var y: CGFloat = 0
@@ -117,14 +125,26 @@ final class SidebarPriorityPanelView: NSView {
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
         guard animated, Motion.sidebar.animatesMovement else {
+            // Each row at its place, whole. Set through the animator, the frame replaces a move still in
+            // flight (as `RowMotion` does), which a plain set would not stop.
             Motion.withoutAnimation {
-                for (row, frame) in targets + opening { Self.settle(row, at: frame) }
+                for (row, frame) in targets + opening {
+                    row.animator().frame = frame
+                    row.animator().alphaValue = 1
+                    row.clipsToBounds = false
+                }
             }
             for row in closing + leaving.map(\.0) { row.removeFromSuperview() }
             closing = []
+            opensUntil = [:]
             return
         }
         closing += leaving.map(\.0)
+        placement += 1
+        let current = placement
+        // A new row opens on this move; one still opening from an earlier move keeps opening on it.
+        let opens = opening.map(\.0) + targets.map(\.0).filter { opensUntil[ObjectIdentifier($0)] != nil }
+        for row in opens { opensUntil[ObjectIdentifier(row)] = current }
         Motion.withoutAnimation {
             for (row, _) in opening + leaving { row.clipsToBounds = true }
             for (row, _) in opening { row.alphaValue = 0 }
@@ -139,19 +159,16 @@ final class SidebarPriorityPanelView: NSView {
                 row.animator().frame = end
                 row.animator().alphaValue = 0
             }
-        }, settleAtSleep: { [weak self] in self?.placeRows(animated: false) }, completion: { [weak self, opening, gone] in
+        }, settleAtSleep: { [weak self] in self?.placeRows(animated: false) }, completion: { [weak self, opens, gone] in
             for row in gone { row.removeFromSuperview() }
             guard let self else { return }
             self.closing.removeAll { row in gone.contains { $0 === row } }
-            for (row, _) in opening where self.rows[row.entry.id] === row { row.clipsToBounds = false }
+            // A row whose open a later move took over keeps clipping until that move ends.
+            for row in opens where self.opensUntil[ObjectIdentifier(row)] == current {
+                self.opensUntil[ObjectIdentifier(row)] = nil
+                row.clipsToBounds = false
+            }
         })
-    }
-
-    /// A row at its place, whole.
-    private static func settle(_ row: SidebarPriorityRowView, at frame: NSRect) {
-        row.frame = frame
-        row.alphaValue = 1
-        row.clipsToBounds = false
     }
 
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.
@@ -191,8 +208,21 @@ final class SidebarPriorityPanelView: NSView {
     }
     nonisolated override var wantsUpdateLayer: Bool { true }
 
-    /// Rows lay out top down.
+    /// Rows lay out top down. A row `passesThrough` says takes no clicks: the row under it (or the
+    /// document) gets them.
     private final class FlippedDocument: NSView {
+        var passesThrough: (NSView) -> Bool = { _ in false }
+
         nonisolated override var isFlipped: Bool { true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard !isHidden, let superview else { return super.hitTest(point) }
+            let local = convert(point, from: superview)
+            guard bounds.contains(local) else { return nil }
+            for child in subviews.reversed() where !passesThrough(child) {
+                if let hit = child.hitTest(local) { return hit }
+            }
+            return self
+        }
     }
 }

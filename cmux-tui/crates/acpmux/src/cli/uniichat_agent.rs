@@ -146,17 +146,10 @@ impl Endpoint {
     }
 }
 
-/// The text one prompt sends: its last text block, or all of them.
+/// The text one prompt sends: its last text block, or all of them. A paste
+/// cmux's composer sent as its own block goes with it (`cli_agent::prompt_text`).
 pub fn prompt_text(blocks: &[Value], whole: bool) -> String {
-    let texts: Vec<&str> = blocks
-        .iter()
-        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect();
-    if whole {
-        return texts.join("");
-    }
-    texts.last().map(|t| (*t).to_owned()).unwrap_or_default()
+    super::cli_agent::prompt_text(blocks, !whole)
 }
 
 /// The images of a prompt (ACP `image` blocks), decoded; a block that does
@@ -790,6 +783,23 @@ mod tests {
         assert_eq!(body, b"hinew");
         assert_eq!(sizes, "2");
         assert_eq!(say_body("x", &[]).1, "");
+    }
+
+    /// A huge paste in cmux's composer goes as its own text block after the
+    /// typed one (`_meta.cmux.pasted`): the message is the typed text and
+    /// every paste, a blank line between them, never the paste alone.
+    #[test]
+    fn a_pasted_block_goes_with_the_typed_text() {
+        let pasted =
+            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
+        let blocks = vec![
+            json!({"type": "text", "text": "view "}),
+            json!({"type": "text", "text": "why does this fail?"}),
+            pasted("the log"),
+        ];
+        assert_eq!(prompt_text(&blocks, false), "why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&blocks, true), "view why does this fail?\n\nthe log");
+        assert_eq!(prompt_text(&[pasted("only a paste")], false), "only a paste");
     }
 
     #[test]
