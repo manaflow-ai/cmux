@@ -186,6 +186,33 @@ test("on a 120 Hz display the reveal steps on every other frame", () => {
   expect(steps(8000 / 120, frameGaps(12))).toBe(6);
 });
 
+// The last word shows only once the stream ends, a frame after the row stops streaming. Until it
+// shows, the reply still reads as streaming: a span the last word closes keeps its streaming form,
+// never flashing its raw Markdown ("`bun" for a frame between "bun" in code and "bun test").
+test("a reply whose last word closes a code span never shows its backtick", () => {
+  root = createRoot(container);
+  render("", true);
+  render("Run `bun te", true);
+  const seen = frames(0, 90);
+  render("Run `bun test`", false);
+  seen.push(container.querySelector(".cv-md")?.textContent ?? "");
+  seen.push(...frames(90 * 16, 30));
+  expect(seen.at(-1)).toBe("Run bun test");
+  for (const shown of seen) expect(shown).not.toContain("`");
+});
+
+// Text before a tool call ends with no space after its last word. While the agent works on the call,
+// no more text comes, and the word must not stay hidden ("Let me check the" for seconds).
+test("the last word shows once text stops arriving, while the reply still streams", () => {
+  root = createRoot(container);
+  render("", true);
+  render("Let me check the tests.", true);
+  const seen = frames(0, 30);
+  expect(seen.at(-1)).toBe("Let me check the");
+  seen.push(...frames(30 * 16, 60));
+  expect(seen.at(-1)).toBe("Let me check the tests.");
+});
+
 test("wordEdge ends at a whole word, keeps what shows, and lets a long word through", () => {
   expect(wordEdge("alpha beta gam", 14, false, 0)).toBe(10);
   expect(wordEdge("alpha beta gam", 8, false, 0)).toBe(5);
@@ -201,4 +228,6 @@ test("wordEdge ends at a whole word, keeps what shows, and lets a long word thro
   expect(wordEdge("빌드 성공", 2, false, 0)).toBe(2);
   const url = `see https://example.com/${"a".repeat(80)}`;
   expect(wordEdge(url, url.length, false, 0)).toBe(url.length);
+  // Once part of a long word shows, the rest grows as it arrives, not in 48-character jumps.
+  expect(wordEdge(url, 60, false, 53)).toBe(60);
 });
