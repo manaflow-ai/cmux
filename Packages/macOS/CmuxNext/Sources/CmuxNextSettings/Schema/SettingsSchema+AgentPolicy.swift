@@ -297,6 +297,8 @@ extension SettingsSchema {
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.

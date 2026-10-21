@@ -381,6 +381,30 @@ def handle_prompt(rid, params):
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
+    # whose input also holds `questions`, with one allow option of KIND: a
+    # question by its input's shape alone, or (AskUserQuestion with
+    # allow_always) one that offers only a lasting allow.
+    if text.startswith("tool-question:"):
+        tool, kind = text[14:].split()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "tq1", "title": tool, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build",
+                                          "questions": [{"question": "ok?", "options": [{"label": "yes"}]}]},
+                             "_meta": {"claude": {"tool": tool}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": kind},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
     # and "xai-plan: P" asks to leave plan mode with plan P
     # (`_x.ai/exit_plan_mode`); both echo the client's JSON reply.

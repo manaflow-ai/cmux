@@ -82,6 +82,23 @@
 //! table does not list; a spawn env). Such a request gets
 //! [`REASON`] and changes nothing: a prompt stays pending.
 //!
+//! One answer is not the person's alone: a proven caller session (a, below)
+//! answers a QUESTION of a session under it with `_acpmux/subsession/answer`
+//! (`hub/subsession_answer.rs`), while `agents.subsessions.answerQuestions`
+//! is on. A question's answer is text the agent reads; the same caller may
+//! already prompt that session with any text (`_acpmux/subsession/send`), so
+//! it widens nothing. Only a prompt recorded as a question when it was asked
+//! counts (`questions::ancestor_answerable`: Claude Code's AskUserQuestion by
+//! the tool name its adapter writes, or a Grok or Cursor ask acpmux builds
+//! itself; never a tool call whose input merely holds `questions`), with its
+//! `allow_once` option, checked again under the prompt's lock ([`Answerer`]
+//! `ancestor`, set by the hub, never from a request), and the
+//! decision record names the caller in `answeredBy {session, name}`. Never a
+//! permission prompt, a plan approval, a lasting grant, the caller's own
+//! question or its parent's, or one under a chat the person started from a
+//! suggested task. Residual: the asking agent reads the answer as its
+//! user's, as it reads its first prompt, which the same caller wrote.
+//!
 //! Starting in a mode that does not ask (a `session/new` with
 //! `_meta.acpmux.mode`, or a preset's `mode`), without the person, needs
 //! one of these; each grants a mode the person already approved, never a
@@ -326,6 +343,9 @@ pub struct Answerer<'a> {
     pub decision: Option<(&'a str, &'a str)>,
     /// A phone's signed decision (`approvers.rs`), with its `decisionNonce`.
     pub approver: Option<(&'a str, &'a Value)>,
+    /// The proven caller session answering a question of its descendant
+    /// (`hub/subsession_answer.rs`): set by the hub, never from a request.
+    pub(crate) ancestor: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -344,7 +364,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver }
+        Self { person, decision, approver, ancestor: None }
     }
 }
 
