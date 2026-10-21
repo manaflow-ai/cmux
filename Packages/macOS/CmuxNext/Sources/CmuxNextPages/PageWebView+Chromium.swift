@@ -140,6 +140,8 @@ extension PageWebView {
         logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
         chromiumSession?.end()
         chromiumSession = nil
+        chromiumUserEventUptime = nil
+        chromiumDragFile = nil
         inputReadiness.inserter = nil
         scriptTarget.bridge = bridge
         engineDecision = .webKit(reason)
@@ -188,8 +190,10 @@ extension PageWebView {
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
-        case .userInput, .contextMenu(_):
-            break
+        case .userInput(let uptime):
+            chromiumUserInput(at: uptime)
+        case .contextMenu(let request):
+            showChromiumMenu(request)
         }
     }
 
