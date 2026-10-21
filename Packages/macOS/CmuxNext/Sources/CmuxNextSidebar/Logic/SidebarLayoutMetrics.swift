@@ -110,6 +110,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
+    /// Members selected before that a collapsed group keeps drawing beside the active one (`SidebarModel.revealedMembers`).
+    public var revealedWorkspaces: [GroupID: Set<WorkspaceID>] = [:]
+    /// The workspaces collapsed group `id` draws as its visible members.
+    func shown(inCollapsed id: GroupID) -> Set<WorkspaceID> { (revealedWorkspaces[id] ?? []).union(activeWorkspaceID.map { [$0] } ?? []) }
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name
@@ -131,6 +135,11 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Group by Folder (`sidebar.groupBy`): the only machine's loose rows
     /// sit under a header per `SidebarWorkspace.folder`, in first-seen order.
     public var groupsByFolder = false
+    /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
+    /// carry their pull requests and keycaps. Nil (off) draws the list as before.
+    public var sessionTree: SidebarSessionTreeState?
+    /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
+    public var keycaps: [WorkspaceID: Int] = [:]
 
     public init() {}
 }
@@ -147,6 +156,10 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        if let sessionTree {
+            content.keycap = keycaps[ws.id]
+            content.pullRequests = sessionTree.pullRequests[ws.id]
+        }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         return content
     }

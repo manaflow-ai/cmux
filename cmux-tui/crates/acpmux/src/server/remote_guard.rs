@@ -41,9 +41,10 @@
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
-//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
-//!   change which machines this daemon reaches with the user's ssh keys and
-//!   tokens); `peer_reconnect` only retries a configured peer.
+//! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
+//!   `_acpmux/peer_lease` (they change which machines this daemon reaches
+//!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
+//!   configured peer.
 //!
 //! The unix socket keeps today's behavior.
 
@@ -150,7 +151,9 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    // The app pane's reply in place is checked there (`Sender::App`).
     if m == method::SESSION_PROMPT
+        && origin != super::Origin::LocalApp
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::prompt_provenance::origin_refused());
@@ -167,7 +170,7 @@ pub(super) async fn check(
     }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
-    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove" | "_acpmux/peer_lease") {
         return Err(refused("changing peers"));
     }
     // The native relay reads the guard's own table and lists over the unix

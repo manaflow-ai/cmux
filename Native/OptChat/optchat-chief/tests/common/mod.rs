@@ -520,6 +520,9 @@ pub struct Agents {
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
@@ -883,6 +886,7 @@ impl AgentPort for FakeAgents {
         });
         Ok(Some(serde_json::from_value(json!({
             "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
         })).unwrap()))
     }
 
@@ -992,6 +996,15 @@ impl AgentPort for FakeAgents {
             .removed_queued
             .push((session.to_owned(), prompt_id.to_owned()));
         Ok(true)
+    }
+
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
     }
 
     fn cancel(&self, session: &str) -> Result<(), String> {

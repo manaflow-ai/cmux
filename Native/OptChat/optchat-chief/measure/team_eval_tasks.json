@@ -78,6 +78,397 @@
           "adds": "the failure row keeps its existing wording, with the reason added"
         }
       ]
+    },
+    {
+      "id": "edit-several-files",
+      "size": "small",
+      "pilot": false,
+      "base": "ac7cf07f952d608ec1fcc0ec7256a6e5f97aff6c",
+      "reference": "88a181863838a715821e158bad2408fabd9a022e",
+      "reference_pr": 23011,
+      "hidden_tests": [
+        "webviews/test/tool-label-several-files.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: in the cmux NEXT agent chat, a tool call that edits several files reads as an edit of only its first file. A patch of CHANGELOG.md and Cargo.toml shows as \"Edit CHANGELOG.md\" (the harness's own title was \"Edit 2 files\"), so it looks like one file changed. Make such a row keep a title that already says more than its verb (\"Edit 2 files\"); an edit of one file still reads \"Edit <its path>\". The tool row labels are built in the agent pane's webview code under webviews/src/agent-session/acpmux/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: when the title is only a verb or a raw tool id, like \"Edit\" or \"patch\", over several files, it should still name the first file as it does today",
+          "adds": "a bare verb or tool-id title over several files still names the first file"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which function builds a tool call's row label in the agent chat?",
+          "adds": "names the function that builds a tool call's label",
+          "truth": "toolLabel in webviews/src/agent-session/acpmux/toolPaths.ts"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, leave single-file edits reading exactly as they do today, only change edits of several files",
+          "adds": "single-file edit labels are unchanged"
+        }
+      ]
+    },
+    {
+      "id": "pr-bar-chip-width",
+      "size": "small",
+      "pilot": false,
+      "base": "bc4f1736a09b6cc31138c02f4c9314e9d0281ae5",
+      "reference": "6c256dfb9addb7961c82b6fbbda841cf2e2c846c",
+      "reference_pr": 22731,
+      "hidden_tests": [
+        "webviews/test/chip-fixed-width.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: in the cmux NEXT agent chat, the pull request bar above the composer cuts its title off with an ellipsis (\"the label is the …\") at a fixed width while the column still has plenty of room. Leo wants chips to use the room their row has: a chip, tab or card in the agent pane that ellipsizes its text truncates only when its row is full, never at a fixed width. Fix the PR bar and check the pane's other chips, tabs and cards (reference chips in replies, question tabs, the handoff note) for the same kind of fixed cap. The styles live in the agent pane's stylesheets under webviews/src/agent-session/acpmux/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: when the PR bar does run out of room, the title should give way before the repository name",
+          "adds": "the PR bar's title truncates before its repository"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which component draws the pull request bar above the composer?",
+          "adds": "names the component/file that draws the PR bar",
+          "truth": "PullRequestDock in webviews/src/agent-session/acpmux/summary/PullRequestDock.tsx (styles in summary/summary.css)"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, don't add a hover tooltip to a cut-off PR bar title; a chip that shows its text gets no tooltip",
+          "adds": "no tooltip is added to the PR bar"
+        }
+      ]
+    },
+    {
+      "id": "minimap-preview-perf",
+      "size": "small",
+      "pilot": false,
+      "base": "c4fdcc2ee53c46e59b38ef71a94f94479f0fa8e9",
+      "reference": "d1071a6f8c8c7ef257bcd60d8d4a24f3a0417026",
+      "reference_pr": 22452,
+      "hidden_tests": [
+        "webviews/test/minimap-reply-preview.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: a very long streaming reply makes the cmux NEXT agent chat sluggish. The thread minimap previews the live turn's reply again on every streamed token, and building that preview reads the whole reply each time (tens of milliseconds a call for a reply of a couple of MB), although the preview only keeps a few blocks. Make the preview's cost not grow with the reply's length, with exactly the same preview output as today. The minimap's model is under webviews/src/agent-session/acpmux/threadMinimap/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also cover a preview that is full by length (one long paragraph): whatever follows it must not change it",
+          "adds": "a preview full by length ignores the rest of the reply"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: how many blocks and characters does the minimap's reply preview keep at most?",
+          "adds": "gives the preview's block and character limits",
+          "truth": "4 blocks or 360 characters: PREVIEW_BLOCKS and PREVIEW_CHARS in webviews/src/agent-session/acpmux/threadMinimap/model.ts"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, don't change what the preview shows at all, only how much of the reply it reads",
+          "adds": "the preview's output is unchanged"
+        }
+      ]
+    },
+    {
+      "id": "steer-shows-once",
+      "size": "small",
+      "pilot": false,
+      "base": "7a3715525809038a7e367fda028430eaee8c0408",
+      "reference": "988e0d1daa65f9a4d22ed6d9ab49a09bf28d85fc",
+      "reference_pr": 22830,
+      "hidden_tests": [
+        "webviews/test/agent-pane-steer-race.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: in the cmux NEXT agent chat, a steer that lands just as the turn ends shows up twice: once as a steer of the old turn and again as the next turn's prompt. acpmux records the steer when it is sent; the agent then has no turn to steer, so acpmux runs the same prompt (same promptId) as the next turn and records it again. The agent got it once, so the chat should show it once, as the prompt of the turn it started. The pane builds its rows from acpmux's records in the agent pane's webview client under webviews/src/agent-session/acpmux/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: it must still show once when the chat opens at the next turn and you scroll up so the steer comes in on an older history page",
+          "adds": "the steer shows once also across an older history page"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: what record kind does acpmux log for a prompt, and how is a steer marked?",
+          "adds": "names the prompt record kind and the steer marker",
+          "truth": "a mux record of kind user_message; a steer has steer: true in its msg (handled in webviews/src/agent-session/acpmux/direct.ts)"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, a steer the agent did read keeps its own row; only the one that re-ran as the next prompt collapses",
+          "adds": "a steer the agent read keeps its row"
+        }
+      ]
+    },
+    {
+      "id": "chats-activity-order",
+      "size": "medium",
+      "pilot": false,
+      "base": "f43982f5d316aadf3cfcafca2ddeddcd5b160952",
+      "reference": "ac112bfc3c2c0ceee9b38a548dfb5d11661dedb8",
+      "reference_pr": 22361,
+      "hidden_tests": [
+        "webviews/test/new-tab-activity-time.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: the cmux NEXT New Tab Chats list reorders old chats on every workspace switch. Leo's list swapped two old, idle chats each time and labelled both \"now\" although their last turns were an hour or two old. Showing a chat warms or resumes its agent and the idle pool later stops it, and each of those moves acpmux's updatedAt, which the list sorts and labels by. Make the chat lists sort and label by when the person or the agent last did something: now while a turn runs, from when it began waiting on the person while it waits, else when its last turn ended, else when the chat was made (an adopted chat with no turn here keeps its place). The other chat lists (Home, sidebar history) should follow the same time. The session list model and the New Tab model are under webviews/src/agent-session/acpmux/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: a chat paused on a permission inside its turn should date from the pause, not move when a draft is saved meanwhile",
+          "adds": "a chat paused on a permission dates from the pause"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which function formats a chat's age label like \"31m\"?",
+          "adds": "names the age-label function and its file",
+          "truth": "ageLabel in webviews/src/agent-session/acpmux/NewTabPage.tsx (used by newtab/screenModel.ts)"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, keep the age labels' format as it is (now, 31m, 2h); only change which time they read",
+          "adds": "the age label format is unchanged"
+        }
+      ]
+    },
+    {
+      "id": "motion-off",
+      "size": "medium",
+      "pilot": false,
+      "base": "b65bae5eab6e137585483996871aa41fa03c39e6",
+      "reference": "0f60d169d86f9a092e34b7eea270fcba9c5a3573",
+      "reference_pr": 22397,
+      "hidden_tests": [
+        "webviews/test/agent-pane-terminal-font.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: with ui.animationSpeed set to off, the cmux NEXT agent pane still moves: the changes tree, the transcript glide, the code card handoff and CSS loops and transitions keep animating. The host already sends an all-zero motion policy for off, and several surfaces check for motion off (isAgentMotionOff()), but nothing ever marks the page as motion off, so those checks never run. Make speed off stop the agent pane's motion: the page knows it is off, CSS animations and transitions stop under it, and the Web Animations the transcript runs are skipped. Reduce Motion's short crossfade is not speed off and must keep working. The agent pane's theme and motion setup is under webviews/src/agent-session/shared/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: animations already running when motion turns off should stop right away, not finish",
+          "adds": "animations running at the switch to off are cancelled"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: where is isAgentMotionOff defined, and what does it read?",
+          "adds": "names the file and what isAgentMotionOff reads",
+          "truth": "webviews/src/agent-session/shared/motion.ts; it reads document.documentElement.dataset.agentMotion === \"off\""
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, leave Reduce Motion behaving exactly as it does today; only the explicit off speed changes",
+          "adds": "Reduce Motion behavior is unchanged"
+        }
+      ]
+    },
+    {
+      "id": "settings-search-results",
+      "size": "medium",
+      "pilot": false,
+      "base": "902f2b1311244d4acfa188b79276a1db2c582e15",
+      "reference": "b137834bfce09e333e5af902a56f07f131e3dcc8",
+      "reference_pr": 22436,
+      "hidden_tests": [
+        "webviews/test/settings-search-results.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: a search in cmux NEXT Settings shows an empty pane: the matching rows are there but invisible, and a query without a match shows no \"No Results\" line either. In the refined look each group without a match also leaves a gap above the matches. Make search show its matching rows, make groups without a match take no space, and make a query without a match say No Results. The Settings page and its styles are under webviews/src/pages/settings/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: a search result card should draw its edges like a section card: no divider under its last shown row, and its first and last rows take the card's rounded corners",
+          "adds": "a search card's end rows take the card's edges, no divider under the last"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which component renders the Settings search results?",
+          "adds": "names the search results component and its file",
+          "truth": "SearchResults in webviews/src/pages/settings/components/SearchResults.tsx (used by SettingsApp.tsx)"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, don't touch the search logic or the SearchResults component; fix it in the page's stylesheets",
+          "adds": "the search logic and SearchResults component are unchanged"
+        }
+      ]
+    },
+    {
+      "id": "passwords-narrow",
+      "size": "medium",
+      "pilot": false,
+      "base": "0805b95678fb4e1b175ef8c2a68fc9c1f46bb54b",
+      "reference": "3c0dcd5206c0750f4983a2409d71dd9a90f8299b",
+      "reference_pr": 22904,
+      "hidden_tests": [
+        "webviews/test/passwords-narrow.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: the cmux NEXT Passwords page breaks in a narrow pane (360px). The title shrinks to nothing and \"Import from Browser\" runs off the edge, usernames squeeze to one letter beside their badges, last-used time and actions, and the header's search, selects and buttons are 25 to 33px tall in one row. In a narrow pane the header's actions should wrap under the title, a saved login's details should wrap under a readable username, and the controls in a header row should share one height. The Passwords page is under webviews/src/pages/passwords/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: passkey and exception rows should stay on one line, even with a long site name",
+          "adds": "passkey and exception rows stay one line at 360px"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: how do you open the Passwords page with mock data in the browser dev loop?",
+          "adds": "says how to get the mock provider",
+          "truth": "add ?mock (or ?mock=shipping) to the page URL; webviews/src/pages/passwords/main.tsx picks MockPasswordsProvider from mockProvider.ts"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, keep the normal-width layout exactly as it is; only a narrow pane changes",
+          "adds": "the normal-width layout is unchanged"
+        }
+      ]
+    },
+    {
+      "id": "subagents-stopped",
+      "size": "large",
+      "pilot": false,
+      "base": "30b4c80448f348e42000a3232f246a8cc8d6597f",
+      "reference": "eb3a6d2504ad8aefa1755030001cb84df08e3693",
+      "reference_pr": 22564,
+      "hidden_tests": [
+        "webviews/test/subagent-stopped-after-cancel.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: in the cmux NEXT agent chat, a subagent reads \"running\" forever once nothing will end it: its turn was stopped and the harness never sent the subagent's end, or the agent behind the chat exited, reopened or resumed without the subagent it had. The subagent group row, the agents pill and the summary all keep it running. Make such a subagent read as stopped: cancelled when its turn was stopped, disconnected when the agent behind it went away (acpmux's exited, stopped, reopened, resumed, host_started and host_ended records) or when the daemon lost the turn (a turn_result with detail outcome_unknown). A subagent the harness runs in the background (acpmux marks it with background: true on its subagent update) outlives a stop, and one that reports again reads running again. It should read the same live and after a reload. The pane's subagent handling is under webviews/src/agent-session/acpmux/ (subagents/ and the webview client that reads acpmux's records). Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: a background subagent that keeps reporting after a stop or a resume must keep reading running",
+          "adds": "a background subagent that still reports reads running"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which subagent states does the pane's subagent model know?",
+          "adds": "lists the subagent states",
+          "truth": "running, completed, failed, cancelled and disconnected (Subagent.state in webviews/src/agent-session/acpmux/subagents/subagentFold.ts)"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, a stop should end only the subagents its own turn started, not ones still running from earlier turns",
+          "adds": "a stop ends only its own turn's subagents"
+        }
+      ]
+    },
+    {
+      "id": "received-messages-inline",
+      "size": "large",
+      "pilot": false,
+      "base": "7c64cf3ff5ecdf033b46e88ecc2f3c0b9f5a5d27",
+      "reference": "9e152a9e845abed19c7d16a831a37d206e1e2874",
+      "reference_pr": 22761,
+      "hidden_tests": [
+        "webviews/test/transcript-received-messages.test.ts",
+        "webviews/test/transcript-worked-fold.test.ts"
+      ],
+      "brief": "The cmux repo is checked out at {repo} (a git repo; commit your work there, no pushes, no PRs). Task: in the cmux NEXT agent chat, when another agent's message arrives while a turn runs, the agent's earlier messages fold into \"2 previous messages\" and vanish. Leo: never auto-collapse messages into \"N previous messages\"; only the person folds anything. Another agent's message counts as a prompt, so it splits the running turn, and the turn before it has no summary yet. Make a turn without a summary that a later prompt follows draw as it came, each of the agent's messages in place. Also render a received message like Claude desktop does: one quiet \"Received message from <name> ›\" line instead of a prompt bubble or card, where the name opens the sender's chat when it is one here and › opens the message in place. The transcript's turn shaping and the incoming message card are under webviews/src/agent-session/acpmux/conversation/. Add a test under webviews/test/. Run `bun run check` in webviews/ before you say it is done.",
+      "followups": [
+        {
+          "id": "status",
+          "at": 120,
+          "text": "how's it going?",
+          "adds": "answers where the work stands"
+        },
+        {
+          "id": "scope",
+          "at": 360,
+          "text": "also: an opened message should stay open when its row scrolls out and back (the transcript is virtualized)",
+          "adds": "an opened received message stays open across a remount"
+        },
+        {
+          "id": "side",
+          "at": 600,
+          "text": "unrelated quick one: which function shapes the transcript's rows into turns?",
+          "adds": "names the turn-shaping function and its file",
+          "truth": "turnView in webviews/src/agent-session/acpmux/conversation/turns.ts"
+        },
+        {
+          "id": "correction",
+          "at": 900,
+          "text": "actually, keep the existing \"Received message from {title}\" string; don't add a new one",
+          "adds": "the existing received-message string is reused"
+        }
+      ]
     }
   ]
 }

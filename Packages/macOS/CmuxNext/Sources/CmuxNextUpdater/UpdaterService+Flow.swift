@@ -13,8 +13,8 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return nil }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
+        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
 
@@ -44,7 +44,7 @@ extension UpdaterService {
         }.first ?? .proceed
         if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
-            cancelStaged()
+            _ = cancelStaged()
         }
         return action
     }
@@ -86,6 +86,7 @@ extension UpdaterService {
 
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
+        dropStaleStagedUpdate()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }

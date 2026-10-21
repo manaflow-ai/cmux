@@ -4,11 +4,12 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, M
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { EnvironmentIcon, EnvironmentPicker } from "./EnvironmentPicker";
-import type { EnvironmentKind } from "./environments";
+import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import type { ConnectKind, EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
+import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -33,7 +34,7 @@ export const CONTEXT_LABELS = {
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
-type Location = { id: string; label: string; detail?: string };
+type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo };
 type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
@@ -61,6 +62,7 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  saved,
   onRefreshMachines,
 }: {
   summary?: Summary;
@@ -91,7 +93,10 @@ export function ComposerContext({
   onBrowseFolder?(): Promise<string | undefined>;
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
+  /// The New Tab page's saved environments, in the environment picker. While one is picked it
+  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
 }) {
@@ -126,6 +131,7 @@ export function ComposerContext({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
+      ...(project.repo ? { repo: project.repo } : {}),
     }));
     const seen = new Set(projects.map((project) => project.id));
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
@@ -144,6 +150,30 @@ export function ComposerContext({
   const readOnly = started || onProject === undefined;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
+  // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
+  // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
+  // inside a checkout always adds its path below it ("cmux · webviews"), branch control or not.
+  const currentLocation = currentFolder
+    ? (folders.find((folder) => folder.id === currentFolder) ?? {
+        id: currentFolder,
+        label: projectLabel(currentFolder),
+      })
+    : undefined;
+  const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
+  const place = !currentLocation
+    ? undefined
+    : branch
+      ? belowCheckout(currentLocation)
+      : isMainCheckout(currentLocation)
+        ? undefined
+        : worktreeName(currentLocation);
+  const currentName = currentLocation
+    ? currentRepo
+      ? place && place !== currentRepo.name
+        ? `${currentRepo.name} · ${place}`
+        : currentRepo.name
+      : projectLabel(currentLocation.id)
+    : undefined;
   // A started chat's Choose folder…: the host's folder panel, then a new chat there.
   const browseNewChat = onBrowseFolder
     ? () => {
@@ -162,13 +192,19 @@ export function ComposerContext({
   const computerDisabled = readOnly && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
+  const savedRows = environmentsShown && !readOnly ? saved : undefined;
+  const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
+  const pickEnvironment = (id: string) => {
+    if (savedRows?.current !== undefined) savedRows.onClear();
+    pickComputer(id);
+  };
   // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
   // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
   const worktree =
-    environmentsShown && !readOnly && selectedComputer === "local" && currentFolder && onNewWorktree
+    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
       ? () => onNewWorktree(currentFolder)
       : undefined;
-  const folderShown = !(readOnly && !newChats && !currentFolder);
+  const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
@@ -181,11 +217,7 @@ export function ComposerContext({
                 <LocationFace
                   icon={<FolderIcon />}
                   value={
-                    currentFolder
-                      ? projectLabel(currentFolder)
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)
+                    currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
                   chevron
                   middle={currentFolder !== undefined}
@@ -243,18 +275,19 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
-                  icon={<EnvironmentIcon kind={currentComputer?.kind ?? "local"} />}
-                  value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
               }
               environments={computers}
               current={selectedComputer}
-              onPick={pickComputer}
+              onPick={pickEnvironment}
               {...(!started && onConnect ? { onConnect } : {})}
+              {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
             />
           ) : (
