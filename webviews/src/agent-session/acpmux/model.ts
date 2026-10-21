@@ -657,24 +657,28 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What edits without a diff list as in the edited-files card: each path they name, once
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
+  const out: { key: string; path?: string; failed?: true }[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
     if (!item.tool) return;
     const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission, or one that failed, wrote nothing.
-    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
+    // A Write still waiting for its permission wrote nothing yet.
+    const sent = item.tool.status !== "pending";
+    const failed = item.tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
     const paths = diffs.length
-      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
+      ? diffs.filter((diff) => sent && contentsUnknown(diff)).map((diff) => diff.path)
       : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
+    for (const path of paths) {
+      const listed = at.get(path);
+      if (listed === undefined) {
+        at.set(path, out.length);
+        out.push({ key: `path-${path}`, path, ...mark });
+      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+    }
   });
   return out;
 }

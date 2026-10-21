@@ -17,7 +17,7 @@ import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
 import { outsideRepository, turnCounts } from "../changes/turnCheckpoint";
-import { useT, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
 import { SessionEditsContext } from "../turnChanges/sessionRows";
@@ -98,10 +98,12 @@ function Card({
           counts.root,
           files,
         );
-  const entries: { key: string; file?: TurnFile; path?: string }[] = [
+  const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
+    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path, failed: entry.failed })),
   ];
+  // Undo leaves the paths listed without counts as they are: the page never had their old text.
+  const kept = pathsOnly.filter((path) => !changes.files.some((file) => file.path === path));
   const total = entries.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
   const limit = settings.maxRows;
@@ -169,6 +171,7 @@ function Card({
       {undoState.phase === "confirm" && (
         <UndoConfirm
           summary={undoState.summary}
+          kept={kept}
           onUndo={() => void applyUndo(row.id, changes.files)}
           onCancel={() => cancelUndo(row.id)}
           t={t}
@@ -197,6 +200,7 @@ function Card({
               ) : (
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
               )}
+              {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
             </div>
           );
         }
@@ -289,15 +293,19 @@ function UndoButton({
 
 function UndoConfirm({
   summary,
+  kept,
   onUndo,
   onCancel,
   t,
 }: {
   summary: { undo: number; changed: number; cannot: number };
+  kept: readonly string[];
   onUndo: () => void;
   onCancel: () => void;
   t: Translate;
 }) {
+  const language = usePaneLanguage();
+  const names = kept.map((path) => path.split("/").pop() || path);
   return (
     <div className="acpmux-edited-confirm" role="alertdialog" aria-label={t("edited.undo")}>
       <div className="acpmux-edited-confirm-text">
@@ -320,6 +328,15 @@ function UndoConfirm({
             {summary.cannot === 1
               ? t("edited.undoSkip.cannot.one")
               : t("edited.undoSkip.cannot.other", { n: summary.cannot })}
+          </div>
+        )}
+        {names.length > 0 && (
+          <div className="acpmux-edited-confirm-skip acpmux-edited-confirm-kept">
+            {names.length === 1
+              ? t("edited.undoSkip.unknown.one", { file: names[0]! })
+              : t("edited.undoSkip.unknown.other", {
+                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                })}
           </div>
         )}
       </div>
