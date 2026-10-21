@@ -151,9 +151,9 @@ export function FolderPopover({
     const { group, worktree } = place;
     if (worktree)
       return (
-        // tooltip-allow: the row shows the worktree's branch; the tooltip is its full path
         <span
           className="acpmux-location-row"
+          // tooltip-allow: the row shows the worktree's branch; the tooltip is its full path
           title={worktree.id}
           data-worktree=""
           data-current={worktree.id === current ? "" : undefined}
@@ -176,9 +176,9 @@ export function FolderPopover({
     const others = group.members.length - 1;
     const open = expanded.has(group.key);
     return (
-      // tooltip-allow: the row shows the folder's name; the tooltip is its full path
       <span
         className="acpmux-location-row"
+        // tooltip-allow: the row shows the folder's name; the tooltip is its full path
         title={folder.id}
         data-current={folder.id === current ? "" : undefined}
         data-expanded={others > 0 && !typed ? String(open) : undefined}
