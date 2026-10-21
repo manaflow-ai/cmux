@@ -30,6 +30,8 @@ web/oxlint-complexity-baseline.txt
 web/.oxlintrc.json
 scripts/cmux-next/lint-tools.lock
 scripts/cmux-next/lint/*
+scripts/cmux-next/*allowlist*
+config/vite-plus/*
 
 # the webviews checks are package scripts (check:*); acpmux-protocol:check's generator
 webviews/package.json

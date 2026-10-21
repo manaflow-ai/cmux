@@ -70,10 +70,12 @@ class CheckPaths(unittest.TestCase):
         self.assertEqual(matching(scripts), scripts)
         self.assertEqual(matching(["scripts/ci/crash-class-gate.sh", "webviews/src/protocol/codegen/ir.ts",
                                    "webviews/scripts/acpmux-protocol-codegen.ts", "scripts/cmux-next/lint/swiftlint.yml",
-                                   "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt"]),
+                                   "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt",
+                                   "scripts/cmux-next/crash-allowlist.json", "config/vite-plus/check.ts"]),
                          ["scripts/ci/crash-class-gate.sh", "webviews/src/protocol/codegen/ir.ts",
                           "webviews/scripts/acpmux-protocol-codegen.ts", "scripts/cmux-next/lint/swiftlint.yml",
-                          "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt"])
+                          "web/.oxlintrc.json", "scripts/lint-namespace-types-baseline.txt",
+                          "scripts/cmux-next/crash-allowlist.json", "config/vite-plus/check.ts"])
 
     def test_only_the_workflows_a_dispatch_reruns(self):
         # Another workflow's change is churn a dispatch cannot catch: the fast gates rerun only their own gates.
