@@ -205,7 +205,7 @@ describe("rendered replies", () => {
 
   const IMAGE = "data:image/png;base64,iVBORw0KGgo=";
   async function render(markdown: string, host: "answer" | "silent" = "answer") {
-    const { act, createElement } = await import("react");
+    const { act } = await import("react");
     const { createRoot } = await import("react-dom/client");
     const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
     const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
@@ -227,7 +227,7 @@ describe("rendered replies", () => {
     const container = dom.window.document.createElement("div");
     dom.window.document.body.append(container);
     const root = createRoot(container);
-    await act(async () => root.render(createElement(Markdown, { githubRepository: REPO, children: markdown })));
+    await act(async () => root.render(<Markdown githubRepository={REPO}>{markdown}</Markdown>));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     return { container, unmount: () => act(async () => root.unmount()) };
   }
