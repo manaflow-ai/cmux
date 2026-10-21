@@ -70,8 +70,10 @@ FILES = {
 TOOLCHAIN = {
     "fast-tier": {
         "xcode": "Xcode 26.0 Build version 17A324",
-        "macos": "26",
+        "macos": "26.0.1",
+        "macos_build": "25A362",
         "arch": "arm64",
+        "pool": "owned",
     },
     "fast-tier-cargo": {
         "runner": "Linux-X64",
@@ -79,6 +81,7 @@ TOOLCHAIN = {
                  "release: 1.95.0 LLVM version: 21.1.0",
         "cargo": "cargo 1.95.0 (def 2026-08-20)",
         "zig": "0.15.2",
+        "clang": "Ubuntu clang version 18.1.3 (1ubuntu1)",
     },
 }
 JOBS = tuple(TOOLCHAIN)
@@ -191,8 +194,16 @@ class JobInputFingerprint(unittest.TestCase):
         base = self.key("fast-tier")
         self.assertNotEqual(base, self.key("fast-tier", xcode="Xcode 26.1 Build version 17B55"))
         self.assertNotEqual(base, self.key("fast-tier", xcode="Xcode 26.0 Build version 17A325"))
-        self.assertNotEqual(base, self.key("fast-tier", macos="27"))
+        self.assertNotEqual(base, self.key("fast-tier", macos="26.0.2"))
+        self.assertNotEqual(base, self.key("fast-tier", macos_build="25A363"))
         self.assertNotEqual(base, self.key("fast-tier", arch="x86_64"))
+
+    def test_the_runner_pool_counts(self):
+        # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.
+        base = self.key("fast-tier")
+        for pool in ("blacksmith", "hosted"):
+            with self.subTest(pool=pool):
+                self.assertNotEqual(base, self.key("fast-tier", pool=pool))
 
     def test_the_rust_and_zig_toolchain_count(self):
         base = self.key("fast-tier-cargo")
@@ -203,6 +214,46 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.key("fast-tier-cargo", cargo="cargo 1.95.1 (fed 2026-09-20)"))
         self.assertNotEqual(base, self.key("fast-tier-cargo", zig="0.16.0"))
         self.assertNotEqual(base, self.key("fast-tier-cargo", runner="Linux-ARM64"))
+
+    def test_the_clang_that_bindgen_uses_counts(self):
+        base = self.key("fast-tier-cargo")
+        self.assertNotEqual(base, self.key("fast-tier-cargo", clang="Ubuntu clang version 18.1.8 (1ubuntu1)"))
+
+    def test_the_runner_image_counts_when_the_runner_names_one(self):
+        for job in JOBS:
+            with self.subTest(job=job):
+                base = self.key(job)
+                self.assertNotEqual(base, self.key(job, image="ubuntu24-20261012.1"))
+                self.assertNotEqual(self.key(job, image="ubuntu24-20261012.1"),
+                                    self.key(job, image="ubuntu24-20261019.1"))
+
+    def test_a_bad_rev_or_a_git_failure_gives_no_key(self):
+        for job in JOBS:
+            with self.subTest(job=job, case="bad rev"):
+                args = [sys.executable, "-I", str(SCRIPT), job, "--root", str(self.repo.root), "--rev", "no-such-rev"]
+                for name, value in TOOLCHAIN[job].items():
+                    args += ["--extra", f"{name}={value}"]
+                result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("key=", result.stdout)
+                self.assertIn("::notice", result.stderr)
+            with self.subTest(job=job, case="not a repository"):
+                with tempfile.TemporaryDirectory() as empty:
+                    key, stderr = run(job, Path(empty), TOOLCHAIN[job])
+                    self.assertEqual(key, "")
+                    self.assertIn("::notice", stderr)
+
+    def test_a_submodule_bump_changes_the_key(self):
+        def gitlink(sha: str) -> None:
+            git(self.repo.root, "update-index", "--add", "--cacheinfo", f"160000,{sha},ghostty-next")
+            git(self.repo.root, "commit", "-q", "-m", "bump")
+
+        gitlink("1" * 40)
+        for job in JOBS:
+            with self.subTest(job=job):
+                before = self.key(job)
+                gitlink(("2" if job == "fast-tier" else "3") * 40)
+                self.assertNotEqual(before, self.key(job))
 
     def test_a_missing_or_empty_toolchain_value_gives_no_key(self):
         for job in JOBS:
