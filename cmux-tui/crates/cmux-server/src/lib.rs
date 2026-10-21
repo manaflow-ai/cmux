@@ -25,6 +25,7 @@ pub mod access;
 pub mod cli;
 pub mod cloud_http;
 pub mod config;
+pub mod deadline;
 pub mod error;
 pub mod exec;
 pub mod fsx;

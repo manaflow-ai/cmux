@@ -125,6 +125,16 @@ impl Http for PosterHttp {
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_until(url, body, bearer, deadline)
     }
+
+    fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.0.request_with_deadline(url, body, bearer, deadline)
+    }
 }
 
 /// One `identify` on the daemon's control socket, bounded by `timeout`.

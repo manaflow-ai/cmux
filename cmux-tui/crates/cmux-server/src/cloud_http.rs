@@ -9,6 +9,10 @@ use serde_json::Value;
 
 use crate::store::fetch::check_url;
 
+#[path = "cloud_http_deadline.rs"]
+mod deadline;
+pub use deadline::RequestDeadline;
+
 pub struct JsonPoster {
     client: reqwest::blocking::Client,
     allow_http: bool,
@@ -17,6 +21,10 @@ pub struct JsonPoster {
 #[cfg(test)]
 #[path = "cloud_http_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "cloud_http_elapsed_tests.rs"]
+mod elapsed_tests;
 
 impl JsonPoster {
     pub fn new() -> Result<JsonPoster, String> {
@@ -53,6 +61,20 @@ impl JsonPoster {
         let parsed =
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
         Ok((status, parsed))
+    }
+
+    /// An explicit budget retained across authentication, policy and keyset reads.
+    pub fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        deadline.remaining().ok_or("Cloud request unavailable")?;
+        let result = self.request_until(url, body, bearer, deadline.active())?;
+        deadline.remaining().ok_or("Cloud response unavailable")?;
+        Ok(result)
     }
 
     /// One request with a shared absolute deadline and a 1 MiB response cap.

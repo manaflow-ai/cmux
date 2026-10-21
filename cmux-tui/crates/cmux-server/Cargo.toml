@@ -18,6 +18,8 @@ path = "src/main.rs"
 base64.workspace = true
 cmux-cloud-wire = { path = "../cmux-cloud-wire" }
 cmux-server-core = { path = "../cmux-server-core" }
+# Shared elapsed authority budgets; cmux-link has no server dependency.
+cmux-link.workspace = true
 futures-util.workspace = true
 flate2.workspace = true
 getrandom.workspace = true

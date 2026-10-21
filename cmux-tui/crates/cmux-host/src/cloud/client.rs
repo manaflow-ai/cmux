@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use cmux_server::cloud_http::RequestDeadline;
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -29,6 +30,18 @@ pub trait Http {
         _deadline: Instant,
     ) -> Result<(u16, Vec<u8>), String> {
         Err("bounded Cloud transport unavailable".into())
+    }
+
+    /// Explicit continuous budget. Legacy transports must opt in rather than
+    /// silently inheriting an active-clock timeout for original VM authority.
+    fn request_with_deadline(
+        &self,
+        _url: &str,
+        _body: Option<&Value>,
+        _bearer: Option<&str>,
+        _deadline: &RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        Err("continuous Cloud transport unavailable".into())
     }
 }
 
@@ -269,8 +282,11 @@ impl<H: Http> CloudClient<H> {
     pub(super) fn token_until(
         &mut self,
         now_wall_ms: u64,
-        deadline: Option<Instant>,
+        deadline: Option<&RequestDeadline>,
     ) -> Result<String, String> {
+        if deadline.is_some_and(|budget| budget.remaining().is_none()) {
+            return Err("bounded Cloud authentication unavailable".into());
+        }
         if self.bound.api_origin != self.bound.env.api_origin() {
             self.cached = None;
             return Err("Cloud origin differs from the original environment".into());
@@ -333,7 +349,7 @@ impl<H: Http> CloudClient<H> {
         &self,
         path: &str,
         body: &Value,
-        deadline: Option<Instant>,
+        deadline: Option<&RequestDeadline>,
     ) -> Result<(u16, T), String> {
         let malformed = || "Cloud authentication unavailable".to_owned();
         if let Some(deadline) = deadline {
@@ -351,16 +367,16 @@ impl<H: Http> CloudClient<H> {
         path: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
-        deadline: Instant,
+        deadline: &RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
-        if self.bound.api_origin != self.bound.env.api_origin() || Instant::now() >= deadline {
+        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
             return Err("bounded Cloud request unavailable".into());
         }
         let result = self
             .http
-            .request_until(&self.url(path), body, bearer, deadline)
+            .request_with_deadline(&self.url(path), body, bearer, deadline)
             .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
-        if result.1.len() > 1024 * 1024 || Instant::now() >= deadline {
+        if result.1.len() > 1024 * 1024 || deadline.remaining().is_none() {
             return Err("bounded Cloud response unavailable".into());
         }
         Ok(result)

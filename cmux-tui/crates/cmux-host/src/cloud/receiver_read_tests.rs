@@ -146,6 +146,15 @@ impl Http for Server {
     fn post(&self, _: &str, _: &Value, _: Option<&str>) -> Result<(u16, Value), String> {
         panic!("receiving read used an unbounded transport")
     }
+    fn request_with_deadline(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<(u16, Vec<u8>), String> {
+        self.request_until(url, body, bearer, deadline.active())
+    }
     fn request_until(
         &self,
         url: &str,
