@@ -4,15 +4,16 @@
 //
 // The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
 // prompt and [↵ · Stop · mic] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
-// composer); the quiet row under it is [permission mode · Plan] ……… [model · effort].
+// composer); the quiet row under it is [permission mode · Plan] ……… [model]. The model button names
+// its effort too ("Opus 5.5  Medium", Leo 2026-10-20): there is no effort chip.
 // Each row keeps the rhythm on its own.
 // What a person sees between two controls is the space between what each draws (its text, its
 // icons' boxes, or Send's disc), not between their transparent hit boxes, so this measures that.
 // An icon counts as its box, not its strokes: icons share one grid, so equal box gaps read as equal.
-// The effort chip and the mic may be absent (a short row, or effort folded into the model chip):
+// The mic may be absent (a short row):
 //   - inside a group, every control is the same distance from the next (within 1 px);
 //   - between the leading groups, every gap is the same, and larger than the in-group gap;
-//   - inside the chips (model, effort, permission mode, Interrupt), the text sits the same distance
+//   - inside the chips (model, permission mode, Interrupt), the text sits the same distance
 //     from the chip's leading and trailing edges, and an icon or chevron the same distance from the
 //     text, in every chip of the same row;
 //   - in the box, + and the last disc sit the same distance from the box's sides, and the last disc
@@ -49,7 +50,6 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
-      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["mode", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
       ["steer", ".acpmux-steer-now"],
@@ -180,7 +180,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL("queued", scheme));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
     await page.keyboard.type("Also cover the 503 path");
     await page.locator(".acpmux-steer-now").waitFor();
@@ -195,7 +195,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   };
 
   // The leading groups, then the trailing cluster (last) of each row.
-  const GROUPS = [["plus"], ["mode", "plan"], ["model", "effort"], ["steer", "mic", "send"]];
+  const GROUPS = [["plus"], ["mode", "plan"], ["model"], ["steer", "mic", "send"]];
   const TRAILING = new Set([2, 3]);
   const group = (name: string) => GROUPS.findIndex((members) => members.includes(name));
   const drawn = (control: Control): Span => ({
@@ -235,9 +235,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           }
           // Inside each chip: the text's inset from the leading and trailing edges, and the space
           // between an icon or chevron and the text.
-          for (const control of controls.filter((control) =>
-            ["model", "effort", "mode", "plan"].includes(control.name),
-          )) {
+          for (const control of controls.filter((control) => ["model", "mode", "plan"].includes(control.name))) {
             const { parts, box } = control;
             const gaps = parts.slice(1).map((part, index) => part.left - parts[index]!.right);
             insides.push({
@@ -251,7 +249,8 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
             });
           }
           // Location and composer pickers share the same optical correction for their down-chevron.
-          for (const control of controls.filter(({ name }) => ["model", "effort", "mode"].includes(name)))
+          // The model button draws none, as Claude Code's (Leo 2026-10-20); the mode keeps its own.
+          for (const control of controls.filter(({ name }) => name === "mode"))
             if (control.chevronY === undefined || Math.abs(control.chevronY - 0.75) > 0.05)
               problems.push(`${control.name} chevron transform is ${control.chevronY ?? "missing"}, expected 0.75`);
           console.log(
@@ -295,8 +294,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           }
         }
         const names = (measured: Row) => measured.controls.map((control) => control.name);
-        // The effort chip and the mic may leave a short row (or fold into the model chip); the
-        // rest always shows, each in its row.
+        // The mic may leave a short row; the rest always shows, each in its row.
         for (const name of ["plus", "steer", "send"])
           if (!names(rows.inner).includes(name)) problems.push(`${name} is not in the box's row`);
         for (const name of ["model", "mode"])

@@ -2,12 +2,13 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
-import type { SpeedSection } from "./EffortPicker";
 import { isDefaultChoice } from "./defaultChoice";
 import { useT } from "./i18n";
+import { CHAT_COLUMN } from "./modelPickerLayout";
 import {
   Menu,
   MenuButton,
+  MenuCheckboxItem,
   MenuGroup,
   MenuItem,
   MenuPopup,
@@ -17,19 +18,20 @@ import {
   Submenu,
 } from "../../ui/Menu";
 
-/// What the compact model menu lists (the Debug Settings choice `agent.modelMenu`, compact by
-/// default): the harness's top models, numbered, then Effort and Account submenus.
+/// What the model button's menu lists (Leo 2026-10-20: every composer's one model control): the
+/// harness's top models, numbered, then Effort, More models and Account submenus, then Fast mode.
 export type QuickMenu = {
   /// The numbered rows: this harness's top models, with the running one among them.
   models: readonly { id: string; name: string }[];
   current?: string;
   onModel(id: string): void;
   /// The reasoning levels; absent when the model offers no choice.
-  /// `speed`: fast mode or Codex's service tier, as the reasoning menu offers it (the composer row's
-  /// bolt leaves a narrow row, so the menu keeps it reachable).
-  effort?: { levels: Choice[]; current?: string; onPick(value: string): void; speed?: SpeedSection };
+  effort?: { levels: Choice[]; current?: string; onPick(value: string): void };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
+  /// Fast mode (Claude Code's Fast Mode, Codex's Fast service tier): the menu's last checkbox row,
+  /// its one place (the composer draws no bolt). Absent where the running model has none.
+  fast?: { checked: boolean; onChange(on: boolean): void };
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
@@ -85,12 +87,13 @@ function filtered(families: QuickFamily[], query: string): (QuickModel & { hint:
 const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\u0000${model.id}`;
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
-export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account">;
+export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
 /// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
 /// session". Keys 1 to 9 pick a model in place, its check sits at the row's trailing edge, Effort
 /// and Account open beside their rows, and More models opens the full picker (the harness rail and
-/// search). Typing a letter opens that picker searching for it.
+/// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
+/// checkbox (Leo 2026-10-20), never a radio group inside Effort.
 export function QuickModelMenu({
   open,
   onOpenChange,
@@ -112,7 +115,7 @@ export function QuickModelMenu({
   children: React.ReactNode;
 }) {
   const t = useT();
-  const { models, current, effort, account } = menu;
+  const { models, current, effort, account, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
   const accounts = useAccountList(open, account);
@@ -255,23 +258,6 @@ export function QuickModelMenu({
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
-            {effort.speed && (
-              <>
-                <MenuSeparator />
-                <MenuGroup label={effort.speed.title}>
-                  <MenuRadioGroup
-                    value={effort.speed.current ?? ""}
-                    onValueChange={(value) => value !== effort.speed?.current && effort.speed?.onPick(value)}
-                  >
-                    {effort.speed.choices.map((choice) => (
-                      <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                      </MenuRadioItem>
-                    ))}
-                  </MenuRadioGroup>
-                </MenuGroup>
-              </>
-            )}
           </Submenu>
         </>
       )}
@@ -347,6 +333,18 @@ export function QuickModelMenu({
           />
         </Submenu>
       )}
+      {!query && onChatTab && fast && (
+        <>
+          <MenuSeparator />
+          <MenuCheckboxItem
+            className="acpmux-quick-item acpmux-quick-fast"
+            checked={fast.checked}
+            onCheckedChange={(on) => fast.onChange(on)}
+          >
+            <span className="acpmux-menu-label">{t("picker.fastMode")}</span>
+          </MenuCheckboxItem>
+        </>
+      )}
       {!query && menu.update && (
         <>
           <MenuSeparator />
@@ -368,6 +366,7 @@ export function QuickModelMenu({
         align="start"
         label={t("picker.model")}
         className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
+        boundary={CHAT_COLUMN}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}
       >
