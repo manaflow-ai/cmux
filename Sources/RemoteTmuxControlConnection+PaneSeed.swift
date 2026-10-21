@@ -51,12 +51,33 @@ extension RemoteTmuxControlConnection {
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
     }
 
-    func installPaneSeedCapture(paneId: Int, seedID: UUID, data: Data) {
+    /// Installs the screen capture: `screenClear`, then any history rows read ahead
+    /// of it, then `data`. The history rows were reserved as they arrived, so only
+    /// the clear and the screen rows are reserved here.
+    func installPaneSeedCapture(paneId: Int, seedID: UUID, screenClear: Data = Data(), data: Data) {
         guard pendingPaneSeeds[paneId]?.first?.id == seedID,
               pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
-        guard reservePendingPaneSeedBytes(data.count, paneId: paneId) else { return }
+        guard reservePendingPaneSeedBytes(screenClear.count + data.count, paneId: paneId) else { return }
+        pendingPaneSeeds[paneId]![0].snapshot.append(screenClear)
+        pendingPaneSeeds[paneId]![0].snapshot.append(pendingPaneSeeds[paneId]![0].historyRows)
+        pendingPaneSeeds[paneId]![0].historyRows = Data()
         pendingPaneSeeds[paneId]![0].snapshot.append(data)
         pendingPaneSeeds[paneId]![0].isCaptureInstalled = true
+    }
+
+    /// Adds one chunk of history rows to a full-history seed whose screen capture
+    /// has not arrived yet.
+    func appendPaneSeedHistory(paneId: Int, seedID: UUID, lines: [String]) {
+        guard !lines.isEmpty,
+              pendingPaneSeeds[paneId]?.first?.id == seedID,
+              pendingPaneSeeds[paneId]?.first?.isCaptureInstalled == false else { return }
+        var rows = Data()
+        for line in lines {
+            rows.append(contentsOf: line.utf8)
+            rows.append(contentsOf: [0x0d, 0x0a])
+        }
+        guard reservePendingPaneSeedBytes(rows.count, paneId: paneId) else { return }
+        pendingPaneSeeds[paneId]![0].historyRows.append(rows)
     }
 
     /// Absorbs live bytes until the capture/state transaction resolves. Bytes
@@ -97,6 +118,7 @@ extension RemoteTmuxControlConnection {
             emitBufferedPaneOutput(completed, paneId: paneId)
             return
         }
+        defer { resolveFullHistorySeed(seedID, installed: true) }
         observers.emitPaneSeed(
             paneId,
             RemoteTmuxPaneSeed(
@@ -116,6 +138,7 @@ extension RemoteTmuxControlConnection {
         case let .paneOutputReset(id, token),
              let .paneOutputContinue(id, token),
              let .capturePane(id, token),
+             let .capturePaneHistory(id, token),
              let .paneState(id, token):
             paneId = id
             seedID = token
@@ -155,7 +178,7 @@ extension RemoteTmuxControlConnection {
         // itself failing has the same answer: do not continue a seed whose boundary
         // the server did not establish.
         switch kind {
-        case .paneOutputReset, .capturePane:
+        case .paneOutputReset, .capturePane, .capturePaneHistory:
             record("pane-seed-boundary-error %\(paneId)")
             beginReconnecting()
             return
@@ -247,6 +270,9 @@ extension RemoteTmuxControlConnection {
     }
 
     func resolveReconnectSeed(_ seedID: UUID) {
+        // Every seed's end passes through here, so a full-history load waiting on
+        // this seed learns it ended without the capture (a success resolved first).
+        resolveFullHistorySeed(seedID, installed: false)
         guard pendingReconnectSeedIDs.remove(seedID) != nil else { return }
         pumpReconnectPaneSeeds()
         notifyReconnectReadyIfSeedBatchDrained()

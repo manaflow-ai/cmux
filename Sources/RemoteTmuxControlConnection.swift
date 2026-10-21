@@ -190,10 +190,10 @@ final class RemoteTmuxControlConnection {
     var sessionDigestSubscribed = false
     var newWindowCompletions: [UUID: (Int?) -> Void] = [:]
     var newPaneCompletions: [UUID: (Int?) -> Void] = [:]
-    /// Completions for ``sendTracked(_:completion:)`` blocks, keyed by the
-    /// `.tracked` token in the FIFO. Guaranteed exactly one edge each: `%end`,
-    /// `%error`, or a stream reset (``failPendingTrackedSends()``) — callers
-    /// build protocol-anchored state machines on that guarantee.
+    /// Completions for ``sendTracked(_:completion:)`` blocks by `.tracked` token, and
+    /// for full-history seeds by seed id. Guaranteed exactly one edge each: `%end`
+    /// (or the seed painted), `%error`, or a stream reset (``failPendingTrackedSends()``)
+    /// — callers build protocol-anchored state machines on that guarantee.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
 
     private var process: Process?
