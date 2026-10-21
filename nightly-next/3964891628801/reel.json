@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "3964891628801",
+  "notes": "notes/3964891628801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23591,
+      "title": "cmux NEXT sidebar: Channels draws right after Home, not above it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23380,
+      "title": "test(next): cover remote scroll accumulation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23574,
+      "title": "cmux-mobile-link: the Mac retries a TURN allocation it missed while answering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23566,
+      "title": "cmux NEXT Settings: the Chiefs card draws the chosen pet character, never a letter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23556,
+      "title": "gallery(chat-gallery): open the summary from its button before Outputs' gallery row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23469,
+      "title": "Agent chat: a Write of unknown old contents counts nowhere, Undo names it, and a failed Write stays on the card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23567,
+      "title": "cmux-mobile-link: keep taking TURN after a roam's allocation fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23583,
+      "title": "cmux setup computer-use: turn it on with the person's one click, name each macOS grant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23542,
+      "title": "test(next): sidebar rebuild invariant covers Group by Folder, filters, Pinned and custom sections, multi-row drags and motion; a dragged tab stays glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23406,
+      "title": "team-eval: stall metrics, A-steer, tokens, concurrency limit and a live headroom gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23565,
+      "title": "agent pane: the overlay Inspector starts under the chat header, so its toggle closes it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23581,
+      "title": "composer: a PDF goes as a document block only up to 10 MiB",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23577,
+      "title": "cmux NEXT sidebar: Priority rows slide to their new place by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23531,
+      "title": "cmux NEXT sidebar: chats whose PR checks fail rank as Red CI in the Priority view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23525,
+      "title": "cmux setup mcp: give Claude Code and Codex outside cmux the cmux MCP server",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23532,
+      "title": "gallery: a play's waitFor sees a condition that changes without a DOM mutation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23470,
+      "title": "Esc on a queued image cancels the edit; queued images survive a restart",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
