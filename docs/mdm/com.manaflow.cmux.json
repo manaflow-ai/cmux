@@ -4274,6 +4274,22 @@
       "title" : "Download Updates Automatically",
       "type" : "boolean"
     },
+    "updates.idleInstallMaxWaitSeconds" : {
+      "default" : 900,
+      "description" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
+      "maximum" : 7200,
+      "minimum" : 60,
+      "title" : "Install Within",
+      "type" : "number"
+    },
+    "updates.idleInstallQuietSeconds" : {
+      "default" : 60,
+      "description" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself.",
+      "maximum" : 600,
+      "minimum" : 5,
+      "title" : "Quiet Time Before Installing",
+      "type" : "number"
+    },
     "updates.installOnQuit" : {
       "default" : true,
       "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
