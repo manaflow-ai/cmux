@@ -201,6 +201,14 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_bash32_linux_job.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_shim_cpp_linux.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_evidence_outcomes.py"
 lane = "linux-guard"
 
@@ -1562,6 +1570,10 @@ path = "tests/test_cmux_next_base_autofix_finishes.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_debug_only_controls.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_feed_rollback.py"
 lane = "linux-guard"
 
@@ -1683,4 +1695,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_media_privacy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_pool_sources.py"
 lane = "linux-guard"

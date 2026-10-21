@@ -190,9 +190,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate the CEF shim C++ tests run on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_shim_cpp_linux.py
+
       - name: Validate Xcode pin audit
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
+
+      - name: Validate the bash 3.2 parse job runs on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_bash32_linux_job.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -810,6 +818,12 @@ jobs:
       - name: Validate the persistent-pool rescue
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      # Reads the other branch's workflows too (origin/main here, origin/feat-cmux-next on main) and
+      # main's rescue lists; under Actions the test fetches it blob-less and fails if it cannot.
+      - name: Validate that the persistent-pool rescue watches every owned-pool workflow
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_sources.py
 
       - name: Validate the backend migrations plan
         if: ${{ !cancelled() && matrix.group == 'ci' }}

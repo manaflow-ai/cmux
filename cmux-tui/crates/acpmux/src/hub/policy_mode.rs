@@ -17,6 +17,20 @@
 //! | deny-all | `read-only` | on-request, read-only: the sandbox refuses every write, and what it asks for the policy refuses |
 //! | approve-all | the start level | |
 //!
+//! The policy is held wherever it could slip:
+//! - every agent start (`hold_policy_mode`, after `cap_full_access`): a
+//!   preset's, a folder profile's or a profile-pinned chat, a handoff target
+//!   that keeps its harness's mode, a resumed or forked chat;
+//! - every policy change, acpmux's own included (an aside's deny-all, a
+//!   handoff target narrowed to its source): `Hub::set_policy` follows it;
+//! - deny-all as the default policy (`_acpmux/set_default_policy`), a
+//!   lockdown: every chat without a policy of its own follows it. The default
+//!   `ask` is not narrowing: chats start in full access by design
+//!   (Lawrence 2026-10-14);
+//! - a switch into a mode that does not ask is refused (`policy_mode`) while
+//!   the harness has one that does (`refuse_wider_mode`);
+//! - the start mode preview (`_acpmux/start_mode`) answers the policy's mode.
+//!
 //! Claude Code asks in `default`. A harness with no mode that asks (opencode,
 //! whose own settings on this machine decide what it asks, `web_modes.rs`;
 //! pi; an ACP agent with no modes) cannot keep the policy: the chat logs
@@ -24,11 +38,21 @@
 
 use super::*;
 
-/// The policy `meta` holds when it is narrower than approve-all.
-pub(super) fn narrow_policy(meta: &SessionMeta) -> Option<PermissionPolicy> {
-    meta.permission_policy
-        .as_deref()
-        .and_then(|p| p.parse().ok())
+/// The policy `meta` holds when it is narrower than approve-all: its own, else deny-all when that
+/// is the default policy (`default`, module docs).
+pub(super) fn narrow_policy(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+) -> Option<PermissionPolicy> {
+    narrower(meta.permission_policy.as_deref().and_then(|p| p.parse().ok()), default)
+}
+
+/// A chat's policy (`own`, else `default`) when it is narrower than approve-all (module docs).
+pub(super) fn narrower(
+    own: Option<PermissionPolicy>,
+    default: PermissionPolicy,
+) -> Option<PermissionPolicy> {
+    own.or((default == PermissionPolicy::DenyAll).then_some(PermissionPolicy::DenyAll))
         .filter(|p| *p != PermissionPolicy::ApproveAll)
 }
 
@@ -46,6 +70,22 @@ pub(crate) fn policy_mode(
         return Some("read-only".to_owned());
     }
     super::start_mode::asking_mode(family, available)
+}
+
+/// The mode a Claude Code chat whose policy is narrower than approve-all spawns in when its saved
+/// `mode` never asks: the policy's (module docs), else `None` to keep `mode`.
+pub(super) fn claude_spawn_mode(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+    mode: &str,
+) -> Option<String> {
+    let policy = narrow_policy(meta, default)?;
+    if super::start_mode::asks(mode, "claude") {
+        return None;
+    }
+    let offered: Vec<String> =
+        crate::claude_stdio::MODES.iter().map(|(id, _)| (*id).to_owned()).collect();
+    policy_mode(policy, "claude", &offered)
 }
 
 /// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
@@ -66,16 +106,17 @@ impl Hub {
     pub(super) fn mode_for_policy(
         meta: &SessionMeta,
         offered: &[String],
+        default: PermissionPolicy,
     ) -> Option<Option<String>> {
-        let policy = narrow_policy(meta)?;
+        let policy = narrow_policy(meta, default)?;
         Some(policy_mode(policy, &crate::web_modes::family_of(meta), offered))
     }
 
     /// After a chat's start mode is set: a policy narrower than approve-all that its harness's
     /// mode cannot keep is logged (`policy_unenforced`), with the mode it runs in.
-    pub(super) fn note_unenforced_policy(&self, session: &Arc<Session>) {
+    pub(super) fn note_unenforced_policy(&self, session: &Arc<Session>, default: PermissionPolicy) {
         let meta = session.meta();
-        let Some(policy) = narrow_policy(&meta) else { return };
+        let Some(policy) = narrow_policy(&meta, default) else { return };
         let family = crate::web_modes::family_of(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let current = crate::web_modes::mode_of(&meta);
@@ -102,13 +143,14 @@ impl Hub {
     /// Code `plan`) stays. Soft: a refusal is logged as `policy_unenforced`. A chat whose agent is
     /// not running keeps the mode for its next start.
     pub(crate) async fn follow_policy(self: &Arc<Self>, session: &Arc<Session>) {
+        let default = self.config.read().await.permission_policy;
         let meta = session.meta();
-        let Some(policy) = narrow_policy(&meta) else { return };
+        let Some(policy) = narrow_policy(&meta, default) else { return };
         let Some(current) = crate::web_modes::mode_of(&meta) else { return };
         let family = crate::web_modes::family_of(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else {
-            self.note_unenforced_policy(session);
+            self.note_unenforced_policy(session, default);
             return;
         };
         let asks = super::start_mode::asks(&current, &family);
@@ -122,10 +164,13 @@ impl Hub {
         let child = session.child.lock().await.clone();
         // An agent in a host this daemon has not reached yet (adoption after a restart, a broken
         // link) runs too: `set_mode` reaches the host again (`readopt`), which replays nothing.
+        // Not a chat being closed (`kill`), whose host only removes its record once it ends:
+        // reaching it would start the chat again.
         let running = match child {
             Some(child) => child.is_alive().await,
             None => false,
-        } || Self::host_record_live(&session.id);
+        } || (Self::host_record_live(&session.id)
+            && !session.closing.load(Ordering::SeqCst));
         // A chat whose agent is not running starts none: its saved mode becomes the policy's,
         // which the agent's next start restores (`replay_config`, Claude's `--permission-mode`).
         // The Codex bridge also reports the mode as its `mode` config option, which
@@ -145,7 +190,102 @@ impl Hub {
         if let Err(e) = self.set_mode(session, &wanted).await {
             tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set: {}", e.message);
         }
-        self.note_unenforced_policy(session);
+        self.note_unenforced_policy(session, default);
+    }
+
+    /// deny-all became the default policy: every chat without a policy of its own follows it
+    /// (module docs).
+    pub(crate) async fn follow_default_policy(self: &Arc<Self>) {
+        let sessions: Vec<Arc<Session>> =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        // All at once: one agent that never answers its mode change holds no other chat back.
+        let follows = sessions
+            .iter()
+            .filter(|s| s.meta().permission_policy.is_none() && s.moving().is_none())
+            .map(|s| self.follow_policy(s));
+        futures::future::join_all(follows).await;
+    }
+
+    /// A chat whose agent just started (cold, or from the pool) runs in its policy's mode
+    /// (module docs). Sent to the agent itself: the start holds `spawn_lock`, so `set_mode` would
+    /// wait on it. Soft, as on a live chat: a refusal is logged as `policy_unenforced`. `pinned`:
+    /// the profile pins its mode in argv, which the chat does not record yet.
+    pub(super) async fn hold_policy_mode(
+        &self,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        pinned: bool,
+    ) {
+        let default = self.config.read().await.permission_policy;
+        let meta = session.meta();
+        let Some(policy) = narrow_policy(&meta, default) else { return };
+        let (Some(current), Some(sid)) =
+            (crate::web_modes::mode_of(&meta), meta.agent_session_id.clone())
+        else {
+            return;
+        };
+        let family = crate::web_modes::family_of(&meta);
+        let offered = super::start_mode::offered_ids(&meta);
+        let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
+        let asks = super::start_mode::asks(&current, &family);
+        let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+        // A mode pinned in argv is not what the chat records until its first turn: always moved.
+        if !pinned && (current == wanted || (asks && !narrower)) {
+            return;
+        }
+        match child
+            .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": wanted}))
+            .await
+        {
+            Ok(_) => {
+                let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
+                if let Some(options) = with_mode_option(&session.meta(), &wanted) {
+                    writes.push(ModeWrite::ConfigOptions(options));
+                }
+                self.write_mode_state(session, writes);
+                self.append(session, "mux", "mode", json!({"modeId": wanted}));
+            }
+            Err(e) => {
+                tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set at start: {}", e.message);
+                self.note_unenforced_policy(session, default);
+            }
+        }
+    }
+
+    /// A switch of `session` into a mode that does not ask (`session/set_mode`, or the `mode`
+    /// config option), from any client, while its policy is narrower than approve-all and its
+    /// harness has a mode that keeps it: refused, as the policy would no longer hold.
+    pub(super) async fn refuse_wider_mode(
+        &self,
+        session: &Session,
+        m: &str,
+        params: &Value,
+    ) -> Result<(), RpcError> {
+        let mode = match m {
+            method::SESSION_SET_MODE => params.get("modeId"),
+            method::SESSION_SET_CONFIG_OPTION
+                if params.get("configId").and_then(Value::as_str) == Some("mode") =>
+            {
+                params.get("value")
+            }
+            _ => None,
+        };
+        let Some(mode) = mode.and_then(Value::as_str) else { return Ok(()) };
+        let default = self.config.read().await.permission_policy;
+        let meta = session.meta();
+        let Some(policy) = narrow_policy(&meta, default) else { return Ok(()) };
+        let family = crate::web_modes::family_of(&meta);
+        let offered = super::start_mode::offered_ids(&meta);
+        let table = self.web_modes();
+        if policy_mode(policy, &family, &offered).is_none()
+            || super::start_mode::asks_in(mode, &family, table.modes(&family))
+        {
+            return Ok(());
+        }
+        Err(RpcError::invalid_params(format!(
+            "mode {mode:?} does not ask before it acts, and this chat's permission policy is {policy}: set the policy to approve-all first"
+        ))
+        .with_data(json!({"reason": "policy_mode", "policy": policy.to_string()})))
     }
 }
 
