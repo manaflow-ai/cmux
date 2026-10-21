@@ -312,6 +312,34 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/process/background",
+      "params": {
+        "$ref": "#/types/ProcessBackgroundParams"
+      },
+      "result": {
+        "$ref": "#/types/ProcessBackgroundResult"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/clean",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/worktree/restore",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
@@ -1983,6 +2011,39 @@
       "type": "object"
     },
     "PermissionRespondResult": {
+      "type": "object"
+    },
+    "ProcessBackgroundParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/process/background` (Ctrl-B): the chat whose running work goes\nto the background, and the one tool call to move (none: every\nforeground task, as Claude Code's own Ctrl-B does).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "toolCallId": {
+          "description": "Only the task this tool call started.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "ProcessBackgroundResult": {
+      "properties": {
+        "backgrounded": {
+          "description": "Claude Code moved something: the tasks arrive as `process_update`s\nwith origin `user_backgrounded`. False when nothing ran in the\nforeground (or no turn ran).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "backgrounded"
+      ],
       "type": "object"
     },
     "PurgedSession": {

@@ -70,7 +70,6 @@
 .acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
-.acpmux-summary-none{color:var(--agent-muted)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
@@ -228,3 +227,13 @@
 .acpmux-rail-more:hover{color:var(--agent-text)}
 .acpmux-rail-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-rail-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* The summary card's Background tasks (SummaryTasks.tsx): a command's row opens its terminal, Stop sits beside it; the finished ones fold into one row. */
+.acpmux-summary-task{display:flex;align-items:center;gap:2px}
+.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
+.acpmux-summary-task>.acpmux-rail-task__stop{margin-right:4px}
+.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
+.acpmux-summary-finished{display:flex;align-items:center;gap:6px}
+/* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
+.acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
+.acpmux-summary-attach{margin-top:2px;color:var(--agent-muted)}
+.acpmux-summary-attach:hover{color:var(--agent-text)}
