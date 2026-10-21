@@ -108,7 +108,12 @@ function fakeDaemon(
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
     }
   };
-  return { open, push };
+  /// A notification from the daemon (`_acpmux/lagged`).
+  const notify = (method: string, params: unknown) =>
+    socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
+  /// The connection drops; the client opens a new one and attaches again.
+  const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
+  return { open, push, notify, drop };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -210,12 +215,17 @@ test("a chat attached mid-turn, without the turn's start, shows no tokens it can
   }
 });
 
-test("older pages that reach a mid-turn attach's start keep its tokens hidden", async () => {
+test("once older pages bring a mid-turn attach's start, every rebuild keeps its tokens hidden", async () => {
   // The attach page starts after the turn's first calls; an older page brings the start, but
-  // pages carry no usage, so a count from it would leave those calls out.
+  // pages carry no usage, so a count from it would leave those calls out. Each later rebuild of
+  // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
   const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
   const { client, snapshot } = await connect(daemon);
+  const scope = globalThis as { window?: unknown };
+  const hadWindow = "window" in scope;
+  // The client schedules its reconnect on `window`; this test has no DOM.
+  if (!hadWindow) scope.window = globalThis;
   try {
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
@@ -223,8 +233,27 @@ test("older pages that reach a mid-turn attach's start keep its tokens hidden", 
     await settle();
     expect(snapshot().rows.some((row: AcpmuxRow) => row.kind === "user")).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
+
+    daemon.notify("_acpmux/lagged", { dropped: 1 });
+    await settle();
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    client.suggestedTasksChanged();
+    await settle();
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    daemon.drop();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().isWorking).toBe(true);
+    expect(snapshot().turnTokens).toBeUndefined();
+
+    // A turn that starts while the client watches counts from its start.
+    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
+    await settle();
+    expect(snapshot().turnTokens).toBe(7_000);
   } finally {
     client.close();
+    if (!hadWindow) delete scope.window;
   }
 });
 
