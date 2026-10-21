@@ -366,6 +366,40 @@ async fn wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation() {
     }
 }
 
+// TEMPORARY: 120 rounds of the TURN-TLS roam test (base failed 2 to 3 of 60);
+// reverted before landing.
+async fn turn_tls_roam_round() -> Result<(), String> {
+    let turn = TestTurn::start().await;
+    let phone = DialOptions {
+        block_udp: true,
+        ice_servers: vec![turn.ice.clone()],
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = stream_across_a_change(phone, options(), Some(Duration::ZERO), Duration::from_secs(3)).await;
+    let ok = run.before == LinkPath::TurnTls
+        && run.after == LinkPath::TurnTls
+        && run.mac_before == Some(LinkPath::TurnTls)
+        && run.mac_after == Some(LinkPath::TurnTls)
+        && run.stall < Duration::from_secs(1)
+        && turn.stream_connections() == 2
+        && ["roam_turn_tls_allocated", "roam_first_packet", "roam_turn"]
+            .iter()
+            .all(|m| names(&run).contains(m));
+    if ok { Ok(()) } else { Err(format!("{run:?}; stream connections {}", turn.stream_connections())) }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turn_tls_roam_repeats() {
+    let mut failed = Vec::new();
+    for round in 0..120 {
+        if let Err(run) = turn_tls_roam_round().await {
+            failed.push((round, run));
+        }
+    }
+    assert!(failed.is_empty(), "{} of 120 rounds failed: {failed:#?}", failed.len());
+}
+
 /// Roaming across TURN transports: the phone rides TURN over UDP, then
 /// moves to a network that drops UDP. The roam's new allocation falls back
 /// to TLS and the stream goes on with every byte.
