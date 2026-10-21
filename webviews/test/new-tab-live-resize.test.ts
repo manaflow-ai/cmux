@@ -89,7 +89,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
           else if (message.method === "_acpmux/watch") {
-            await Bun.sleep(LIST_DELAY);
+            await Bun.sleep(LIST_DELAY); // fixed-wait: the stand-in daemon's list latency
             result = { sessions };
           } else if (message.method === "_acpmux/sessions") result = { sessions: [] };
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -136,6 +136,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
             for (const entry of list.getEntries()) shifts.push((entry as unknown as { value: number }).value);
           }).observe({ type: "layout-shift" });
         w.__cmuxNewTabContext = context;
+        // fixed-wait: the stand-in host's reply latency.
         const later = (ms: number, value: unknown) =>
           new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
         const transport = { protocolVersion: 1, transport: "acpmux-websocket", endpoint, token: "t", newSession: true };
@@ -145,6 +146,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
           "project.list": { projects: context.projects },
           "transport.gesture": { ticket: "gesture" },
         };
+        // fixed-wait: the stand-in host answers ready late, as the real one does.
         const answer = ({ method }: { method: string }) => later(method === "ready" ? 100 : 0, replies[method] ?? null);
         w.webkit = { messageHandlers: { agentSession: { postMessage: answer } } };
         w.__ro = 0;
@@ -225,6 +227,7 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
             iframe.style.width = `${Math.round(from[0] + (to[0] - from[0]) * f)}px`;
             iframe.style.height = `${Math.round(from[1] + (to[1] - from[1]) * f)}px`;
             done = progress >= 1;
+            // raf-read: reads what the previous frame laid out and painted, before this frame resizes the iframe.
             requestAnimationFrame(frame);
           };
           requestAnimationFrame(frame);
@@ -247,10 +250,12 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       const page = await load(name, template);
       const frame = page.frameLocator("iframe");
       await frame.locator(".nt-field").waitFor({ timeout: 30_000 });
+      // fixed-wait: the stand-in list arrives after LIST_DELAY and its rows settle before the sweep.
       await page.waitForTimeout(LIST_DELAY + 1_000);
       // Focus, not click: a click waits for two equal frames, which a starved WebKit host may not give.
       await frame.locator(".nt-field").focus();
       await page.keyboard.type("fix the build");
+      // fixed-wait: the typed draft lays out before the sweep measures its one-line height.
       await page.waitForTimeout(300);
       const stage = (await frame.locator(".nt-screen").getAttribute("data-layout")) === "stage";
       // One line of the field's text plus its insets (the Default template's 52px row).

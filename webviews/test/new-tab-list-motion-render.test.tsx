@@ -142,6 +142,7 @@ test("a live resize reads no row on its frames, then once when the size settles"
   for (let frame = 0; frame < 30; frame++) tick();
   expect(reads()).toEqual(before);
 
+  // fixed-wait: waits out listMotion's 120 ms resize settle, the behavior under test.
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(reads()).toEqual(before.map((count) => count + 1));
 });
