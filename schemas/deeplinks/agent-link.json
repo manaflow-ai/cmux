@@ -1,0 +1,145 @@
+{
+  "comment": "One schema for agent session links, so an emitter and a parser cannot drift. The web fallback page (https://cmux.com/deeplink/agent?harness=&session=&host=&name=&message=) and the native link cmux NEXT opens (cmux://agent/<harness>/<session>?host=&name=&message=) carry the same parameters. harness and session address the session; host names the machine it runs on; name is its callsign; message names one message to scroll to and highlight. A link is an address, not a credential. Consumers: web/app/[locale]/(landing)/deeplink/[kind]/deeplink-agent.ts (web/tests/deeplink-agent.test.ts) and the app's DeepLink parser in Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink. Both run the vectors below.",
+  "nativeHost": "agent",
+  "pathParams": ["harness", "session"],
+  "queryParams": ["host", "name", "message"],
+  "unknownParams": "ignored-by-name",
+  "params": {
+    "harness": {
+      "required": true,
+      "pattern": "^[a-z0-9-]{1,32}$",
+      "comment": "An acpmux harness family: claude, codex, opencode, ..."
+    },
+    "session": {
+      "required": true,
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
+      "comment": "The harness's own session id."
+    },
+    "host": {
+      "required": false,
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,64}$",
+      "comment": "The machine the session runs on, as cmux names it."
+    },
+    "name": {
+      "required": false,
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,64}$",
+      "comment": "The session's callsign, shown as its human name."
+    },
+    "message": {
+      "required": false,
+      "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
+      "comment": "One message in the session's transcript, scrolled to and highlighted after it opens."
+    }
+  },
+  "vectors": [
+    {
+      "name": "session only",
+      "web": "harness=claude&session=e8f63fd9-94e8-4878-bcd4-704659aba1f2",
+      "link": "cmux://agent/claude/e8f63fd9-94e8-4878-bcd4-704659aba1f2",
+      "fields": { "harness": "claude", "session": "e8f63fd9-94e8-4878-bcd4-704659aba1f2" },
+      "ignored": []
+    },
+    {
+      "name": "every parameter",
+      "web": "harness=claude&session=e8f63fd9-94e8-4878-bcd4-704659aba1f2&host=cosmic-gray&name=Rivetmoss&message=5cf944c9-b816-486a-a3aa-c89b3faea35f",
+      "link": "cmux://agent/claude/e8f63fd9-94e8-4878-bcd4-704659aba1f2?host=cosmic-gray&name=Rivetmoss&message=5cf944c9-b816-486a-a3aa-c89b3faea35f",
+      "fields": {
+        "harness": "claude",
+        "session": "e8f63fd9-94e8-4878-bcd4-704659aba1f2",
+        "host": "cosmic-gray",
+        "name": "Rivetmoss",
+        "message": "5cf944c9-b816-486a-a3aa-c89b3faea35f"
+      },
+      "ignored": []
+    },
+    {
+      "name": "a message link, as Leo opened it",
+      "web": "harness=claude&session=e8f63fd9-94e8-4878-bcd4-704659aba1f2&host=cosmic-gray&message=5cf944c9-b816-486a-a3aa-c89b3faea35f",
+      "link": "cmux://agent/claude/e8f63fd9-94e8-4878-bcd4-704659aba1f2?host=cosmic-gray&message=5cf944c9-b816-486a-a3aa-c89b3faea35f",
+      "fields": {
+        "harness": "claude",
+        "session": "e8f63fd9-94e8-4878-bcd4-704659aba1f2",
+        "host": "cosmic-gray",
+        "message": "5cf944c9-b816-486a-a3aa-c89b3faea35f"
+      },
+      "ignored": []
+    },
+    {
+      "name": "an unknown parameter is ignored, the session still opens",
+      "web": "harness=claude&session=s1&host=big-red&cwd=%2Fhome%2Fleo",
+      "link": "cmux://agent/claude/s1?host=big-red",
+      "fields": { "harness": "claude", "session": "s1", "host": "big-red" },
+      "ignored": ["cwd"]
+    },
+    {
+      "name": "an unusable optional value is ignored, the session still opens",
+      "web": "harness=claude&session=s1&host=evil.com%2Fx&message=5cf944c9",
+      "link": "cmux://agent/claude/s1?message=5cf944c9",
+      "fields": { "harness": "claude", "session": "s1", "message": "5cf944c9" },
+      "ignored": ["host"]
+    },
+    {
+      "name": "a repeated optional parameter is ignored",
+      "web": "harness=claude&session=s1&host=a&host=b",
+      "link": "cmux://agent/claude/s1",
+      "fields": { "harness": "claude", "session": "s1" },
+      "ignored": ["host"]
+    },
+    {
+      "name": "no session",
+      "web": "harness=claude&message=5cf944c9",
+      "link": null,
+      "fields": null,
+      "missing": ["session"],
+      "ignored": []
+    },
+    {
+      "name": "an unusable session",
+      "web": "harness=claude&session=..",
+      "link": null,
+      "fields": null,
+      "invalid": ["session"],
+      "ignored": []
+    },
+    {
+      "name": "an unusable harness",
+      "web": "harness=Claude&session=s1",
+      "link": null,
+      "fields": null,
+      "invalid": ["harness"],
+      "ignored": []
+    },
+    {
+      "name": "a native link with an unknown query parameter still opens the session",
+      "link": "cmux://agent/codex/s.1_x?cwd=%2Fhome%2Fleo&message=m-1",
+      "fields": { "harness": "codex", "session": "s.1_x", "message": "m-1" },
+      "ignored": ["cwd"]
+    },
+    {
+      "name": "a native link with an unusable name opens the session without it",
+      "link": "cmux://agent/codex/s1?name=two%20words&host=big-red",
+      "fields": { "harness": "codex", "session": "s1", "host": "big-red" },
+      "ignored": ["name"]
+    },
+    {
+      "name": "a native link with no session",
+      "link": "cmux://agent/claude",
+      "fields": null
+    },
+    {
+      "name": "a native link with an extra path segment",
+      "link": "cmux://agent/claude/s1/extra",
+      "fields": null
+    },
+    {
+      "name": "a native link with an unusable session",
+      "link": "cmux://agent/claude/a%20b",
+      "fields": null
+    },
+    {
+      "name": "a native link with an unusable harness",
+      "link": "cmux://agent/Claude/s1",
+      "fields": null
+    }
+  ]
+}
