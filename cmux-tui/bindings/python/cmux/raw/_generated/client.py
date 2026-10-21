@@ -447,6 +447,9 @@ class GeneratedClientMixin:
     def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
         return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
 
+    def move_column(self, pane: Id, direction: ColumnMoveDirection) -> JsonValue:
+        return self._invoke_command('move-column', MoveColumnRequest(pane=pane, direction=direction))
+
     def move_personal_group(self, group: str, index: int) -> JsonValue:
         return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
 
@@ -542,6 +545,9 @@ class GeneratedClientMixin:
 
     def pane_neighbor(self, pane: Id, dir: PaneDirection) -> PaneNeighborResult:
         return self._invoke_command('pane-neighbor', PaneNeighborRequest(pane=pane, dir=dir))
+
+    def park_tabs(self, surfaces: List[TabRef]) -> JsonValue:
+        return self._invoke_command('park-tabs', ParkTabsRequest(surfaces=surfaces))
 
     def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
         return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
@@ -774,6 +780,9 @@ class GeneratedClientMixin:
     def terminal_resources(self, *, surfaces: Union[List[Id], None, MissingType] = MISSING) -> TerminalResourcesResult:
         return self._invoke_command('terminal-resources', TerminalResourcesRequest(surfaces=surfaces))
 
+    def terminal_resume_command(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING) -> TerminalResumeCommandResult:
+        return self._invoke_command('terminal-resume-command', TerminalResumeCommandRequest(surface=surface, terminal_id=terminal_id, command=command))
+
     def undo_layout(self, pane: Id, *, confirm_close: Union[bool, MissingType] = MISSING, revision: Union[int, None, MissingType] = MISSING) -> LayoutUndoResult:
         return self._invoke_command('undo-layout', UndoLayoutRequest(pane=pane, confirm_close=confirm_close, revision=revision))
 
@@ -992,6 +1001,7 @@ GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-te
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
 GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
+GeneratedClientMixin.move_column.__cmux_command__ = COMMANDS['move-column']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_screen.__cmux_command__ = COMMANDS['move-screen']
@@ -1024,6 +1034,7 @@ GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.page_credential.__cmux_command__ = COMMANDS['page-credential']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
+GeneratedClientMixin.park_tabs.__cmux_command__ = COMMANDS['park-tabs']
 GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.pin_workspace.__cmux_command__ = COMMANDS['pin-workspace']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
@@ -1101,6 +1112,7 @@ GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-event
 GeneratedClientMixin.terminal_history.__cmux_command__ = COMMANDS['terminal-history']
 GeneratedClientMixin.terminal_read_range.__cmux_command__ = COMMANDS['terminal-read-range']
 GeneratedClientMixin.terminal_resources.__cmux_command__ = COMMANDS['terminal-resources']
+GeneratedClientMixin.terminal_resume_command.__cmux_command__ = COMMANDS['terminal-resume-command']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.ungroup_screen_group.__cmux_command__ = COMMANDS['ungroup-screen-group']
 GeneratedClientMixin.ungroup_tab_group.__cmux_command__ = COMMANDS['ungroup-tab-group']

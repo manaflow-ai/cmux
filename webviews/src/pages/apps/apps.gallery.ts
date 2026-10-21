@@ -26,6 +26,7 @@ export default appsPageEntry({
   covers: [
     "page:cmux.apps",
     "pages/apps/AppsPage.tsx",
+    "pages/apps/CloudFeature.tsx",
     "pages/apps/AppDetailView.tsx",
     "pages/apps/InstalledView.tsx",
     "pages/apps/UpdatesView.tsx",
@@ -34,7 +35,7 @@ export default appsPageEntry({
   ],
   variants: {
     list: {
-      note: "The discover grid with first-party, verified and unverified apps.",
+      note: "The discover grid with first-party, verified and unverified apps, under the featured Cloud banner.",
       hash: "#/discover?layout=grid",
       data: base,
     },

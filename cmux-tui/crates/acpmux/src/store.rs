@@ -133,6 +133,11 @@ pub struct SessionMeta {
     pub agent_info: Option<Value>,
     #[serde(default)]
     pub agent_capabilities: Option<Value>,
+    /// The agent took prompts mid-turn at its last start (`_meta.steering.supported`). Kept so a
+    /// session the daemon adopts after a restart (`hub/hosts.rs`), which never initializes its
+    /// agent again, still steers instead of stopping the turn for every prompt sent now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steering: bool,
     #[serde(default)]
     pub modes: Option<Value>,
     #[serde(default)]
@@ -145,13 +150,19 @@ pub struct SessionMeta {
     pub title: Option<String>,
     /// Who set `title` (`hub/titles.rs`): `prompt` (its first prompt's line),
     /// `harness` (its own `session_info_update`), `asked` (a generated title
-    /// is on its way or failed; never asked again), `generated` or `adopted`.
+    /// is on its way or came back empty; a later turn asks again, `hub/titles.rs`), `generated` or `adopted`.
     /// None: a chat titled before acpmux generated titles; kept as is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title_source: Option<String>,
     /// The first prompt a `prompt` title came from, until a title is asked for.
     #[serde(skip)]
     pub title_prompt: Option<String>,
+    /// A title request is running (`hub/titles.rs`); this daemon run only.
+    #[serde(skip)]
+    pub title_asking: bool,
+    /// Title requests that came back with no title in this daemon run (`hub/titles.rs`).
+    #[serde(skip)]
+    pub title_failures: u8,
     #[serde(default)]
     pub last_prompt: Option<String>,
     #[serde(default)]
@@ -255,6 +266,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
+    /// once each, oldest first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
@@ -491,6 +506,32 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// How many records follow `after`, and the last one's `seq` (`after` when none): the
+    /// catch-up of a log that ran ahead of its saved meta. A file store reads only the tail
+    /// past `after`, never the whole log (daemon start, 2026-10-20).
+    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+        let mut count = 0;
+        let mut last = after;
+        self.scan(id, after, &mut |rec| {
+            count += 1;
+            last = last.max(rec.seq);
+            true
+        })?;
+        Ok((count, last))
+    }
+    /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
+    /// parses no other line (the queue restore at daemon start reads its few kinds out of
+    /// logs that are mostly agent output).
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
         Ok(())
@@ -502,6 +543,11 @@ pub trait Store: Send + Sync {
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
     fn handoff_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where each peer's last-known sessions are saved: `peers/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -606,6 +652,20 @@ impl LocalStore {
         Ok(out)
     }
 
+    /// Whether the session's log holds a record: a segment with a byte in it (no line
+    /// is read). Every session the hub creates logs `created` right after its first
+    /// save, so a record without a log is a purged session's that a late save wrote back.
+    fn has_records(&self, id: &str) -> Result<bool> {
+        for (_, path) in self.segments(id)? {
+            // An unreadable segment counts as a log: the session is listed as before.
+            match std::fs::symlink_metadata(&path) {
+                Ok(meta) if meta.len() == 0 => {}
+                _ => return Ok(true),
+            }
+        }
+        Ok(false)
+    }
+
     fn open_writer(&self, id: &str) -> Result<SegmentWriter> {
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
@@ -621,20 +681,91 @@ impl LocalStore {
     }
 }
 
+/// A session record's status alone, read without the rest of the record.
+#[derive(Deserialize)]
+struct StatusOnly {
+    status: SessionStatus,
+}
+
 /// The seq of a segment's first readable record.
+/// The `kind` of one serialized record, read without parsing it: records are written
+/// `{"seq":..,"at":..,"dir":"..","kind":"..","msg":..}`, so the first `"kind":"` is the
+/// record's own (its fields before `msg` hold numbers and a fixed word). None for a line
+/// that does not start that way; the caller then parses it.
+fn record_kind(line: &[u8]) -> Option<&[u8]> {
+    const KEY: &[u8] = b"\"kind\":\"";
+    let head = &line[..line.len().min(160)];
+    let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
+    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let len = line[start..].iter().position(|&b| b == b'"')?;
+    Some(&line[start..start + len])
+}
+
+/// The `seq` of one serialized record, read without parsing it: records are written
+/// `{"seq":N,...}`. None for a line that does not start that way; the caller parses it.
+fn record_seq(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_prefix(b"{\"seq\":")?;
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
+        return None;
+    }
+    std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
+}
+
+/// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
+/// returns false: a tail costs its own bytes, not the segment's.
+fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+    use std::io::{Seek, SeekFrom};
+    const BLOCK: u64 = 64 * 1024;
+    let mut file = crate::config::private_state_file(path)?;
+    let mut end = file.seek(SeekFrom::End(0))?;
+    // Bytes of a line whose start is in an earlier block, in file order.
+    let mut carry: Vec<u8> = Vec::new();
+    while end > 0 {
+        let start = end.saturating_sub(BLOCK);
+        let mut block = vec![0u8; (end - start) as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut block)?;
+        block.extend_from_slice(&carry);
+        let mut cut = block.len();
+        while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
+            let line = &block[newline + 1..cut];
+            if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
+                return Ok(());
+            }
+            cut = newline;
+        }
+        carry = block[..cut].to_vec();
+        end = start;
+    }
+    if !carry.iter().all(u8::is_ascii_whitespace) {
+        visit(&carry);
+    }
+    Ok(())
+}
+
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
-        let line = line?;
-        if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
+    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            return Ok(None);
+        }
+        // The header alone when the line has the daemon's field order; else a parse.
+        if let Some(seq) = record_seq(&line) {
+            return Ok(Some(seq));
+        }
+        if let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) {
             return Ok(Some(rec.seq));
         }
     }
-    Ok(None)
 }
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
+        let mut skipped = 0usize;
         let Ok(rd) = std::fs::read_dir(&self.root) else {
             return Ok(out);
         };
@@ -659,11 +790,27 @@ impl Store for LocalStore {
             if let Ok(file) = crate::config::private_state_file(&path) {
                 let mut text = String::new();
                 BufReader::new(file).read_to_string(&mut text)?;
+                // A closed session with no log is a purged one whose record a late save
+                // wrote back (`Hub::load_from_store`): only its status is read, so a home
+                // of thousands of them never holds their records, not even while listing.
+                let id = entry.file_name().to_string_lossy().into_owned();
+                if !self.has_records(&id)?
+                    && serde_json::from_str::<StatusOnly>(&text)
+                        .is_ok_and(|m| m.status == SessionStatus::Closed)
+                {
+                    skipped += 1;
+                    continue;
+                }
                 match serde_json::from_str::<SessionMeta>(&text) {
                     Ok(meta) => out.push(meta),
                     Err(e) => tracing::warn!("skip {}: {e}", path.display()),
                 }
             }
+        }
+        if skipped > 0 {
+            tracing::info!(
+                "skipped {skipped} closed sessions with no log (purged; a late save wrote them back)"
+            );
         }
         Ok(out)
     }
@@ -703,16 +850,90 @@ impl Store for LocalStore {
         Ok(())
     }
 
+    /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
+    /// holds nothing past it and is not opened, and a line at or before `after` is passed
+    /// on its `seq` alone, unparsed. A forward page of a long log costs its own records,
+    /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
+    /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        for (_, path) in self.segments(id)? {
-            let file = crate::config::private_state_file(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate() {
+            if after > 0
+                && let Some((_, next)) = segments.get(index + 1)
+                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
+            {
+                continue;
+            }
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+        let mut count = 0;
+        let mut last = after;
+        let mut done = false;
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            for_each_line_rev(&path, &mut |line| {
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+                if rec.seq <= after {
+                    done = true;
+                    return false;
+                }
+                count += 1;
+                last = last.max(rec.seq);
+                true
+            })?;
+            if done {
+                break;
+            }
+        }
+        Ok((count, last))
+    }
+
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let mut line = Vec::new();
+        for (_, path) in self.segments(id)? {
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if record_kind(&line)
+                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
+                {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
+                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
                     return Ok(());
                 }
             }
@@ -761,25 +982,10 @@ impl Store for LocalStore {
 
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let file = crate::config::private_state_file(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let rec: EventRecord = match serde_json::from_str(&line) {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
-                if rec.seq > after {
-                    out.push(rec);
-                    if out.len() >= limit {
-                        return Ok(out);
-                    }
-                }
-            }
-        }
+        self.scan(id, after, &mut |rec| {
+            out.push(rec);
+            out.len() < limit
+        })?;
         Ok(out)
     }
 
@@ -812,6 +1018,10 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("peers"))
     }
 }
 

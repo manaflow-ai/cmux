@@ -2,7 +2,6 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
-import os
 
 /// The device-wide acpmux chat index for sidebar and palette clients.
 @MainActor
@@ -34,7 +33,6 @@ final class ChatsFeed {
     /// They are replayed on top of the page; those it holds are dropped by their seq.
     private var early: [(change: AcpmuxChatsStore.Change, seq: UInt64?)] = []
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-chats")
 
     init(socketPath: String) { socket = socketPath }
 

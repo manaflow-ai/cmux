@@ -1,9 +1,10 @@
-/* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
-.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 3px;border:0;background:var(--agent-border);}
+/* The chat header's tools (header/ChatHeaderTools.tsx): 26px-tall small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface.
+   Buttons sit flush on a 24px pitch, as in a macOS or Codex toolbar: a 15px glyph leaves 9px between glyphs. */
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:0}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:0;min-width:0}
+.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 4px;border:0;background:var(--agent-border);}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-header-tool{width:26px}
+.acpmux-header-tool{width:24px}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
 .acpmux-header-tool:not(:disabled):hover,.acpmux-header-tool[data-popup-open]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
@@ -106,5 +107,7 @@
    shows only its tools, left of the pane's own "…"; the transcript fades out under the row. */
 .acpmux-header[data-tab-row]{position:relative;z-index:var(--layer-sticky);flex:0 0 var(--acpmux-tab-row-height);height:var(--acpmux-tab-row-height);padding:0 var(--acpmux-tab-row-inset) 0 0;background:transparent;pointer-events:none}
 .acpmux-header[data-tab-row] .acpmux-header-status-slot{visibility:hidden}
+/* In the tab row the warning leads the tools (ChatHeaderInlineStatus): the slot is under the tabs. */
+.acpmux-status.acpmux-status--inline{position:static;inset:auto;flex:0 1 auto;max-width:160px;height:26px;padding:0 4px}
 .acpmux-header[data-tab-row] .acpmux-handoff-header-tools{pointer-events:auto}
 .acpmux-header[data-tab-row]::after{content:"";position:absolute;inset:100% 0 auto;height:12px;background:linear-gradient(var(--agent-page-bg),transparent);pointer-events:none}

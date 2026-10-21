@@ -1,13 +1,17 @@
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { DictationField } from "../dictation";
+import type { ConnectKind } from "../environments";
+import { useDictationListening, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
-import { isAgentHome, mostRecentProject } from "../sessionList";
+import { isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
+import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
+import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
+import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment } from "../attachments";
 import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
@@ -26,6 +30,7 @@ import {
   defaultSelection,
   isAddress,
   inlineCompletion,
+  needsYouCards,
   recentChatCards,
   screenRows,
   shellEntry,
@@ -37,6 +42,7 @@ import {
 } from "./screenModel";
 import { RowGlyph } from "./RowGlyph";
 import { WidgetCards } from "./WidgetCards";
+import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
 import { type NewTabTranslate, useNt } from "./strings";
 import { screenSections, type ScreenTemplate } from "./templates";
@@ -48,6 +54,8 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { ComposerFoot } from "../ComposerFoot";
+import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
@@ -58,6 +66,8 @@ export type NewTabScreenActions = {
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
+  /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
+  /// tab's own; with `peer` (an SSH environment's machine) a folder there.
   onAsk(
     harness: string,
     text: string,
@@ -65,6 +75,7 @@ export type NewTabScreenActions = {
     model?: string,
     noProject?: boolean,
     attachments?: ComposerAttachment[],
+    saved?: { peer?: string },
   ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
@@ -90,11 +101,14 @@ export type NewTabScreenActions = {
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
   onNewWorktree?(cwd: string): Promise<string | undefined>;
+  /// With `environments`, the host's saved environments (`environment.list/save/remove`): the
+  /// environment picker lists them and Create environment makes one.
+  savedEnvironments?: SavedEnvironmentHost;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
@@ -168,6 +182,9 @@ export function NewTabScreen(props: Props) {
   const { snapshot, omnibar = EMPTY_OMNIBAR, location, lastAgent, home, now, inputToken } = props;
   const template = props.template ?? "default";
   const sections = screenSections(template);
+  // Claude Code desktop's new-session page (templates.ts stage, the Default template): the composer
+  // at the foot, the environment and suggestions cards over it.
+  const stage = sections.stage;
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: no rows for it.
   const [touched, setTouched] = useState(false);
@@ -246,12 +263,19 @@ export function NewTabScreen(props: Props) {
     () => snapshot.catalog.map((entry) => ({ id: entry.id, name: entry.name })),
     [snapshot.catalog],
   );
+  // A saved environment the picker picked names where the chat starts (askInEnvironment).
+  const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
+  const environment = saved.picked;
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = none
-    ? undefined
-    : project && project !== props.cwd
-      ? project
-      : (props.startCwd ?? project ?? props.cwd);
+  const chatFolder = environment
+    ? environment.kind === "local"
+      ? environment.folder
+      : undefined
+    : none
+      ? undefined
+      : project && project !== props.cwd
+        ? project
+        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -262,9 +286,15 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The environment card checks the project the chat starts in: the chip's folder, else the tab's
+  // own project (never the home ~ or a private agent-home folder it inherited).
+  const envFolder = none
+    ? undefined
+    : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
+    if (environment) return askInEnvironment(environment, agent, prompt, model);
     if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
     return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
   };
@@ -313,6 +343,14 @@ export function NewTabScreen(props: Props) {
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
   const { plainFooter } = useComposerSettings();
+  // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
+  const foot = useRef<HTMLDivElement>(null);
+  // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
+  // existing composer on the second one"): with the plain footer on, every template but Default
+  // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
+  // row under the box. Default keeps the chips in the box, as before the split.
+  const split = plainFooter && props.chips !== undefined && template !== "default";
+  useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();
@@ -338,6 +376,13 @@ export function NewTabScreen(props: Props) {
   // the cards keep only the chats that are running or need the user.
   const allChats = sections.allChats && !!props.loadChatsPage && !!props.onOpenChat;
   const activeCards = useMemo(() => cards.filter((card) => card.state !== "idle"), [cards]);
+  // The stage layout's suggested actions start with the chats waiting on the user: one asking for
+  // input, or one that hit an error or lost its agent. Picked from every chat, not the trimmed
+  // recent cards (needsYouCards).
+  const needsYou = useMemo(
+    () => (stage ? needsYouCards(snapshot.sessions, at, t) : []),
+    [stage, snapshot.sessions, at, t],
+  );
   const openCard = (id: string) => {
     const key = cards.find((card) => card.sessionId === id)?.chatKey;
     if (key && props.onOpenChat) return props.onOpenChat(key);
@@ -363,8 +408,14 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
-  useEscapingPopup(host, shown, () => box, {
-    side: "bottom",
+  // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
+  // under the whole composer instead, so they never cover those controls (a press there would pick
+  // a row).
+  const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  const anchor = split ? (composer ?? box) : box;
+  useEscapingPopup(host, shown, () => anchor, {
+    // At the foot of the page (the stage layout) the rows open over the composer.
+    side: stage ? "top" : "bottom",
     align: "start",
     gap: UI_ANCHOR_GAP,
     kind: "list",
@@ -375,9 +426,10 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
+    // A press in the box, or with the split in the quiet row under it, keeps the rows.
     const press = (event: Event) => {
       const target = event.target as Element | null;
-      if (target && (box.contains(target) || target.closest?.(".nt-popover"))) return;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-foot"))) return;
       setDismissed(textRef.current);
     };
     document.addEventListener("pointerdown", press, true);
@@ -451,7 +503,19 @@ export function NewTabScreen(props: Props) {
     }
     const view = field.current?.ownerDocument.defaultView;
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
+    // web view becomes first responder) with nothing in it focused, as after a press on the page's
+    // background: the field takes it, as the chat composer does (composerFocus.ts), keeping its
+    // caret and the page's scroll. A field, menu or button that has focus keeps it.
+    const reclaim = () => {
+      const active = field.current?.ownerDocument.activeElement;
+      if (!active || active === field.current?.ownerDocument.body) field.current?.focus({ preventScroll: true });
+    };
+    if (focusOnShow) view?.addEventListener("focus", reclaim);
+    return () => {
+      view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+      view?.removeEventListener("focus", reclaim);
+    };
   }, [inputToken, focusOnShow]);
 
   const activate = (row: ScreenRow) => {
@@ -594,7 +658,7 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
-  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+  const focusFromRow = (event: React.MouseEvent<HTMLElement>) => {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
@@ -626,6 +690,8 @@ export function NewTabScreen(props: Props) {
     });
   };
   const placeholder = mode === "search" ? nt("searchPlaceholder") : nt("placeholder");
+  // A dictation waiting for words says so in the empty field, in italic (dictation.css).
+  const dictating = useDictationListening();
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -693,6 +759,8 @@ export function NewTabScreen(props: Props) {
   const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
+    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment.
+    saved.pick(undefined);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -707,6 +775,36 @@ export function NewTabScreen(props: Props) {
     [snapshot.sessions],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
+  // A saved environment's chat: on its machine, in its folder there, or on this computer in a new
+  // worktree of its folder (the host makes it first; its refusal shows above the card and the
+  // prompt stays in the field).
+  const worktreePending = useRef(false);
+  function askInEnvironment(picked: SavedEnvironment, agent: string, prompt: string, model?: string) {
+    const extra = attachments.length > 0 ? attachments : undefined;
+    if (picked.kind === "ssh")
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, { peer: picked.host });
+    if (!picked.worktree || !picked.folder || !props.onNewWorktree)
+      return props.onAsk(agent, prompt, picked.folder, model, undefined, extra, {});
+    if (worktreePending.current) return;
+    worktreePending.current = true;
+    setWorktreeError(undefined);
+    // No chat started: the page's create buttons work again (startChat set `created`).
+    const unstarted = () => {
+      worktreePending.current = false;
+      created.current = false;
+    };
+    void props.onNewWorktree(picked.folder).then(
+      (folder) => {
+        if (!folder) return unstarted();
+        worktreePending.current = false;
+        props.onAsk(agent, prompt, folder, model, undefined, extra, {});
+      },
+      (error: unknown) => {
+        unstarted();
+        setWorktreeError((error instanceof Error && error.message) || String(error));
+      },
+    );
+  }
   const newWorktreeHere =
     props.environments && props.onNewWorktree
       ? (cwd: string) => {
@@ -731,8 +829,9 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
-  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it.
-  const pill = template === "cards";
+  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
+  /// split draws the chat composer's box instead.
+  const pill = template === "cards" && !split;
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -755,8 +854,55 @@ export function NewTabScreen(props: Props) {
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(saved.on
+          ? {
+              saved: {
+                environments: saved.list,
+                ...(environment ? { current: environment.id } : {}),
+                onPick: (id: string) => {
+                  touch();
+                  saved.pick(id);
+                  requestAnimationFrame(() => field.current?.focus());
+                },
+                onClear: () => saved.pick(undefined),
+                onCreate: () => saved.edit(null),
+                onEdit: (id: string) => saved.edit(saved.list.find((other) => other.id === id)),
+              },
+            }
+          : {})}
       />
     </div>
+  );
+  // The SSH machines a saved environment can name (acpmux's `ssh://` peers) and each one's folders.
+  const sshMachines = useMemo(
+    () => (snapshot.peers ?? []).filter((peer) => snapshot.peerKinds?.[peer] === "ssh"),
+    [snapshot.peers, snapshot.peerKinds],
+  );
+  const machineFolders = (machine: string) =>
+    [
+      ...new Set(
+        snapshot.sessions.filter((session) => session.peer === machine && session.cwd).map((session) => session.cwd!),
+      ),
+    ].map((cwd) => ({ id: cwd, label: projectLabel(cwd) }));
+  const environmentPanel = saved.on && saved.editing !== undefined && (
+    <SavedEnvironmentPanel
+      key={saved.editing?.id ?? "new"}
+      {...(saved.editing ? { environment: saved.editing } : {})}
+      initial={{ kind: "local", ...(askFolder ? { folder: askFolder } : {}) }}
+      folders={(props.projects ?? [])
+        .filter((choice) => !isAgentHome(choice.cwd))
+        .map((choice) => ({ id: choice.cwd, label: choice.label }))}
+      {...(props.onBrowseProject ? { onBrowse: props.onBrowseProject } : {})}
+      machines={sshMachines}
+      machineFolders={machineFolders}
+      {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
+      onSave={saved.save}
+      onRemove={saved.remove}
+      onClose={() => {
+        saved.edit(undefined);
+        requestAnimationFrame(() => field.current?.focus());
+      }}
+    />
   );
   // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
   // this page draws no context ring.
@@ -765,7 +911,7 @@ export function NewTabScreen(props: Props) {
       <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
-        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
         <span className="acpmux-composer-actions">
           {props.accessory}
           {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
@@ -786,34 +932,107 @@ export function NewTabScreen(props: Props) {
       </div>
     </ChromeArea>
   );
-  return (
-    <div
-      ref={screen}
-      className="nt-screen"
-      data-shell={shell || undefined}
-      data-template={template}
+  // Search | Ask (Leo 2026-10-18): which row Return takes. It sits just above the box at its right
+  // edge, with its Tab hint (Lawrence 2026-10-20: "move tab to switch outside above the box"), so
+  // the box holds only the field, the mic and Send. A press on it keeps the caret in the field
+  // (focusFromRow), so a click never takes the keyboard away from the draft.
+  const modeRow = shell ? undefined : (
+    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-interactions -- A pointer convenience only: the buttons inside are the controls.
+    <span
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a pointer convenience only: the buttons inside are the controls (a <fieldset> would draw a border and change layout).
+      role="group"
+      ref={modeSwitch}
+      className="nt-mode"
+      aria-label={nt("mode.label")}
       data-mode={mode}
-      data-all-chats={allChats || undefined}
+      onMouseDown={focusFromRow}
     >
+      {/* The field's description, so a screen reader hears the key too. */}
+      <span id="nt-mode-hint" className="nt-mode-hint">
+        {nt("mode.hint")}
+      </span>
+      {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
+      <output className="nt-mode-status" aria-live="polite">
+        {nt(mode === "search" ? "mode.search" : "mode.ask")}
+      </output>
+      <span className="nt-mode-track">
+        <span className="nt-mode-thumb" aria-hidden="true" />
+        <button type="button" data-mode="search" aria-pressed={mode === "search"} onClick={() => chooseMode("search")}>
+          {nt("mode.search")}
+        </button>
+        <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
+          {nt("mode.ask")}
+        </button>
+      </span>
+    </span>
+  );
+  // The page's lists: the widget view (Debug Settings), the open tabs to move here, Recently Closed
+  // and the recent chats. In the stage layout they sit under the cards, over the composer.
+  const lists = (
+    <>
+      {props.widgets && (
+        <WidgetCards
+          sessions={snapshot.sessions}
+          projects={props.projects ?? []}
+          {...(askFolder ? { folder: askFolder } : {})}
+          {...(props.cwd ? { inherited: props.cwd } : {})}
+          attention={!allChats}
+          {...(props.machineName ? { machineName: props.machineName } : {})}
+          onProject={pickProject}
+          onOpen={openCard}
+        />
+      )}
+      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
+      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
+      {sections.chats !== "none" && !allChats && (
+        <ChatCards
+          cards={cards}
+          variant={sections.chats}
+          onOpen={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
+          onShowAll={props.onShowAll}
+        />
+      )}
+      {allChats && props.loadChatsPage && props.onOpenChat && (
+        <AllChatsList
+          load={props.loadChatsPage}
+          onOpen={props.onOpenChat}
+          active={activeCards.map((card) => ({
+            id: card.sessionId,
+            title: card.title,
+            ...(card.harness ? { harness: card.harness } : {}),
+            state: card.state,
+            label:
+              card.state === "failed"
+                ? t("header.failed")
+                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
+          }))}
+          onOpenActive={openCard}
+          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
+          {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
+          {...(now !== undefined ? { now } : {})}
+        />
+      )}
+    </>
+  );
+  // The composer: in the stage layout at the foot of the page, else at its top.
+  const composerCard = (
+    <>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div className="nt-composer">
+      <div ref={setComposer} className="nt-composer">
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
-        {!pill && folderStrip}
+        {/* Above the box: the project strip on the left (Cards draws it under the field) and the
+            Search | Ask switch at the box's right edge. */}
+        {(!pill || modeRow) && (
+          <div className="nt-above">
+            {!pill && folderStrip}
+            {modeRow}
+          </div>
+        )}
         <div ref={setBox} className="nt-box">
-          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
-          <AttachmentStrip
-            attachments={attachments}
-            {...(attachError ? { error: attachError } : {})}
-            dropping={dropping}
-            codex={harness === "codex"}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
@@ -839,7 +1058,8 @@ export function NewTabScreen(props: Props) {
               rows={1}
               data-focus-ring="none"
               aria-label={shell ? t("composer.shell") : placeholder}
-              placeholder={shell ? t("composer.shellPlaceholder") : placeholder}
+              placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
+              data-dictation-listening={dictating && !shell ? "" : undefined}
               value={text}
               aria-controls="nt-rows"
               aria-describedby={shell ? undefined : "nt-mode-hint"}
@@ -857,38 +1077,31 @@ export function NewTabScreen(props: Props) {
                 composing.current = false;
               }}
             />
-            {!shell && (
-              // Search | Ask (Leo 2026-10-18): which row Return takes. The field's row keeps the focus
-              // in the field on a press (focusFromRow), so a click here never takes the caret away.
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              <span ref={modeSwitch} className="nt-mode" role="group" aria-label={nt("mode.label")} data-mode={mode}>
-                {/* The field's description, so a screen reader hears the key too. */}
-                <span id="nt-mode-hint" className="nt-mode-hint">
-                  {nt("mode.hint")}
-                </span>
-                {/* The mode a Tab switched to, said aloud: the field keeps focus, so the pressed button is not. */}
-                <output className="nt-mode-status" aria-live="polite">
-                  {nt(mode === "search" ? "mode.search" : "mode.ask")}
-                </output>
-                <span className="nt-mode-track">
-                  <span className="nt-mode-thumb" aria-hidden="true" />
-                  <button
-                    type="button"
-                    data-mode="search"
-                    aria-pressed={mode === "search"}
-                    onClick={() => chooseMode("search")}
-                  >
-                    {nt("mode.search")}
-                  </button>
-                  <button type="button" data-mode="ask" aria-pressed={mode === "ask"} onClick={() => chooseMode("ask")}>
-                    {nt("mode.ask")}
-                  </button>
-                </span>
-              </span>
-            )}
           </div>
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
+            the field: the box's top is where the page anchors it, so the strip grows away from the
+            text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
+          <AttachmentStrip
+            attachments={attachments}
+            {...(attachError ? { error: attachError } : {})}
+            dropping={dropping}
+            codex={harness === "codex"}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
           {!pill && pickers}
         </div>
+        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
+            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {split && Chips && (
+          <div className="nt-foot" onPointerDownCapture={touch}>
+            <ComposerFoot ref={foot}>
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+            </ComposerFoot>
+          </div>
+        )}
         {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
             Aside's New Tab draws them; it steps aside while Search shows its suggestions. */}
         {pill && (
@@ -898,13 +1111,108 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-      {rows.length > 0 && box && (
+    </>
+  );
+  return (
+    <div
+      ref={screen}
+      className="nt-screen"
+      data-shell={shell || undefined}
+      data-template={template}
+      data-pill={pill || undefined}
+      data-mode={mode}
+      data-all-chats={allChats || undefined}
+      data-layout={stage ? "stage" : undefined}
+    >
+      {stage ? (
+        <>
+          {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
+              composer holds, centered, the environment card and the suggested actions card, then the
+              recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
+          <div className="nt-stage">
+            <div className="nt-stage-cards">
+              <EnvironmentCard
+                projects={props.projects ?? []}
+                {...(envFolder ? { current: envFolder } : {})}
+                noProject={none}
+                {...(props.machineName ? { machineName: props.machineName } : {})}
+                onPick={(cwd) => pickProject(cwd)}
+                onNoProject={() => pickProject(undefined)}
+                {...(browseProject ? { onBrowse: browseProject } : {})}
+              />
+              <SuggestionsCard
+                attention={needsYou}
+                onOpen={openCard}
+                {...(props.onCreate ? { onCreate: create } : {})}
+                onChat={startChat}
+              />
+            </div>
+            {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
+            {lists}
+          </div>
+          {composerCard}
+          {props.notice}
+          {environmentPanel}
+        </>
+      ) : (
+        <>
+          {composerCard}
+          {props.notice}
+          {environmentPanel}
+          {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
+              browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
+              Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
+          {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
+              New Chat stay in the palette and the pane's + menu. With the split too, not only the pill. */}
+          {!allChats && template !== "cards" && (
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+            <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
+              {props.onCreate && (
+                <>
+                  <button
+                    type="button"
+                    className="nt-tool ui-ghost"
+                    data-create="terminal"
+                    onClick={() => create("terminal")}
+                  >
+                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                      <Icon name="terminal" size={14} />
+                    </span>
+                    <span>{nt("create.terminal")}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="nt-tool ui-ghost"
+                    data-create="browser"
+                    onClick={() => create("browser")}
+                  >
+                    <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                      <Icon name="browser" size={14} />
+                    </span>
+                    <span>{nt("create.browser")}</span>
+                  </button>
+                </>
+              )}
+              <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
+                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                  <Icon name="agent.chat" size={14} />
+                </span>
+                <span>{nt("create.chat")}</span>
+              </button>
+            </div>
+          )}
+          {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
+          {lists}
+        </>
+      )}
+      {rows.length > 0 && anchor && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
           // never closes itself.
           onOpenChange={() => undefined}
-          anchor={box}
+          anchor={anchor}
+          side={stage ? "top" : "bottom"}
           label={nt("suggestions")}
           className="nt-popover"
           initialFocus={false}
@@ -950,93 +1258,6 @@ export function NewTabScreen(props: Props) {
             ))}
           </div>
         </Popover>
-      )}
-      {props.notice}
-      {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
-          browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
-          Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-      {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
-          New Chat stay in the palette and the pane's + menu. */}
-      {!allChats && !pill && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
-          {props.onCreate && (
-            <>
-              <button
-                type="button"
-                className="nt-tool ui-ghost"
-                data-create="terminal"
-                onClick={() => create("terminal")}
-              >
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="terminal" size={14} />
-                </span>
-                <span>{nt("create.terminal")}</span>
-              </button>
-              <button
-                type="button"
-                className="nt-tool ui-ghost"
-                data-create="browser"
-                onClick={() => create("browser")}
-              >
-                <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-                  <Icon name="browser" size={14} />
-                </span>
-                <span>{nt("create.browser")}</span>
-              </button>
-            </>
-          )}
-          <button type="button" className="nt-tool ui-ghost" data-create="chat" onClick={startChat}>
-            <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
-              <Icon name="agent.chat" size={14} />
-            </span>
-            <span>{nt("create.chat")}</span>
-          </button>
-        </div>
-      )}
-      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
-      {props.widgets && (
-        <WidgetCards
-          sessions={snapshot.sessions}
-          projects={props.projects ?? []}
-          {...(askFolder ? { folder: askFolder } : {})}
-          {...(props.cwd ? { inherited: props.cwd } : {})}
-          attention={!allChats}
-          {...(props.machineName ? { machineName: props.machineName } : {})}
-          onProject={pickProject}
-          onOpen={openCard}
-        />
-      )}
-      {props.openTabs && <OpenTabsList tabs={props.openTabs} onMoveHere={(id) => props.onJump("here", id)} />}
-      {sections.closed && <ClosedList items={closed} onReopen={(id) => props.onJump("closed", id)} />}
-      {sections.chats !== "none" && !allChats && (
-        <ChatCards
-          cards={cards}
-          variant={sections.chats}
-          onOpen={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: openCardInTerminal } : {})}
-          onShowAll={props.onShowAll}
-        />
-      )}
-      {allChats && props.loadChatsPage && props.onOpenChat && (
-        <AllChatsList
-          load={props.loadChatsPage}
-          onOpen={props.onOpenChat}
-          active={activeCards.map((card) => ({
-            id: card.sessionId,
-            title: card.title,
-            ...(card.harness ? { harness: card.harness } : {}),
-            state: card.state,
-            label:
-              card.state === "failed"
-                ? t("header.failed")
-                : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`),
-          }))}
-          onOpenActive={openCard}
-          {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
-          {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
-          {...(now !== undefined ? { now } : {})}
-        />
       )}
     </div>
   );

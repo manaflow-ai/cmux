@@ -22,7 +22,7 @@
 
 use super::{Hub, Session, SessionStatus};
 use crate::adopt::IfLive;
-use crate::adopt_replay::{Step, ends_turn, record_step, record_time};
+use crate::adopt_replay::{Step, ends_turn, record_steps, record_time};
 use crate::rpc::RpcError;
 use crate::store::{WatchedTurn, Watching};
 use serde_json::{Value, json};
@@ -149,25 +149,27 @@ impl Hub {
         for line in lines {
             let Ok(record) = serde_json::from_str::<Value>(line) else { continue };
             let at = record_time(&record);
-            match record_step(&watching.family, &record, &mut watching.codex_items) {
-                Some(Step::Prompt(text)) => {
-                    if let Some(turn) = open.take() {
-                        self.end_watched_turn(session, &turn, at);
-                    }
-                    *open = Some(self.begin_watched_turn(session, &text, at));
-                }
-                Some(Step::Answer(mut text)) => {
-                    // The pieces of one answer (text around a tool call) read as paragraphs.
-                    if let Some(turn) = open.as_mut() {
-                        if turn.answered {
-                            text.insert_str(0, "\n\n");
+            for step in record_steps(&watching.family, &record, &mut watching.codex_items) {
+                match step {
+                    Step::Prompt(text) => {
+                        if let Some(turn) = open.take() {
+                            self.end_watched_turn(session, &turn, at);
                         }
-                        turn.answered = true;
+                        *open = Some(self.begin_watched_turn(session, &text, at));
                     }
-                    let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
-                    self.append_at(session, "in", "agent_message_chunk", update, None, at);
+                    Step::Answer(mut text) => {
+                        // The pieces of one answer (text around a tool call) read as paragraphs.
+                        if let Some(turn) = open.as_mut() {
+                            if turn.answered {
+                                text.insert_str(0, "\n\n");
+                            }
+                            turn.answered = true;
+                        }
+                        let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}});
+                        self.append_at(session, "in", "agent_message_chunk", update, None, at);
+                    }
+                    Step::Tool(_) | Step::ToolResult(_) => {}
                 }
-                None => {}
             }
             if ends_turn(&watching.family, &record)
                 && let Some(turn) = open.take()
