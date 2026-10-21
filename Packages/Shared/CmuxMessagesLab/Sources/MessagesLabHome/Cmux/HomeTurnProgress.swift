@@ -43,6 +43,8 @@ struct HomeTurnProgress: Equatable {
     }
 
     /// The indicator for `steps` (the turn so far, the running one last), the newest `thought`, at `now`.
+    /// Main actor: it formats the time with `HomeLiveLine`'s shared formatters.
+    @MainActor
     init(steps: [HomeTurnSteps.Step], current activity: HomeLiveActivity, thought: String?, now: Date,
          style: HomeTurnProgressStyle) {
         let line = HomeLiveLine.text(activity, now: now)
