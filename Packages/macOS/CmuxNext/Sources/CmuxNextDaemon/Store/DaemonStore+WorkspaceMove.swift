@@ -9,6 +9,11 @@ extension DaemonStore {
     /// (no such workspace or tab, the tab is already there, or the workspace has no pane: the
     /// daemon builds its layout then), so the move waits for the daemon as before.
     public func workspaceMoveIntent(surface: SurfaceID, into workspace: WorkspaceHandle) -> Intent? {
-        nil
+        guard let destination = self.workspace(handle: workspace), let source = pane(containing: surface),
+              self.workspace(containing: source.handle) !== destination,
+              let screen = destination.screens.first(where: \.isActive) ?? destination.screens.first,
+              let landing = screen.panes.first(where: { $0.handle == screen.defaultPane }) ?? screen.panes.first,
+              landing.handle != source.handle else { return nil }
+        return .moveTab(surface: surface, toPane: landing.handle, index: landing.tabs.count)
     }
 }
