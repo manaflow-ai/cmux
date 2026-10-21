@@ -495,6 +495,17 @@ async fn dispatch_request(
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             let provenance = crate::prompt_provenance::of(&params, conn.origin == Origin::Local)?;
+            // Sent from inside another session (its proven caller token) with none of its own:
+            // that session's message, so the receiver's transcript does not show it as the person's.
+            let provenance = match (provenance, conn.caller()) {
+                (None, Some(caller)) if !conn.is_person() && caller != s.id => {
+                    hub.resolve(caller).ok().map(|from| {
+                        let name = from.meta().name;
+                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                    })
+                }
+                (provenance, _) => provenance,
+            };
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
