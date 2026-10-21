@@ -177,7 +177,7 @@ impl Index {
     }
 
     /// Takes the first free short name of `parent` from `base`, `base-2`, ...
-    fn claim_name(&self, parent: &str, base: &str) -> String {
+    pub(super) fn claim_name(&self, parent: &str, base: &str) -> String {
         let mut s = self.lock();
         let taken = s.names.entry(parent.to_owned()).or_default();
         let short = (1..)
@@ -357,11 +357,13 @@ impl Hub {
     /// suggested task (`offers.rs`) one of its sub-sessions: one level
     /// under it, its short name from the task's title. The person chose it,
     /// so no width or depth limit refuses it; it counts as an open child.
+    /// Its `short_name` is the base name, not yet claimed: the caller claims
+    /// it (`claim_name`) only when the link is set, so a refused answer
+    /// takes no name.
     pub(super) fn offer_link(&self, parent: &Session, title: Option<&str>) -> SubsessionLink {
         let depth = parent.meta().subsession.as_ref().map_or(0, |l| l.depth) + 1;
         let base = short_name_of(title, "task");
-        let short = self.subsessions.claim_name(&parent.id, &base);
-        SubsessionLink { started_by: parent.id.clone(), short_name: short, depth, offered: true }
+        SubsessionLink { started_by: parent.id.clone(), short_name: base, depth, offered: true }
     }
 
     /// The limits in force for the session with meta `m`.

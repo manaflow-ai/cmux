@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -72,6 +73,7 @@ export const mockDomains: Domains = {
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
+  recent_fonts: ["JetBrains Mono"],
 };
 
 /** The fixture managed key: a device profile pins remote localhost forwarding off. */
@@ -210,7 +212,7 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
-      "cmux.chief.profile.avatar.get": () => ({ avatar: null }),
+      "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
       "cmux.chief.profile.history": (params) => ({
         chief: params.chief,
         revisions: this.chiefs
@@ -450,6 +452,9 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
+
+  /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
+  chiefAvatars = new Map<string, Params>();
 
   /** The Chief records the host's page relay lists (`chief.profile.list`). */
   chiefs: Params[] = [
@@ -765,7 +770,7 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null },
+      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
     };
   }
 
@@ -826,6 +831,9 @@ export class MockSettingsProvider {
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
+    // The host keeps the fonts written lately (RecentFonts.swift).
+    if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
+      this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
   }
 

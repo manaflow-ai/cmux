@@ -827,7 +827,10 @@ fn notification_workspace(
 ) -> Result<Option<WorkspacePublicId>, ResourceError> {
     let Some(value) = fields.get("workspace_id") else { return Ok(None) };
     let workspace = WorkspacePublicId::parse(
-        value.as_str().expect("catalog resource-id validation").to_string(),
+        value
+            .as_str()
+            .ok_or_else(|| validation_error("workspace_id must be a string", json!({})))?
+            .to_string(),
     )?;
     if !workspace_exists(mux, &workspace) {
         return Err(ResourceError::not_found("workspace", workspace.as_str()));

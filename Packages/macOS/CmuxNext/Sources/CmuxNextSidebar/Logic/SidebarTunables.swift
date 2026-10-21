@@ -104,6 +104,13 @@ public nonisolated enum SidebarTunables {
         help: "A workspace's hover card counts the turns its agents finished, the questions they asked and the turns that failed since you last had it open.",
         default: true, code: "SidebarTunables.sinceLooked")
 
+    /// A working row's second line says what its agent does right now (`SidebarLaneStatus`). On
+    /// by default; a row without a second line keeps its one line (the hover card says it).
+    public static let nowLine = Tunable<Bool>.toggle(
+        "sidebar.nowLine", .sidebar, "Rows say what their agent does now",
+        help: "While an agent chat in a workspace works, the row's second line reads \"Now:\" and what the agent is doing. A one-line row stays one line.",
+        default: true, code: "SidebarTunables.nowLine")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -177,6 +184,7 @@ public nonisolated enum SidebarTunables {
             rowStatus.descriptor,
             laneFixture.descriptor,
             sinceLooked.descriptor,
+            nowLine.descriptor,
             multiView.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
