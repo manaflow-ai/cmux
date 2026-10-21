@@ -31,6 +31,15 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/kill": (["sessionId", "purge"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
         "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
+        // Background processes (direct.ts listProcesses, tailProcess, killProcess, backgroundWork):
+        // a kill names its chat, which must be the pane's, and acpmux stops only that chat's process.
+        "_acpmux/process/list": (["sessionId"], []),
+        "_acpmux/process/tail": (["processId", "maxBytes"], []),
+        "_acpmux/process/kill": (["sessionId", "processId"], []),
+        "_acpmux/process/background": (["sessionId", "toolCallId"], []),
+        // The composer's Account menu (direct.ts routes, setChatRoute).
+        "_acpmux/route/list": (["sessionId"], []),
+        "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).

@@ -263,6 +263,25 @@ public final class MessagesLabHomeView: NSView {
         set { projection.pictureOverride = newValue }
     }
 
+    /// A sender's chosen avatar beside a group's bubbles (``setSenderAvatars(_:)``).
+    public enum SenderAvatar: Hashable, Sendable {
+        /// A picture file.
+        case picture(URL)
+        /// One or two letters or an emoji, on the grey disc.
+        case text(String)
+    }
+
+    /// Chosen avatars by participant id (each Chief's, as Home's row draws it), beside a group's
+    /// bubbles; anyone not listed draws their initials. A new value redraws those bubbles.
+    public func setSenderAvatars(_ avatars: [String: SenderAvatar]) {
+        projection.senderAvatars = avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .image(url.absoluteString)
+            case .text(let text): .monogram(text)
+            }
+        }
+    }
+
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)

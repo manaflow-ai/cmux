@@ -190,6 +190,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
+      - name: Validate the CEF shim C++ tests run on Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_shim_cpp_linux.py
+
       - name: Validate Xcode pin audit
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py

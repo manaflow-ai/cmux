@@ -187,6 +187,33 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
     return page;
   }
 
+  /// Resolves once the page holds still: 10 painted frames with no DOM change and nothing animating,
+  /// the Now Playing player's ticking progress aside (120 frames at most).
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      const ticking = (node: Node | null | undefined) =>
+        (node instanceof Element ? node : node?.parentElement)?.closest(".nt-player") != null;
+      let changed = true;
+      const observer = new MutationObserver((records) => {
+        if (records.some((record) => !ticking(record.target))) changed = true;
+      });
+      observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+      for (let held = 0, frames = 0; held < 10 && frames < 120; frames += 1) {
+        await window.cmuxPaintFrame();
+        const moving = document
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" &&
+              Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+              !(animation.effect instanceof KeyframeEffect && ticking(animation.effect.target)),
+          );
+        held = changed || moving ? 0 : held + 1;
+        changed = false;
+      }
+      observer.disconnect();
+    });
+
   const step = (page: Page, name: string) => page.evaluate((name) => Object.assign(window, { __step: name }), name);
 
   /// Every state the page goes through after it opens, as a user meets them.
@@ -200,7 +227,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
     await page.locator(".nt-field").click();
     await page.keyboard.type("how do I fix the build");
     await page.locator(".nt-popover .nt-row").first().waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "attachment");
     const data = await page.evaluateHandle(async () => {
       const canvas = document.createElement("canvas");
@@ -220,7 +247,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
         data,
       );
     await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "now playing");
     await page.evaluate(() =>
       (
@@ -239,10 +266,10 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
       }),
     );
     await page.locator(".nt-player").waitFor({ timeout: 10_000 });
-    await page.waitForTimeout(300);
+    await settled(page);
     await step(page, "long draft");
     await page.keyboard.type(" and then".repeat(30));
-    await page.waitForTimeout(500);
+    await settled(page);
     return page.evaluate(() => (window as unknown as { __rects: string[] }).__rects);
   }
 

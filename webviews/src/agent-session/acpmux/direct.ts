@@ -971,8 +971,8 @@ export class AcpmuxDirectClient {
   private lastSeq = 0;
   private turnOpen = false;
   /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
-  /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. The agent's
-  /// next word, or the turn's end, clears it.
+  /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. acpmux hearing
+  /// the model (`turn_heard`), or the turn's end, clears it; the agent's own bookkeeping does not.
   private silentTurn = false;
   /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
   /// one starts (an acpmux that waits on an agent ignoring the cancel).
@@ -1774,9 +1774,11 @@ export class AcpmuxDirectClient {
   }
 
   /// Stops background process `processId` (Claude's stop_task, Codex's terminate). A harness
-  /// that never answers fails it after 10 s.
+  /// that never answers fails it after 10 s. It names its chat (`<sessionId>/<taskId>`'s): the host
+  /// lets only a chat in the pane's scope stop one, and acpmux stops only that chat's process.
   killProcess(processId: string): Promise<unknown> {
-    return this.request("_acpmux/process/kill", { processId }, 10_000);
+    const sessionId = processId.split("/")[0] ?? "";
+    return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }
 
   /// Ctrl-B: moves the selected Claude Code chat's foreground work to the background, only the
@@ -2477,7 +2479,6 @@ export class AcpmuxDirectClient {
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
-    if (event.dir === "in") this.silentTurn = false;
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -2655,6 +2656,8 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_silent") {
         this.silentTurn = this.turnOpen;
+      } else if (event.kind === "turn_heard") {
+        this.silentTurn = false;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
         this.silentTurn = false;
