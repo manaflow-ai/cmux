@@ -91,7 +91,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
-    var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
     /// False for a daemon this app does not own (the Chief home's, which the
     /// Chief host starts): every handshake then only looks, as a reconnect
     /// does. It never stops, hands off or starts that daemon, so a subagent
@@ -161,12 +161,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
-    func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
+    /// - Parameter restart: Restart Background Services (``restartDaemon()``): the running daemon
+    ///   is stopped, keeping its agents, inside the same start task, so every handshake and
+    ///   reconnect meanwhile waits for the bundled daemon instead of reading the stopping one.
+    func endpoint(startsDaemon asked: Bool, restart: Bool = false) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
-        if let task = inFlight[startsDaemon] { return try await task.value }
+        if !restart, let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
+        // A restart never stops a daemon while another start runs: that start finishes first.
+        while restart, let task = inFlight[true] { _ = try? await task.value }
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
@@ -184,7 +189,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        let task = Task {
+            if restart { _ = try await AcpmuxServiceRestart(environment: environment).stop() }
+            return try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal)
+        }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value

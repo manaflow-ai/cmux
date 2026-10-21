@@ -62,12 +62,14 @@ final class BackgroundServicesPresenter {
         }
         if let host = services.agentTabs.host as? AcpmuxHost, let builds = await host.serviceBuilds() {
             list.append(BackgroundService(role: .agents, running: builds.running, bundled: builds.bundled,
-                                          restartEndsWork: !builds.keepsAgents))
+                                          skip: builds.keepsAgents ? nil : .endsAgents))
         }
         if let environment = ChiefHomeAcpmux.environment(home: chief.home) {
             let builds = await AcpmuxServiceRestart(environment: environment).builds()
-            list.append(BackgroundService(role: .chiefAgents, running: builds.running, bundled: builds.bundled,
-                                          restartEndsWork: !builds.keepsAgents))
+            // Only the Chief host starts this daemon (cx-ebm.54): without one it would stay stopped.
+            let hostRuns = ChiefHostStop.runningHostPID(home: chief.home) != nil
+            let skip: BackgroundService.Skip? = !builds.keepsAgents ? .endsAgents : hostRuns ? nil : .restartsWithChief
+            list.append(BackgroundService(role: .chiefAgents, running: builds.running, bundled: builds.bundled, skip: skip))
         }
         return BackgroundServicesReport(services: list)
     }
@@ -77,7 +79,7 @@ final class BackgroundServicesPresenter {
     func restart(_ report: BackgroundServicesReport) async -> BackgroundServicesRestartResult {
         var result = BackgroundServicesRestartResult()
         guard let services else { return result }
-        let due = Set(report.services.filter { $0.running != nil && !$0.restartEndsWork }.map(\.role))
+        let due = Set(report.services.filter(\.restarts).map(\.role))
         if due.contains(.agents), let host = services.agentTabs.host as? AcpmuxHost {
             do {
                 try await host.restartDaemon()
@@ -104,10 +106,14 @@ final class BackgroundServicesPresenter {
             }
         }
         if due.contains(.sessionOwner) {
+            let before = services.daemon.identity?.pid
             if await services.daemon.restartForUpdate() != nil {
                 result.restarted.append(.sessionOwner)
             } else {
-                result.failed.append(.init(role: .sessionOwner, reason: .didNotReturn))
+                // The same owner still answers: it refused (an external binary, or a handoff
+                // already spent on it); else the next one did not connect in time.
+                let refused = before != nil && services.daemon.identity?.pid == before
+                result.failed.append(.init(role: .sessionOwner, reason: refused ? .refused : .didNotReturn))
             }
         }
         return result

@@ -21091,6 +21091,137 @@
           }
         }
       }
+    },
+    "services.line.keptNoHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (bundled %3$@). Kept running: it restarts with the Chief."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (المضمَّن %3$@). يبقى قيد التشغيل: يُعاد تشغيله مع Chief."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (ugrađeno %3$@). Ostaje pokrenuto: ponovo se pokreće s Chiefom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (medfølgende %3$@). Kører videre: den genstarter sammen med Chief."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (mitgeliefert %3$@). Läuft weiter: er startet mit dem Chief neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (incluido %3$@). Sigue en ejecución: se reinicia con Chief."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@ (fourni %3$@). Reste lancé : il redémarre avec Chief."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (incluso %3$@). Resta in esecuzione: si riavvia con Chief."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@（同梱 %3$@）。実行したままにします：Chief と一緒に再起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@៖ %2$@ (ភ្ជាប់មកជាមួយ %3$@)។ បន្តដំណើរការ៖ វាចាប់ផ្ដើមឡើងវិញជាមួយ Chief។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@(번들 %3$@). 계속 실행됨: Chief와 함께 재시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (medfølgende %3$@). Kjører videre: den starter på nytt med Chief."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (dołączona %3$@). Działa dalej: uruchomi się ponownie razem z Chiefem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (incluído %3$@). Continua em execução: reinicia junto com o Chief."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (в комплекте %3$@). Продолжает работать: перезапустится вместе с Chief."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (ที่มาพร้อมแอป %3$@) ยังทำงานต่อ: จะเริ่มใหม่พร้อมกับ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (paketle gelen %3$@). Çalışmaya devam ediyor: Chief ile birlikte yeniden başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (у комплекті %3$@). Працює далі: перезапуститься разом із Chief."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ (kèm theo %3$@). Vẫn chạy: nó khởi động lại cùng Chief."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@（内置 %3$@）。保持运行：它会随 Chief 一起重新启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@（內建 %3$@）。保持執行：它會隨 Chief 一起重新啟動。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

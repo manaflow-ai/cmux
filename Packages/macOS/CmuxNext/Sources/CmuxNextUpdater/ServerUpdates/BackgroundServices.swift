@@ -21,15 +21,26 @@ public nonisolated struct BackgroundService: Sendable, Equatable, Identifiable {
     public var running: String?
     /// The bundled build; nil when it could not be read.
     public var bundled: String?
-    /// A restart would end running work (an acpmux without agent hosts): the restart skips it.
-    public var restartEndsWork: Bool
+    /// Why the restart leaves this running service as it is; nil when it restarts it.
+    public var skip: Skip?
 
-    public init(role: Role, running: String?, bundled: String?, restartEndsWork: Bool = false) {
+    /// Why a running service is not restarted.
+    public enum Skip: Sendable, Equatable {
+        /// An acpmux without agent hosts: a restart would end its agents.
+        case endsAgents
+        /// The Chief's acpmux with no Chief host running: only that host starts the next one.
+        case restartsWithChief
+    }
+
+    public init(role: Role, running: String?, bundled: String?, skip: Skip? = nil) {
         self.role = role
         self.running = running
         self.bundled = bundled
-        self.restartEndsWork = restartEndsWork
+        self.skip = skip
     }
+
+    /// The restart restarts this service: it runs and nothing keeps it.
+    public var restarts: Bool { running != nil && skip == nil }
 
     public var id: String { role.rawValue }
 
@@ -61,9 +72,16 @@ public nonisolated struct BackgroundService: Sendable, Equatable, Identifiable {
             return UpdaterStrings.format("services.line.notRunning", "%1$@: not running (bundled %2$@).", title, bundledText)
         }
         let runningText = Self.shortBuild(running)
-        if restartEndsWork {
+        switch skip {
+        case .endsAgents:
             return UpdaterStrings.format("services.line.kept", "%1$@: %2$@ (bundled %3$@). Kept running: a restart would end its agents.",
                                          title, runningText, bundledText)
+        case .restartsWithChief:
+            return UpdaterStrings.format("services.line.keptNoHost",
+                                         "%1$@: %2$@ (bundled %3$@). Kept running: it restarts with the Chief.",
+                                         title, runningText, bundledText)
+        case nil:
+            break
         }
         if isCurrent {
             return UpdaterStrings.format("services.line.current", "%1$@: %2$@, the bundled build.", title, runningText)
@@ -80,17 +98,18 @@ public nonisolated struct BackgroundServicesReport: Sendable, Equatable {
         self.services = services
     }
 
-    /// Services that run another build than the bundled one.
-    public var staleCount: Int { services.filter { $0.running != nil && !$0.isCurrent }.count }
-
     /// The confirm: each service's running and bundled build, what is kept, Cancel and Restart.
     public var confirmSpec: CmuxDialogSpec {
         let restart = CmuxDialogButton(id: "restart", title: UpdaterStrings.text("server.confirm.restart", "Restart"), role: .default)
-        // The same kept and lost lines as a single server's restart (ServerRestartImpact).
-        let impact = ServerRestartImpact(kind: .cmuxTUI, keepsWork: true)
-        let agents = ServerRestartImpact(kind: .acpmux, keepsWork: true)
+        // The same kept and lost lines as a single server's restart (ServerRestartImpact), for
+        // the kinds of server this restart restarts.
+        let restarting = services.filter(\.restarts).map(\.role)
+        let impacts = [
+            restarting.contains { $0 == .sessionOwner || $0 == .chiefOwner } ? ServerRestartImpact(kind: .cmuxTUI, keepsWork: true) : nil,
+            restarting.contains { $0 == .agents || $0 == .chiefAgents } ? ServerRestartImpact(kind: .acpmux, keepsWork: true) : nil,
+        ].compactMap { $0 }
         return CmuxDialogSpec(title: UpdaterStrings.text("services.confirm.title", "Restart Background Services?"),
-                              lines: services.map(\.line) + impact.kept + agents.kept + impact.lost + agents.lost,
+                              lines: services.map(\.line) + impacts.flatMap(\.kept) + impacts.flatMap(\.lost),
                               buttons: [.cancel(), restart],
                               identifier: "cmux.background-services-restart")
     }

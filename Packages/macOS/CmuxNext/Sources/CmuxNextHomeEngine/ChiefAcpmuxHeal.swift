@@ -42,9 +42,11 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
     /// Restart Background Services (cmux issue 23089): the same handoff for a daemon of any
     /// build, since the person asked for it. Returns `.handOff` when the daemon stopped now and
     /// the host starts the bundled one, `.waitForHost` when that happens once the Chief's turn
-    /// ends, `.keep` when no daemon runs or stopping it would end its agents.
+    /// ends, `.keep` when no daemon runs, stopping it would end its agents, or no Chief host
+    /// runs to start the next one (only the Chief host starts this daemon, cx-ebm.54).
     @concurrent public func restart() async -> AcpmuxChiefHandoff.ReplacedAction {
-        await handOff(force: true)
+        guard ChiefHostStop.runningHostPID(home: home) != nil else { return .keep }
+        return await handOff(force: true)
     }
 
     @concurrent private func handOff(force: Bool) async -> AcpmuxChiefHandoff.ReplacedAction {

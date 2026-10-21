@@ -91,11 +91,6 @@ extension AcpmuxHost {
     /// host (``ChiefAcpmuxHeal``).
     public func restartDaemon() async throws {
         guard startsDaemons else { throw AgentPaneHostError.chiefStopped }
-        if environment == nil { environment = resolveEnvironment() }
-        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
-        // A start in flight finishes first, so this never stops a daemon while it starts.
-        if let task = inFlight[true] { _ = try? await task.value }
-        _ = try await AcpmuxServiceRestart(environment: environment).stop()
-        _ = try await endpoint(startsDaemon: true)
+        _ = try await endpoint(startsDaemon: true, restart: true)
     }
 }
