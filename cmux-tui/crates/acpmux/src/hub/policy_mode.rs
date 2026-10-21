@@ -88,7 +88,8 @@ impl Hub {
 
     /// `_acpmux/set_policy` made a live chat's policy narrower: a mode wider than the policy's
     /// (full access, or another mode that does not ask) moves to it. A mode as narrow (Claude
-    /// Code `plan`) stays. Soft: a refusal is logged as `policy_unenforced`.
+    /// Code `plan`) stays. Soft: a refusal is logged as `policy_unenforced`. A chat whose agent is
+    /// not running keeps the mode for its next start.
     pub(crate) async fn follow_policy(self: &Arc<Self>, session: &Arc<Session>) {
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta) else { return };
@@ -102,6 +103,19 @@ impl Hub {
         let asks = super::start_mode::asks(&current, &family);
         let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
         if current == wanted || (asks && !narrower) {
+            return;
+        }
+        // A chat whose agent is not running starts none: its saved mode becomes the policy's,
+        // which the agent's next start restores (`replay_config`, Claude's `--permission-mode`).
+        let child = session.child.lock().await.clone();
+        let running = match child {
+            Some(child) => child.is_alive().await,
+            None => false,
+        };
+        if !running {
+            self.write_mode_state(session, [ModeWrite::CurrentMode(json!(wanted))]);
+            self.append(session, "mux", "mode", json!({"modeId": wanted}));
+            self.save_meta(session);
             return;
         }
         if let Err(e) = self.set_mode(session, &wanted).await {
