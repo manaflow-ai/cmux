@@ -25,7 +25,8 @@ struct CloudMachineCreateFlow {
         var cpu: Int
         var memoryMB: Int
         /// `sizeShown` is false for the legacy create, whose size the plan picks: the person sees no size.
-        var diskMB: Int, sizeShown = true
+        /// `askedBy`: the agent chat (acpmux session) that asked; its card goes when that chat does.
+        var diskMB: Int, sizeShown = true, askedBy: String?
     }
 
     enum Prompt: Equatable {
@@ -59,15 +60,15 @@ struct CloudMachineCreateFlow {
 
     /// The default machine named `name` (trimmed; empty is none), in the stub plan's smallest
     /// size (the backend checks the plan); `sizeShown` false when the plan picks the size.
-    static func named(_ name: String?, sizeShown: Bool = true) -> Machine {
-        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 16384, sizeShown: sizeShown)
+    static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 16384, sizeShown: sizeShown, askedBy: askedBy)
     }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
-    /// record (contract 1.2).
-    func create(name: String?, startedByPerson: Bool) async throws -> JSONValue {
-        let machine = Self.named(name)
+    /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil) async throws -> JSONValue {
+        let machine = Self.named(name, askedBy: askedBy)
         var confirmed = !startedByPerson
         if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
@@ -105,8 +106,8 @@ struct CloudMachineCreateFlow {
 
     /// The legacy `/api/vm` create (the default link): a create no person started asks first, as
     /// ``create(name:startedByPerson:)`` does; a no sends nothing. The plan picks its size, so none shows.
-    static func legacy<T>(name: String?, startedByPerson: Bool, confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
-        if !startedByPerson { guard await confirm(.agentRequest(named(name, sizeShown: false))) else { throw Failure.declined } }
+    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
+        if !startedByPerson { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
         return try await create()
     }
 

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 public import Observation
 
@@ -5,7 +6,7 @@ public import Observation
 /// request for a Cloud machine), instead of a sheet over their work. `ask`
 /// shows its card in every window's sidebar, oldest first and one at a time,
 /// and returns true only for the card's prominent button; another button, the
-/// x or a cancelled caller answer false. Only the card's own views send the
+/// x, a cancelled caller or a caller that went away (`while`) answer false. Only the card's own views send the
 /// answers (`SidebarIntent.noticeAction` / `dismissNotice`); no socket does.
 @MainActor @Observable
 public final class SidebarAsks {
@@ -22,10 +23,19 @@ public final class SidebarAsks {
     public var card: SidebarNoticeCard? { asks.first?.card }
 
     /// Shows `card` (a unique id; its prominent action is the yes) until the person answers.
-    public func ask(_ card: SidebarNoticeCard) async -> Bool {
+    /// `holds` (observed): while it is true the asker is still there to take the answer; once it is
+    /// false (the agent that asked went away) the card goes and the answer is false.
+    public func ask(_ card: SidebarNoticeCard, while holds: (@MainActor @Sendable () -> Bool)? = nil) async -> Bool {
         var card = card
         card.awaitsAnswer = true
         let id = card.id
+        // task-owner: one watch of the asker per open question; cancelled when it is answered
+        let watch = holds.map { holds in
+            Task { @MainActor [weak self] in
+                for await held in ObservationStream(holds) where !held { self?.answer(id, action: nil); return }
+            }
+        }
+        defer { watch?.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { answer in
                 if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer)) }
@@ -36,10 +46,11 @@ public final class SidebarAsks {
     }
 
     /// Asks with a card of `yes` (prominent) and `no` buttons; the x is `no` too.
-    public func ask(_ title: String, detail: String, lines: [String] = [], symbol: String? = nil, yes: String, no: String) async -> Bool {
+    public func ask(_ title: String, detail: String, lines: [String] = [], symbol: String? = nil, yes: String, no: String,
+                    while holds: (@MainActor @Sendable () -> Bool)? = nil) async -> Bool {
         let actions = [SidebarNoticeCard.Action(id: "yes", title: yes, prominent: true), SidebarNoticeCard.Action(id: "no", title: no)]
         return await ask(SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: symbol, title: title, detail: detail, lines: lines,
-                                           actions: actions, dismissLabel: no))
+                                           actions: actions, dismissLabel: no), while: holds)
     }
 
     /// Answers the open question `id` with the button `action` (nil: the x).

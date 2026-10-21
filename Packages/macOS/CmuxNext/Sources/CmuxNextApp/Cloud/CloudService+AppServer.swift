@@ -26,7 +26,7 @@ extension CloudService {
     }
 
     /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
@@ -46,7 +46,7 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson)
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy)
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
@@ -88,13 +88,15 @@ extension CloudService {
 extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?) async -> Bool {
+    /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
         let (intro, machine) = switch prompt {
         case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
         case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
-        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel) : false }
+        // An asking chat this Mac shows no tab for (another Mac's) never expires the card.
+        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, while: machine.askedBy.flatMap { chat in chatOpen(chat) ? { chatOpen(chat) } : nil }) : false }
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
