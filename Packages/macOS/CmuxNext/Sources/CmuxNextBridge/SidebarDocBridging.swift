@@ -170,7 +170,12 @@ public final class SidebarDocSections {
 
     /// Puts `rows` first among the machine's rows (the first `machineSections` of `sections`): after a
     /// leading Home row, in the first loose run, or as a loose run of their own above a leading group.
-    private static func insertFirst(_ rows: [WorkspaceModel], into sections: inout [CmuxNextDaemon.SidebarSection], machineSections: Int) {
+    ///
+    /// - Parameters:
+    ///   - rows: The new workspaces, in the order they list (newest first under `top`).
+    ///   - sections: One machine's sections; the machine's own come first.
+    ///   - machineSections: How many of `sections` are the machine's own (band groups follow them).
+    public static func insertFirst(_ rows: [WorkspaceModel], into sections: inout [CmuxNextDaemon.SidebarSection], machineSections: Int) {
         if machineSections > 0, sections[0].group == nil {
             var workspaces = sections[0].workspaces
             let skip = workspaces.first?.kind == SidebarMapping.homeKind ? 1 : 0

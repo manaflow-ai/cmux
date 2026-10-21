@@ -73,7 +73,10 @@ first in the machine section, below Home, above groups). The app broke it in two
    The list did it a second time on its own: when the machine section holds link items,
    `SidebarDocProjection.machineNodes` re-walks the document order and put every node the
    document does not place after the placed ones (the fleet frame strip showed `new1` drawn on
-   top, then last, then on top again, with no document item and no personal row yet).
+   top, then last, then on top again, with no document item and no personal row yet). And the
+   personal-order fallback (`PersonalSidebar.mixedSections`, `personalOrder`, used for every row
+   the document does not place) listed a workspace without a personal row last; the new row's
+   personal row comes in the same `session.events` batch as its item, so it too was last until then.
 2. **The app wrote the order a second time.** Once the daemon reported the workspace,
    `applyPendingPlacements` resolved `workspaces.newPlacement` again and sent its own
    `sidebar.apply` (adopt + move) to the slot the create had already given it: a second state
@@ -96,6 +99,8 @@ workspace.
   first; under `bottom`, last. This is the same rule as the daemon's `workspace.list`
   (`state/sidebar_doc_order.rs`), so the item's arrival changes nothing on screen. The list's
   document arrangement keeps such a node at its mapped slot (right before the placed row after it).
+  On this Mac's daemon a workspace without a personal row yet is a create whose row is on the way
+  (the daemon writes one in every create): the personal order lists it first below Home too.
 - **One row from the press.** The press-time row, the live row and the placed row are the same
   row at the same index: the frame sequence for a Cmd-N is the old list, then the list with the new
   row at index 0, and nothing after.
