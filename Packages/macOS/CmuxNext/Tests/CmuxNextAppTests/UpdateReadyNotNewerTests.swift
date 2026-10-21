@@ -55,6 +55,39 @@ import Testing
         #expect(updater.readyCard == nil, "a check while nothing newer is staged showed Update Ready")
     }
 
+    /// Hiding the card is not enough: Sparkle's install session for that
+    /// build stays open, so quitting would install the running build again
+    /// (install on quit no longer cancels a phase that shows nothing) and
+    /// Check for Updates would be ignored behind it. A staged update that is
+    /// not newer has its installer cancelled (Skip on Sparkle's held ready
+    /// reply, which records no skipped version) as soon as it shows.
+    @Test func aStagedBuildThatIsNotNewerHasItsInstallerCancelled() {
+        for (staged, version) in [("100", "1.0.0"), ("99", "0.9.9")] {
+            let updater = Self.updater(stagedBuild: staged)
+            let cancels = Counter()
+            updater.cancelStaged = { cancels.count += 1 }
+            updater.debugIndicatorPhase = .ready(version: version)
+            #expect(cancels.count > 0, "build \(staged)'s staged installer still runs: quitting installs it again")
+        }
+    }
+
+    @Test func anUnknownStagedUpdateHasItsInstallerCancelled() {
+        let updater = Self.updater(stagedBuild: nil)
+        let cancels = Counter()
+        updater.cancelStaged = { cancels.count += 1 }
+        updater.debugIndicatorPhase = .ready(version: nil)
+        #expect(cancels.count > 0, "an unknown staged installer still runs: quitting installs it")
+    }
+
+    @Test func aNewerStagedBuildKeepsItsInstaller() {
+        let updater = Self.updater(stagedBuild: "101")
+        let cancels = Counter()
+        updater.cancelStaged = { cancels.count += 1 }
+        updater.debugIndicatorPhase = .ready(version: "1.0.1")
+        updater.checkForUpdates()
+        #expect(cancels.count == 0, "a newer staged update was cancelled")
+    }
+
     @Test func aNewerStagedBuildStillShowsTheCard() {
         let updater = Self.updater(stagedBuild: "101")
         updater.debugIndicatorPhase = .ready(version: "1.0.1")
@@ -62,4 +95,9 @@ import Testing
         #expect(updater.stagedVersion == "1.0.1")
         #expect(updater.footerPill == .ready)
     }
+}
+
+/// Counts calls from a stubbed closure.
+@MainActor private final class Counter {
+    var count = 0
 }
