@@ -16,9 +16,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Case = {
   entry: string;
@@ -77,8 +77,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = ({ entry, variant }: Case) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.${entry}&variant=${variant}`;
+  const origin = () => `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+  const url = ({ entry, variant }: Case) => origin() + galleryFrame(`agent-pane.${entry}`, { variant });
 
   beforeAll(async () => {
     vite = await createServer({
@@ -87,8 +87,10 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    // One warm-up per entry, not per case: the variants of an entry share its file, and the frame's
+    // own modules are cached after the first load.
+    await warmGalleryFrame(vite, [...new Set(CASES.map((item) => `agent-pane.${item.entry}`))], { browser });
   });
   afterAll(async () => {
     await browser?.close();
