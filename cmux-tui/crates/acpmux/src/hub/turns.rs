@@ -799,6 +799,8 @@ impl Hub {
         {
             return Err(super::start_mode::full_access_off());
         }
+        // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
+        self.refuse_wider_mode(session, m, &params).await?;
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -986,14 +988,18 @@ impl Hub {
         Ok(())
     }
 
-    pub async fn set_policy(&self, session: &Arc<Session>, policy: PermissionPolicy) {
+    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
+    /// itself (an aside's, a handoff target's) holds as one a client sets does.
+    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
         self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
         self.save_meta(session);
+        self.follow_policy(session).await;
     }
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
