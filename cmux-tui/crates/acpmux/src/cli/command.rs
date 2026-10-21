@@ -261,6 +261,9 @@ pub enum Command {
     /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
     #[command(subcommand)]
     Route(crate::cli::route::RouteCmd),
+    /// Forum rules: announce one, list the current ones, ack one.
+    #[command(subcommand)]
+    Forum(crate::cli::forum::ForumCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -302,6 +305,10 @@ pub enum Command {
     /// stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     SubsessionMcp,
+    /// The agent's forum tools (announce, rules, ack): an MCP stdio server
+    /// for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    ForumMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

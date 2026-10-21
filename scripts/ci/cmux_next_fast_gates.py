@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""cmux-next fast gates: four push-time checks, in fail mode, on a pull request merged with its base.
+"""cmux-next fast gates: five checks, in fail mode, on a pull request merged with its base.
 
 .github/workflows/cmux-next-fast-gates.yml runs this for every pull request into feat-cmux-next
 and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gates` with
@@ -20,6 +20,9 @@ The gates, each the same invocation as its push-time job:
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   defaults stamp  scripts/ci/defaults_guard.py check-stamp --base BASE (cmux-next-guards.yml, defaults-snapshot)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)
+  crash-class rules  scripts/ci/crash_class_fast_gate.py on the merge and BASE's exported tree
+                  (cmux-next-crash-class.yml: concurrency crash classes, super-call selectors and the
+                  Chromium Objective-C contract; only findings the PR adds)
 """
 from __future__ import annotations
 
@@ -167,6 +170,7 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool) -> list
                            "--head", str(repo), "--base", str(base_tree)]),
         ("defaults stamp", [py, "scripts/ci/defaults_guard.py", "check-stamp", "--base", base]),
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
     ]
 
 
