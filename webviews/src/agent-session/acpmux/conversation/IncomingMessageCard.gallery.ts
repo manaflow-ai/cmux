@@ -91,6 +91,7 @@ export default agentPaneEntry({
         ],
         { title: "tests" },
       ),
+    },
     opened: {
       note: "› opens the message under its line, set off by a hairline.",
       snapshot: chat([
