@@ -68,7 +68,6 @@ import Testing
 
     @Test func oneActionBacksEveryEntrypoint() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == PictureInPictureHandlers.actionID }, "no Picture in Picture action")
-        #expect(descriptor.defaultShortcut == Shortcut("p", modifiers: [.option, .shift, .command]))
         #expect(descriptor.cliName == "media picture-in-picture")
         #expect(descriptor.targets == [.tab])
         #expect(descriptor.surfacePlan.palette.isOffered && descriptor.surfacePlan.mcp?.isOffered == true)

@@ -2,7 +2,7 @@
 // and play or pause what it shows. The card's x runs Hide; its right-click menu is generated from
 // the `nowPlayingCard` placements below. Every action is also a palette row, a `cmux media` verb
 // and an MCP tool. Picture in Picture floats a tab's video (the named tab, else the focused or
-// playing one) and is also a tab menu row and a shortcut. Titles live in MusicActions.xcstrings.
+// playing one) and is also a tab menu row. Titles live in MusicActions.xcstrings.
 
 nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -18,8 +18,7 @@ nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tab.pictureInPicture", title: t("action.tab.pictureInPicture", "Picture in Picture"),
                 keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "always on top", "media", "tab"],
-                defaultShortcut: Shortcut("p", modifiers: [.option, .shift, .command]), category: .tab, symbol: "pip",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.tab], cliName: "media picture-in-picture",
+                category: .tab, symbol: "pip", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "media picture-in-picture",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
                     ContextMenuPlacement(.tab, .identity, 206, folder: .options),
                     ContextMenuPlacement(.nowPlayingCard, .navigate, 10),

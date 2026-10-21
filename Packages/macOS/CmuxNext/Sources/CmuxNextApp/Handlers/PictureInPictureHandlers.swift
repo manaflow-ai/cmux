@@ -4,7 +4,7 @@ import CmuxNextNowPlaying
 import CmuxNextSidebar
 
 /// Picture in Picture for a browser tab's video, in either engine: the
-/// tab's menu, the palette, ⌥⇧⌘P, the media card's menu, the CLI
+/// tab's menu, the palette, a key bound to it, the media card's menu, the CLI
 /// (`cmux media picture-in-picture`) and MCP run this one action, and the
 /// card's button sends the same toggle to the tab it shows. The page's
 /// video floats in the engine's own always-on-top window (Chromium's PiP
