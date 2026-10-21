@@ -81,7 +81,8 @@ class CaptureCheckTests(unittest.TestCase):
                      "> No capture: copy only, the strings are unchanged on screen"):
             with self.subTest(body=body):
                 self.assertEqual(self.run_check(body, [SWIFT])[0], 0)
-        for body in ("No capture:", "No capture: ok", "No capture-tooling exists here yet", "<!-- No capture: hidden in a comment -->", "We have no capture tooling"):
+        for body in ("No capture:", "No capture: ok", "No capture-tooling exists here yet",
+                     "## Proof\n\nNo capture:\n\n## Checklist\n- [x] tests", "<!-- No capture: hidden in a comment -->", "We have no capture tooling"):
             with self.subTest(body=body):
                 self.assertEqual(self.run_check(body, [SWIFT])[0], 1)
 

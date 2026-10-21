@@ -32,7 +32,7 @@ TOUR_LABELS = {"media-tour", "media-tour-mac"}
 MARKER = re.compile(r"<!--\s*cmux-capture\s+sha=(?P<sha>[0-9a-f]{40})\b[^>]*-->")
 MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/{pr}/" + r"\S+\.(?:png|gif|jpe?g)"
 MEDIA_WINDOW = 2000  # the stills follow the marker; an image elsewhere in the body is not its capture
-NO_CAPTURE = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?(?:\s*:|\s+[—-])\s*(?:\*\*)?\s*\S.{3,}",
+NO_CAPTURE = re.compile(r"^\s*(?:>\s*)*(?:[-*]\s+)?(?:\*\*)?No capture(?:\*\*)?(?:[ \t]*:|[ \t]+[—-])[ \t]*(?:\*\*)?[ \t]*\S.{3,}",
                         re.IGNORECASE | re.MULTILINE)
 TEST_PATH = re.compile(r"(?:^|/)Tests?/|(?:^|/)tests?/|_test\.|(?:^|/)\w+Tests\.swift$|\.(?:test|spec)\.[jt]sx?$")
 # A fenced block, or an unclosed fence to the end of the body.
