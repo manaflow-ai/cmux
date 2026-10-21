@@ -21,8 +21,10 @@ const enforceVmAllocationRateLimit = mock(async () => allocationRefusal);
 const createRun = mock(async () => { throw new Error("allocation refusal must precede run persistence"); });
 const launchQueuedCloudVmAttempts = mock(async () => {});
 const repositoryModule = await import("../services/runs/repository");
+const routeHelpersModule = await import("../services/vms/routeHelpers");
 
 mock.module("../services/vms/routeHelpers", () => ({
+  ...routeHelpersModule,
   withAuthedVmApiRoute: async (
     _request: Request,
     _route: string,

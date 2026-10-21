@@ -4,6 +4,7 @@ import { createRun, requestDigest } from "../../../services/runs/repository";
 import { launchQueuedCloudVmAttempts } from "../../../services/runs/dogfood";
 import { ALLOWED_RUN_RECIPES, type RunRoutingRequest } from "../../../services/runs/model";
 import { runAdmissionFor, runRoutingFor } from "../../../services/runs/view";
+import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 export const maxDuration = 960;
 
@@ -91,6 +92,12 @@ export async function POST(request: Request): Promise<Response> {
           retryable: false,
         }, 400);
       }
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "run.create",
+        billingTeamId: scope.entitlements.billingTeamId,
+      });
+      if (limited) return limited;
       try {
         const run = await createRun({
           userId: user.id,
