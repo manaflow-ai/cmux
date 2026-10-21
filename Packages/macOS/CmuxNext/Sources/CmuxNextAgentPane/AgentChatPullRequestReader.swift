@@ -206,44 +206,100 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }
 }
 
-/// The pull requests reply links and the pull request bars point at, for their hover cards
-/// (`pr.inspect`): each read with gh once, and again only after `freshness`, so hovering the same
-/// link again asks nothing; two hovers of one link while it is read share that read.
+/// The pull requests reply links and the pull request bars point at, for their cards: each read
+/// with gh once, and again only after `freshness`, so the same link is never read twice in a
+/// minute and two readers of one link share one read.
+///
+/// A card reads the cache (``answer(_:)``) and never waits for gh, so hovering a link is never a
+/// call to GitHub; the links a reply shows are registered when the page inspects them
+/// (``register(_:)``), which is once per reply, not once per hover. A read that fails — no gh, no
+/// network, a rate limit — leaves the last good answer and its age in place, and is not tried
+/// again for `retry`, so a rate-limited GitHub never replaces the pull request with an error.
 @MainActor
 public final class AgentReplyPullRequests {
-    private struct Answer {
+    private struct Entry {
+        /// The last answer gh gave; nil until it gives one.
         var pullRequest: AgentPanePullRequest?
-        var at: ContinuousClock.Instant
+        /// When it gave that answer.
+        var at: Date?
+        /// The last read of this link, good or not; nil until one finishes.
+        var tried: ContinuousClock.Instant?
+        /// The newest of `at` and `tried`, for dropping the stalest link.
+        var touched: ContinuousClock.Instant
     }
 
     /// The App's one cache: every chat's cards read through it.
     public static let shared = AgentReplyPullRequests()
-    /// The most links kept; the oldest go first.
+    /// The most links kept; the stalest goes first.
     static let maximumKept = 200
+    /// The most links one reply registers for a refresh, so a transcript full of pull requests
+    /// cannot start a hundred reads at once.
+    static let maximumRegistered = 16
 
     private let reader: AgentChatPullRequestReader
     private let freshness: Duration
-    private var answers: [URL: Answer] = [:]
-    private var reading: [URL: Task<AgentPanePullRequest?, Never>] = [:]
+    private let retry: Duration
+    private var entries: [URL: Entry] = [:]
+    private var inflight: [URL: Task<Void, Never>] = [:]
 
-    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
+                freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
         self.reader = reader
         self.freshness = freshness
+        self.retry = retry
     }
 
+    /// What the cache has for `url`, and a background read when that is stale. Never waits.
+    public func answer(_ url: URL) -> AgentPanePullRequestAnswer {
+        _ = startRead(url)
+        let entry = entries[url]
+        return AgentPanePullRequestAnswer(pullRequest: entry?.pullRequest,
+                                          fetchedAt: entry?.at?.timeIntervalSince1970,
+                                          reading: inflight[url] != nil)
+    }
+
+    /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives.
+    public func register(_ urls: [URL]) {
+        for url in urls.prefix(Self.maximumRegistered) { _ = startRead(url) }
+    }
+
+    /// Reads `url`, waiting for a read already running or starting one. The chat header's path.
     public func read(_ url: URL) async -> AgentPanePullRequest? {
-        if let answer = answers[url], ContinuousClock.now - answer.at < freshness { return answer.pullRequest }
-        if let task = reading[url] { return await task.value }
-        let reader = reader
-        // task-owner: one gh read per stale link; hovers of the same link await it.
-        let task = Task { await reader.read(url: url) }
-        reading[url] = task
-        let pullRequest = await task.value
-        reading[url] = nil
-        answers[url] = Answer(pullRequest: pullRequest, at: .now)
-        if answers.count > Self.maximumKept, let oldest = answers.min(by: { $0.value.at < $1.value.at })?.key {
-            answers[oldest] = nil
+        if let task = startRead(url) { await task.value }
+        return entries[url]?.pullRequest
+    }
+
+    /// The read running for `url`, a new one when it is stale, else nil.
+    private func startRead(_ url: URL) -> Task<Void, Never>? {
+        if let task = inflight[url] { return task }
+        if let tried = entries[url]?.tried {
+            // A link that answered is re-read after `freshness`; one that has never answered
+            // waits `retry`, so a rate limit is not met with another call a minute later.
+            let wait = entries[url]?.pullRequest == nil ? retry : freshness
+            if ContinuousClock.now - tried < wait { return nil }
         }
-        return pullRequest
+        // task-owner: one gh read per stale link; everyone waiting on it shares this task.
+        let task = Task { await self.perform(url) }
+        inflight[url] = task
+        return task
+    }
+
+    private func perform(_ url: URL) async {
+        let pullRequest = await reader.read(url: url)
+        var entry = entries[url] ?? Entry(touched: .now)
+        entry.tried = .now
+        entry.touched = .now
+        // A read that failed leaves the last good answer and its age alone: a rate-limited GitHub
+        // must not replace the pull request the card is showing.
+        if let pullRequest {
+            entry.pullRequest = pullRequest
+            entry.at = Date()
+        }
+        entries[url] = entry
+        inflight[url] = nil
+        if entries.count > Self.maximumKept,
+           let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
+            entries[stalest] = nil
+        }
     }
 }

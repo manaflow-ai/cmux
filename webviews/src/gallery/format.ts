@@ -77,6 +77,16 @@ export type ChipHostFixture = {
   browsers?: { id: string; name: string; icon?: string }[];
   /** `project.icon` answers: a project folder's favicon as a data URL (projectIcon.ts). */
   projectIcons?: Record<string, string>;
+  /** `pr.inspect` answers, by pull request address: the pull request card's own fixture. */
+  pullRequests?: Record<string, PullRequestFixture>;
+};
+
+/** One `pr.inspect` answer: what the host has for a pull request, and how old it is. */
+export type PullRequestFixture = {
+  pullRequest: Record<string, unknown> | null;
+  /** Seconds since 1970; left out when the host has never had an answer. */
+  fetchedAt?: number;
+  reading?: boolean;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */

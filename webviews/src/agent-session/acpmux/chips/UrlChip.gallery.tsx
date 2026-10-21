@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample URLs), not shipped UI.
-import { componentEntry, type ChipHostFixture } from "../../../gallery/format";
+import { componentEntry, type ChipHostFixture, type PullRequestFixture } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import type { ReactNode } from "react";
 
 type UrlChipProps = { href: string; icon?: ReactNode; children: ReactNode };
@@ -14,6 +15,48 @@ const host: ChipHostFixture = {
   sites: {
     "https://docs.example.test/guide": { title: "Example docs", icon: FAVICON },
   },
+};
+
+// A pull request chip's card. The fixture is what the host answers `pr.inspect` with: the pull
+// request as `gh pr view --json` reads it, plus when cmux last read it.
+const PULL_REQUEST = "https://github.com/manaflow-ai/cmux/pull/22777";
+const file = (path: string, additions: number, deletions: number) => ({ path, additions, deletions });
+const FILES = [
+  file("webviews/src/agent-session/acpmux/chips/PullRequestCard.tsx", 231, 48),
+  file("webviews/src/agent-session/acpmux/styles.css", 36, 1),
+  file("webviews/src/fileKinds.ts", 162, 0),
+  file("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePullRequest.swift", 97, 14),
+  file("webviews/test/file-kinds.test.ts", 131, 0),
+  file("webviews/test/pr-card.test.tsx", 184, 0),
+  file("webviews/src/agent-session/acpmux/mockFixture.ts", 12, 3),
+  file("docs/ci/risk-tiers.md", 9, 2),
+  file("webviews/src/agent-session/acpmux/Localizable.xcstrings", 1848, 0),
+  file("bun.lock", 14, 6),
+];
+const pullRequest = (extra: Record<string, unknown> = {}) => ({
+  url: PULL_REQUEST,
+  number: 22777,
+  title: "cmux NEXT: one pull request card for every pull request cmux mentions",
+  state: "open",
+  review: "changes_requested",
+  mergeable: "conflicting",
+  author: "teamleaderleo",
+  updatedAt: "2026-10-20T20:52:00Z",
+  baseRef: "feat-cmux-next",
+  headRef: "cmux/pr-cards",
+  labels: ["risk:normal", "agent"],
+  additions: FILES.reduce((sum, entry) => sum + entry.additions, 0),
+  deletions: FILES.reduce((sum, entry) => sum + entry.deletions, 0),
+  changedFiles: FILES.length,
+  files: FILES,
+  checks: { state: "failing", passed: 89, total: 100 },
+  checkList: [{ name: "cmux-next / cmux-next generated files", state: "failed" }],
+  ...extra,
+});
+const prHost = (fixture: PullRequestFixture): ChipHostFixture => ({ pullRequests: { [PULL_REQUEST]: fixture } });
+const openCard: Play = async (ctx) => {
+  await ctx.hover({ selector: "a.cv-chip.is-web" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__body"));
 };
 
 export default componentEntry<UrlChipProps>({
@@ -51,6 +94,50 @@ export default componentEntry<UrlChipProps>({
         await ctx.hover({ selector: "a.cv-chip.is-web" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
       },
+    },
+    "pull-request": {
+      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 20 }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-lines-by-kind": {
+      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 20 }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: async (ctx) => {
+        await openCard(ctx);
+        await ctx.hover({ selector: ".acpmux-pr-card__lines" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
+      },
+    },
+    "pull-request-no-tests": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: the composer keeps its caret on a slow send",
+          review: "",
+          mergeable: "mergeable",
+          state: "draft",
+          labels: ["risk:low"],
+          checks: { state: "pending", passed: 12, total: 40 },
+          checkList: [],
+          files: [file("webviews/src/agent-session/acpmux/Composer.tsx", 41, 9)],
+          additions: 41,
+          deletions: 9,
+          changedFiles: 1,
+        }),
+        fetchedAt: Date.now() / 1000 - 15,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-stale": {
+      // GitHub would not answer (a rate limit): the card keeps the pull request and says how old
+      // the copy is, instead of showing an error where the pull request should be.
+      chipHost: prHost({
+        pullRequest: pullRequest({ state: "merged", mergeable: "", review: "approved" }),
+        fetchedAt: Date.now() / 1000 - 23 * 60,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
     },
     "long-url": {
       props: {
