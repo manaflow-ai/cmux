@@ -25,7 +25,18 @@ final class SidebarGroupLineViews {
     /// moves to its new frame, a new one starts at `start` (the line over
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
-    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+    ///
+    /// Lines go in under the decorations, so every row, whenever the list
+    /// adds it (right above the decorations), draws over every line. A drop
+    /// gap the decorations draw inside a group washes over its line with its
+    /// translucent fill; member rows start right of the gutter and never do.
+    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+        // A reload without motion shows the lines as they are now: a line still fading out
+        // from an earlier, animated update (the join setting turned on, a group closed) goes now.
+        if !animated {
+            leavingViews.forEach { $0.removeFromSuperview() }
+            leavingViews.removeAll()
+        }
         lines = new
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
@@ -34,7 +45,7 @@ final class SidebarGroupLineViews {
             gone[line.group] = nil
             let view = views[line.group] ?? {
                 let view = GroupLineView()
-                list.addSubview(view, positioned: .above, relativeTo: decorations)
+                list.addSubview(view, positioned: .below, relativeTo: decorations)
                 views[line.group] = view
                 Motion.withoutAnimation {
                     view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
@@ -71,12 +82,12 @@ final class SidebarGroupLineViews {
     /// none (a group whose rows a drag hid: the last apply left its line out),
     /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
     /// it does not touch from there, and without it the next fold took this line away.
-    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
+    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, below decorations: NSView) {
         for line in lines where views[line.group] == nil {
             self.lines.removeAll { $0.group == line.group }
             self.lines.insert(line, at: self.lines.firstIndex { $0.frame.minY > line.frame.minY } ?? self.lines.count) // list order
             let view = GroupLineView()
-            list.addSubview(view, positioned: .above, relativeTo: decorations)
+            list.addSubview(view, positioned: .below, relativeTo: decorations)
             views[line.group] = view
             Motion.withoutAnimation {
                 view.frame = line.frame
@@ -109,7 +120,6 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
     }
 
     @available(*, unavailable)
@@ -124,19 +134,30 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    /// Chrome's trimmed ends (`SidebarGroupLineShape.line`), redrawn at every size.
+    private let shape = CAShapeLayer()
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        // The trim follows the view's frame in the same frame: the frame moves in the rows' Motion block.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.frame = bounds
+        shape.path = SidebarGroupLineShape.line(width: bounds.width, height: bounds.height)
+        if layer?.mask !== shape { layer?.mask = shape }
+        CATransaction.commit()
     }
 
     override func updateLayer() {
-        let themed = observedThemed()
-        performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
+        let look = observedLook()
+        // Under the solid band, the band's exact color (Leo 2026-10-19); else the dot's color.
+        performWithTheme { layer?.backgroundColor = (look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)).cgColor }
     }
 
-    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
-    private func observedThemed() -> Bool {
-        let read = { SidebarGroupPalette.tunable.value == .theme }
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes;
+    /// one observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in

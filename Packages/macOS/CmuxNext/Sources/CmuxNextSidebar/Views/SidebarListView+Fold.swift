@@ -107,7 +107,8 @@ extension SidebarListViewComponents {
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
         }
         let (lines, start) = foldLines(old: old, new: layout, group: id)
-        let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
+        joinHeaders(layout)
+        let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, below: decorations, animated: animate)
         RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
         inlineRename.follow()
         groupEditor.follow(groups)
@@ -117,13 +118,14 @@ extension SidebarListViewComponents {
     /// The group lines after group `id`'s fold: its own line from its rows (and where its rows are now, the
     /// animation's start), every line below it moved by the height change, the lines above it as they are.
     private func foldLines(old: SidebarLayout, new: SidebarLayout, group id: GroupID) -> (lines: [SidebarGroupLine], start: [SidebarGroupLine]) {
+        guard !joinsHeaders else { return ([], []) }
         guard let headerIndex = new.position(of: .group(id)) else { return (groupLines(new), groupLines(new, current: true)) }
         let header = new.rows[headerIndex]
         var end = headerIndex + 1
         while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
         let block = Array(new.rows[headerIndex..<end])
-        let own = SidebarGroupLine.lines(block, colors: groups) { frame(for: $0) }
-        let start = SidebarGroupLine.lines(block, colors: groups) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) }
+        let own = SidebarGroupLine.lines(block, colors: groups, joined: false) { frame(for: $0) }
+        let start = SidebarGroupLine.lines(block, colors: groups, joined: false) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) }
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {
