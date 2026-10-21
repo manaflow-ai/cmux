@@ -40,7 +40,9 @@ export function tableMarkdown(table: Table): string {
 
 export function tableTsv(table: Table): string {
   const count = columnCount(table);
-  return pastedRows(table).map((cells) => padded(cells, count).map(cellText).join("\t")).join("\n");
+  return pastedRows(table)
+    .map((cells) => padded(cells, count).map(cellText).join("\t"))
+    .join("\n");
 }
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
