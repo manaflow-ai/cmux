@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextSidebar
 import Foundation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
@@ -36,7 +37,7 @@ extension CloudService {
                 await onSent()
                 return try await ops(op, args, key, origin)
             },
-            confirm: { [weak self] prompt in await CloudPresenter.confirmCreate(prompt, in: self?.confirmWindow?()) },
+            confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
             approve: { request, params in
                 try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
             },
@@ -46,9 +47,7 @@ extension CloudService {
             }
         )
         let record = try await flow.create(name: name, startedByPerson: startedByPerson)
-        guard let machine = CloudMachine(next: record) else {
-            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine")
-        }
+        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
     }
 
@@ -87,18 +86,17 @@ extension CloudService {
 }
 
 extension CloudPresenter {
-    /// The native confirmation of a Cloud machine create: true only for the
-    /// person's click on Create; no window answers false.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?) async -> Bool {
+    /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
+    /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?) async -> Bool {
         let (intro, machine) = switch prompt {
-        case .agentRequest(let machine): (CloudStrings.createConfirmAgent, machine)
+        case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
         case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
-        var lines = [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)]
-        if let name = machine.name { lines.insert(CloudStrings.createConfirmName(name), at: 0) }
-        let body = ([intro] + lines).joined(separator: "\n")
+        let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)]
+        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel) : false }
         return await withCheckedContinuation { continuation in
-            confirm(CloudStrings.createConfirmTitle, body, button: CloudStrings.createConfirmButton,
+            confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,
                     identifier: createConfirmIdentifier, in: window) { continuation.resume(returning: $0) }
         }
     }

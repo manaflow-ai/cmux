@@ -641,10 +641,11 @@ Object.assign(variants, {
   }),
   "invalid-host": variant("browser", {
     focus: "browser.hibernationExclusions",
+    // Scoped to the row: the Browser page has other token fields above it (browser.siteEngines).
     steps: [
-      input(".token-input", "bad host / path"),
-      { selector: ".token-input", action: "enter" },
-      wait(".host-list [role=alert]"),
+      input(`${row("browser.hibernationExclusions")} .token-input`, "bad host / path"),
+      { selector: `${row("browser.hibernationExclusions")} .token-input`, action: "enter" },
+      wait(`${row("browser.hibernationExclusions")} .host-list [role=alert]`),
     ],
   }),
   "write-error": variant("privacy", {
@@ -843,10 +844,11 @@ variants["play-select-scroll"] = variant("appearance", {
     const content = ctx.find({ selector: ".content" });
     const control = `${row("sidebar.sectionLook")} .ui-select-button`;
     const bottom = ctx.find({ selector: control }).getBoundingClientRect().bottom;
-    await ctx.scroll(
-      { selector: ".content" },
-      content.scrollTop + bottom - (content.getBoundingClientRect().bottom - 40),
-    );
+    // Near the bottom of what shows: above the Appearance bar that sits over the content's foot.
+    const floor =
+      ctx.document.querySelector(".appearance-bar")?.getBoundingClientRect().top ??
+      content.getBoundingClientRect().bottom;
+    await ctx.scroll({ selector: ".content" }, content.scrollTop + bottom - (floor - 40));
     await ctx.click({ selector: control });
     await ctx.waitFor(() => ctx.document.querySelector(".ui-select-popup"));
     await ctx.scroll({ selector: ".content" }, content.scrollTop - 160);

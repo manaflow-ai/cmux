@@ -236,6 +236,48 @@ async fn a_claude_chat_forks_through_an_earlier_turn_holding_only_the_history_be
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A Claude chat with no turn has no conversation for `--resume --fork-session`
+/// to copy: its fork is refused with a reason, and no chat is made (the
+/// fork matrix found the fork made, then failing with "No conversation found").
+#[tokio::test]
+async fn a_fork_of_a_claude_chat_with_no_turn_is_refused_and_makes_no_chat() {
+    let root = std::env::temp_dir().join(format!("acpmux-fork-empty-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "empty"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let before = c.request(method::SESSION_LIST, json!({})).await.unwrap()["sessions"]
+        .as_array()
+        .map(Vec::len);
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("an empty chat has nothing to fork");
+    assert!(err.contains("no turn"), "{err}");
+    let after = c.request(method::SESSION_LIST, json!({})).await.unwrap()["sessions"]
+        .as_array()
+        .map(Vec::len);
+    assert_eq!(before, after, "a refused fork makes no chat");
+    // After a turn the same chat forks, and the fork answers.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(claude_history(&hub, &mut c, &fid).await["prompts"], json!(["first"]));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The cut follows Claude's transcript, not a count of the chat's prompts: a
 /// prompt Claude never stored (its launcher died) does not move it, so the
 /// fork through the turn after it holds that turn and no later one.

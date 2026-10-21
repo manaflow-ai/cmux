@@ -166,11 +166,12 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     page.evaluate(() =>
       (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }),
     ) as Promise<void>;
-  const open = async (session: string, shown = "Read src/app.ts", tray = false) => {
+  const open = async (session: string, shown = "Read app.ts", tray = false) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    // The running line names the call in flight too (WorkingFor.tsx): wait for either.
+    // The read in flight draws no row of its own (Debug toggle agentPane.debug.codexToolRuns, on by
+    // default): the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     if (!tray) await trayOff(page);
     return page;
@@ -266,7 +267,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
   });
 
   test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
-    const page = await open(BUSY, "Read src/app.ts", true);
+    const page = await open(BUSY, "Read app.ts", true);
     await tray(page).waitFor({ timeout: 5_000 });
     // Reviewer and Tester run (Linter ended).
     expect(await tray(page).locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
@@ -289,7 +290,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await page.locator(".cv-subagent-done", { hasText: "Tester" }).waitFor({ timeout: 5_000 });
     await page.close();
     // An agent spawned by another sits right under it in the tray.
-    const nested = await open(NESTED, "Read src/app.ts", true);
+    const nested = await open(NESTED, "Read app.ts", true);
     await tray(nested).waitFor({ timeout: 5_000 });
     expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
       "Reviewer",
@@ -316,8 +317,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // taken in the height the pill took.
     const clearance = async () => {
       const [latest, box] = await Promise.all([
-        // The running line over the work names the same call: the tool row is the last match.
-        page.getByText("Read src/app.ts").last().boundingBox(),
+        // The running line is the turn's last row (agentPane.debug.liveLineBelow).
+        page.locator(".acpmux-row").last().boundingBox(),
         pill(page).boundingBox(),
       ]);
       return box!.y - (latest!.y + latest!.height);
@@ -427,7 +428,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(countPillRenders);
     await page.goto(url(BUSY));
-    await page.getByText("Read src/app.ts").first().waitFor({ timeout: 25_000 });
+    await page.getByText("Read app.ts").first().waitFor({ timeout: 25_000 });
     await trayOff(page);
     await pill(page).filter({ hasText: "2 agents" }).waitFor({ timeout: 25_000 });
     const before = await pillRenders(page);
