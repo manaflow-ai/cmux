@@ -232,7 +232,8 @@ Speed `fast` (default) scales times by 1, `normal` by 1.5, `off` disables (`Moti
 | fade | s | use |
 |---|---|---|
 | hover | 0.08 | hover fills, revealed buttons |
-| focus | 0.10 | focus ring, inactive dim |
+| focus | 0.10 | focus ring |
+| paneDim | 0.15 | inactive pane dim |
 | fadeIn / fadeOut | 0.12 / 0.08 | palette, find bar, notices, hover card |
 | crossfade | 0.10 | thumbnail swap; Reduce Motion ceiling |
 | lift | 0.12 | drag lift shadow |
