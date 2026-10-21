@@ -150,3 +150,47 @@ test("without canonical paths, a failed Write through a folder link lists beside
     [LINK, "failed"],
   ]);
 });
+
+test("once the checkpoint loads, a repository whose folder git names decomposed still holds the edited file", async () => {
+  // git prints a folder created as `Cafe\u0301` as stored, decomposed; acpmux's canonical paths are
+  // composed (NFC). They are one folder.
+  const composed = "/Users/you/src/Caf\u00e9/notes.txt";
+  const row = activity("turn-c12", [
+    await translatorWrite("write-c12", composed, "failed", composed),
+    await editWithDiff("edit-c12", composed, "step 1\n", "step one\n", composed),
+  ]);
+  await dom.render(await editedCard(row, checkpoint([notesPatch], "/Users/you/src/Cafe\u0301")));
+  expect(title()).toBe("Edited notes.txt");
+  expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+  expect(dom.host().querySelector(".acpmux-edited-outside")).toBeNull();
+});
+
+test("a file edited at ./ and then at its absolute path undoes, by the absolute path, to before both", async () => {
+  const absolute = `${FOLDER}/x.txt`;
+  const row = activity("turn-c13", [
+    await editWithDiff("edit-c13a", "./x.txt", "a\n", "b\n", absolute),
+    await editWithDiff("edit-c13b", absolute, "b\n", "c\n", absolute),
+  ]);
+  const { turnChanges } = await import("../src/agent-session/acpmux/turnChanges/model");
+  const { turnFiles } = await import("../src/agent-session/acpmux/diff");
+  const files = turnChanges(row.id, [row], turnFiles([row])).files;
+  expect(files.map(({ path, undo }) => ({ path, undo }))).toEqual([
+    { path: absolute, undo: { kind: "revert", before: "a\n", after: "c\n" } },
+  ]);
+  await dom.render(await editedCard(row));
+  expect(dom.host().querySelector(".acpmux-edited-undo")).not.toBeNull();
+});
+
+test("an output opens at the last turn that changed it, whichever spelling that turn used", async () => {
+  const absolute = `${FOLDER}/x.txt`;
+  const prompt = (id: string) => ({ id, version: 1, at: 1, kind: "user" as const, text: "go" });
+  const rows = [
+    prompt("prompt-1"),
+    activity("turn-c14a", [await editWithDiff("edit-c14a", "./x.txt", "a\n", "b\n", absolute)]),
+    prompt("prompt-2"),
+    activity("turn-c14b", [await editWithDiff("edit-c14b", absolute, "b\n", "c\n", absolute)]),
+  ];
+  const { lastChange } = await import("../src/agent-session/acpmux/diff");
+  expect(lastChange(rows, "./x.txt")).toEqual({ rowId: "turn-c14b", path: absolute });
+  expect(lastChange(rows, `${FOLDER}/other.txt`)).toBeUndefined();
+});
