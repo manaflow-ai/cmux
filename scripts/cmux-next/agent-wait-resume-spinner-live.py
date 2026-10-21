@@ -13,7 +13,7 @@ stopped the spinner. Run on cmux-lawrence-2 (GUI host), never the laptop:
 
 Usage: agent-wait-resume-spinner-live.py TAG APP OUT_DIR
 """
-import json, os, signal, socket, subprocess, sys, tempfile, time
+import json, os, socket, subprocess, sys, tempfile, time
 
 TAG, APP, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
@@ -148,11 +148,16 @@ try:
     expect("turn-end-stops", False)
     shot("idle")
 finally:
-    app.send_signal(signal.SIGTERM)
+    # Never kill the app (REPAIR.md): nx-remote's stop, else the quit verb that ends the
+    # tag's terminals and stops its daemon without a sheet.
+    if os.environ.get("NX_APP_STOP"):
+        subprocess.run([os.environ["NX_APP_STOP"]], timeout=120)
+    else:
+        print("quit:", json.dumps(rpc("action.run", {"id": "quitEndSessions"}))[:200], flush=True)
     try:
-        app.wait(30)
+        app.wait(60)
     except subprocess.TimeoutExpired:
-        app.kill()
+        check("app-quit", False, "the app still runs: stop it with action.run quitEndSessions")
 
 failed = [name for name, ok in results if not ok]
 print("RESULT %s (%d checks, %d failed: %s)" % ("PASS" if not failed else "FAIL", len(results), len(failed), failed), flush=True)
