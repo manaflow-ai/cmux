@@ -56,10 +56,8 @@ extension InputInvariants {
         }
         let resolved = model.resolved
         // A Chromium browser tab or a cmux page in Chromium: its page window has the keys.
-        let childPage: String? = switch resolved {
-        case .browserPage(_, let tab), .page(_, let tab): window.childWindowTabs.contains(tab) ? tab : nil
-        default: nil
-        }
+        let childPage: String? = if let tab = resolved.tab, ["browserPage", "page"].contains(resolved.kind),
+                                    window.childWindowTabs.contains(tab) { tab } else { nil }
         if let expected = expectedResponder(resolved, childPage: childPage), expected != window.responder {
             fail(.responderMatches, "appkit \(describe(window.responder)) (\(window.responderClass ?? "nil")) != model \(resolved.kind)")
         }
@@ -79,7 +77,8 @@ extension InputInvariants {
         return out
     }
 
-    private static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
+    /// The responder AppKit should report for `resolved` (W1; `debug.focus` uses the same table).
+    static func expectedResponder(_ resolved: FocusState.Resolved, childPage: String?) -> FocusEvent.Responder? {
         switch resolved {
         case .terminal(let pane, _): .content(pane: pane)
         // A Chromium page has the keys in its own window; this window keeps no responder.

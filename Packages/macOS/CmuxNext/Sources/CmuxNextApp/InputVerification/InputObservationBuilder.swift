@@ -31,18 +31,8 @@ enum InputObservationBuilder {
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
             guard let key = pane.currentTabKey else { continue }
             presented[pane.paneKey] = key
-            switch pane.currentContent {
-            case .browser(let entry)? where entry.tab.presentation == .childWindow:
-                childWindowTabs.append(key)
-            case .page(let view)?:
-                guard let tab = view.chromiumTab else { break }
-                childWindowTabs.append(key)
-                pageTabKeys[tab.id.rawValue] = key
-            default:
-                break
-            }
+            if let tab = pane.currentContent?.childWindowTab { childWindowTabs.append(key); pageTabKeys[tab.id.rawValue] = key }
         }
-        let childPage = controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 }
         return InputObservation.Window(
             id: controller.state.id,
             model: controller.focus.state,
@@ -51,7 +41,7 @@ enum InputObservationBuilder {
             isKey: window?.isKeyWindow ?? false,
             layoutFocus: controller.content?.layoutModel.focusedPane?.rawValue,
             ghosttyFocused: presented.values.filter(ghostty.contains).sorted(),
-            childPage: childPage,
+            childPage: controller.focusApplier.focusedChildWindowPageID.map { pageTabKeys[$0] ?? $0 },
             presented: presented,
             childWindowTabs: childWindowTabs.sorted(),
             hasSheet: window?.attachedSheet != nil

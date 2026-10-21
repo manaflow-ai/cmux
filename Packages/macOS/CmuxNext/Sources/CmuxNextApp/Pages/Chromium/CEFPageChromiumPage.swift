@@ -94,7 +94,11 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     }
 }
 
-extension InternalPageView {
-    /// The CEF tab a React page shows in when it runs in Chromium (a child window); nil on WebKit.
-    var chromiumTab: (any BrowserTab)? { ((content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab }
+extension TabContent {
+    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page in Chromium.
+    var childWindowTab: (any BrowserTab)? {
+        if case .browser(let entry) = self, entry.tab.presentation == .childWindow { return entry.tab }
+        guard case .page(let view) = self else { return nil }
+        return ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
+    }
 }
