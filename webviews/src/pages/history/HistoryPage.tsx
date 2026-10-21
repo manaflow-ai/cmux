@@ -174,6 +174,7 @@ export function HistoryPage({
         </p>
       ) : null}
       {snap.connection === "disconnected" ? (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="history-empty" role="status">
           {t("page.disconnected")}
         </div>
