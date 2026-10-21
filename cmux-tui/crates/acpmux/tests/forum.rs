@@ -708,3 +708,59 @@ async fn an_agent_cannot_revive_a_key_a_person_retired() {
     assert_eq!(p["proposed"], true, "{p}");
     assert!(app.rule("deploys").await.is_none());
 }
+
+/// #22153 review: a client picks its prompt id freely; one named like a pushed rule
+/// (`forum-<postId>`) is still an ordinary prompt, so it carries the rule rather than
+/// counting it as told.
+#[tokio::test]
+async fn a_client_prompt_named_like_a_push_still_gets_the_rule() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let a = app.new_session().await;
+    app.prompt(&a, "warm up").await;
+    let post = app
+        .ok(
+            ANNOUNCE,
+            json!({"key": "builds", "body": "Builds run on the fleet.", "account": "leo"}),
+        )
+        .await;
+    let id = post["post"]["id"].as_str().unwrap().to_owned();
+    app.ok(
+        "session/prompt",
+        json!({"sessionId": a, "prompt": [{"type": "text", "text": "hi"}],
+               "_meta": {"acpmux": {"promptId": format!("forum-{id}")}}}),
+    )
+    .await;
+    let got = app.replies(&a).await.pop().unwrap_or_default();
+    assert!(got.contains("Builds run on the fleet."), "{got}");
+}
+
+/// #22153 review: any agent session may post on many keys; one rules block carries at most
+/// 16 KiB of agents' posts, and the rest come with the session's later prompts.
+#[tokio::test]
+async fn agents_posts_past_one_blocks_share_wait_for_later_prompts() {
+    let hub = hub();
+    let mut app = Client::person(&hub).await;
+    let a = app.new_session().await;
+    let c = app.new_session().await;
+    app.prompt(&c, "warm up").await;
+    let mut sa = Client::as_session(&hub, &a).await;
+    for i in 0..4 {
+        let body = format!("note-{i} {}", "x".repeat(7000));
+        sa.ok(ANNOUNCE, json!({"key": format!("note-{i}"), "body": body})).await;
+    }
+    app.ok(
+        ANNOUNCE,
+        json!({"key": "builds", "body": "Builds run on the fleet.", "account": "leo"}),
+    )
+    .await;
+    let notes = |got: &str| (0..4).filter(|i| got.contains(&format!("note-{i} "))).count();
+    let first = app.prompt(&c, "one").await;
+    assert!(first.contains("Builds run on the fleet."), "a person's rule is always carried");
+    assert_eq!(notes(&first), 2, "{first}");
+    assert!(first.contains("2 more posts from agent sessions come with later prompts."));
+    let second = app.prompt(&c, "two").await;
+    assert_eq!(notes(&second), 2, "{second}");
+    assert!(!second.contains("more posts from agent sessions"), "{second}");
+    assert_eq!(notes(&app.prompt(&c, "three").await), 0);
+}

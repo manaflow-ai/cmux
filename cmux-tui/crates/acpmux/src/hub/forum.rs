@@ -38,6 +38,11 @@ pub const PROVENANCE_KIND: &str = "announcement";
 const CONTEXT_TAG: &str = "cmux-rules-context";
 /// Prefix of a pushed rule's prompt id.
 const PUSH_PREFIX: &str = "forum-";
+/// Most bytes of agents' posts one rules block carries. Any agent session
+/// may post on as many keys as it likes; past this, its posts wait for the
+/// session's later prompts, so a runaway agent cannot fill every prompt on
+/// the Mac. A person's rules are always carried.
+const MAX_AGENT_CONTEXT_BYTES: usize = 16 * 1024;
 /// Longest an announce waits for one session to take its urgent prompt.
 const PUSH_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -305,12 +310,17 @@ impl Hub {
     /// Before a prompt is recorded: a pushed rule (`forum-<postId>`) whose
     /// key moved on since it was queued carries the key's current post
     /// instead. The post the prompt tells, or None for any other prompt.
+    /// Only the hub's own push counts: a client picks its prompt id freely,
+    /// but no client can send provenance `announcement`.
     pub(super) fn forum_refresh_push(
         &self,
         prompt_id: &str,
         blocks: &mut [Value],
         provenance: &mut Option<Value>,
     ) -> Option<String> {
+        if provenance.as_ref().is_none_or(|p| p["kind"] != PROVENANCE_KIND) {
+            return None;
+        }
         let id = prompt_id.strip_prefix(PUSH_PREFIX)?;
         let forum = self.forum();
         let post = forum.get(id)?.post;
@@ -380,8 +390,25 @@ impl Hub {
         // This prompt runs first: it tells the urgent rules still waiting
         // behind it. Their own prompts are taken back once the agent answers
         // it (`forum_turn_end`); if it fails, they still run.
-        let lines: Vec<String> = posts.iter().map(rule_text).collect();
-        told.extend(posts.into_iter().map(|p| p.id));
+        let mut lines: Vec<String> = Vec::new();
+        let (mut agent_bytes, mut waiting) = (0, 0);
+        for post in posts {
+            let line = rule_text(&post);
+            if !post.author.is_person() {
+                if agent_bytes > 0 && agent_bytes + line.len() > MAX_AGENT_CONTEXT_BYTES {
+                    // Not told: a later prompt carries it.
+                    waiting += 1;
+                    continue;
+                }
+                agent_bytes += line.len();
+            }
+            lines.push(line);
+            told.push(post.id);
+        }
+        if waiting > 0 {
+            lines
+                .push(format!("{waiting} more posts from agent sessions come with later prompts."));
+        }
         blocks.push(json!({
             "type": "text",
             "text": format!(
