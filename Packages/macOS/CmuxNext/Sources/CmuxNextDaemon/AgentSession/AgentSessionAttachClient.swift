@@ -125,6 +125,13 @@ public actor AgentSessionAttachClient {
         _ = try? await call("agent-session-detach", [:])
     }
 
+    /// `agent-session-children` (`agent-session-children-v1`): the chats the attached tab's session
+    /// started on the daemon's machine (`{sessions}`, acpmux summaries); the attachment then
+    /// streams their changes too. Refused by a daemon without the verb.
+    public func children() async throws -> Data {
+        try await call("agent-session-children", [:])
+    }
+
     /// Ends the attachment and the connection; no push after it.
     public func close() {
         closed = true

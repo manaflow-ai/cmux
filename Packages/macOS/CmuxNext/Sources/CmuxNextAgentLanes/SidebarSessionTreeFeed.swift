@@ -1,5 +1,5 @@
 public import CmuxNextAgentActivity
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 public import CmuxNextDaemon
@@ -11,7 +11,8 @@ import Observation
 
 /// Feeds the sidebar's session tree (`sidebar.sessionTree`, Claude desktop's Code tab) from data
 /// the app already has: each workspace's agent chats (their acpmux sessions), acpmux's `spawnedBy`
-/// on those sessions' lanes, the pull request of each session folder's branch (`gh pr view`, as the
+/// on those sessions' lanes, the parents another machine's daemon listed for the chats a chat there
+/// started (``RemoteAgentSessionLinks``, a Cloud VM chat's children), the pull request of each session folder's branch (`gh pr view`, as the
 /// chat header's chip reads it) and each pull request a session opened (acpmux `pullRequests`,
 /// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil.
 @MainActor
@@ -22,7 +23,7 @@ public final class SidebarSessionTreeFeed {
     private let pullRequests = SidebarPullRequestStore()
 
     /// What one pass reads: the tree, and the folders and pull request URLs it shows.
-    private nonisolated struct Pass: Equatable, Sendable {
+    nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
     }
@@ -30,14 +31,15 @@ public final class SidebarSessionTreeFeed {
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
     /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
-                      lanes: AgentLaneStore = .shared, tree: SidebarSessionTree = .shared) {
+                      lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
+                      tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
         let pullRequests = pullRequests
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 guard DesignSettings.shared.sidebarSections.sessionTree else { return nil }
-                return Self.pass(workspaces(), lanes: lanes.lanes, localHost: localHost,
+                return Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
                                  pullRequests: pullRequests.answers)
             }) {
                 if tree.state != pass?.state { tree.state = pass?.state }
@@ -46,21 +48,35 @@ public final class SidebarSessionTreeFeed {
         }
     }
 
-    private static func pass(_ workspaces: [WorkspaceModel], lanes: [String: AgentActivityLane], localHost: String?,
-                             pullRequests: [String: AgentPanePullRequest]) -> Pass {
-        // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only).
+    /// Each workspace's agent chat tabs, in model order.
+    static func chats(_ workspaces: [WorkspaceModel]) -> [(SidebarWorkspaceID, [AgentSessionRef])] {
+        workspaces.map { workspace in
+            (SidebarWorkspaceID(workspace.id), workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.agentSession))
+        }
+    }
+
+    static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],
+                     remoteParents: [String: String] = [:], localHost: String?,
+                     pullRequests: [String: AgentPanePullRequest]) -> Pass {
+        // Each workspace's acpmux sessions on this Mac (the lanes cover this Mac's acpmux only), and
+        // its chats on other machines whose parent that machine's daemon listed.
         var sessions: [SidebarWorkspaceID: [String]] = [:]
+        var remote: [SidebarWorkspaceID: [String]] = [:]
         var owner: [String: SidebarWorkspaceID] = [:]
-        for workspace in workspaces {
-            let id = SidebarWorkspaceID(workspace.id)
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                guard let ref = tab.agentSession, ref.host == localHost, let session = ref.session else { continue }
-                sessions[id, default: []].append(session)
+        for (id, refs) in chats {
+            for ref in refs {
+                guard let session = ref.session else { continue }
+                if ref.host == localHost { sessions[id, default: []].append(session) } else { remote[id, default: []].append(session) }
                 owner[session] = owner[session] ?? id
             }
         }
         var state = SidebarSessionTreeState()
         var asks: Set<String> = []
+        for (id, ids) in remote {
+            if let parent = ids.lazy.compactMap({ remoteParents[$0].flatMap { owner[$0] } }).first(where: { $0 != id }) {
+                state.parents[id] = parent
+            }
+        }
         for (id, ids) in sessions {
             let shown = ids.compactMap { lanes[$0] }
             if let parent = shown.lazy.compactMap({ $0.spawnedBy.flatMap { owner[$0] } }).first(where: { $0 != id }) {
