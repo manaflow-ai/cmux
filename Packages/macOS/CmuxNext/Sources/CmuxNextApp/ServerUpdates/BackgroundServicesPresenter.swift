@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextUpdater
+import os
 
 /// Restart Background Services… (Cmd+Shift+P, `cmux settings restart-background-services`, cmux
 /// issue 23089): shows the running and bundled build of every background service this app runs
@@ -15,6 +16,9 @@ final class BackgroundServicesPresenter {
     private weak var services: AppServices?
     /// A confirm or restart runs: a second ask waits for it to end.
     private var busy = false
+    /// The app acpmux restart that waits for the Chief's turn to end (NIGHTLY); one at a time.
+    private var afterTurnRestart: Task<Void, Never>?
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "background-services")
 
     init(services: AppServices) {
         self.services = services
@@ -86,12 +90,21 @@ final class BackgroundServicesPresenter {
             let chiefHome = services.home.chief.home
             // A Chief on this daemon (NIGHTLY) never has its turn cut: its host hands off when its
             // turn ends and exits, and the restart runs then; the brain keeper starts the next host.
-            if chiefHome.usesAppAcpmux, let chiefHost = ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) {
-                // task-owner: one restart per confirm; it ends when the Chief host exited and the daemon restarted
-                Task { @MainActor [weak services] in
+            if afterTurnRestart != nil {
+                // One already waits for the Chief's turn: it restarts this daemon then.
+                result.afterTurn.append(.agents)
+            } else if chiefHome.usesAppAcpmux, let chiefHost = ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) {
+                let logger = logger
+                // task-owner: `afterTurnRestart`, one at a time; it ends when the Chief host exited and the daemon restarted
+                afterTurnRestart = Task { @MainActor [weak self, weak services] in
                     _ = await AgentPaneProcessExit(pid: chiefHost).event(within: nil)
-                    try? await host.restartDaemon()
+                    do {
+                        try await host.restartDaemon()
+                    } catch {
+                        logger.error("acpmux restart after the Chief's turn failed: \(String(describing: error), privacy: .public)")
+                    }
                     _ = services?.home.brain.ensure(asked: false)
+                    self?.afterTurnRestart = nil
                 }
                 result.afterTurn.append(.agents)
             } else {

@@ -175,7 +175,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
         // A restart never stops a daemon while another start runs: that start finishes first.
-        while restart, let task = inFlight[true] { _ = try? await task.value }
+        // Its owner clears the slot only after `daemonReady`: a settled task still there ends the wait.
+        while restart, let task = inFlight[true] {
+            _ = try? await task.value
+            if inFlight[true] == task { break }
+        }
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
