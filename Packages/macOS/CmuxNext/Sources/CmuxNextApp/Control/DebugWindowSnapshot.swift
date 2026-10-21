@@ -23,7 +23,11 @@ import WebKit
 /// (how many it leaves out because the window server gave no image of
 /// them; AppKit drawing never includes a child window). Child windows are
 /// composited by the window server over the window: a Chromium page draws
-/// into its own child window, and overlay panels sit above content. The
+/// into its own child window, and overlay panels sit above content.
+/// `floating_windows` counts the app's other windows the window server shows
+/// above the window and over it, painted on top cut to its frame: an open
+/// context menu (not in AppKit's window list), a hover card or popover that is
+/// not its child; the app's other titled windows in front are left out. The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
 /// since the window server
@@ -49,12 +53,17 @@ enum DebugWindowSnapshot {
             let snapshot = try window.snapshotImage()
             // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
-            try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
+            // The app's menus, cards and popovers over the window go on top, as on screen.
+            let floating = window.floatingWindowsSnapshot()
+            let output = floating.flatMap { WindowImageLayer.composite(base: snapshot.image, window: window, layers: [.window($0.image)]) }
+                ?? snapshot.image
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
-                "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
+                "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
                 "child_windows": JSONValue(snapshot.method == .composited ? children : 0),
                 "child_windows_failed": JSONValue(snapshot.method == .composited ? 0 : children),
+                "floating_windows": JSONValue(floating?.count ?? 0),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -142,7 +151,7 @@ enum DebugWindowSnapshot {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
             }
-            // Menus are not child windows: an open one goes on top.
+            // Menus, and cards or popovers not attached to the window, go on top.
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
             let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
