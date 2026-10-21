@@ -26,8 +26,9 @@ git init -q --bare "$scratch"
 git -C "$root" rev-parse --path-format=absolute --git-common-dir | sed 's#$#/objects#' > "$scratch/objects/info/alternates"
 # core.alternateRefsCommand=true: the checkout's refs (actions/checkout makes a remote ref and a branch) are
 # not offered as commits the scratch repository has; it has none of their history, and the remote would
-# leave out objects it needs ("remote did not send all necessary objects").
-git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 "$(git -C "$root" remote get-url origin)" "$since" \
+# leave out objects it needs ("remote did not send all necessary objects"). --filter=blob:none: with no
+# commits to offer, the whole snapshot would come down (about 550 MB); the path diff reads trees only.
+git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 --filter=blob:none "$(git -C "$root" remote get-url origin)" "$since" \
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
 git -C "$scratch" diff --name-only --no-renames "$since" "$head"
 if [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
