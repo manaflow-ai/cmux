@@ -30,6 +30,7 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
   let queue: { promptId: string; prompt: string }[] = [];
   let running = true;
   let steering = true;
+  let model = "sonnet";
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -37,6 +38,7 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
     harness: "claude",
     status: running ? "running" : "idle",
     steering,
+    model,
     queued: queue.length,
     queue,
     ...(running ? { turn } : {}),
@@ -63,6 +65,22 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
         jsonrpc: "2.0",
         method: "_acpmux/event",
         params: { sessionId: SESSION, seq: ++seq, at: Date.now(), dir: "mux", kind, msg },
+      }),
+    );
+  /// A harness update acpmux relays (`dir: "in"`), as the streamed answer comes.
+  const update = (sessionUpdate: string, fields: Record<string, unknown>) =>
+    socket!.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: {
+          sessionId: SESSION,
+          seq: ++seq,
+          at: Date.now(),
+          dir: "in",
+          kind: sessionUpdate,
+          msg: { method: "session/update", params: { update: { sessionUpdate, ...fields } } },
+        },
       }),
     );
   const changed = (recordKind: string) =>
@@ -228,6 +246,86 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
           // Let the pane take the records and draw (and any effect they start run).
           await page.waitForTimeout(settle);
           expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
+        }
+        await page.close();
+      },
+    );
+
+    // Typing goes on while the pane changes under it: the answer streams in, the window loses and
+    // regains focus, the page hides and shows, and the model changes. Every key lands at the caret.
+    test.each(["chromium", "webkit"])(
+      "%s: keys typed while the turn streams, the window refocuses and the page hides land at the caret",
+      async (engine) => {
+        running = true;
+        steering = true;
+        queue = [];
+        model = "sonnet";
+        const page = await browsers[engine]!.newPage({ viewport: { width: 900, height: 760 } });
+        const { port } = vite!.httpServer!.address() as { port: number };
+        const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+        await page.goto(
+          `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
+        );
+        const prompt = page.locator(".acpmux-composer-prompt .acpmux-md");
+        await prompt.waitFor();
+        await prompt.click();
+        await page.keyboard.type("fix the retry test");
+        await page.keyboard.press("Home");
+        for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowRight");
+
+        let words = 0;
+        const stream = setInterval(
+          () => update("agent_message_chunk", { content: { type: "text", text: `word${++words} ` } }),
+          25,
+        );
+        const steps: [string, () => Promise<unknown> | void][] = [
+          ["streaming", () => {}],
+          [
+            "window refocus",
+            () =>
+              page.evaluate(() => {
+                window.dispatchEvent(new window.Event("blur"));
+                window.dispatchEvent(new window.Event("focus"));
+              }),
+          ],
+          [
+            "page hidden and shown",
+            () =>
+              page.evaluate(() => {
+                for (const state of ["hidden", "visible"]) {
+                  Object.defineProperty(document, "visibilityState", { value: state, configurable: true });
+                  Object.defineProperty(document, "hidden", { value: state === "hidden", configurable: true });
+                  document.dispatchEvent(new window.Event("visibilitychange"));
+                }
+              }),
+          ],
+          [
+            "model changed",
+            () => {
+              model = "opus";
+              changed("config_option_update");
+            },
+          ],
+        ];
+        let typed = "";
+        try {
+          for (const [name, step] of steps) {
+            await step();
+            const key = String.fromCharCode(97 + typed.length);
+            await page.keyboard.type(key, { delay: 40 });
+            typed += key;
+            await page.waitForTimeout(400);
+            const at = await where(page);
+            expect({ step: name, text: at.text, start: at.start, end: at.end, focused: at.focused }).toEqual({
+              step: name,
+              text: `fix the ${typed}retry test`,
+              start: 8 + typed.length,
+              end: 8 + typed.length,
+              focused: true,
+            });
+          }
+        } finally {
+          clearInterval(stream);
         }
         await page.close();
       },
