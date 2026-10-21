@@ -395,6 +395,19 @@ impl Hub {
         adopting: bool,
     ) -> Result<(), RpcError> {
         let Some((start, bound)) = self.bound_start(params, s).await else { return Ok(()) };
+        // A start mode that would not ask, on a chat whose narrower policy needs one that does
+        // (`policy_mode.rs`): the chat keeps its policy's mode and starts anyway.
+        let wanted = json!({"modeId": start.mode});
+        if let Err(e) = self.refuse_wider_mode(s, method::SESSION_SET_MODE, &wanted).await {
+            tracing::warn!(session = %s.id, mode = %start.mode, "start mode skipped: {}", e.message);
+            self.append(
+                s,
+                "mux",
+                "start_default_skipped",
+                json!({"modeId": start.mode, "error": e.message}),
+            );
+            return Ok(());
+        }
         let checked = if person {
             Ok(StartGrant::Person)
         } else {

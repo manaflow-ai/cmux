@@ -420,16 +420,35 @@ mod tests {
             session_env(&base, a, serde_json::json!({"TMPDIR": "/p/tmp", "XDG_RUNTIME_DIR": "/r"}));
         assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/p/tmp"));
         assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-        // Without a runtime dir (when this test process has none): a Mac pins
-        // the socket base the agent resolved before; elsewhere TMPDIR stays.
+        // Without a runtime dir (when this test process has none): a Mac gives
+        // the session its folder as TMPDIR and pins the socket base the agent
+        // resolved before (the TMPDIR it has without a session); elsewhere
+        // TMPDIR stays.
         if std::env::var_os("XDG_RUNTIME_DIR").is_none_or(|v| v.is_empty()) {
+            let plain: HarnessProfile =
+                serde_json::from_value(serde_json::json!({"argv": ["/usr/bin/true"]})).unwrap();
+            let unsessioned =
+                harness_command("local", &plain, &std::env::temp_dir(), None, None).unwrap();
+            let before = var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty());
+            let env = session_env(&base, a, serde_json::json!({}));
+            assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+            match before.filter(|_| cfg!(target_os = "macos")) {
+                Some(before) => {
+                    assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
+                    assert_eq!(var(&env, "XDG_RUNTIME_DIR"), Some(before));
+                }
+                None => assert_eq!(
+                    var(&env, "TMPDIR").filter(|v| !v.is_empty()),
+                    var(&command_env(&unsessioned), "TMPDIR").filter(|v| !v.is_empty())
+                ),
+            }
+            // A profile's TMPDIR still wins there too; the pinned base is that TMPDIR, the
+            // base the agent resolves its sockets under.
             let env = session_env(&base, a, serde_json::json!({"TMPDIR": "/var/folders/x/T/"}));
             assert_eq!(var(&env, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
+            assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/var/folders/x/T/"));
             if cfg!(target_os = "macos") {
-                assert_eq!(var(&env, "TMPDIR"), Some(dir_a.clone()));
                 assert_eq!(var(&env, "XDG_RUNTIME_DIR").as_deref(), Some("/var/folders/x/T/"));
-            } else {
-                assert_eq!(var(&env, "TMPDIR").as_deref(), Some("/var/folders/x/T/"));
             }
         }
         // A profile that blanks XDG_RUNTIME_DIR: no pin can hold, TMPDIR stays.
