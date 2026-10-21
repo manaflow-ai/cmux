@@ -1,11 +1,13 @@
 // One command in a "Ran N commands" group, as the Codex desktop app lists them: the terminal glyph
-// and "Ran <command>" with the command in mono, cut to the row, then its exit status and run time,
+// and "Ran <command>" with the command in mono (without a leading `cd <folder> &&`, which its Shell
+// block names), cut to the row, then its exit status and run time,
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { commandFolder } from "./commandFolder";
 import { menuPartRef } from "./menuParts";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
@@ -49,7 +51,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         <span className="cv-command__text">
           {before && <span data-find-skip>{before}</span>}
           <code className="cv-command__line" data-find-skip={open || undefined}>
-            {tool.command}
+            {tool.command && commandFolder(tool.command).rest}
           </code>
           {after && <span data-find-skip>{after}</span>}
         </span>

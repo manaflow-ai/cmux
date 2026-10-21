@@ -77,6 +77,8 @@ enum SidebarCardFeed {
         case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         // The media card's x runs the menu's and the palette's Hide (one action, u2437).
         case .hideNowPlayingCard: _ = services.registry.perform("nowPlaying.hideCard", invocation: ActionInvocation(origin: .user))
+        // Edit mode's Add Items (SidebarView+EditItems): App Store Features (its Sidebar cards; the Sidebar filter comes with #22903).
+        case .addItems: services.apps.showStore(tab: .features)
         default: break
         }
     }

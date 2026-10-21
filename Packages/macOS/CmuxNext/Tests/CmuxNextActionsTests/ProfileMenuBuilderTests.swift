@@ -49,4 +49,23 @@ struct ProfileMenuBuilderTests {
         // A caller with no pet to show gets no row.
         #expect(!builder.make(profile: profile).items.contains { $0.identifier?.rawValue == "profileMenu.chiefPet" })
     }
+
+    /// The account menu (PRIORITIES 1.14): Accounts… and Cloud sit under Settings, each a
+    /// registry row, and a build that does not bind one leaves it out.
+    @Test func accountsAndCloudFollowSettings() throws {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["openSettings", "accounts.show", "palette.openCloudPane"] { registry.bind(id) {} }
+        let menu = ProfileMenuBuilder(registry: registry).make(profile: ProfileMenuProfile(name: "Default"))
+        let ids = menu.items.map { $0.identifier?.rawValue }
+        let settings = try #require(ids.firstIndex(of: "cmux.action.openSettings"))
+        #expect(ids[settings + 1] == "cmux.action.accounts.show")
+        #expect(ids[settings + 2] == "cmux.action.palette.openCloudPane")
+        #expect(menu.items[settings + 2].title == "Cloud")
+        #expect(menu.items[settings + 2].image != nil)
+
+        let bare = ActionRegistry.standard()
+        bare.bind("openSettings") {}
+        let without = ProfileMenuBuilder(registry: bare).make(profile: ProfileMenuProfile(name: "Default")).items
+        #expect(!without.contains { $0.identifier?.rawValue == "cmux.action.palette.openCloudPane" })
+    }
 }
