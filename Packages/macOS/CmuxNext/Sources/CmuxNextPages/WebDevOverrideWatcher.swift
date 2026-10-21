@@ -82,6 +82,8 @@ public final class WebDevOverrideWatcher {
             Task { @MainActor in self?.requestRead() } // task-owner: one coalesced read per manifest event
         }
         manifestWatcher = watcher
-        watcher.start(reportInitialChange: false)
+        // Reads once more after arming: an install that wrote the manifest after the last read and
+        // before this watch is not missed (an unchanged result is dropped by `update`).
+        watcher.start(reportInitialChange: true)
     }
 }

@@ -7,7 +7,8 @@
 #                                                   # server (fastloop slot, `bun run dev`): hot reload
 #   web-overlay.sh server off                       # stop using the server
 #   web-overlay.sh build [--on HOST:WORKTREE]       # build the web bundles (here, or on HOST in
-#                                                   # WORKTREE and copy them back), then install them
+#                                                   # WORKTREE and copy them back), then install them;
+#                                                   # WEB_OVERLAY_REMOTE_PATH=DIR puts DIR first on HOST's PATH
 #   web-overlay.sh install DIR                      # install bundles built with
 #                                                   # build-web-bundles.sh --out-root DIR
 #   web-overlay.sh off                              # bundled pages again (keeps the overlay files)
@@ -37,12 +38,13 @@ APP="Resources/markdown-viewer/webviews-app"
 
 usage() { sed -n 2,24p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-# Sets key $1 of web-dev.json to $2 (a JSON value; `null` removes the key), keeping the others.
+# Sets keys of web-dev.json to JSON values in one write (`null` removes a key), keeping the others:
+# set_key KEY VALUE [KEY VALUE]...
 set_key() {
   mkdir -p "$config_dir"
-  python3 - "$web_dev" "$1" "$2" <<'PY'
+  python3 - "$web_dev" "$@" <<'PY'
 import json, os, sys, tempfile
-path, key, raw = sys.argv[1], sys.argv[2], sys.argv[3]
+path, pairs = sys.argv[1], sys.argv[2:]
 try:
     with open(path) as f:
         data = json.load(f)
@@ -50,16 +52,17 @@ try:
         data = {}
 except (OSError, ValueError):
     data = {}
-value = json.loads(raw)
-if value is None:
-    data.pop(key, None)
-else:
-    data[key] = value
+for key, raw in zip(pairs[::2], pairs[1::2]):
+    value = json.loads(raw)
+    if value is None:
+        data.pop(key, None)
+    else:
+        data[key] = value
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
-os.replace(tmp, path)  # one rename, so the app never reads half a file
+os.replace(tmp, path)  # one rename, so the app never reads half a file (and reloads once)
 print(f"{path}: {json.dumps(data)}")
 PY
 }
@@ -84,7 +87,7 @@ install_from() {
   fi
   for name in "${installed[@]}"; do
     # A symlink renamed over the old one: each surface switches in one step.
-    ln -s ".gen-$stamp/$name" "$overlay/.$name.next"
+    ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
   local source_commit
@@ -99,10 +102,17 @@ with os.fdopen(fd, "w") as f:
     f.write("\n")
 os.replace(tmp, os.path.join(overlay, "manifest.json"))
 PY
-  # Keep the two newest generations: a page that started loading the previous one finishes.
-  ls -1d "$overlay"/.gen-* 2>/dev/null | sort -r | tail -n +3 | while read -r old; do rm -rf "$old"; done
-  set_key overlay "$(json_string "$overlay")" >/dev/null
-  set_key enabled true
+  # Keep the two newest generations (a page that started loading the previous one finishes) and any
+  # a surface still points at (an install of only some surfaces leaves the others where they were).
+  local live=" "
+  for name in agent-pane pages webviews-app; do
+    target="$(readlink "$overlay/$name" 2>/dev/null || true)"
+    [[ -n "$target" ]] && live+="${target%%/*} "
+  done
+  ls -1d "$overlay"/.gen-* 2>/dev/null | sort -r | tail -n +3 | while read -r old; do
+    [[ "$live" == *" ${old##*/} "* ]] || rm -rf "$old"
+  done
+  set_key overlay "$(json_string "$overlay")" enabled true
   echo "installed ${installed[*]} from $from ($source_commit) into $overlay"
 }
 
@@ -116,8 +126,7 @@ case "$cmd" in
     if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
       echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
     fi
-    set_key server "$(json_string "$url")" >/dev/null
-    set_key enabled true
+    set_key server "$(json_string "$url")" enabled true
     ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
@@ -129,9 +138,13 @@ case "$cmd" in
     if [[ "${1:-}" == --on ]]; then
       target="${2:-}"; [[ "$target" == *:* ]] || usage 1
       host="${target%%:*}"; tree="${target#*:}"
+      # `~/x` is the remote home's; the path goes to the remote shell double-quoted, so no `"`, `$` or `\``.
+      [[ "$tree" == "~/"* ]] && tree="\$HOME/${tree#\~/}"
+      [[ "$tree" != *[\"\`]* && "${tree#\$HOME/}" != *'$'* ]] || { echo "unsupported characters in $tree" >&2; exit 1; }
       remote_out="/tmp/web-overlay-build-$$"
       # Built where the CPU is (big-red, a fleet box); nothing compiles on this Mac.
-      ssh "$host" "cd '$tree' && rm -rf '$remote_out' && \
+      # WEB_OVERLAY_REMOTE_PATH goes first on the remote PATH (a bun matching the webviews pin).
+      ssh "$host" "${WEB_OVERLAY_REMOTE_PATH:+PATH=$WEB_OVERLAY_REMOTE_PATH:\$PATH; }cd \"$tree\" && rm -rf '$remote_out' && \
         \$(command -v heavy >/dev/null && echo 'heavy --mem 6G') ./scripts/cmux-next/build-web-bundles.sh --force --out-root '$remote_out' >&2 && \
         git rev-parse HEAD > '$remote_out/.commit'"
       rsync -a --delete "$host:$remote_out/" "$out/"

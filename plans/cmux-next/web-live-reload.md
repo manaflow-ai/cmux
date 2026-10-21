@@ -48,9 +48,10 @@ started with `CMUX_NEXT_AGENT_PANE_DEV_URL`, the Debug launch variable, keeps th
    reload from the slot; later edits hot reload.
 4. Back to the shipped pages: `scripts/cmux-next/web-overlay.sh off`.
 
-With no server, `web-overlay.sh build --on big-red:~/wt/<lane>` builds the bundles on big-red and
-installs them as the overlay. The app reloads after the copy, about a minute after the build
-starts.
+With no server, `WEB_OVERLAY_REMOTE_PATH='$HOME/.cache/bun-v1.4.2/bin' web-overlay.sh build --on
+big-red:~/wt/<lane>` builds every bundle on big-red and installs them as the overlay (228 s
+measured: the build, the copy back and the install). The remote PATH entry is a bun matching the
+webviews pin; big-red's default bun is older.
 
 ### Bundle and app skew
 
