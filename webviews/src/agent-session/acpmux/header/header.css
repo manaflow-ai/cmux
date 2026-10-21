@@ -10,7 +10,7 @@
 .acpmux-header-tool:not(:disabled):active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-header-tool:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
-.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
+.acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
 .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
 .ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -31,7 +31,7 @@
 @container (min-width:1160px){
   .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:visible}
   .acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{margin-right:56%}
-  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg)}
+  .acpmux-reviewing>.acpmux-diff-panel{left:44%;border-left:.5px solid var(--agent-border);background:var(--agent-page-bg);--ui-enter-distance:100%}
 }
 
 /* Keep status text out of sizing: long translations and error details never move the tools. */
@@ -99,6 +99,9 @@ button.acpmux-env-line:focus-visible{outline:1.5px solid var(--agent-text);outli
 .acpmux-pr-check::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-pr-check[data-state=pending]::before{background:var(--agent-warning,#d29922)}
 .acpmux-pr-check[data-state=failed]::before{background:var(--agent-danger)}
+/* A failure the base branch's tip has too (headerState `onBase`): not this pull request's to fix, so its dot is a warning and the row says so. */
+.acpmux-pr-check[data-state=failed][data-on-base]::before{background:var(--agent-warning,#d29922)}
+.acpmux-pr-check__onBase{flex:none;margin-inline-start:auto;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-pr-check>a,.acpmux-pr-check>span{min-width:0;overflow:hidden;color:inherit;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-check:has(>a):hover{background:var(--acpmux-menu-hover)}
 .acpmux-pr-none{padding:4px 6px;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted)}

@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { useT } from "./i18n";
@@ -17,7 +17,6 @@ const listeners = new Set<(update: DictationUpdate) => void>();
 /// however many composers listen.
 export function deliverDictation(update: DictationUpdate): void {
   setLevel(update.level, isActive(update.state));
-  setWaiting(update.state === "starting" || update.state === "listening");
   for (const listener of listeners) listener(update);
 }
 
@@ -36,7 +35,7 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
 
 /// The last few input levels, oldest first, read only by the waveform beside the mic
 /// (DictationWave): it moves about 12 times a second without re-rendering the pane.
-export const WAVE_BARS = 11;
+const WAVE_BARS = 11;
 const silence: readonly number[] = Array(WAVE_BARS).fill(0);
 const level = { samples: silence, listeners: new Set<() => void>() };
 /// Adds the latest level while a session runs; anything else clears the waveform.
@@ -53,28 +52,10 @@ export const subscribeLevel = (listener: () => void) => {
 };
 export const readLevel = () => level.samples;
 
-/// A session is starting or listening: the prompt's placeholder reads "Listening…" (italic and
-/// muted, as Claude's does) until words land. The host runs one session per pane, so every
-/// composer on the page reads the same flag; only the field it writes into shows the words.
-const waiting = { value: false, listeners: new Set<() => void>() };
-function setWaiting(value: boolean): void {
-  if (waiting.value === value) return;
-  waiting.value = value;
-  for (const listener of waiting.listeners) listener();
-}
-const subscribeWaiting = (listener: () => void) => {
-  waiting.listeners.add(listener);
-  return () => {
-    waiting.listeners.delete(listener);
-  };
-};
-/// Whether a dictation session is starting or listening, for the prompt's placeholder.
-export const useDictationListening = (): boolean =>
-  useSyncExternalStore(
-    subscribeWaiting,
-    () => waiting.value,
-    () => false,
-  );
+/// A session is starting or listening, with no words to show yet: the prompt it writes into says
+/// "Listening…" (italic, as Claude's does) while empty. Composers read it from their pane's
+/// dictation (App.tsx passes `dictating`), not from page-wide state.
+export const isWaitingForWords = (state: DictationState) => state === "starting" || state === "listening";
 
 export const isActive = (state: DictationState) =>
   state === "starting" || state === "listening" || state === "finalizing";
@@ -262,6 +243,8 @@ export function useDictation(
       });
     },
     finish() {
+      // The finish key goes away with the session: the keyboard returns to the prompt, where the words are.
+      prompt.current?.focus();
       void call("dictation.stop").catch(() => {});
     },
     cancel() {

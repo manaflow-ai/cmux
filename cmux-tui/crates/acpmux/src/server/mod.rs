@@ -68,6 +68,9 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The peers this connection leased (`hub/peer_lease.rs`); None once it
+    /// closed, so a lease that settles after the close ends at once.
+    peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
     /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
     /// None once it closed.
     ephemeral: StdMutex<Option<Vec<String>>>,
@@ -119,9 +122,47 @@ impl Conn {
         }
     }
 
+    /// Hold `lease` until this connection closes; ended now if it already did.
+    pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
+        let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        match leases.as_mut() {
+            Some(held) => {
+                // A renewal supersedes the earlier lease of its name, whose
+                // end would be a no-op (another generation holds the name).
+                held.retain(|old| old.name != lease.name);
+                held.push(lease);
+            }
+            None => {
+                drop(leases);
+                hub.end_peer_lease(&lease);
+            }
+        }
+    }
+
+    /// The connection closed: every peer it leased stops.
+    fn end_peer_leases(&self, hub: &Hub) {
+        let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
+        for lease in held.unwrap_or_default() {
+            hub.end_peer_lease(&lease);
+        }
+    }
+
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
+        let msg = masked.as_ref().unwrap_or(msg);
+        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
+        // a notification is left out and the client reads again from its last record.
+        match msg.bounded_line() {
+            Ok(line) => {
+                let _ = self.out.try_send(line);
+            }
+            Err(bytes) => {
+                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
+                let _ = self.out.try_send(
+                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                );
+            }
+        }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -730,6 +771,7 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
@@ -777,6 +819,11 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    // Leases first: ending one is cheap and synchronous, while the ephemeral
+    // release awaits each session's kill. A leased peer must not keep
+    // reconnecting to a forward port its bridge already closed, which another
+    // process could bind (`hub/peer_lease.rs`).
+    conn.end_peer_leases(&hub);
     ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -808,6 +855,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
@@ -960,6 +1013,7 @@ mod chats;
 pub mod conn_auth;
 mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
@@ -967,14 +1021,16 @@ mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
 mod models_fanout;
+mod new_worktree;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
 mod worktrees;
-pub use pending::event_value;
-use pending::{is_permission_ask, peer_permission_pending, permission_pending};
+use crate::hub::is_permission_ask;
+pub use pending::{event_value, into_event_value};
+use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

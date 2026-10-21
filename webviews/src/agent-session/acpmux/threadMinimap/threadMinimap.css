@@ -13,7 +13,7 @@
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
   --acpmux-minimap-card-ring: color-mix(in srgb, var(--agent-text) 5%, var(--acpmux-minimap-base));
-  /* The Codex rail's spring: 160 ms with about 0.8% overshoot. */
+  /* The Codex rail's spring curve, about 0.8% overshoot, run over the scale's micro step (120 ms). */
   --acpmux-minimap-spring: linear(0, 0.398 10%, 0.682 20%, 0.843 30%, 0.925 40%, 0.972 50%, 1.004 60%, 1.008 70%, 1.003 80%, 1);
 }
 /* appearance.borders none clears the popover's rim in place, as it clears the popups'. */
@@ -23,24 +23,22 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
-  animation: acpmux-minimap-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 @keyframes acpmux-minimap-in {
   from {
     opacity: 0;
   }
 }
+/* The list moves only under the rail's own control (it keeps the band in view, a scrub reaches past
+   an edge, a focused row scrolls in), never by the wheel: `overflow: hidden` still scrolls from
+   script and focus but draws no scroller, so the transcript's shared one is the only one on screen
+   (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: none;
-}
-.acpmux-minimap__list::-webkit-scrollbar {
-  display: none;
+  overflow: hidden;
 }
 /* A rail longer than its room fades 2.5rem at an edge with more rows past it. */
 .acpmux-minimap__list[data-fade-top] {
@@ -76,8 +74,8 @@
   opacity: 0.4;
   transform-origin: 0 50%;
   /* Hovering in: the spring (the first line is the fallback for an engine without linear()). */
-  transition: transform 160ms cubic-bezier(0.25, 1, 0.5, 1);
-  transition: transform 160ms var(--acpmux-minimap-spring);
+  transition: transform var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1);
+  transition: transform var(--cmux-motion-micro) var(--acpmux-minimap-spring);
 }
 .acpmux-minimap__bar {
   width: 26px;
@@ -91,10 +89,10 @@
   border-radius: 50%;
   opacity: 0;
 }
-/* Leaving the rail: every row eases back to rest in 150 ms. */
+/* Leaving the rail: every row eases back to rest over the same micro step. */
 .acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar,
 .acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__dot {
-  transition-duration: 150ms;
+  transition-duration: var(--cmux-motion-micro);
 }
 /* A scrub switches rows with no transition; so does Reduce Motion. */
 .acpmux-minimap__rail[data-scrubbing] .acpmux-minimap__bar,

@@ -61,6 +61,10 @@ public final class ActionRegistry {
     /// installs its `KeyRouter` here so menus follow the same tier rules as
     /// the window (browser focus mode, text fields). Nil allows everything.
     @ObservationIgnored public var menuKeyEquivalentGate: (@MainActor (ActionID) -> Bool)?
+    /// Whether the binding table holds the workspaces-as-tabs keys (`KeyBindingDefaults.workspacesAsTabs`).
+    /// The App reads its Debug tunable here; off (the default), the table, the shortcut list and its
+    /// conflicts are the shipped ones.
+    @ObservationIgnored public var includesWorkspaceTabKeys: @MainActor () -> Bool = { false }
     /// True while AppKit dispatches a key-down (a menu key equivalent), not
     /// a click in an open menu. Replaceable in tests.
     @ObservationIgnored public var isDispatchingKeyDown: @MainActor () -> Bool = { NSApp.currentEvent?.type == .keyDown }
@@ -69,6 +73,9 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Asks for one argument inline, also an optional one (the palette installs itself here), then
+    /// calls `perform(_:invocation:)` again with it (`ask(_:_:_:)`).
+    @ObservationIgnored public var argumentAsker: (@MainActor (ActionID, ActionInvocation, ActionArgumentAsk) -> Void)?
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
@@ -360,7 +367,7 @@ public final class ActionRegistry {
     /// A target of an argument's kind supplies that argument when the
     /// action does not act on that kind itself: right-clicking a browser
     /// profile and choosing New Tab with Browser Profile… uses that profile,
-    /// while Merge Workspace into… (which acts on a workspace) still asks
+    /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
     static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {

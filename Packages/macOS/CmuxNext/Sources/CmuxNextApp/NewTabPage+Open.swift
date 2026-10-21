@@ -139,11 +139,12 @@ extension NewTabPage {
     /// Whether what New Tab page `key` in `pane` opens goes beside it: ``LinkOpener`` puts it beside
     /// the page (the Debug toggle `links.pagesFollowPlacement` on, the link placement not Same Pane), the page shares its pane
     /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
-    /// Tabs, fills the pane the person just made, NewTabPage.split).
-    static func opensBeside(_ key: String, in pane: PaneController) -> Bool {
+    /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
+    /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
+    static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
         return tabs.newTabPages[page]?.page.openTabs == nil && pane.pane.tabs.contains(where: { $0.id != page })
-            && pane.services.linkOpener.target(from: pane) != .pane(pane.layoutPaneID)
+            && pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
     }
 
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through

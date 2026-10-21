@@ -5,11 +5,14 @@ import { useFindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { useFold } from "./fold";
 import { formatDuration } from "./turns";
+import { isQuietThought, thoughtDuration } from "./thoughts";
 
-/// With the live viewport off, a done thought folds once it is taller than the transcript's
-/// viewport, and never under this (20 of the tool rows' 20px lines), so a small pane does not fold
-/// every thought. With the live viewport on, or the Debug choice "codex", it folds once taller
-/// than THOUGHT_LIVE_PX.
+export { thoughtDuration };
+
+/// With the Debug choice "viewport" and the live viewport off, a done thought folds once it is
+/// taller than the transcript's viewport, and never under this (20 of the tool rows' 20px lines).
+/// With the live viewport on, or the Debug choice "codex", it folds once taller than
+/// THOUGHT_LIVE_PX. By default ("every") every done thought folds.
 export const THOUGHT_FOLD_MIN_PX = 400;
 /// A long thought still streaming holds a viewport this tall: seven of its 20px lines, the 8.75rem
 /// Codex gives a live reasoning trace. conversation.css caps `.is-live` at the same.
@@ -17,17 +20,18 @@ export const THOUGHT_LIVE_PX = 140;
 
 /// What the row reads from the page; tests swap these.
 export const thoughtLayout = {
-  /// The Debug toggle `agentPane.debug.foldLongThoughts` (on by default in the app), which the app
-  /// sets on `<html>` as `data-fold-long-thoughts="on"` before the page loads.
-  enabled: () => typeof document !== "undefined" && document.documentElement.dataset.foldLongThoughts === "on",
-  /// The Debug choice `agentPane.debug.thoughtFoldThreshold`, which counts only while the live
-  /// viewport is off: a done thought folds once taller than the transcript's viewport (never under
-  /// THOUGHT_FOLD_MIN_PX), or with `data-thought-fold-threshold="codex"`, once taller than Codex's
-  /// seven lines (THOUGHT_LIVE_PX).
-  threshold: (): ThoughtFoldThreshold =>
-    typeof document !== "undefined" && document.documentElement.dataset.thoughtFoldThreshold === "codex"
-      ? "codex"
-      : "viewport",
+  /// The Debug toggle `agentPane.debug.foldLongThoughts` (on by default): thoughts fold unless the
+  /// app sets `data-fold-long-thoughts="off"` on `<html>` before the page loads.
+  enabled: () => typeof document === "undefined" || document.documentElement.dataset.foldLongThoughts !== "off",
+  /// The Debug choice `agentPane.debug.thoughtFoldThreshold`: by default ("every") every done
+  /// thought folds. `data-thought-fold-threshold="viewport"` or `"codex"` brings back the older
+  /// fold of long thoughts only, a short one in full after "Thought": with the live viewport on,
+  /// once taller than Codex's seven lines (THOUGHT_LIVE_PX); with it off, once taller than the
+  /// transcript's viewport (never under THOUGHT_FOLD_MIN_PX), or with "codex", than seven lines.
+  threshold: (): ThoughtFoldThreshold => {
+    const value = typeof document === "undefined" ? undefined : document.documentElement.dataset.thoughtFoldThreshold;
+    return value === "viewport" || value === "codex" ? value : "every";
+  },
   /// The Debug choice `agentPane.debug.thoughtHeader`: a folded thought reads "Thought for 12s"
   /// unless the app sets `data-thought-header="preview"`, "Thought" and its first line (#20948).
   header: (): ThoughtHeader =>
@@ -45,14 +49,7 @@ export const thoughtLayout = {
 };
 
 export type ThoughtHeader = "duration" | "preview";
-export type ThoughtFoldThreshold = "viewport" | "codex";
-
-/// How long the agent thought, from the thought's first chunk to its latest (direct.ts
-/// appendThought), never negative: events out of order can date the latest before the first.
-export function thoughtDuration(item: AcpmuxActivity): number | undefined {
-  if (item.startedAt === undefined || item.endedAt === undefined) return undefined;
-  return Math.max(0, item.endedAt - item.startedAt);
-}
+export type ThoughtFoldThreshold = "every" | "viewport" | "codex";
 
 /// The reader's open or closed, by thought, so a row the transcript unmounts and mounts again keeps it.
 const choices = new Map<string, boolean>();
@@ -65,15 +62,17 @@ export function thoughtPreview(text: string): string {
     .trim();
 }
 
-/// A thought (the agent's reasoning) on its row: a muted "Thought", then the text wrapped on the tool
-/// rows' rhythm (Leo 2026-10-13). With the Debug toggle on, a long one folds to one line once done,
-/// as Codex folds work when its next output starts. While it streams, one taller than
-/// THOUGHT_LIVE_PX reads "Thinking" and holds a fixed viewport that keeps its newest line in view,
-/// as Codex's reasoning trace does (Debug toggle `liveThoughtViewport`; off, it shows in full). The
-/// folded line reads "Thought for 12s" (an undated thought, or one under a second, reads
-/// "Thought"), or with the Debug choice "preview", "Thought" and its first line. The reader's
-/// toggle always wins over the fold (`choice ?? !folds`). The fold snaps; the reader's toggle
-/// plays the transcript's fold (fold.ts), except under Reduce Motion.
+/// A thought (the agent's reasoning) on its row. Once done it folds to one quiet line that opens to
+/// its text, "Thought for 12s" with none of the text inline (an undated thought, or one under a
+/// second, reads "Thought"), as Claude Desktop and Codex draw it (Leo 2026-10-20); a quiet one
+/// (thoughts.ts `isQuietThought`) draws nothing. While it streams it shows in full after a muted
+/// "Thought", wrapped on the tool rows' rhythm; one taller than THOUGHT_LIVE_PX reads "Thinking" and
+/// holds a fixed viewport that keeps its newest line in view, as Codex's reasoning trace does
+/// (Debug toggle `liveThoughtViewport`; off, it shows in full). The Debug choice
+/// `thoughtFoldThreshold` "viewport" or "codex" folds only a long one, the toggle
+/// `foldLongThoughts` off folds none, and the choice `thoughtHeader` "preview" reads "Thought" and
+/// its first line. The reader's toggle always wins over the fold (`choice ?? !folds`). The fold
+/// snaps; the reader's toggle plays the transcript's fold (fold.ts), except under Reduce Motion.
 export function ThoughtRow({
   item,
   id,
@@ -91,7 +90,7 @@ export function ThoughtRow({
   const full = useRef<HTMLSpanElement>(null);
   const toggled = useRef(false);
   const bodyId = useId();
-  const folds = enabled && long && !streaming;
+  const folds = enabled && !streaming && (long || thoughtLayout.threshold() === "every");
   const liveViewport = enabled && streaming && thoughtLayout.liveViewport();
   const [tall, setTall] = useState(false);
   const clipped = liveViewport && tall;
@@ -128,7 +127,7 @@ export function ThoughtRow({
   useLayoutEffect(() => {
     toggled.current = false;
   }, [open]);
-  if (!text) return null;
+  if (!text || (!streaming && isQuietThought(item))) return null;
   if (!folds)
     return (
       <div className={clipped ? "cv-tool cv-thought is-live" : "cv-tool cv-thought"}>

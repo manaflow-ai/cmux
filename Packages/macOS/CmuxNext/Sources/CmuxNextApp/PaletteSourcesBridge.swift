@@ -64,7 +64,8 @@ enum PaletteSourcesBridge {
         let screens = ScreenTargetSource(services: services, next: profiles)
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
-        return TabAndGroupTargetSource(services: services, next: sections)
+        let chats = PriorityChatTargetSource(chats: .app, next: sections)
+        return TabAndGroupTargetSource(services: services, next: chats)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -110,7 +111,11 @@ enum PaletteSourcesBridge {
         }
 
         func selectWorkspace(id: String) {
-            guard let state = services.windows.active?.state else { return }
+            // No active window (all closed, CLI run): show it in its own window, else a new one.
+            guard let state = services.windows.active?.state else {
+                services.windows.reveal(workspaceID: id)
+                return
+            }
             services.windows.show(workspaceID: id, in: state)
         }
 

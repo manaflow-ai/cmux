@@ -15,9 +15,12 @@ mod grant;
 mod preface;
 mod serve;
 mod service;
-mod tailnet;
 #[cfg(test)]
 mod teammate_tests;
+
+/// The tailnet CLI wrapper lives in acpmux, which `acpmux host candidates`
+/// also uses.
+use acpmux::tailnet;
 
 use std::path::{Path, PathBuf};
 

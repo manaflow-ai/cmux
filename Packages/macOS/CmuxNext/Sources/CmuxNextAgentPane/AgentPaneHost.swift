@@ -15,6 +15,10 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// The folder of the daemon's session `sessionId`, nil when it has none.
     /// Never starts a daemon.
     func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder?
+    /// Saves a file the person dropped into session `sessionId` on the machine that runs it (an
+    /// ssh peer's chat: on that peer) and answers its path there. Throws
+    /// ``AgentPaneFilePutFailure``. Never starts a daemon.
+    func putFile(sessionId: String, name: String, data: Data) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -27,6 +31,11 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
+
+    /// Hosts without a daemon take no files.
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        throw AgentPaneFilePutFailure.unsupported
+    }
 }
 
 /// A host's own refusal of a handshake, already in the user's language (a chat on another
@@ -163,6 +172,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.sessionFolder(socketPath: environment.socketPath, sessionId: sessionId)
     }
 
+    public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment else { throw AgentPaneFilePutFailure.unsupported }
+        return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
+    }
+
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
         let startsDaemon = asked && startsDaemons
         if let task = inFlight[startsDaemon] { return try await task.value }
@@ -285,8 +300,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 }
             }
             // After an update, or for this launch's person key (`AcpmuxPersonKey`): a daemon
-            // that cannot take the key is handed off and ours starts with it.
-            let stale = await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
+            // that cannot take the key is handed off and ours starts with it. A daemon no cmux
+            // install runs (`~/.local/bin/acpmux`) is taken over first (`AcpmuxStrayDaemon`).
+            let stray = await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment)
+            let stale = stray ? true : await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment)
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
                 await AcpmuxComputerUse.enroll(environment)
