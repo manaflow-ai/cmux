@@ -26,7 +26,9 @@ use rusqlite::Connection;
 use serde_json::{Map, json};
 
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied};
-use cmux_layout_reducer::sidebar_doc::{Doc, Item, Op, PINNED_SECTION_ID, WorkspaceRef};
+use cmux_layout_reducer::sidebar_doc::{
+    Doc, Item, ItemId, Op, PINNED_SECTION_ID, Target, WorkspaceRef, group_item_id,
+};
 
 use crate::mux::*;
 use crate::state::commit::StateEffects;
@@ -94,6 +96,40 @@ pub(crate) fn closes_for_reset(
     Ok(())
 }
 
+/// `ops` with each group named by its personal group id named by its item
+/// instead (`itm_g_<id>`, the item a personal group lists as): the app's
+/// group actions, the CLI and MCP callers know a group by its own id, and
+/// the reducer refused that id as `unknown_item` (#22996). An id that is an
+/// item already is kept.
+pub(crate) fn resolve_group_ids(doc: &Doc, ops: &mut [Op]) {
+    let resolve = |id: &mut ItemId| {
+        if doc.item(id).is_some() {
+            return;
+        }
+        let item = group_item_id(id);
+        if doc.item(&item).is_some_and(|item| item.body.is_group()) {
+            *id = item;
+        }
+    };
+    let resolve_target = |to: &mut Target| {
+        for id in [&mut to.parent, &mut to.before, &mut to.after].into_iter().flatten() {
+            resolve(id);
+        }
+    };
+    for op in ops {
+        match op {
+            Op::GroupUpdate { id, .. } | Op::GroupUngroup { id } => resolve(id),
+            Op::Move { items, to } => {
+                items.iter_mut().for_each(resolve);
+                resolve_target(to);
+            }
+            Op::Pin { items } | Op::Unpin { items } => items.iter_mut().for_each(resolve),
+            Op::ItemAdd { to, .. } | Op::GroupCreate { to: Some(to), .. } => resolve_target(to),
+            _ => {}
+        }
+    }
+}
+
 /// Whether `ops` can move closed workspaces out of a section that keeps them
 /// (Pinned, custom) into a machine section, which does not.
 fn returns_closed_items(ops: &[Op]) -> bool {
@@ -139,6 +175,7 @@ impl Mux {
                 );
                 store::with_doc_mut(transaction, |doc| {
                     let mut ops = ops.clone();
+                    resolve_group_ids(doc, &mut ops);
                     closes_for_reset(transaction, doc, &mut ops)?;
                     anyhow::ensure!(
                         !reduce::changes_app_kind(doc, &ops),
