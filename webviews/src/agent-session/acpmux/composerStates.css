@@ -445,6 +445,23 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   margin-right: 6px;
   color: var(--agent-accent);
 }
+/* Another agent's message: its sender's name as a chip, as the received line draws it
+   (conversation.css .cv-received__name). Inline and top-aligned, so the line stays 18px. */
+.acpmux-queued-kind[data-kind="from"] {
+  display: inline-block;
+  vertical-align: top;
+  max-width: 40%;
+  overflow: hidden;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text, currentColor) 10%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--agent-text, inherit);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .acpmux-queued-mark[data-kind="steer"] {
   display: inline-flex;
   align-items: center;

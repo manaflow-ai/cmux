@@ -13,6 +13,10 @@
 // runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a click sends
 // now, never a key: a held or repeated key once sent row after row (claude-sr2, 2026-10-20).
 //
+// Another agent's message waiting in the queue (`from`, direct.ts `queuedFrom`) is not the
+// person's prompt: its text follows its sender's name as a chip, as its received line reads once it
+// runs, and it has no Send now (Leo, 2026-10-21).
+//
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
 // (Leo, 2026-10-21).
@@ -356,7 +360,7 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow
+    ...(sendNow && !entry.from
       ? [
           {
             id: "send",
@@ -444,6 +448,16 @@ export function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
+            {entry.from && (
+              <>
+                <span className="acpmux-hidden-label">
+                  {t("message.label", { from: entry.from, to: t("message.self") })}
+                </span>
+                <span className="acpmux-queued-kind" data-kind="from" aria-hidden="true">
+                  {entry.from}
+                </span>
+              </>
+            )}
             {entry.prompt}
           </span>
         </button>
@@ -452,7 +466,7 @@ export function ComposerQueue({
         <span className="acpmux-queued-actions">
           {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
           {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
-          {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
+          {sendNow && !entry.from && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
         </span>
       )}
       {/* Under the text, in its column. */}

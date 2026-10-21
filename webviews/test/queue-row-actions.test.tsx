@@ -1,6 +1,6 @@
 // A queued prompt's row shows Edit, Remove and Send now on hover in both arms of the
 // `hover-actions` experiment (Leo, 2026-10-20); they are on its right-click menu and its keys
-// (Return, Delete) too.
+// (Return, Delete) too. Another agent's message waiting there names its sender and has no Send now.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -80,4 +80,31 @@ test("a queued row shows Edit, Remove and Send now on hover in both arms, and ke
   } finally {
     delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
   }
+});
+
+test("another agent's queued message names its sender as a chip and has no Send now", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
+  const t = translatorFor("en");
+  const queued = [
+    { id: "q1", prompt: "Rebase onto #23738 first", from: "coord-deputy" },
+    { id: "q2", prompt: "Also update the comment above the retry loop" },
+  ];
+  await act(async () => root?.unmount());
+  root = createRoot(main.querySelector<HTMLElement>("#root")!);
+  await act(async () =>
+    root!.render(
+      <ComposerQueue queue={queued as never} t={t} onRemove={async () => true} onChange={async () => true} />,
+    ),
+  );
+  const [agent, own] = [...main.querySelectorAll<HTMLElement>(".acpmux-queued")];
+  const labels = (row: HTMLElement) =>
+    [...row.querySelectorAll(".acpmux-queued-action")].map((button) => button.getAttribute("aria-label"));
+  expect(agent!.querySelector('.acpmux-queued-kind[data-kind="from"]')?.textContent).toBe("coord-deputy");
+  expect(agent!.querySelector(".acpmux-queued-text")?.textContent).toContain(
+    t("message.label", { from: "coord-deputy", to: t("message.self") }),
+  );
+  expect(labels(agent!)).toEqual([t("composer.queueEdit"), t("composer.queueRemove")]);
+  expect(own!.querySelector('.acpmux-queued-kind[data-kind="from"]')).toBeNull();
+  expect(labels(own!)).toEqual([t("composer.queueEdit"), t("composer.queueRemove"), t("composer.queueSendNow")]);
 });

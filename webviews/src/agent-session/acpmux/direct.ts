@@ -317,6 +317,7 @@ function queuedEntry(
   next: boolean,
   sending = false,
   images?: readonly QueuedPromptImage[],
+  from?: string,
 ): QueuedPrompt {
   return {
     id,
@@ -324,7 +325,17 @@ function queuedEntry(
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
+    ...(from ? { from } : {}),
   };
+}
+
+/// The sender of a `queued` record that is another agent's message: the name its provenance
+/// gives, as the received line reads it (conversation/incomingMessage.ts), else acpmux's
+/// `fromAgent` (`acpmux send --from`). Undefined for the person's own prompt.
+export function queuedFrom(msg: any): string | undefined {
+  const incoming = incomingPrompt(String(msg?.text ?? ""), msg);
+  if (incoming?.kind === "message") return incoming.message.name;
+  return typeof msg?.fromAgent === "string" && msg.fromAgent.trim() ? msg.fromAgent.trim() : undefined;
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -394,7 +405,8 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux lists its images (after a reload or a restart too); one that lists none (an older
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images);
+    // acpmux's list names no sender: the `queued` record the pane read did.
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, had?.from);
   });
 }
 
@@ -2312,7 +2324,8 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place.
+      // An edit keeps the prompt's place, and makes it the person's: acpmux drops its provenance
+      // and sender (hub/queue.rs), so its row loses the sender too.
       const id = String(msg.promptId ?? "");
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
@@ -2332,7 +2345,9 @@ export class AcpmuxDirectClient {
       this.queue = [...this.queue]
         .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
         .map((entry) =>
-          next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images),
+          next === undefined
+            ? entry
+            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.from),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -2345,7 +2360,7 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images),
+          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedFrom(msg)),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -3566,7 +3581,14 @@ export class AcpmuxDirectClient {
     if (this.queue.some((queued) => queued.id === promptId && Boolean(queued.sending) !== (next.state === "sending")))
       this.queue = this.queue.map((queued) =>
         queued.id === promptId
-          ? queuedEntry(queued.id, queued.prompt, queued.next === true, next.state === "sending", queued.images)
+          ? queuedEntry(
+              queued.id,
+              queued.prompt,
+              queued.next === true,
+              next.state === "sending",
+              queued.images,
+              queued.from,
+            )
           : queued,
       );
     return true;

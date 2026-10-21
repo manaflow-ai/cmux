@@ -125,6 +125,9 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// Another agent's message waiting here: its sender's name (direct.ts `queuedFrom`). Its row
+  /// names the sender and has no Send now, which is the person's override for their own prompt.
+  from?: string;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
