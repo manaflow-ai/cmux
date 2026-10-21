@@ -271,11 +271,12 @@ function AppCard({
         <Badge text={t(TierLabel[app.tier])} />
         {app.categories[0] && <Badge text={categoryLabel(app.categories[0], t)} />}
         {app.installed && <Badge text={t("store.badge.installed")} />}
-        <span className="apps-spacer" />
-        <button type="button" className="apps-button apps-button-subtle" onClick={() => void store.select(app.id)}>
-          {t("store.detail.preview")}
-        </button>
-        <InstallButton app={app} store={store} strings={strings} />
+        <span className="apps-card-actions">
+          <button type="button" className="apps-button apps-button-subtle" onClick={() => void store.select(app.id)}>
+            {t("store.detail.preview")}
+          </button>
+          <InstallButton app={app} store={store} strings={strings} />
+        </span>
       </footer>
     </article>
   );

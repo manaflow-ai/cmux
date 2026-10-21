@@ -248,8 +248,11 @@
   color: var(--page-text-2);
 }
 
-.apps-spacer {
-  flex: 1;
+/* Preview and Install wrap as one group, pushed to the end of the footer's last line. */
+.apps-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .apps-rows {
