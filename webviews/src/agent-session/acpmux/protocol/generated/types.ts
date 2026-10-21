@@ -691,6 +691,10 @@ export type SessionSummary = {
   turnCount: number;
   unread: boolean;
   updatedAt: number;
+  /** What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person answers. */
+  waitingOn: (string | null);
+  /** The first prompt of the question it waits on, cut to 120 characters. */
+  waitingPrompt: (string | null);
 } & Record<string, unknown>;
 
 /** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
@@ -727,7 +731,14 @@ export type ToolSummary = {
 
 /** The running turn. */
 export type TurnSummary = {
+  /**
+   * What the turn does right now: its latest tool call's title; null
+   * until it calls one (`hub/activity.rs`).
+   */
+  activity: (string | null);
   client: string;
+  /** Its plan's entry in progress; null without one. */
+  planStep: (string | null);
   prompt: string;
   promptId: string;
   startedAt: number;
