@@ -115,7 +115,7 @@ fn classify_local_peer(
     LocalPeer::Other
 }
 
-fn peer_pid(key: &str) -> Option<u32> {
+pub(super) fn peer_pid(key: &str) -> Option<u32> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid = pid.parse().ok()?;
     (!version.is_empty() && pid > 0).then_some(pid)
