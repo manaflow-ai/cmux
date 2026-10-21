@@ -159,7 +159,8 @@ def run_wait(owner, script=None, **fake):
                    SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
                    FAKE_LOG=log)
         env = {**env, "EVENT_NAME": "push", "REF": "refs/heads/feat-cmux-next", "SHA": "f" * 40,
-               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+               "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false",
+               "DAEMON_POOL": "glaeda-side-light-xcode-26.6", **fake}
         result = subprocess.run(["bash", "-e", "-c", script or wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         return result, open(output).read(), open(log).read()
 

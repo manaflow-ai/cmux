@@ -475,7 +475,7 @@ jobs:
               "queued push feat-cmux-next"|"in_progress push feat-cmux-next"|"waiting push feat-cmux-next"|"pending push feat-cmux-next"|"requested push feat-cmux-next")
                 # 2026-10-21: the publisher's test job sat queued for hours on
                 # the pull request side label and every later push deferred.
-                if python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$source_run" --pool "$DAEMON_POOL"; then
+                if python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"; then
                   echo "Tree $published_key has no daemon-tests marker yet; its publisher, feat-cmux-next push run $source_run, is still active and tests it and requests the promotion."
                 else
                   daemon_tested=false
@@ -672,7 +672,7 @@ jobs:
               if ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                   "$base/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
                 if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else 1)' "$owner_json" 2>/dev/null &&
-                    python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "$DAEMON_POOL"; then
+                    python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"; then
                   echo "Tree $KEY has no daemon-tests marker yet; feat-cmux-next push run $OWNER_RUN_ID is still active and tests it and requests the promotion."
                 else
                   unmarked=true

@@ -76,8 +76,8 @@ class WiringTests(unittest.TestCase):
     WORKFLOW = (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
 
     def test_both_deferrals_ask_the_script(self):
-        self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "$DAEMON_POOL"', self.WORKFLOW)
-        self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "$DAEMON_POOL"', self.WORKFLOW)
+        self.assertIn('cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
+        self.assertIn('cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"', self.WORKFLOW)
         self.assertEqual(self.WORKFLOW.count("DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL }}"), 2)
 
     def test_the_owner_wait_sparse_checkout_has_the_script(self):
