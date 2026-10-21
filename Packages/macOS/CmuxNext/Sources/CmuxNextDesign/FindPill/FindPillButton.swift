@@ -74,7 +74,7 @@ final class FindPillButton: NSButton {
                     .foregroundColor: ink,
                 ])
             }
-            let fill: NSColor = on ? Palette.accent.withAlphaComponent(0.2) : (hovering && isEnabled ? Palette.hoverFill : .clear)
+            let fill: NSColor = on ? Palette.accent.withAlphaComponent(0.2) : (hovering && isEnabled && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : .clear)
             layer?.backgroundColor = fill.cgColor
             alphaValue = isEnabled ? 1 : 0.4
         }
