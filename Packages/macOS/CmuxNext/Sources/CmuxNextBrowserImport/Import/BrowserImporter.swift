@@ -136,6 +136,8 @@ public actor BrowserImporter {
         switch (profile.browser.family, kind) {
         case (.chromium, .openTabs):
             if let file = ChromiumSessionReader().sessionFile(profile: path) { batch.openTabs = ChromiumSessionReader().parse(try Data(contentsOf: file)) }
+        case (.chromium, .searchEngines):
+            batch.searchEngine = ChromiumSearchEngineReader().read(profile: path)
         case (.chromium, .extensions):
             batch.extensions = ChromiumExtensionsReader().read(profile: path)
         case (.firefox, .openTabs):

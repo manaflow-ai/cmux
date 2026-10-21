@@ -103,6 +103,7 @@ enum OnboardingStrings {
         case .openTabs: String(localized: "onboarding.kind.openTabs", defaultValue: "Open Tabs", bundle: .module)
         case .extensions: String(localized: "onboarding.kind.extensions", defaultValue: "Extensions", bundle: .module)
         case .passwords: String(localized: "onboarding.kind.passwords", defaultValue: "Passwords", bundle: .module)
+        case .searchEngines: String(localized: "onboarding.kind.searchEngine", defaultValue: "Search Engine", bundle: .module)
         }
     }
 
@@ -113,10 +114,10 @@ enum OnboardingStrings {
     }
 }
 
-/// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204").
-public enum ImportRemovalText {
-    public static func removed(_ counts: ImportCounts, profile: String) -> String {
-        let line = ImportCountsText.line(counts)
+public extension ImportCounts {
+    /// Remove Imported Browser Data's toast: what went, by kind ("History 8,311 · Bookmarks 204").
+    func removalText(profile: String) -> String {
+        let line = ImportCountsText.line(self)
         guard !line.isEmpty else {
             return String(localized: "onboarding.import.removed.none", defaultValue: "Nothing imported into \(profile).", bundle: .module)
         }

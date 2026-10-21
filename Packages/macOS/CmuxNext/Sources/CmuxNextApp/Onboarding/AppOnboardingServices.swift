@@ -63,6 +63,7 @@ final class AppOnboardingServices: OnboardingServices {
         }
         owner.browserImportOffer.importFinished(summary)
         await owner.historySync.reconcile()
+        if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }
         // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
         if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }

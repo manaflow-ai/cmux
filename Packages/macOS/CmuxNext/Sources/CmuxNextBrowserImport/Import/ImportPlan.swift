@@ -67,25 +67,31 @@ public struct ImportCounts: Sendable, Equatable, Codable {
     public var cookies = 0
     /// Passwords newly saved (never the values).
     public var passwords = 0
+    /// Default search engines read (one per profile at most).
+    public var searchEngines = 0
 
-    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0, cookies: Int = 0, passwords: Int = 0) {
+    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0, cookies: Int = 0, passwords: Int = 0,
+                searchEngines: Int = 0) {
         self.bookmarks = bookmarks
         self.history = history
         self.openTabs = openTabs
         self.extensions = extensions
         self.cookies = cookies
         self.passwords = passwords
+        self.searchEngines = searchEngines
     }
 
-    public var total: Int { bookmarks + history + openTabs + extensions + cookies + passwords }
+    public var total: Int { bookmarks + history + openTabs + extensions + cookies + passwords + searchEngines }
 
     public static func + (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
         ImportCounts(bookmarks: lhs.bookmarks + rhs.bookmarks, history: lhs.history + rhs.history, openTabs: lhs.openTabs + rhs.openTabs,
-                     extensions: lhs.extensions + rhs.extensions, cookies: lhs.cookies + rhs.cookies, passwords: lhs.passwords + rhs.passwords)
+                     extensions: lhs.extensions + rhs.extensions, cookies: lhs.cookies + rhs.cookies, passwords: lhs.passwords + rhs.passwords,
+                     searchEngines: lhs.searchEngines + rhs.searchEngines)
     }
 
     public static func - (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
         ImportCounts(bookmarks: lhs.bookmarks - rhs.bookmarks, history: lhs.history - rhs.history, openTabs: lhs.openTabs - rhs.openTabs,
-                     extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies, passwords: lhs.passwords - rhs.passwords)
+                     extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies, passwords: lhs.passwords - rhs.passwords,
+                     searchEngines: lhs.searchEngines - rhs.searchEngines)
     }
 }

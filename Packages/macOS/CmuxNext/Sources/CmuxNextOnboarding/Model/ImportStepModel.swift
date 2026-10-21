@@ -54,6 +54,7 @@ public final class ImportStepModel {
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
     public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
+        .subtracting(ImportStepModel.optInKinds)
     /// The kinds a caller opened the step on (the cookie import card: cookies
     /// only); detection then leaves passwords unchecked unless they are among them.
     @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
@@ -169,7 +170,9 @@ public final class ImportStepModel {
     public func importPasswordsFromCSV() { services.importPasswordsFromCSV(into: mergeTarget) }
 
     /// The kinds every profile row is shown for.
-    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
+    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies, .searchEngines]
+    /// Offered unchecked: the search engine is one setting for every profile, so it changes only when asked.
+    public static let optInKinds: Set<ImportDataKind> = [.searchEngines]
 
     /// The one line of checkboxes: passwords too when this build can save them.
     public var kindChoices: [ImportDataKind] { passwordStore ? Self.offeredKinds + [.passwords] : Self.offeredKinds }
