@@ -199,9 +199,10 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             if step.get("uses", "").startswith("actions/cache@"):
                 self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
-        restore = step_named(steps, "Restore the Bun package cache")
-        self.assertTrue(restore["uses"].startswith("actions/cache/restore@"))
-        self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"])
+        for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
+            restore = step_named(steps, name)
+            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
+            self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
 
     def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI

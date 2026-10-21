@@ -171,8 +171,17 @@ jobs:
           node-version: "24.11.1"
 
       # prepush-gate.py downloads its pinned tools (sha256 checked) once per lock.
+      # A dispatch only restores them, as with the Bun cache above.
       - name: Cache the pinned lint tools
+        if: ${{ github.event_name == 'pull_request' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      - name: Restore the pinned lint tools (dispatch)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-lint-tools
           key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
