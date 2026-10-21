@@ -2,8 +2,10 @@
 // Effort and the permission chip while the model and effort chips truncated ("Claude Opu…",
 // "Med…"), and the folder footer cut at the card's bottom edge. In the gallery's
 // `agent-pane.composer-row` entry at a narrow, a normal and a wide pane:
-//   - the controls are two clusters: + model effort access on the left, mic and Send (or Stop)
-//     on the right; the row's free space sits only between the two;
+//   - the controls are two clusters: + model access on the left, mic and Send (or Stop) on the
+//     right; the row's free space sits only between the two;
+//   - the effort is the model button's own label, "Opus 5.5  Medium" (Leo 2026-10-20), never a
+//     chip of its own, and it is never cut either;
 //   - the row is compact and calm (hq#1957 item 15 compact row): the left cluster's controls sit
 //     4 to 12 px apart (composer-row-rhythm.test.ts: one gap per group); no ring or spinner; one lock at
 //     most; no granted-permission status chip; Stop has Send's footprint and a square glyph of 9
@@ -38,6 +40,8 @@ type Row = {
   locks: number;
   /** Whether the granted-permission status chip sits in the row. */
   status: boolean;
+  /** Whether an effort chip of its own is drawn anywhere (none since Leo 2026-10-20). */
+  effortChip: boolean;
   /** Send or Stop, whichever shows, and Stop's glyph. */
   send: Rect | undefined;
   stop: Rect | undefined;
@@ -67,7 +71,6 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
       ["model", ".acpmux-model .acpmux-picker-button"],
-      ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["access", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
     ];
@@ -131,7 +134,11 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           '[data-fit-part="model"][data-fit-forms~="full"], .acpmux-model-name:not([data-short])',
           ".acpmux-model",
         ),
-        effort: label(".acpmux-effort .acpmux-picker-button", "span", ".acpmux-effort"),
+        effort: label(
+          ".acpmux-model .acpmux-picker-button",
+          '.acpmux-model-detail[data-fit-forms~="full"]:not(.acpmux-fit-label)',
+          ".acpmux-model",
+        ),
         access: label(".acpmux-access-trigger", ".acpmux-mode-text", ".acpmux-access"),
       },
       spinners: [
@@ -142,6 +149,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       // LockIcon (ComposerPickers.tsx): its shackle path.
       locks: bar.querySelectorAll('svg path[d^="M5.5 7V5.6"]').length,
       status: bar.querySelector(".acpmux-permission-status") !== null,
+      effortChip: document.querySelector(".acpmux-effort") !== null,
       send: bar.querySelector(".acpmux-send:not(.acpmux-cancel)")
         ? rect(bar.querySelector(".acpmux-send:not(.acpmux-cancel)")!)
         : undefined,
@@ -217,7 +225,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-    await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
+    await page.locator(".acpmux-model .acpmux-model-detail:visible").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
     if (draft) {
       await page.locator(".acpmux-composer-prompt [contenteditable]").click();
@@ -242,9 +250,8 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
           if (gap > barGap + 0.5)
             problems.push(`${Math.round(gap)} px gap between ${names[index - 1]} and ${names[index]}`);
         }
-        // The permission mode follows effort directly, in the left cluster.
-        if (names.indexOf("access") < names.indexOf("effort"))
-          problems.push(`access is not after effort: ${names.join(", ")}`);
+        // The effort rides the model button: no control of its own (Leo 2026-10-20).
+        if (measured.effortChip) problems.push("an effort chip of its own is drawn");
         // The row's free space sits between the clusters: the trailing one starts after the left ends.
         if (right.left < left.at(-1)!.rect.right + barGap - 0.5)
           problems.push(
@@ -295,7 +302,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       const page = await browser!.newPage({ viewport: { width: 720, height } });
       await page.goto(stageURL("queued"));
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button").waitFor();
+      await page.locator(".acpmux-composer-foot .acpmux-model .acpmux-model-detail:visible").first().waitFor();
       const drawn = await page.evaluate(() => {
         const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
         const main = rect(".acpmux-main")!;

@@ -28,6 +28,7 @@ export function PendingSteer({
         <button
           type="button"
           className="cv-user__send-now"
+          // tooltip-allow: says Send now stops only the current step, not the turn; shown nowhere else
           title={t("steer.sendNowHelp")}
           disabled={sending}
           onClick={() => {
