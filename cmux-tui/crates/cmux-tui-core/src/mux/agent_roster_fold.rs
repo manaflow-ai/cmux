@@ -28,7 +28,13 @@ impl Mux {
         {
             return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
+        let native_event = ingress.payload.get("native_event").and_then(Value::as_str);
+        let kind_state = agent_state_for_hook_kind(&ingress.kind);
+        if kind_state.is_none()
+            && !crate::agent_hooks::resumes_blocked_turn(&ingress.kind, native_event)
+        {
+            return Ok(());
+        }
         let Some(terminal_subject) =
             ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
@@ -36,6 +42,15 @@ impl Mux {
         };
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        let waiting = || {
+            self.agent_records.lock().unwrap().get(&terminal_id).is_some_and(|record| {
+                record.source == AgentSource::Hook && record.state == AgentState::Blocked
+            })
+        };
+        // A tool hook of an agent that does not wait changes nothing; it never queues a retry.
+        if kind_state.is_none() && !waiting() {
+            return Ok(());
+        }
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             // A durable terminal that is still live may be between journal
             // commit and host materialization. A missing or tombstoned
@@ -77,6 +92,13 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut fences = self.agent_hook_fences.lock().unwrap();
+        // A tool hook moves only a waiting hook agent back to work (its wait was answered,
+        // #22995); read under the fences lock, which orders this terminal's hooks.
+        let state = match kind_state {
+            Some(state) => state,
+            None if waiting() => AgentState::Working,
+            None => return Ok(()),
+        };
         let explicit_session_id = ingress
             .payload
             .get("normalized")

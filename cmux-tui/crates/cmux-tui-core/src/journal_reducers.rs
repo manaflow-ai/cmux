@@ -690,7 +690,19 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            // A tool hook of a waiting hook agent: the wait was answered.
+            let waiting = || {
+                self.entries.get(terminal_id).is_some_and(|entry| {
+                    entry.agent_source() == AgentSource::Hook && entry.state == "blocked"
+                })
+            };
+            let resumes =
+                crate::agent_hooks::resumes_blocked_turn(event.kind, event.native_event());
+            let state = match state_for_hook_kind(event.kind) {
+                Some(state) => state,
+                None if resumes && waiting() => AgentState::Working,
+                None => return Vec::new(),
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
