@@ -7,13 +7,13 @@ import Foundation
 ///
 /// macOS posts nothing public when the picture changes, so the watch re-reads
 /// `NSWorkspace.desktopImageURL(for:)` when one could have: a Space switch (each Space has its own
-/// picture), a screen change, a window moving to another display, waking, the app coming to the
-/// front (the person picked a picture in System Settings), the light or dark appearance flipping,
-/// macOS's own `com.apple.desktop` notice, and a write to the wallpaper store
+/// picture), a screen change, waking, the app coming to the front (the person picked a picture in
+/// System Settings), the light or dark appearance flipping, macOS's own `com.apple.desktop` notice, and a write to the wallpaper store
 /// (`~/Library/Application Support/com.apple.wallpaper/Store`). A read that matches the last one
 /// costs nothing more; a new picture is decoded small and averaged off the main actor, once per
 /// picture (switching back to a Space reuses its color). Registered material views re-apply with
-/// the result. Inert until ``start()``, so tests and windows built before launch see no tint.
+/// the result. It reads the main screen (the one with the key window); every window takes that
+/// screen's color. Inert until ``start()``, so tests and windows built before launch see no tint.
 ///
 /// ```swift
 /// DesktopWallpaperWatch.shared.start()
@@ -89,8 +89,7 @@ public final class DesktopWallpaperWatch {
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didWakeNotification] {
             observe(name, in: workspace)
         }
-        for name in [NSApplication.didChangeScreenParametersNotification, NSApplication.didBecomeActiveNotification,
-                     NSWindow.didChangeScreenNotification] {
+        for name in [NSApplication.didChangeScreenParametersNotification, NSApplication.didBecomeActiveNotification] {
             observe(name, in: .default)
         }
         // macOS's own notices: a new picture, and the light or dark appearance.
@@ -109,6 +108,14 @@ public final class DesktopWallpaperWatch {
     /// Re-applies every registered view (the setting changed).
     public func refreshViews() {
         for view in views.allObjects { view.desktopWallpaperDidChange() }
+    }
+
+    /// Reads the desktop again once a view sees the light or dark appearance flip (after
+    /// ``start()``): macOS's `AppleInterfaceThemeChangedNotification` can arrive before the app's
+    /// appearance changes, so that reading still saw the old one.
+    func appearanceDidChange() {
+        guard !observers.isEmpty else { return }
+        refresh()
     }
 
     /// Reads the desktop; a new reading takes its color (sampled once) and re-applies the views.

@@ -129,6 +129,7 @@ public final class BackdropImageStore {
             if let image = images[key] { return image }
         }
         let load: Task<Decoded?, Never>
+        let generation = desktopGeneration
         if let running = loads[key] {
             load = running
         } else {
@@ -140,7 +141,11 @@ public final class BackdropImageStore {
             loads[key] = load
         }
         let decoded = await load.value
-        loads[key] = nil
+        if loads[key] == load { loads[key] = nil }
+        // The desktop moved on while this decoded: its picture is stale, so load the new one.
+        if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+            return await image(selection, texture: texture, dark: dark)
+        }
         if let image = images[key] { return image }
         guard let decoded else { return nil }
         if decoded.rendered { renderCount += 1 }

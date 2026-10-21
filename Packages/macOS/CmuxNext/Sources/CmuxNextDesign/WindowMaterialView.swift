@@ -162,6 +162,8 @@ public final class WindowMaterialView: NSView {
 
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // The app's appearance has flipped by now; macOS's own notice can come before it does.
+        wallpaper.appearanceDidChange()
         // A dynamic Apple picture or a shipped video has a light and a dark file.
         if let applied, applied.backdrop.selection?.followsAppearance == true { apply(applied.backdrop, tint: applied.tint) }
     }

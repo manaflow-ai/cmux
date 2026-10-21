@@ -71,13 +71,17 @@ public nonisolated struct WallpaperTint: Equatable, Sendable {
     public static func average(of image: CGImage) -> WallpaperTint? {
         let side = 16
         var bytes = [UInt8](repeating: 0, count: side * side * 4)
-        guard image.width > 0, image.height > 0,
-              let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(data: &bytes, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-        context.interpolationQuality = .medium
-        context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard image.width > 0, image.height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        // The context writes into `bytes` only while the buffer is borrowed.
+        let drawn = bytes.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard drawn else { return nil }
         var sums = (red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
         for pixel in stride(from: 0, to: bytes.count, by: 4) {
             sums.red += Double(bytes[pixel])
