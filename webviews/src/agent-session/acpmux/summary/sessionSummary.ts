@@ -27,6 +27,8 @@ export type SummaryBackgroundTask = {
   id: string;
   command: string;
   state: "running" | "completed" | "failed" | "stopped";
+  /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
+  startedAt?: number;
 };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
@@ -196,6 +198,7 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));
   // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
   // itself) is known from its end.

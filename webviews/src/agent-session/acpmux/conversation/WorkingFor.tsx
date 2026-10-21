@@ -2,8 +2,10 @@
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does. No mark blinks before it; the
 // ticking time says the turn is alive. After that it counts the work still going in the
-// background, as Claude's phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
-// running and background shells that have not ended. Each count opens what it counts. The counts
+// background, as Claude's phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command ·
+// 3 sessions", only subagents still running, background commands that have not ended (the process
+// registry's and the transcript's, summary/backgroundWork.ts) and chats the agent started that are
+// running. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
@@ -11,20 +13,27 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
+import type { BackgroundCounts } from "../summary/backgroundWork";
 import { formatDuration } from "./turns";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
 
-/// What the running turn's line counts (App.tsx): the subagents and background shells still
-/// running, and what opens each.
+/// What the running turn's line counts (App.tsx): the subagents, background commands and started
+/// chats still running, and what opens each.
 export type WorkingCounts = {
   agents: number;
   commands: number;
+  sessions: number;
   openAgents: () => void;
   openCommands: () => void;
+  openSessions: () => void;
   /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
+  /// What still runs between turns, and what opens it: the "Running in background" row at the
+  /// transcript's end counts it (BackgroundWorkRow.tsx).
+  background?: BackgroundCounts;
+  openBackground?: () => void;
 };
 
 /// "2.1M tokens": the running turn's tokens, compact in the pane's language.
@@ -60,6 +69,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           key: "commands",
           label: t("turn.working.commands", { n: counts.commands }),
           open: counts.openCommands,
+        },
+        counts.sessions > 0 && {
+          key: "sessions",
+          label: t("turn.working.sessions", { n: counts.sessions }),
+          open: counts.openSessions,
         },
       ].filter((part) => part !== false)
     : [];
