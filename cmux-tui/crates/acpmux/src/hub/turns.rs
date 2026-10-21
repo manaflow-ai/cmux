@@ -393,6 +393,7 @@ impl Hub {
             return Err(e);
         }
         self.set_status(session, SessionStatus::Running);
+        self.watch_silent_turn(session, &turn_id).await;
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,

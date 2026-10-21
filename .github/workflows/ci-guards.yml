@@ -945,6 +945,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
 
+      - name: Validate the PR media privacy check and its writers
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: |
@@ -1201,6 +1205,10 @@ jobs:
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate reload.sh reads the cmux-next tour's free-space floor from tour-requirements.json
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_tour_requirements.py
 
       - name: Validate a second cmux-next tour of a tag waits for the tour holding it
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
