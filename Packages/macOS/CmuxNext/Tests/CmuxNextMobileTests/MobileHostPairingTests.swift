@@ -109,6 +109,68 @@ import Testing
         #expect(devices.devices[0].fingerprint.count == 16)
     }
 
+    static let endpoint = String(repeating: "ab", count: 32)
+    static let iroh = MobileHostPairRequest(phoneDeviceID: endpoint, name: "Aziz's iPhone", identityKey: endpoint, approvalKey: "",
+                                            transport: .iroh)
+
+    /// An Iroh entry (cmux next) shares the list but carries no approval rights: hostd's devices
+    /// line and acpmux's approvers skip it, and a hostd request with its id and keys never matches it.
+    @Test func irohEntriesGetNoApprovalRights() throws {
+        var devices = MobileHostPairedDevices(userID: "u")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        devices.approve(Self.iroh, at: Date(timeIntervalSince1970: 6))
+        #expect(devices.devices.map(\.transport) == [.hostd, .iroh])
+        let line = MobileHostLaunch.devicesLine(devices)
+        let object = try #require(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any])
+        #expect((object["devices"] as? [[String: String]])?.map { $0["id"] } == ["p1"])
+        let approvers = { (devices: MobileHostPairedDevices) in
+            (devices.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]])?.map { $0["id"] }
+        }
+        #expect(approvers(devices) == ["p1"])
+        let hostd = MobileHostPairRequest(phoneDeviceID: Self.endpoint, name: "x", identityKey: Self.endpoint, approvalKey: "")
+        #expect(devices.decision(for: hostd) == .ask)
+        #expect(devices.decision(for: Self.iroh) == .trusted)
+        // A hostd phone without a Face ID key is no approver either; listing it keeps the Iroh entry.
+        devices.approve(hostd, at: Date(timeIntervalSince1970: 7))
+        #expect(approvers(devices) == ["p1"])
+        #expect(devices.devices.filter { $0.id == Self.endpoint }.map(\.transport) == [.iroh, .hostd])
+    }
+
+    /// A list written before the Iroh link shared it has no `transport`: every entry is hostd's.
+    @Test func anOldFileReadsAsHostd() throws {
+        let json = #"{"userID":"u","devices":[{"id":"p1","name":"n","identityKey":"\#(Self.identity)","approvalKey":"\#(Self.approval)","pairedAt":5}],"denied":[]}"#
+        let devices = try JSONDecoder().decode(MobileHostPairedDevices.self, from: Data(json.utf8))
+        #expect(devices.devices.map(\.transport) == [.hostd])
+        #expect(devices.decision(for: Self.request) == .trusted)
+        let written = try JSONEncoder().encode(devices)
+        #expect(try JSONDecoder().decode(MobileHostPairedDevices.self, from: written) == devices)
+    }
+
+    /// The one store both links use: nothing changes while signed out, a change is saved before
+    /// it counts, and observers learn which entries went.
+    @Test func theStoreSavesThenReportsRemovals() throws {
+        final class Removed: @unchecked Sendable { var ids: [String] = [] }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostPairedStore()
+        let removed = Removed()
+        store.observe { change in removed.ids += change.removed.map(\.id) }
+        store.attach(directory: directory)
+        #expect(throws: (any Error).self) { try store.change { $0.approve(Self.iroh, at: Date()) } }
+        store.load(userID: "u")
+        try store.change { $0.approve(Self.iroh, at: Date(timeIntervalSince1970: 5)) }
+        try store.change { $0.approve(Self.request, at: Date(timeIntervalSince1970: 6)) }
+        #expect(store.contains(Self.endpoint, transport: .iroh) && !store.contains(Self.endpoint, transport: .hostd))
+        #expect(MobileHostPairedDevicesFile(directory: directory).load(userID: "u") == store.current)
+        try store.change { $0.remove(Self.endpoint) }
+        #expect(removed.ids == [Self.endpoint])
+        store.forget(userID: "u")
+        #expect(removed.ids == [Self.endpoint, "p1"])
+        #expect(MobileHostPairedDevicesFile(directory: directory).load(userID: "u").devices.isEmpty)
+        store.load(userID: nil)
+        #expect(store.current == nil && !store.trusts(Self.request))
+    }
+
     @Test func theFileBelongsToOneUser() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

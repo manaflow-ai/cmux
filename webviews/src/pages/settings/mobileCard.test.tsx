@@ -94,7 +94,8 @@ test("the card shows status, space and phones with their transport, and follows 
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,
-      iphone: { ...state, allowed: false, account: null, space: null, phase: "off" },
+      // Off, the host lists no cmux (iOS) phone; only cmux next phones would remain.
+      iphone: { ...state, allowed: false, account: null, space: null, phase: "off", phones: [] },
     }),
   );
   await settle();
@@ -202,5 +203,31 @@ test("a waiting pairing request has Allow and Don't Allow, and the blocked count
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-pair-request]")).toBeNull();
+  page.unmount();
+});
+
+test("a cmux next phone lists with Remove while iPhone connections are off", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const next = {
+    id: "ab".repeat(32),
+    title: "Aziz's iPhone",
+    subtitle: "cmux next · Device key 0011223344556677",
+    connected: false,
+    removable: true,
+    transport: null,
+    path: null,
+  };
+  await act(async () =>
+    page.provider.setHost({ ...page.provider.host, iphone: { ...state, allowed: false, phones: [next] } }),
+  );
+  await settle();
+  const rows = card(page.container)!.querySelectorAll("[data-mobile-phone]");
+  expect([...rows].map((row) => row.getAttribute("data-mobile-phone"))).toEqual([next.id]);
+  expect(card(page.container)!.querySelector(`[data-remove-phone="${next.id}"]`)).not.toBeNull();
+  await act(async () =>
+    page.provider.setHost({ ...page.provider.host, iphone: { ...state, allowed: false, phones: [] } }),
+  );
+  await settle();
+  expect(card(page.container)!.querySelector("[data-mobile-phones]")).toBeNull();
   page.unmount();
 });
