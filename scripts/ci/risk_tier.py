@@ -98,6 +98,13 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         "migrations/*", "*/migrations/*", "*/drizzle/*", "*/migrate/*", "*[Mm]igrat*.swift", "*[Mm]igrat*.rs",
         "*[Mm]igrat*.ts", "web/convex/schema*", "backend/db/schema*",
     )),
+    # The update channel and preference values: which of the existing signed feeds and rings to
+    # follow, and when to notify. Picking a channel reuses feeds the release pipeline already signs,
+    # and Sparkle still verifies every download, so it is normal (Leo, 2026-10-21, after #22781).
+    # Parsing, probing, installing and verifying an update stay high below.
+    ("normal", "update channel or preference setting", (
+        NEXT + "CmuxNextUpdater/UpdateTrack.swift", NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
+    )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
     # auto-update is how a fix forward reaches users.
     ("high", "release, signing, notarization or update path", (
