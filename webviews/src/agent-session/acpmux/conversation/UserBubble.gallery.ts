@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A prompt's bubble (UserBubble.tsx) and an answer's footer (TurnRows.tsx TurnFooter), with their
-// hover rows as Claude Code desktop's: under the prompt its age, read receipt, Copy, Edit, Retry,
-// Fork and Pin; under the answer Copy, Fork, Pin, Read aloud and its age, whose exact time shows
+// hover rows as Claude Code desktop's: under the prompt its age, read receipt, Copy, Retry, Fork,
+// then cmux's Edit and Pin; under the answer Copy, Fork, Pin, Read aloud and its age, whose exact time shows
 // above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
 // name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten

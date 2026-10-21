@@ -1,6 +1,6 @@
 // A prompt's action row matches Claude Code desktop's (GUI push 2026-10-20): under the bubble, its age
-// ("1 hour ago"), its read receipt (one check delivered, two read, "Read by <agent>"), then Copy, Edit,
-// Retry, Fork and Pin. Before, a prompt showed a lone bookmark there and a steer said "Steered · the
+// ("1 hour ago"), its read receipt (one check delivered, two read, "Read by <agent>"), then Copy,
+// Retry and Fork in Claude's order, then cmux's Edit and Pin. Before, a prompt showed a lone bookmark there and a steer said "Steered · the
 // agent read it" under it. The row shows on hover or focus only.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -55,7 +55,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a read prompt's row reads its age, Read by the agent, Copy, Edit and Fork, in Claude's order", async () => {
+test("a read prompt's row reads its age, Read by the agent, Copy and Fork in Claude's order, then Edit", async () => {
   const forked: number[] = [];
   const row: AcpmuxRow = {
     id: "user-4",
@@ -73,7 +73,8 @@ test("a read prompt's row reads its age, Read by the agent, Copy, Edit and Fork,
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  expect(labels()).toEqual(["1 hour ago", "Read by Claude Code", "Copy", "Edit", "Fork from here"]);
+  // Claude's row (age, receipt, Copy, Fork), then cmux's own Edit.
+  expect(labels()).toEqual(["1 hour ago", "Read by Claude Code", "Copy", "Fork from here", "Edit"]);
   expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
   // The exact time on hover.
@@ -170,11 +171,13 @@ test("the relative time words a message's age as Claude's hover row does, in the
 });
 
 test("the hover tooltip writes the exact time as Claude's: Oct 20, 2026, 10:16 PM", async () => {
-  const { exactTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
+  const { exactTime: exact } = await import("../src/agent-session/acpmux/conversation/relativeTime");
+  // ICU puts a narrow no-break space before AM/PM; it reads as a space.
+  const exactTime = (at: number, locale?: string) => exact(at, locale).replace(/\s/g, " ");
   // Built in local time, so the fields read back the same in any time zone.
   const evening = new Date(2026, 9, 20, 22, 16).getTime();
-  expect(exactTime(evening, "en-US")).toBe("Oct 20, 2026, 10:16\u202fPM");
-  expect(exactTime(new Date(2026, 0, 5, 9, 3).getTime(), "en-US")).toBe("Jan 5, 2026, 9:03\u202fAM");
+  expect(exactTime(evening, "en-US")).toBe("Oct 20, 2026, 10:16 PM");
+  expect(exactTime(new Date(2026, 0, 5, 9, 3).getTime(), "en-US")).toBe("Jan 5, 2026, 9:03 AM");
   // The same fields in the pane's language.
   expect(exactTime(evening, "de")).toBe("20. Okt. 2026, 22:16");
   // A tag Intl refuses falls back to the system's language, never a throw.
@@ -185,6 +188,6 @@ test("the time under a prompt names its exact time, shown above it", async () =>
   const at = new Date(2026, 9, 20, 22, 16).getTime();
   await draw({ id: "user-3", version: 1, at, kind: "user", seq: 3, text: "Ship it" }, {});
   const time = host.querySelector("time.cv-user__time")!;
-  expect(time.getAttribute("title")).toBe("Oct 20, 2026, 10:16\u202fPM");
+  expect(time.getAttribute("title")?.replace(/\s/g, " ")).toBe("Oct 20, 2026, 10:16 PM");
   expect(time.getAttribute("data-tooltip-side")).toBe("top");
 });

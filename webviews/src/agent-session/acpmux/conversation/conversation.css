@@ -607,11 +607,12 @@
   align-items: center;
 }
 /* The prompt's age and its read receipt lead the row, quiet, as Claude Code desktop's: the age in
-   the body size, 8px before the receipt, a 16px double check right before Copy. */
+   the caption size, 6px before the receipt, a 16px double check in a 24px square right before Copy.
+   (An answer's age is in the body size, 8px after its buttons: .cv-turn-time.) */
 .cv-user__time {
-  padding-inline-end: 8px;
+  padding-inline-end: 6px;
   color: var(--cv-text-dim);
-  font-size: var(--text-body);
+  font-size: var(--text-caption);
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -619,6 +620,9 @@
 .cv-user__read {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: var(--cv-meta-row);
+  height: var(--cv-meta-row);
   color: var(--cv-text-dim);
 }
 .cv-user__read.is-unread {

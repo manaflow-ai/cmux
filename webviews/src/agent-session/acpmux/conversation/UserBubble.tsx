@@ -1,7 +1,8 @@
 // A prompt's bubble, with its action row under its right edge as Claude Code desktop draws one:
-// the prompt's age ("8 minutes ago", its date and time on hover), its read receipt (one check once
-// acpmux has it, two once the agent read it, "Read by Claude Code" on hover), then Copy, Edit, Retry,
-// Fork from here and Pin (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20). The row shows on
+// the prompt's age ("8 minutes ago", "Oct 20, 2026, 10:16 PM" above it on hover), its read receipt
+// (one check once acpmux has it, two once the agent read it, "Read by Claude Code" on hover), then
+// Copy, Retry and Fork from here in Claude's order, then cmux's own Edit and Pin, which Claude's
+// Code tab has not got there (cx-ncc.60, Claude parity; Leo, GUI push 2026-10-20). The row shows on
 // hover or keyboard focus only, its height kept, so nothing moves when it appears. Edit opens the
 // prompt in place; Send forks the chat through the turn before it and sends the edited text there
 // (the App's `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the
@@ -99,6 +100,8 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           <MessageTime at={row.at} className="cv-user__time" />
           <ReadReceipt row={row} />
           <MessageCopy text={row.text ?? text} />
+          <PromptRetry rowId={row.id} prompt={resend} />
+          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
           {through !== undefined && (
             <button
               type="button"
@@ -110,8 +113,6 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={ROW_ICON} />
             </button>
           )}
-          <PromptRetry rowId={row.id} prompt={resend} />
-          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
           <PinButton rowId={row.id} />
         </div>
       )}
