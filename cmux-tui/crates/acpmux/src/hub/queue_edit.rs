@@ -171,7 +171,7 @@ impl Hub {
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
             });
-            q.preview = super::session::masked_preview(&text, 200);
+            q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
         };
         let mut msg = json!({"promptId": prompt_id, "turnId": turn_id, "text": text, "prompt": run.blocks, "control": run.control.as_str(), "trustGate": run.trust_gate});
