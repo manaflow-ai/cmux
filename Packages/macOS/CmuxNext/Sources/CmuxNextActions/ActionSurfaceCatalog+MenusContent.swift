@@ -228,7 +228,12 @@ nonisolated extension ActionSurfaceCatalog {
         "terminal.sendText": [p(.terminalSelection, .edit, 4)],
         "bookmark.addPage": [p(.browserPage, .inspect, 100), p(.bookmark, .create, 200), p(.bookmarksBar, .create, 0)],
         "bookmark.addAllTabs": [p(.bookmarksBar, .create, 2), p(.bookmark, .create, 202, folder: .new)],
-        "bookmark.newFolder": [p(.bookmark, .create, 201, folder: .new), p(.bookmarksBar, .create, 1)],
+        "bookmark.newFolder": [p(.bookmark, .create, 201, folder: .new), p(.bookmarksBar, .create, 1), p(.bookmarkManager, .create, 1)],
+        // The bookmark manager's more (⋮) button: add to the shown folder, then import and export the page's profile.
+        "bookmark.add": [p(.bookmarkManager, .create, 0)],
+        "bookmark.importFromBrowser": [p(.bookmarkManager, .organize, 0)],
+        "bookmark.import": [p(.bookmarkManager, .organize, 1)],
+        "bookmark.export": [p(.bookmarkManager, .organize, 2)],
         "bookmark.open": [p(.bookmark, .create, 0)],
         "bookmark.openInNewTab": [p(.bookmark, .create, 1)],
         "bookmark.openInBackgroundTab": [p(.bookmark, .create, 2)],
