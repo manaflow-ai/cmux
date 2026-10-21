@@ -36,10 +36,6 @@ const MAX_READ_TEXT_BYTES: usize = 160 * 1024;
 /// acpmux events one read takes per request, and requests per read.
 const EVENT_PAGE: u64 = 500;
 const MAX_EVENT_PAGES: usize = 20;
-/// Pages a full read still takes to find the turn end that settles a tool
-/// call it returns. A tool in the chat's running turn has none yet, so a
-/// read of a live chat must not load on to `MAX_EVENT_PAGES` for it.
-const SETTLE_PAGES: usize = 2;
 
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,7 +314,6 @@ fn load(
     // whole and its continuation is not read as a new item.
     let mut cursor = after.saturating_sub(1);
     let mut more = true;
-    let mut settle_pages = 0;
     for _ in 0..MAX_EVENT_PAGES {
         let page = events(cursor)?;
         let events = page["events"].as_array().cloned().unwrap_or_default();
@@ -329,14 +324,13 @@ fn load(
         more = page["hasMore"] == true && !events.is_empty();
         let ready = transcript.items.iter().filter(|item| item.id > after).count();
         let full = ready > limit || transcript.text_bytes > MAX_READ_TEXT_BYTES;
+        // A tool call the read returns holds `next_after` until its turn
+        // ends, so the read loads on to that turn end (or the newest event,
+        // for a tool in the running turn). Capping this lower strands a
+        // reader on a tool whose turn end is further on: every read restarts
+        // at `after` and never reaches it.
         if !more || (full && !transcript.held_on_tool(after, limit)) {
             break;
-        }
-        if full {
-            if settle_pages == SETTLE_PAGES {
-                break;
-            }
-            settle_pages += 1;
         }
     }
     Ok((transcript, more, cursor))
@@ -513,8 +507,8 @@ impl Transcript {
     }
 
     /// Whether a read returns an unfinished tool call, which holds its
-    /// `next_after`: the read loads a few pages more, so a turn end that
-    /// settles it is seen. A tool call past the returned items holds nothing.
+    /// `next_after`: the read loads on, so a turn end that settles it is
+    /// seen. A tool call past the returned items holds nothing.
     fn held_on_tool(&self, after: u64, limit: usize) -> bool {
         self.returned(after, limit)
             .into_iter()
@@ -672,23 +666,45 @@ mod tests {
         )
     }
 
+    fn chunk(seq: u64) -> Value {
+        update(seq, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "."}}))
+    }
+
     #[test]
-    fn a_read_of_a_live_turn_with_a_running_tool_stops_soon_after_it_is_full() {
+    fn a_read_of_a_live_turn_with_a_running_tool_stops_at_the_newest_event() {
         // The tool holds `next_after`, and its turn is still being written:
-        // no turn end can settle it, so the read must not load page after
-        // page looking for one.
-        let events = vec![
-            mux(1, "user_message", json!({"text": "run it"})),
-            running_tool(2, "t1"),
-            update(3, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": "a"}})),
-        ];
+        // no turn end settles it yet, so the read stops where acpmux says
+        // the log ends and holds `next_after` at the item before the tool.
+        let mut events =
+            vec![mux(1, "user_message", json!({"text": "run it"})), running_tool(2, "t1")];
+        events.extend((3..=9).map(chunk));
         let mut loads = 0;
-        let (transcript, more, cursor) = load(0, 2, source(events, 3, true, &mut loads)).unwrap();
-        assert!(loads <= 3, "{loads} pages loaded for a read full after the first");
-        assert!(loads < MAX_EVENT_PAGES);
+        let (transcript, more, cursor) = load(0, 2, source(events, 3, false, &mut loads)).unwrap();
+        assert_eq!(loads, 3);
+        assert!(!more);
         let page = transcript.page("c", 0, 2, more, cursor);
         assert_eq!(page["items"][1]["partial"], true, "{page}");
         assert_eq!(page["next_after"], 1, "{page}");
+        assert_eq!(page["has_more"], true);
+    }
+
+    #[test]
+    fn a_tool_whose_turn_ends_pages_past_a_full_read_still_settles_in_it() {
+        // A harness that never finishes a tool call leaves its turn end to
+        // settle it. Were the read to stop a few pages after it is full, a
+        // turn end further on would never be read: every read restarts at
+        // `after`, so `next_after` would stay at the tool for good.
+        let mut events =
+            vec![mux(1, "user_message", json!({"text": "run it"})), running_tool(2, "t1")];
+        events.extend((3..=12).map(chunk));
+        events.push(mux(13, "turn_result", json!({"status": "cancelled"})));
+        let mut loads = 0;
+        let (transcript, more, cursor) = load(0, 2, source(events, 3, false, &mut loads)).unwrap();
+        assert_eq!(loads, 5);
+        assert!(loads < MAX_EVENT_PAGES);
+        let page = transcript.page("c", 0, 2, more, cursor);
+        assert_eq!(page["items"][1]["partial"], Value::Null, "{page}");
+        assert_eq!(page["next_after"], 2, "{page}");
         assert_eq!(page["has_more"], true);
     }
 
