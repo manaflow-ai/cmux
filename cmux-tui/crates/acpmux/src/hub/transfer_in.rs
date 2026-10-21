@@ -242,6 +242,8 @@ impl Hub {
                 return Err(e.with_data(json!({"reason": "cwd_missing", "cwd": cwd})));
             }
             self.kill(&old, true).await?;
+            // The chat comes back under this id: the purge's write guard gives way.
+            self.store.release_purge(id);
         }
         let name = text("name").map(str::to_owned);
         let guarded = guard
