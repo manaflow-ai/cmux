@@ -92,6 +92,22 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
     }
 
+    @Test func restartNowAfterAnAutomaticLaterIsAUserInstallOnAHostThatDoesNotHoldThem() {
+        let driver = makeDriver()
+        driver.holdsUserInstalls = false
+        let installs = CallCounter()
+        host.blockers = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1)
+        driver.relaunchIsAutomatic = true
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { installs.count += 1 }))
+        installing?.dismiss()
+        #expect(model.text == "Restart to Complete Update")
+
+        installing?.retryTerminatingApplication()
+
+        #expect(installs.count == 1)
+        #expect(!driver.relaunchGate.isWaiting)
+    }
+
     @Test func restartNowAfterLaterIsNotHeldByTheClickOrAnUnconfirmedDaemon() {
         let driver = makeDriver()
         let installs = CallCounter()
