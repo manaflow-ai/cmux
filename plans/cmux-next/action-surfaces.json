@@ -23802,6 +23802,37 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action updates-update-everything",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "updates.updateEverything",
+      "main_menu" : "app",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Update Everything…",
+      "title_key" : "action.updates.updateEverything",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "familyMember",
+      "cli_name" : "settings attempt-update",
+      "context_menu" : "familyMember",
       "cli" : "clipboard",
       "cli_name" : "cloud copy-machine-port",
       "context_menu" : "offered",
@@ -30292,34 +30323,6 @@
       "palette_suggested" : null,
       "title" : "Show Idle Chief Subagents",
       "title_key" : "action.sidebar.chief.toggleIdleSubagents",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "focusMove",
-      "cli_name" : "action chief-open-subagent",
-      "context_menu" : "focusMove",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "chief.openSubagent",
-      "main_menu" : null,
-      "mcp" : "focusMove",
-      "palette" : "focusMove",
-      "palette_section" : {
-        "id" : "category.agents",
-        "order" : 109,
-        "title" : "Agents",
-        "title_key" : "category.agents",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Open Chief Subagent",
-      "title_key" : "action.chief.openSubagent",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -41679,13 +41682,9 @@
               }
             },
             {
-              "choices" : {
-                "argument" : "space",
-                "target_kind" : "room"
-              },
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.moveToSpace",
-              "kind" : "choices",
+              "kind" : "action",
               "label" : "Move to Space…",
               "order" : 5,
               "visible_when" : {
@@ -42056,13 +42055,9 @@
               }
             },
             {
-              "choices" : {
-                "argument" : "space",
-                "target_kind" : "room"
-              },
               "enabled_when" : "can_perform",
               "id" : "workspace.moveToSpace",
-              "kind" : "choices",
+              "kind" : "action",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -42073,13 +42068,9 @@
               }
             },
             {
-              "choices" : {
-                "argument" : "space",
-                "target_kind" : "room"
-              },
               "enabled_when" : "can_perform",
               "id" : "workspace.duplicateToSpace",
-              "kind" : "choices",
+              "kind" : "action",
               "order" : 8,
               "visible_when" : {
                 "debug_only" : false,

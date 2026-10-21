@@ -276,6 +276,7 @@
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
+        "CmuxNextUpdateEverything",
         "CmuxNextUpdater",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
@@ -342,6 +343,7 @@
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
+        "CmuxNextUpdateEverything",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -891,6 +893,18 @@
         "CmuxHomeCore"
       ]
     },
+    "CmuxNextHomeEngineTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": [
+        "CmuxHomeCore"
+      ],
+      "reads": []
+    },
     "CmuxNextHostedChief": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostedChief",
@@ -1390,6 +1404,20 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextUpdateEverything": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdateEverything",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextRemote",
+        "CmuxNextUpdater"
+      ],
+      "packages": []
+    },
     "CmuxNextUpdater": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
@@ -1443,6 +1471,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
       "targets": [
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [],

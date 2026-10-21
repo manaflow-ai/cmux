@@ -9,6 +9,7 @@
     "agent-session-start-v1",
     "agent-session-tabs-v1",
     "agent-session-trust-v1",
+    "agent-update-v1",
     "app-screens-v1",
     "attach-identity-v1",
     "batch-close-v1",
