@@ -75,9 +75,10 @@ public final class SettingsAppFeatures: AppFeatureSettings {
 
     /// What Get (`on`) or Remove writes. Remove takes a choice key out of the file, so its
     /// default (off) applies; a toggle whose default is off leaves the file too, and one whose
-    /// default is on is written `false`.
+    /// default is on is written `false`. Get of a feature that is on by default takes the key
+    /// out the same way, so Remove then Get leaves the file as it was.
     nonisolated static func value(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
-        if on { return onValue(feature) }
+        if on { return onValue(feature) == defaultValue ? nil : onValue(feature) }
         switch feature.on {
         case .toggle: return defaultValue == .bool(true) ? .bool(false) : nil
         case .choice, .sidebarItem: return nil
