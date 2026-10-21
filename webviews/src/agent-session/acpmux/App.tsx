@@ -1443,6 +1443,7 @@ export function VirtualTranscript({
   expanded,
   registry = defaultRegistry,
   canLoadOlder = false,
+  historyFrom,
   githubRepository,
   find,
   reveal,
@@ -1479,6 +1480,8 @@ export function VirtualTranscript({
   expanded: Set<string>;
   registry?: NativeRegistry;
   canLoadOlder?: boolean;
+  /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
+  historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
@@ -2520,7 +2523,8 @@ export function VirtualTranscript({
   // Older history pages in before the reader reaches it: whenever the view is within two viewports
   // of the first loaded row, including a tail too short to fill them. The anchoring above keeps the
   // reader's row in place as each page lands.
-  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}`;
+  // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
+  const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
   useEffect(() => {
     const node = ref.current;
@@ -5730,6 +5734,7 @@ function AcpmuxPane() {
                                           childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
                                         }
                                         canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                        historyFrom={childRows ? undefined : snapshot.historyFrom}
                                         onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                         openAt={
                                           !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
