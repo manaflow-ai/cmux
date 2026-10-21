@@ -88,7 +88,12 @@ test("an ask answered in a Chief chat leaves when the host's reread (the pane's 
       throw new Error("Refused by the cmux host");
     },
   );
-  const asks = new AskTracker(read, parse, () => {}, () => 1000);
+  const asks = new AskTracker(
+    read,
+    parse,
+    () => {},
+    () => 1000,
+  );
   asks.pending({ sessionId: "chief", permissionId: "c1" });
   asks.pending({ sessionId: "chief", permissionId: "c2" });
   expect(ids(asks)).toEqual(["c1", "c2"]);
