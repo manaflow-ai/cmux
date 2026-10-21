@@ -29,7 +29,6 @@ struct HomeChiefControl {
     /// The `shared stop action` (palette, the compose bar's stop button, Esc
     /// and Cmd-. in the field): the key window's Home view stops its Chief.
     static let stopAction: ActionID = "home.stopChief"
-    static let stopNotification = Notification.Name("HomeHostView.stopChief")
 
     var isCloud: Bool { services.home.isCloudConversation(conversation) }
 

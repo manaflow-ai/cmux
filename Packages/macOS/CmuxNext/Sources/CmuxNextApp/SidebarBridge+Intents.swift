@@ -117,9 +117,10 @@ extension SidebarBridge {
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .toggleWorkspaceAudio(let id):
-            // The row's speaker runs the workspace menu's, palette's and CLI's action.
-            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID,
-                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user))
+            // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
+            invocation.closesRowOnly = true
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID, invocation: invocation)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

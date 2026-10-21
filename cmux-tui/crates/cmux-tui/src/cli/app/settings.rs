@@ -332,6 +332,9 @@ fn describe(accepted: &Accepted) -> Option<String> {
             number(min),
             number(max)
         ),
+        Accepted::ChoicesOrShape { choices, shape } => {
+            format!("one of {}, or {shape}", choices.join(", "))
+        }
         Accepted::Shape(shape) => (*shape).to_owned(),
         Accepted::Domain { name, .. } => format!("a {name} name"),
     })

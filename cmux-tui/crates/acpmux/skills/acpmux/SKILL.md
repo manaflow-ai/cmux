@@ -96,6 +96,17 @@ acpmux session kill --purge NAME                   # delete (only sessions you c
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+Start an agent for a task (its own worktree, its brief, shown in the app) with
+one command; running it again reuses the session and worktree and sends nothing:
+
+```bash
+acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+```
+
+Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
+surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
+in the cmux repository.
+
 ## 4. Wait for things
 
 ```bash
