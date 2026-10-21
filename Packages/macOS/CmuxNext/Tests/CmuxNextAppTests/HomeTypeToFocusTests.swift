@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+@testable import CmuxNextHome
 import CmuxHomeCore
 import Testing
 
@@ -72,6 +73,10 @@ import Testing
     /// Home in `container`, beside another pane, in a window; once its message box exists.
     private static func harness(_ container: Container) async throws -> Harness {
         _ = NSApplication.shared
+        // Home's transcript warms its file picker 2 s after it shows; making that NSOpenPanel
+        // waits on the panel's ViewBridge service, which blocks for minutes on a host with no
+        // console session (a test stalled 120 s there). These tests open no picker.
+        HomeAttachmentPanel.warmsAhead = false
         let services = AppServices(environment: AppEnvironment.current([:]))
         let conversation = ConversationID("conv_type_to_focus")
         let content: TabContent
