@@ -16,6 +16,12 @@
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`).
 //!
+//! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
+//! the person to resume them, since they were written for a turn that went well. Agent messages
+//! do not depend on that turn and nobody watches them: the chat's next completed turn releases
+//! them (`release_held_agent_messages`). coord-deputy held 121 after one "agent process closed"
+//! (2026-10-21), behind every newer message, until someone pressed resume.
+//!
 //! Delivery inside a turn stays the steer's (`steer_end.rs`): an agent that steers reads a
 //! message at its next tool boundary. What waits here is what could not steer: an agent that
 //! does not steer, a steer its turn ended before reading, a `--no-steer` send, a send that waits
@@ -148,6 +154,19 @@ impl Hub {
     pub fn session_name(&self, id: &str) -> String {
         let name = self.resolve(id).ok().filter(|s| s.id == id).map(|s| s.meta().name);
         name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| id.to_owned())
+    }
+
+    /// After a completed turn: the agent messages a failed turn held run again, in place.
+    pub(super) fn release_held_agent_messages(&self, session: &Arc<Session>) {
+        let ids: Vec<String> = session
+            .queue()
+            .iter()
+            .filter(|q| q.held && q.run.agent.is_some())
+            .map(|q| q.prompt_id.clone())
+            .collect();
+        if !ids.is_empty() {
+            self.resume_held(session, &ids);
+        }
     }
 
     /// With the turn lock held and the turn of the agent message `prompt_id` started: takes the

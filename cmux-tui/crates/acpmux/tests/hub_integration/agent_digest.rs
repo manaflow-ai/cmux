@@ -198,3 +198,40 @@ async fn from_agent_must_be_one_short_line() {
         c.request(method::SESSION_PROMPT, from_agent(&id, "p-x", "two\nlines", "hello")).await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("fromAgent")), "{refused:?}");
 }
+
+/// A failed turn holds the prompts behind it. The person's wait for the person; agent messages
+/// go in once the chat completes a turn again (coord-deputy held 121 after one "agent process
+/// closed", 2026-10-21, behind every newer message).
+#[tokio::test]
+async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy(&mut c).await;
+    queue(&mut c, person(&id, "p-f", "fail-streamed: boom")).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "held from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "held from b")).await;
+    queue(&mut c, person(&id, "p-me", "mine")).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-f", "p-me", "p-a", "p-b"]);
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let attached =
+            c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        if attached["session"]["turn"].is_null() {
+            assert_eq!(attached["session"]["queuePaused"], true, "{attached}");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "the failed turn never ended: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me", "p-a", "p-b"]);
+
+    // A new prompt completes: the held agent messages go in together; the person's still waits.
+    c.send(method::SESSION_PROMPT, person(&id, "p-next", "next")).await;
+    let echoes = echoes_until(&mut c, "held from b").await;
+    assert_eq!(echoes.len(), 2, "{echoes:?}");
+    assert_eq!(echoes[0], "echo: next");
+    assert!(echoes[1].contains("held from a") && echoes[1].contains("[agent message 2 of 2]"));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
+}

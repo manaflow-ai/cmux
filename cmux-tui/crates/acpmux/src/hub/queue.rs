@@ -582,7 +582,11 @@ impl Hub {
                         let ids = e.msg.get("held").and_then(Value::as_array);
                         held.extend(ids.into_iter().flatten().cloned());
                     }
-                    "queue_resumed" => held.clear(),
+                    // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
+                    "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
+                        Some(ids) => held.retain(|id| !ids.contains(id)),
+                        None => held.clear(),
+                    },
                     "queue_order" => {
                         // Sent now (`put_next`): no longer held.
                         if e.msg.get("next") == Some(&Value::Bool(true)) {

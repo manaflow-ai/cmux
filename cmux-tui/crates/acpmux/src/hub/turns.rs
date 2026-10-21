@@ -623,6 +623,10 @@ impl Hub {
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.write_turn_result(session, msg, git);
+                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                if status == "completed" {
+                    self.release_held_agent_messages(session);
+                }
             }
             Err(e) => {
                 self.append(
