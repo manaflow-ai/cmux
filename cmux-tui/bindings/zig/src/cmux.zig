@@ -139,6 +139,7 @@ pub const LayoutColumn = resource.LayoutColumn;
 pub const LayoutColumnEdge = resource.LayoutColumnEdge;
 pub const LayoutColumnMode = resource.LayoutColumnMode;
 pub const LayoutColumnDock = resource.LayoutColumnDock;
+pub const LayoutRow = resource.LayoutRow;
 pub const LayoutViewport = resource.LayoutViewport;
 pub const UnknownLayoutNode = resource.UnknownLayoutNode;
 pub const LayoutNode = resource.LayoutNode;
