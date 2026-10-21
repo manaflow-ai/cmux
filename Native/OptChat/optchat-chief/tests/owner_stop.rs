@@ -14,6 +14,7 @@ use optchat_chief::brain::Input;
 use optchat_chief::state::{HostState, StateFile, SubStatus};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::Orchestrator;
+use serde_json::json;
 
 /// chief.stop, as the host's control socket sends it.
 fn owner_stop(h: &mut Harness) {
@@ -242,4 +243,87 @@ fn a_stopped_subagent_frees_its_slot_even_when_its_turn_never_ends() {
     assert_eq!(answer["stopped"], true, "{answer}");
     run(&mut h, || ());
     assert_ne!(status(&h, "a2"), SubStatus::Queued, "a2 got a1's slot");
+}
+
+/// The subagent's turn ("build the thing") never ends; the Chief's turn ends
+/// with `chief_reply`, or never ends when it is None.
+fn chief_and_endless_subagent(chief_reply: Option<&'static str>) -> Script {
+    Box::new(move |_, blocks| {
+        let started = json!({"dir": "mux", "kind": "turn_started", "msg": {}});
+        if serde_json::to_string(blocks)
+            .unwrap()
+            .contains("build the thing")
+        {
+            return vec![started];
+        }
+        let Some(text) = chief_reply else {
+            return vec![started];
+        };
+        vec![
+            started,
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": text}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+        ]
+    })
+}
+
+/// a1 is at work (its session made); returns its session.
+fn a1_at_work(h: &mut Harness) -> String {
+    h.connect();
+    // a1's turn never answers: it stays at work.
+    h.agents.inner.lock().unwrap().answer_never = true;
+    let sp = spawner(h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let spawned = run(h, move || sp.spawn(vec!["build the thing".into()], None)).unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert_eq!(status(h, "a1"), SubStatus::Running);
+    h.brain
+        .state()
+        .sub("a1")
+        .unwrap()
+        .1
+        .session_id
+        .clone()
+        .expect("a1 has a session")
+}
+
+/// The Chief ending its own turn with its `stop` tool never stops a
+/// subagent (2026-10-20: every turn the Chief ended with stop() stopped all
+/// subagents "by the user" seconds after they resumed).
+#[test]
+fn the_chiefs_stop_tool_leaves_subagents_at_work_running() {
+    let mut h = Harness::new(chief_and_endless_subagent(None));
+    let session = a1_at_work(&mut h);
+    let prompts = h.agents.inner.lock().unwrap().prompts.len();
+    h.agents.hold(true);
+    h.say("user_local", "start the work");
+    while h.agents.inner.lock().unwrap().prompts.len() <= prompts {
+        h.step();
+    }
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || sp.stop_turn()).expect("stop answers");
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    h.agents.hold(false);
+    h.settle_posts();
+    assert_eq!(status(&h, "a1"), SubStatus::Running, "a1 goes on");
+    let cancels = h.agents.inner.lock().unwrap().cancels.clone();
+    assert!(!cancels.contains(&session), "a1 not cancelled: {cancels:?}");
+}
+
+/// A Chief turn that ends with NO_REPLY (posts nothing) never stops a
+/// subagent either.
+#[test]
+fn a_no_reply_turn_end_leaves_subagents_at_work_running() {
+    let mut h = Harness::new(chief_and_endless_subagent(Some(
+        optchat_chief::membership::NO_REPLY,
+    )));
+    let session = a1_at_work(&mut h);
+    h.say("user_local", "anything new?");
+    h.settle_posts();
+    assert_eq!(status(&h, "a1"), SubStatus::Running, "a1 goes on");
+    let cancels = h.agents.inner.lock().unwrap().cancels.clone();
+    assert!(!cancels.contains(&session), "a1 not cancelled: {cancels:?}");
 }
