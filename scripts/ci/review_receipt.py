@@ -200,9 +200,9 @@ def decide(pr: dict, head: str) -> tuple[str, str]:
         return "", f"no SHIP review receipt on {head}"
     cut = window_cut_off(pr, newest[0])
     if cut:
-        return "", (f"no SHIP review receipt on {head} can be confirmed: the {cut} window is full (the newest "
-                    f"{REVIEWS_WINDOW if cut == 'reviews' else COMMENTS_WINDOW}) and reaches back only to the SHIP, so "
-                    "the gate can't confirm nothing newer says wait; post the receipt again")
+        size = REVIEWS_WINDOW if cut == "reviews" else COMMENTS_WINDOW
+        return "", (f"no SHIP review receipt on {head} can be confirmed: {cut} window full (the newest {size} reach "
+                    "back only to the SHIP), so the gate can't confirm nothing newer says wait; post the receipt again")
     return newest[2], ""
 
 
