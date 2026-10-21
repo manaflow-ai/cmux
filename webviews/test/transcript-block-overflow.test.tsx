@@ -243,6 +243,22 @@ test("a long output's preview counts all its lines, not only the end it shows, a
   expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
 });
 
+test("an output opened while short stays open as it streams past the tail", async () => {
+  const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
+  await render(<ToolRow item={call("execute", lines(20), "bun test")} />);
+  await click(host.querySelector("button.cv-tool"));
+  await click(byText("Show all 21 lines"));
+  // The stream goes on past the 400 lines a closed output draws the end of.
+  await act(async () => root!.render(<ToolRow item={call("execute", lines(1000), "bun test")} />));
+  const shell = host.querySelector(".cv-shell")!;
+  expect(shell.querySelector(".cv-shell__output")?.textContent).toBe(lines(1000).replace(/\n$/, ""));
+  expect(Boolean(byText("Show less", shell))).toBe(true);
+  // Show less closes it up to the end of the output.
+  await click(byText("Show less", shell));
+  expect(shell.querySelector(".cv-shell__output")?.textContent?.startsWith("line 601\n")).toBe(true);
+  expect(Boolean(byText("Show all 1001 lines", shell))).toBe(true);
+});
+
 test("Find does not count the preview's Show all and Show less, nor Show all output", async () => {
   await openRow("execute", lines(30), "bun test");
   const shell = host.querySelector(".cv-shell")!;

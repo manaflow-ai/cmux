@@ -87,6 +87,7 @@ struct DividerCursorUnderDockTests {
         screen.refreshDividerHover()
         #expect(handle.isHovered, "beside the dock the divider still hovers")
         let lines = screen.dividerLineRects.filter { $0.intersects(handle.frame) }
+        try #require(!lines.isEmpty, "the hovered divider draws its line")
         for line in lines {
             let drawnUnder = line.intersection(cover)
             #expect(drawnUnder.isNull || drawnUnder.width < 0.5 || drawnUnder.height < 0.5,
