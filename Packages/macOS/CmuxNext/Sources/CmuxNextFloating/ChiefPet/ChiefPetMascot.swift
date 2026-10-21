@@ -2,7 +2,7 @@ public import AppKit
 
 /// The Chief pet's character: the Chief Dock's nine pixel mascots (#21194, its `ChiefMascot`
 /// ids), bundled at 256 px wide. Orb is the dock's default too.
-public enum ChiefPetMascot: String, CaseIterable, Sendable {
+public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
     case orb
     case orbSpark = "orb-spark"
     case orbHood = "orb-hood"

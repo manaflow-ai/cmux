@@ -6,7 +6,6 @@ import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextChiefPetWiring
 import CmuxNextDesign
-import CmuxNextFloating
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
@@ -38,9 +37,7 @@ final class HomeHostView: NSView {
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
-    nonisolated static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar {
-        (ChiefPetMascot(rawValue: mascot ?? "") ?? .initial).avatarURL.map(HomeChiefAvatar.picture) ?? .chiefDefault
-    }
+    static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -50,8 +47,6 @@ final class HomeHostView: NSView {
     private var isWorking = false
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
-    /// Follows `home.chiefPetMascot`: a Chief with no avatar of its own wears the chosen character.
-    private var mascotWatch: Task<Void, Never>?
     /// Where attachments open and their right-click menu (the transcript holds it weakly).
     private var fileActions: HomeFileActions?
 
@@ -74,6 +69,7 @@ final class HomeHostView: NSView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
+        petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
@@ -93,16 +89,6 @@ final class HomeHostView: NSView {
         hostWatch = Task { [weak self, weak service] in
             for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
                 self?.settingsView.setHost(place: host.place, switchTo: host.switchTo)
-            }
-        }
-        // task-owner: lives as long as this view; event-driven (Observation). A new character
-        // (the pet's menu, Chief Settings, Settings > Chief Pet) redraws the header at once.
-        mascotWatch = Task { [weak self, weak services] in
-            var shown: String?
-            for await mascot in ObservationStream({ services?.settings?.snapshot.homeChiefPetMascot }) {
-                guard let self else { return }
-                if shown != nil, mascot != shown { loadAvatar() }
-                shown = mascot
             }
         }
         // Show Memory: this conversation's Chief (a named local Chief, or a
@@ -290,7 +276,6 @@ final class HomeHostView: NSView {
             availability?.cancel()
             engineWatch?.cancel()
             hostWatch?.cancel()
-            mascotWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
             settings.close()
@@ -364,30 +349,23 @@ final class HomeHostView: NSView {
     }
 
     /// The header avatar of the Chief shown here: its registry picture, else its profile's text,
-    /// else the chosen pet character (`defaultTileAvatar`).
+    /// else the chosen pet character.
     private func loadAvatar() {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
         settingsView.pictureStore = store
-        let fallback = Self.defaultTileAvatar(mascot: control.services.settings?.snapshot.homeChiefPetMascot)
+        let fallback = ChiefPetSettingsRows.avatarURL(of: control.services.settings?.snapshot.homeChiefPetMascot)
         // task-owner: one avatar read (registry, else files off the main actor); ends when it is shown
         Task { [weak self] in
-            var avatar: (text: String?, picture: Data?)
-            if let store {
-                switch await store.avatars.read(chief: store.chief) {
-                case .picture(let url)?: avatar = (nil, await Task.detached { try? Data(contentsOf: url) }.value)
-                case .text(let text)?: avatar = (text, nil)
-                case nil: avatar = (nil, nil)
-                }
+            let avatar = if let store {
+                await store.avatars.headerAvatar(chief: store.chief, fallback: fallback)
             } else {
-                avatar = await Task.detached { files.headerAvatar() }.value
+                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
             }
-            if avatar.text == nil, avatar.picture == nil, case .picture(let url) = fallback {
-                avatar.picture = await Task.detached { try? Data(contentsOf: url) }.value
-            }
-            // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
-            guard let self, control.brainHome == home else { return }
+            // A read for the Chief or the character shown before (another came in since) is dropped.
+            guard let self, control.brainHome == home,
+                  fallback == ChiefPetSettingsRows.avatarURL(of: control.services.settings?.snapshot.homeChiefPetMascot) else { return }
             let picture = avatar.picture.flatMap(NSImage.init(data:))
             let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero

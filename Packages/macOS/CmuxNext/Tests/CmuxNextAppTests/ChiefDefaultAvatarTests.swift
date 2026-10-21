@@ -32,6 +32,19 @@ import Testing
         #expect(HomeHostView.defaultTileAvatar(mascot: "fox") != HomeHostView.defaultTileAvatar(mascot: "orb"))
     }
 
+    @Test func theHeaderWearsTheCharacterOnlyWithoutAnAvatar() async throws {
+        let fox = try #require(ChiefPetMascot.fox.avatarURL)
+        let bare = HomeChiefFiles(muxHome: try Self.home())
+        let shown = await HomeChiefAvatars.headerAvatar(files: bare, fallback: fox)
+        #expect(shown.text == nil)
+        #expect(shown.picture == (try Data(contentsOf: fox)))
+        let own = HomeChiefFiles(muxHome: try Self.home())
+        own.writeAvatar("AB")
+        let kept = await HomeChiefAvatars.headerAvatar(files: own, fallback: fox)
+        #expect(kept.text == "AB")
+        #expect(kept.picture == nil)
+    }
+
     @Test func aChiefsOwnAvatarIsNotReplaced() throws {
         let files = HomeChiefFiles(muxHome: try Self.home())
         files.writeAvatar("AB")
