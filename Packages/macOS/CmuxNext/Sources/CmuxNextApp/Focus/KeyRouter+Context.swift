@@ -150,14 +150,23 @@ extension KeyRouter {
            let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
             return view.content as? PageWebView
         }
+        var modelPage: PageWebView?
         if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
            case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
-            return view.content as? PageWebView
+            modelPage = view.content as? PageWebView
         }
-        return Self.codeEditorHoldingKeys(in: controller.window)
+        return Self.keyPage(modelPage: modelPage, in: controller.window)
     }
 
-    /// The code editor page whose web view is the window's first responder while the focus
+    /// The page that gets the window's keys: the code editor page holding the keys
+    /// (``codeEditorHoldingKeys(in:)``), else the page the focus model names (`modelPage`). AppKit
+    /// sends the keys to the first responder, so the editor wins even while the model still names
+    /// another pane's page (Shift-Cmd-L opened a browser tab from a Markdown tab's context).
+    @MainActor static func keyPage(modelPage: PageWebView?, in window: NSWindow?) -> PageWebView? {
+        codeEditorHoldingKeys(in: window) ?? modelPage
+    }
+
+    /// The code editor page whose web view is the window's first responder, also while the focus
     /// model names something else (a file opened by a script or an agent, or a click the model
     /// has not settled yet). AppKit sends the keys to the first responder, so the editor's context
     /// (`codeEditorFocused`) follows it: without it Shift-Cmd-L opened a browser tab instead of

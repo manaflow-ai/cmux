@@ -1184,6 +1184,11 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    // acpmux took a prompt this connection sent; it comes even when the event stream lags.
+    else if (notification.method === "_acpmux/prompt_accepted") {
+      const promptId = notification.params?.promptId;
+      if (typeof promptId === "string") this.promptAccepts.get(promptId)?.();
+    }
     // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
     else if (notification.method === "_acpmux/harnesses_changed") {
       this.onHarnessesChanged?.();
@@ -2608,6 +2613,11 @@ export class AcpmuxDirectClient {
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
+    // A prompt behind the turn is drawn in the queue now: that row is the send's confirmation, so
+    // the composer is free for the next prompt without waiting for acpmux's `queued` record (a
+    // lagged event stream can lose it, and the composer held the prompt with Return and Send dead
+    // until the turn ended). A refusal still comes back as its bubble with Retry.
+    if (waits) accept();
     this.emit();
     try {
       await this.request("session/prompt", {
@@ -2665,7 +2675,7 @@ export class AcpmuxDirectClient {
       const held = !taken && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
-      if ((isTrustRefusal(error) && !queued) || held) {
+      if ((isTrustRefusal(error) && !queued && !taken) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
