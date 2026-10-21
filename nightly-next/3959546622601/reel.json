@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "build": "3959546622601",
+  "notes": "notes/3959546622601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22188,
+      "title": "ci(gallery advisory): render the states a PR changes, with a machine-readable receipt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23332,
+      "title": "cmux-next palette: Phone actions that ask for input end in \"…\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23138,
+      "title": "Home: Stop All Agents (menu, Chief Actions, Option-click on Stop) with an undo toast that offers Restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23319,
+      "title": "test(webviews): the Aa popover case waits for the preset menu to close, not 100 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23235,
+      "title": "cmux-next import: open tabs come over as a workspace per source",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23329,
+      "title": "webviews gallery: two settings plays find their controls again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23278,
+      "title": "webviews ScrollArea: the thumb follows the content when it grows or shrinks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23268,
+      "title": "webviews gallery: entries under src/gallery get their real path (visual-media-board renders)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23267,
+      "title": "webviews gallery: settings variants match the Theme page and the hidden empty backdrop picker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23265,
+      "title": "webviews gallery: the settings stage bridges every op and stream the mock serves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23261,
+      "title": "webviews gallery: two plays target controls by their current role and name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23258,
+      "title": "webviews gallery: plays name targets without their aria-hidden glyphs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23327,
+      "title": "cmux-next: route generated files through CI_SESSION_LANE_RUNNER when set",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23325,
+      "title": "webviews: agent-pane gallery entries test opens each entry's own frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23315,
+      "title": "base autofix: remake held repairs on the moving tip instead of starving",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23316,
+      "title": "cmux guards: run merge guard hooks from the feat-cmux-next tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22719,
+      "title": "cmux NEXT composer: Listening… from the pane's own dictation; the finish key returns focus to the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23256,
+      "title": "ci(cmux-next media): register the auto-tour test, and describe the tours it covers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21514,
+      "title": "Serve server downloads from the public artifact namespace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23239,
+      "title": "cmux-next: regenerate the settings exports and defaults snapshot against current base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23271,
+      "title": "test(browser-import): Touch ID tests click Begin Importing past the double-click guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23238,
+      "title": "cmux-next import: Firefox and Safari search engines come over",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23223,
+      "title": "cmux-next bookmarks: the manager's ⋮ is the full OverflowButton with registered rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23296,
+      "title": "cmux NEXT Inspector: background counts open Servers when only dev servers run; a reveal scrolls once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23295,
+      "title": "test(webviews): history paging times each step's settle in the page, one round trip a step",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
