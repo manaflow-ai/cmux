@@ -65,7 +65,7 @@ on:
         default: ''
         type: string
       promote_nightly_next_debounce:
-        description: Skip the promotion when a nightly-next build started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (set by the automatic request).
+        description: Automatic request (the rolling build train). Skip the promotion while a nightly-next build still waits for a free builder, or when one started within NIGHTLY_NEXT_MIN_INTERVAL_HOURS (unset or 0 is no floor).
         required: false
         default: false
         type: boolean
@@ -523,7 +523,7 @@ jobs:
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
-          MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
+          MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '0' }}
         with:
           script: |
             const fs = require('fs');

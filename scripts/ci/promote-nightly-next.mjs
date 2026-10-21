@@ -304,6 +304,42 @@ async function landersOf(github, owner, repo, commit, actors) {
   return logins;
 }
 
+// Builder capacity for an automatic request (the rolling build train,
+// docs/ci/nightly-next-builder-pool.md on feat-cmux-next). nightly-next builds on a pool of
+// builders (cmuxterm-hq build-fleet/mini-fleet.json role nightly-next-builder)
+// that GitHub hands queued build-nightly-app jobs to, so builds of successive
+// heads overlap. A promotion while a build already waits for a builder would
+// only queue a second one behind it, so the guard holds it. The next tick asks
+// again: every finished feat-cmux-next run, and each nightly-next build's
+// rearm-train job once its builder is free. A dead builder
+// therefore only removes capacity; no list of builders is read here.
+// A run waits when its build-nightly-app job is queued or not created yet
+// (decide and resolve still run); a skipped or finished build does not wait.
+export const BUILD_JOB = 'build-nightly-app';
+const BUILD_RUN_STATUSES = ['requested', 'pending', 'waiting', 'queued', 'in_progress'];
+const BUILD_WAITING_JOB = new Set(['queued', 'waiting', 'pending', 'requested']);
+
+export async function waitingBuild({ github, owner, repo }) {
+  const seen = new Set();
+  for (const status of BUILD_RUN_STATUSES) {
+    const { data } = await github.rest.actions.listWorkflowRuns({
+      owner, repo, workflow_id: 'nightly.yml', event: 'push', branch: TARGET, status, per_page: 20,
+    });
+    for (const run of data.workflow_runs || []) {
+      if (seen.has(run.id) || run.head_branch !== TARGET || run.event !== 'push') continue;
+      seen.add(run.id);
+      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+      });
+      const build = jobs.find((job) => job.name === BUILD_JOB);
+      if (!build || BUILD_WAITING_JOB.has(build.status)) {
+        return { runId: run.id, sha: run.head_sha, status: build ? build.status : 'not created' };
+      }
+    }
+  }
+  return null;
+}
+
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
@@ -325,6 +361,17 @@ export async function decide({
   // G2: the trusted gate.
   if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
     return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+  }
+
+  if (debounce) {
+    const waiting = await waitingBuild({ github, owner, repo });
+    if (waiting) {
+      return {
+        action: 'skip',
+        reason: `No free builder: ${TARGET} run ${waiting.runId} (${waiting.sha.slice(0, 12)}) still waits for one (${BUILD_JOB} ${waiting.status}); the next tick (each feat-cmux-next run, and each build's rearm-train job) asks again.`,
+        sha,
+      };
+    }
   }
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {

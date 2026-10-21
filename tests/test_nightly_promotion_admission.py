@@ -20,6 +20,9 @@ activity, deployment approvals) and checks the decision the workflow acts on:
   A newer request GitHub evicted from the promote queue in the last day is
   decided like a dead waiter; a person's cancel, an older or ungreen commit
   and a dry run are not.
+- Builder capacity (the rolling build train): an automatic request waits
+  while a nightly-next build is queued for a builder or not created yet; a
+  running, finished or skipped build, or a person's request, does not hold it.
 """
 
 from __future__ import annotations
@@ -51,6 +54,11 @@ const notices = [];
 const actions = {
   // Only decideNewest() lists runs without paginating: the promotion requests on main.
   listWorkflowRuns: async (params) => {
+    // waitingBuild(): the nightly-next push runs, by run status.
+    if (params.branch === 'nightly-next') {
+      calls.buildRunLists = (calls.buildRunLists || 0) + 1;
+      return { data: { workflow_runs: (scenario.buildRuns || []).filter((run) => run.status === params.status) } };
+    }
     if (scenario.dispatchThrows) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
     return { data: { workflow_runs: (scenario.dispatchRuns || []).filter((run) => run.status === params.status) } };
   },
@@ -196,6 +204,7 @@ const decision = scenario.newest
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
+      debounce: Boolean(scenario.debounce), minIntervalHours: scenario.minIntervalHours || 0,
     });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
 let policy = { require_non_lander_approver: true };
@@ -860,6 +869,58 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+def build_run(run_id: int, status: str, build_status: str | None, sha: str = MID) -> tuple[dict, list]:
+    run = {"id": run_id, "status": status, "head_sha": sha, "head_branch": "nightly-next", "event": "push"}
+    jobs = [{"name": "decide", "status": "completed", "conclusion": "success"}]
+    if build_status is not None:
+        jobs.append({"name": "build-nightly-app", "status": build_status,
+                     "conclusion": "skipped" if build_status == "completed" else None})
+    return run, jobs
+
+
+def capacity_case(*runs: tuple[dict, list], debounce: bool = True) -> dict:
+    case = scenario(debounce=debounce, buildRuns=[run for run, _ in runs])
+    for run, jobs in runs:
+        case["jobs"][str(run["id"])] = jobs
+    return case
+
+
+def test_an_automatic_request_waits_while_a_build_is_queued_for_a_builder() -> None:
+    out = run(capacity_case(build_run(41, "in_progress", "queued")))
+    assert out["decision"]["action"] == "skip", out["decision"]
+    assert "No free builder" in out["decision"]["reason"] and "41" in out["decision"]["reason"]
+
+
+def test_a_run_whose_build_job_is_not_created_yet_holds_the_request() -> None:
+    out = run(capacity_case(build_run(42, "in_progress", None)))
+    assert out["decision"]["action"] == "skip", out["decision"]
+    assert "not created" in out["decision"]["reason"]
+
+
+def test_running_and_skipped_builds_leave_capacity_for_the_next_head() -> None:
+    out = run(capacity_case(build_run(43, "in_progress", "in_progress"),
+                            build_run(44, "in_progress", "completed")))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["buildRunLists"] >= 1
+
+
+def test_a_request_without_debounce_never_waits_for_a_builder() -> None:
+    out = run(capacity_case(build_run(45, "queued", "queued"), debounce=False))
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert not out["calls"].get("buildRunLists")
+
+
+def test_a_run_on_another_branch_does_not_hold_the_request() -> None:
+    other, jobs = build_run(46, "in_progress", "queued")
+    other["head_branch"] = "main"
+    out = run(capacity_case((other, jobs)))
+    assert out["decision"]["action"] == "promote", out["decision"]
+
+
+def test_the_automatic_request_has_no_time_floor_by_default() -> None:
+    assert "vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '0'" in WORKFLOW
 
 
 def main() -> None:
