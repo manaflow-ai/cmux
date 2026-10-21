@@ -375,9 +375,9 @@ final class HomeFirstRunRow: NSView {
 
     override func keyDown(with event: NSEvent) {
         guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
-        // Activation keys are handled here; Home sends other printable keys to the message box first.
+        // Return only: Home sends printable keys, Space included, to the message box first.
         switch event.keyCode {
-        case 36, 49, 76: if !event.isARepeat { onClick() } // Return, Space, keypad Enter
+        case 36, 76: if !event.isARepeat { onClick() } // Return, keypad Enter
         case 125: focusSibling(by: 1) // Down
         case 126: focusSibling(by: -1) // Up
         default: super.keyDown(with: event)
