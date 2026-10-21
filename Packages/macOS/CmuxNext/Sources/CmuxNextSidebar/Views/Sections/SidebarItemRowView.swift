@@ -140,8 +140,8 @@ class SidebarItemRowView: NSView {
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
-        // The profile chip's name can truncate too, so it keeps the profile's.
-        themedToolTip = style.isIconOnly || (info.avatar != nil && style == .chip) ? info.toolTip : style == .favorite ? info.title : nil
+        // The profile control draws no name, so its tooltip names who it is.
+        themedToolTip = style.isIconOnly || info.avatar != nil ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
@@ -167,9 +167,8 @@ class SidebarItemRowView: NSView {
             title.textColor = Palette.textPrimary
             // An icon is secondary at rest and full strength under the pointer
             // or keyboard focus (the footer's avatar and gear).
-            let strong = (style == .icon || isProfileChip) && (isHovered || isPressed || showsMenu || showsKeyFocus)
-            // The chip's avatar sits beside its name at full strength, as the name does.
-            avatarView.isStrong = strong || isProfileChip
+            let strong = (style == .icon || showsAvatar) && (isHovered || isPressed || showsMenu || showsKeyFocus)
+            avatarView.isStrong = strong
             pin.contentTintColor = Palette.textSecondary
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
