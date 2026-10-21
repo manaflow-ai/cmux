@@ -2182,7 +2182,19 @@
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "w",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "sidebar.multiSelection"
+            }
+          ]
         },
         {
           "id": "saveLayoutTemplate",

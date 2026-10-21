@@ -1102,7 +1102,8 @@
       "cli_name" : "workspace reopen-closed",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground"
+        "sidebarBackground",
+        "workspaceRow"
       ],
       "default_aliases" : [
 
@@ -1895,7 +1896,17 @@
         "workspaceRow"
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "w",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "sidebar.multiSelection"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -30579,34 +30590,6 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "sidebar move-section-bottom",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarSection"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.section.moveToBottom",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Move Section to Bottom",
-      "title_key" : "action.sidebar.section.moveToBottom",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "offered",
       "cli_name" : "sidebar section-look-built-in",
       "context_menu" : "offered",
       "context_menus" : [
@@ -35756,19 +35739,6 @@
     "machineSection" : {
       "entries" : [
         {
-          "enabled_when" : "can_perform",
-          "id" : "remote.removeGroup",
-          "kind" : "action",
-          "order" : 0,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : "remoteHosts",
-            "requires" : [
-
-            ]
-          }
-        },
-        {
           "children" : [
             {
               "enabled_when" : "can_perform",
@@ -35801,20 +35771,37 @@
           ],
           "folder" : "appearance",
           "kind" : "folder",
-          "order" : 1,
+          "order" : 0,
           "title" : "Appearance",
           "title_key" : "menu.folder.appearance",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 2
+          "order" : 1
         },
         {
           "enabled_when" : "can_perform",
           "id" : "machine.reconnect",
           "kind" : "action",
-          "order" : 3,
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : "remoteHosts",
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "remote.removeGroup",
+          "kind" : "action",
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "remoteHosts",
@@ -38739,19 +38726,6 @@
               "id" : "sidebar.section.moveToScrolling",
               "kind" : "action",
               "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.section.moveToBottom",
-              "kind" : "action",
-              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -41781,7 +41755,7 @@
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.closeWorkspaces",
           "kind" : "action",
-          "label" : "Close Group",
+          "label" : "Close All in Group",
           "order" : 13,
           "visible_when" : {
             "debug_only" : false,
@@ -42998,6 +42972,19 @@
               "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 34,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "reopenClosedWorkspace",
+              "kind" : "action",
+              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
