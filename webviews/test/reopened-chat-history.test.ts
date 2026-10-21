@@ -22,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -367,7 +368,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   const settled = async () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const dock = document.querySelector<HTMLElement>(".acpmux-dock")!;
-    const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    const frame = () => window.cmuxPaintFrame();
     const count = () => scroller.querySelectorAll(".acpmux-row").length;
     // The chat has been read through before this runs (`readThrough`), so nothing in flight can
     // still add a row. This only waits for the last page to be laid out: the extent, the row count
@@ -405,7 +406,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   /// what the transcript holds there. One pass; the reads it starts are waited for outside.
   const atTop = async () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-    const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+    const frame = () => window.cmuxPaintFrame();
     for (let pass = 0; pass < 10; pass += 1) {
       scroller.scrollTop = 0;
       await frame();
@@ -440,6 +441,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     answeredAt = 0;
     asked.clear();
     const page = await browser!.newPage({ viewport: { width: 1000, height: 820 } });
+    await installPaintedFrames(page);
     if (THROTTLE > 1) {
       const cdp = await page.context().newCDPSession(page);
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE });

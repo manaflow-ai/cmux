@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -181,6 +182,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
 
   test("a chat switch draws the old chat, then the new one, never a frame in between", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
@@ -189,7 +191,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       const frames: { at: number; chip: string; old: boolean; fresh: boolean; text: string }[] = [];
       (window as unknown as { switchFrames: typeof frames }).switchFrames = frames;
       const start = performance.now();
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const text = document.body.innerText;
         frames.push({
           at: performance.now() - start,
@@ -198,9 +200,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           fresh: text.includes("Docs updated."),
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
-        if (performance.now() - start < 1500) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+        return performance.now() - start < 1500;
+      });
       const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
         .cmuxAcpmuxActions;
       void actions?.["chat.select"]?.({ sessionId: "0190a000-0000-7000-8000-0000000000f2" });
@@ -239,11 +240,12 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
   // report on, every frame draws the chat whole.
   test("a chat's first open reports its first paint once it draws whole", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
     await page.addInitScript((selector) => {
       const frames: { at: number; painted: boolean; whole: boolean; text: string }[] = [];
       (window as unknown as { openFrames: typeof frames }).openFrames = frames;
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const text = document.body?.innerText ?? "";
         frames.push({
           at: performance.now(),
@@ -251,9 +253,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           whole: text.includes("Retry added.") && document.querySelector(selector)?.textContent === "Full access",
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
-        if (performance.now() < 20_000) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+        return performance.now() < 20_000;
+      });
     }, CHIP);
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
@@ -276,6 +277,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
 
   test("a reconnect keeps the chat on screen until the chat is read again", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
@@ -284,7 +286,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       const frames: { at: number; chip: string; old: boolean; text: string }[] = [];
       (window as unknown as { reconnectFrames: typeof frames }).reconnectFrames = frames;
       const start = performance.now();
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const text = document.body.innerText;
         frames.push({
           at: performance.now() - start,
@@ -292,9 +294,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           old: text.includes("Retry added."),
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
-        if (performance.now() - start < 2000) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+        return performance.now() - start < 2000;
+      });
     }, CHIP);
     // acpmux restarts: the pane's socket drops and it connects again.
     const before = attaches;
