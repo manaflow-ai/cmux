@@ -725,7 +725,7 @@ class FeatWorkflowTests(unittest.TestCase):
                 return True
         return False
 
-    def test_each_writer_job_checks_out_the_module_and_passes_the_terms(self) -> None:
+    def test_each_writer_job_checks_out_the_module_and_passes_the_agent_list(self) -> None:
         for workflow, jobs in self.WRITER_JOBS.items():
             loaded = yaml.safe_load((ROOT / workflow).read_text(encoding="utf-8"))
             for job_id, script in jobs.items():
@@ -740,10 +740,12 @@ class FeatWorkflowTests(unittest.TestCase):
                     self.assertTrue(uploads, f"{workflow} {job_id} no longer runs {script}")
                     for step in uploads:
                         env = step.get("env", {})
-                        self.assertEqual(env.get("PR_MEDIA_PRIVATE_TERMS"), "${{ secrets.PR_MEDIA_PRIVATE_TERMS }}")
                         self.assertEqual(env.get("PR_MEDIA_AGENT_AUTHORS"), "${{ vars.PR_MEDIA_AGENT_AUTHORS }}")
+                        # A dispatchable job reads secrets only in an environment
+                        # (tests/test_supplychain_security.py); main's scan has the names.
+                        self.assertNotIn("PR_MEDIA_PRIVATE_TERMS", env)
 
-    def test_no_other_step_runs_a_writer_without_the_terms(self) -> None:
+    def test_no_other_step_runs_a_writer_without_the_agent_list(self) -> None:
         for workflow in sorted((ROOT / ".github/workflows").glob("*.yml")):
             loaded = yaml.safe_load(workflow.read_text(encoding="utf-8")) or {}
             for job_id, job in (loaded.get("jobs") or {}).items():
@@ -754,7 +756,7 @@ class FeatWorkflowTests(unittest.TestCase):
                     if "media/reel.py" in run and "--publish" not in run:
                         continue
                     with self.subTest(workflow=workflow.name, job=job_id, step=step.get("name")):
-                        self.assertIn("PR_MEDIA_PRIVATE_TERMS", step.get("env", {}))
+                        self.assertIn("PR_MEDIA_AGENT_AUTHORS", step.get("env", {}))
 
 
 if __name__ == "__main__":
