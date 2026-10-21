@@ -153,7 +153,7 @@ export function mcpTarget(call: McpCall, names: McpNames): string | undefined {
 }
 
 /// The name a call has before it is humanized: Claude Code's `mcp__<server>__<tool>`, or Codex's
-/// `<server>.<tool>`. Rows keep it as their tooltip and in their opened details.
+/// `<server>.<tool>`. Rows keep it in their opened details.
 export function mcpRawName(tool: Tool, call: McpCall): string {
   const title = tool.title.trim();
   return CLAUDE_NAME.test(title) ? title : `${call.server}.${call.tool}`;

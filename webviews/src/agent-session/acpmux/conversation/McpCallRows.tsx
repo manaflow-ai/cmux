@@ -136,7 +136,9 @@ function McpCallDetails({
   );
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
-      <code className="cv-mcp-call__name selectable">{raw}</code>
+      <code className="cv-mcp-call__name selectable" data-find-skip>
+        {raw}
+      </code>
       {request && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>
