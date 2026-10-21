@@ -73,6 +73,22 @@ describe("Cloud VM allocation rate limit", () => {
     });
   });
 
+  test("charges every provider allocation in a multi-attempt request", async () => {
+    let checks = 0;
+    const response = await enforceVmAllocationRateLimit({
+      request: request(),
+      route: "run.create",
+      billingTeamId: "team-1",
+      ruleId: "rule-allocation",
+      isVercel: true,
+      cost: 3,
+      check: async () => ({ rateLimited: ++checks === 3 }),
+    });
+
+    expect(checks).toBe(3);
+    expect(response?.status).toBe(429);
+  });
+
   test("aborts a stalled Firewall check and fails closed", async () => {
     let observedSignal: AbortSignal | undefined;
     const response = await enforceVmAllocationRateLimit({
