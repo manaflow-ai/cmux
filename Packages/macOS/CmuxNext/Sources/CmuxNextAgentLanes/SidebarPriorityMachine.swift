@@ -32,9 +32,11 @@ public struct SidebarPriorityMachine {
     func lanes() -> [AgentActivityLane] {
         var order: [String] = []
         var lanes: [String: AgentActivityLane] = [:]
-        for tab in store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+        // The notices' times by id, read from the ledger once and only when a tab's notice has none.
+        var ledger: [NotificationID: UInt64]?
+        for tab in tabs() {
             guard let ref = tab.agentSession, let session = ref.session, !session.isEmpty else { continue }
-            let lane = lane(tab, ref: ref, session: session)
+            let lane = lane(tab, ref: ref, session: session, ledger: &ledger)
             if let held = lanes[session] {
                 if Self.strength(lane) > Self.strength(held) { lanes[session] = lane }
             } else {
@@ -45,33 +47,51 @@ public struct SidebarPriorityMachine {
         return order.compactMap { lanes[$0] }
     }
 
+    /// The id of the tree's tab that shows acpmux session `session` (the one its row is made from).
+    func tab(showing session: String) -> String? {
+        tabs().first { $0.agentSession?.session == session }?.id
+    }
+
+    private func tabs() -> [TabModel] {
+        store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+    }
+
     /// The tab's chat as a lane: an unread warning is a question or permission prompt, an unread
     /// error a failed turn or a gone agent, any other unread notice a result nobody has seen. It
     /// has no folder or pull requests, so it is never Red CI (``AgentPriorityChats/failingChecks``).
-    private func lane(_ tab: TabModel, ref: AgentSessionRef, session: String) -> AgentActivityLane {
-        let notice = tab.hasUnread ? tab.notification : nil
+    private func lane(_ tab: TabModel, ref: AgentSessionRef, session: String,
+                      ledger: inout [NotificationID: UInt64]?) -> AgentActivityLane {
+        let marker = tab.notification
+        let notice = tab.hasUnread ? marker : nil
         let state: AgentActivityLane.State = switch notice?.level {
         case .warning?: .input
         case .error?: .failed
         default: .idle
         }
         let text = notice == nil ? nil : store.notificationText(for: tab)
-        let createdAtMs = notice.flatMap { marker in
-            marker.createdAtMs ?? store.notifications.last { $0.notification == marker.notification }?.createdAtMs
+        // Since the tab's last notice, read or not, so an idle chat ages out like this Mac's.
+        var createdAtMs = marker?.createdAtMs
+        if createdAtMs == nil, let marker {
+            if ledger == nil {
+                ledger = Dictionary(store.notifications.compactMap { entry in entry.createdAtMs.map { (entry.notification, $0) } },
+                                    uniquingKeysWith: { _, newer in newer })
+            }
+            createdAtMs = ledger?[marker.notification]
         }
-        // A notice posted before the app connected has no time here: it counts from when the app
-        // first saw it, so each new notice is a new state (a read or snooze mark on the last one
-        // no longer holds).
-        let since = createdAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
-            ?? notice.map { Self.firstSeen("\(session)#\($0.notification.rawValue)") }
+        // A notice posted before the app connected has no time here, nor has a tab with no notice:
+        // it counts from when the app first saw it. A mark holds for the notice, not that time
+        // (`markKey`), so it outlives the app's memory of it.
+        let key = marker.map { "n\($0.notification.rawValue)" } ?? "none"
+        let since = createdAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? Self.firstSeen("\(session)#\(key)")
         let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return AgentActivityLane(id: session, name: session, title: title.isEmpty ? ref.harness ?? session : title, peer: name,
                                  parent: nil, state: state, since: since,
                                  error: state == .failed ? text : nil, harness: ref.harness, step: state == .failed ? nil : text,
-                                 unread: notice != nil && state == .idle)
+                                 unread: notice != nil && state == .idle, markKey: key)
     }
 
-    /// When the app first saw each untimed notice, by session and notice (bounded).
+    /// When the app first saw each tab's notice (or a tab with none) that has no time, by session
+    /// and notice: only how long an idle row stays listed reads it (bounded).
     private static var seen: [String: Date] = [:]
 
     private static func firstSeen(_ key: String) -> Date {

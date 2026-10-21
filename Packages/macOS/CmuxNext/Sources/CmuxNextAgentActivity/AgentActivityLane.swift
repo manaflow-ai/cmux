@@ -55,10 +55,13 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// family's index harness and the agent's own session id. Nil for a family the index has none
     /// of, or before the agent named its session. The session tree's chat history leaves it out.
     public let chat: String?
+    /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
+    /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
+    public let markKey: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
-                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil) {
+                spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil, markKey: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -76,6 +79,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.cwd = cwd
         self.pullRequests = pullRequests
         self.chat = chat
+        self.markKey = markKey
     }
 
     /// A person should look: it waits on them, failed or was lost.

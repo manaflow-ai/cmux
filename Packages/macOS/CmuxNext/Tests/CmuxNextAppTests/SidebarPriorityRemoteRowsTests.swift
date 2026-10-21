@@ -172,6 +172,22 @@ struct SidebarPriorityRemoteRowsTests {
         #expect(builds.count == 1, "a mark change builds them once")
     }
 
+    @Test func openingARemoteRowRevealsTheTabOnTheMachineWhoseRowItIs() throws {
+        let vm = Remote.tree([Remote.chatTab(1, session: "vm-only", host: "install:vm", title: "VM"),
+                              Remote.chatTab(2, session: "both", host: "install:vm", title: "Both on VM")])
+        let box = Remote.tree([Remote.chatTab(1, session: "box-only", host: "install:box", title: "Box"),
+                               Remote.chatTab(2, session: "both", host: "install:box", title: "Both on box")])
+        let tab = { (store: DaemonStore, session: String) in
+            store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession?.session == session }?.id
+        }
+        let chats = Self.chats { [SidebarPriorityMachine(name: "gpu-box", store: vm), SidebarPriorityMachine(name: "big-blue", store: box)] }
+        #expect(chats.remoteTab(showing: "box-only") == tab(box, "box-only"))
+        #expect(chats.remoteTab(showing: "vm-only") == tab(vm, "vm-only"))
+        #expect(chats.entries().first { $0.id == "both" }?.machine == "gpu-box")
+        #expect(chats.remoteTab(showing: "both") == tab(vm, "both"), "the row's machine, the one its tag names")
+        #expect(chats.remoteTab(showing: "nowhere") == nil)
+    }
+
     @Test func archivingARemoteRowDoesNothing() throws {
         let vm = Remote.tree([Remote.chatTab(1, session: "vm-done", host: "install:vm", title: "Bump", notice: (95, .info, unread: true))])
         let chats = Self.chats { [SidebarPriorityMachine(name: "gpu-box", store: vm)] }
