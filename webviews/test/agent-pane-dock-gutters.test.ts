@@ -140,30 +140,39 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
   const scrollTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
 
-  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll of the transcript it made: waits
-  /// for the transcript to move (or a second when it does not), then to hold still.
+  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll of the transcript it made. Counts
+  /// painted frames: once the transcript or a part of the stack moved, it waits until they hold still
+  /// for 12 frames, so the next wheel measures only its own scroll; when nothing moved in 30 frames,
+  /// the wheel scrolled nothing.
   async function wheelAt(page: Page, x: number, y: number, deltaY: number): Promise<number> {
     await page.mouse.move(x, y);
     const before = await scrollTop(page);
     await page.mouse.wheel(0, deltaY);
-    await page
-      .waitForFunction(
-        (before) => Math.abs(document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop - before) >= 2,
-        before,
-        { timeout: 1000 },
-      )
-      .catch(() => undefined);
-    // A smooth scroll settles: the transcript holds still for 200 ms, so the next wheel measures
-    // only its own scroll.
-    await page.waitForFunction(
+    await page.evaluate(
       () =>
-        new Promise<boolean>((resolve) => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          const start = scroller.scrollTop;
-          setTimeout(() => resolve(scroller.scrollTop === start), 200);
+        new Promise<void>((resolve) => {
+          const scrollers = [
+            document.querySelector<HTMLElement>(".acpmux-scroll")!,
+            ...document.querySelectorAll<HTMLElement>(".acpmux-main > .acpmux-dock *"),
+          ];
+          const read = () => scrollers.map((node) => node.scrollTop).join(",");
+          const start = read();
+          let last = start;
+          let frames = 0;
+          let still = 0;
+          // Reads scroll offsets only (no layout under test), to count the frames a scroll holds still.
+          const frame = () => {
+            frames++;
+            const now = read();
+            still = now === last ? still + 1 : 0;
+            last = now;
+            const moved = now !== start;
+            if ((moved && still >= 12) || (!moved && frames >= 30) || frames >= 600) resolve();
+            // raf-read: scroll offsets only, to count frames the transcript and the stack hold still.
+            else requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
         }),
-      undefined,
-      { timeout: 5000, polling: 50 },
     );
     return (await scrollTop(page)) - before;
   }
