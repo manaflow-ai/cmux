@@ -125,3 +125,23 @@ test("a prompt still putting its images goes before a prompt sent after it", asy
     client.close();
   }
 });
+
+test("a PDF over the put cap is not put: its put would pass the frame limit", async () => {
+  const { MAX_PUT_BYTES } = await import("./direct");
+  const { client, sent } = await connect(true);
+  const big: ComposerAttachment = {
+    id: "big",
+    kind: "document",
+    name: "big.pdf",
+    mimeType: "application/pdf",
+    size: MAX_PUT_BYTES + 3,
+    data: "A".repeat(((MAX_PUT_BYTES + 3) / 3) * 4),
+  };
+  try {
+    await client.send("read this", [shot("a"), big], "p-big");
+    const puts = sent.filter((frame) => frame.method === "_acpmux/attachment_put");
+    expect(puts.map((frame) => frame.params.mimeType)).toEqual(["image/png"]);
+  } finally {
+    client.close();
+  }
+});
