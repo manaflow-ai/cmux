@@ -12,6 +12,7 @@ import type { TurnFile } from "../diff";
 import { useHeaderState } from "../header/headerState";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { machineColor } from "../machineColor";
 import { rowIconSize } from "../icons/iconSize";
 import type { AcpmuxSnapshot } from "../model";
 import { homePath, projectLabel } from "../sessionList";
@@ -287,7 +288,7 @@ function Environment({ summary, machineName }: { summary?: Summary; machineName?
   return (
     <ul className="acpmux-rail-list">
       <li className="acpmux-rail-row">
-        <Icon name={place.icon} size={ROW_ICON} row />
+        <Icon name={place.icon} size={ROW_ICON} row color={machineColor(place.name)} />
         <span className="acpmux-rail-row__name">{place.name}</span>
       </li>
       {cwd && folderRow(cwd, cwd === summary?.worktree ? "git.worktree" : "folder")}

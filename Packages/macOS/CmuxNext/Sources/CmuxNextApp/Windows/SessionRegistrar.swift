@@ -33,7 +33,7 @@ final class SessionRegistrar {
     func start() {
         observation?.cancel()
         Task { [weak self] in
-            let name = await MacName().computerName()
+            let name = await MacName().displayName()
             self?.computerName = name
             self?.recorded.removeAll()
             self?.sync()

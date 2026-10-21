@@ -11,6 +11,7 @@ import {
   orderEnvironments,
 } from "./environments";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
+import { machineColor } from "./machineColor";
 
 const SECTION_LABELS = {
   local: "composer.envLocal",
@@ -161,7 +162,7 @@ export function EnvironmentPicker({
         data-first-section={sectionStart && index === 0 ? "" : undefined}
         data-current={environment.id === current ? "" : undefined}
       >
-        <EnvironmentIcon kind={environment.kind} />
+        <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
@@ -229,11 +230,14 @@ export function EnvironmentPicker({
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
 
-export function EnvironmentIcon({ kind }: { kind: EnvironmentKind }) {
+/// A machine's icon: its kind's shape, in the machine's own color (machineColor) when it has a
+/// name, so each machine reads the same in the chip, this list and the chat's Environment line.
+export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
       data-kind={kind}
+      style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"
