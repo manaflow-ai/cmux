@@ -9,12 +9,15 @@
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
-// ends, the "Worked for" disclosure takes its place.
+// ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
+// above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
+// would read as the agent still working.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import type { BackgroundCounts } from "../summary/backgroundWork";
 import { formatDuration } from "./turns";
+import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -49,14 +52,17 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const t = useT();
   const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
+  const waiting = useContext(WaitingOnContext);
   const [time, setTime] = useState(now);
   const held = row.durationMs !== undefined;
+  // No tick while the line waits on the person: it shows no time.
+  const still = held || waiting !== undefined;
   useEffect(() => {
-    if (held) return;
+    if (still) return;
     setTime(now());
     const timer = setInterval(() => setTime(now()), 1000);
     return () => clearInterval(timer);
-  }, [now, held]);
+  }, [now, still]);
   const until = held ? row.at + row.durationMs! : time;
   const parts = counts
     ? [
@@ -81,7 +87,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   // line is not painted either: the call it names is matched on its own tool row.
   return (
     <div className="cv-worked has-divider" data-find-skip>
-      {row.doing ? (
+      {waiting ? (
+        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
+          {t(WAITING_LABEL[waiting])}
+        </output>
+      ) : row.doing ? (
         <>
           <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
