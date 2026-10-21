@@ -30,7 +30,7 @@ public struct SSHHost: Hashable, Sendable {
 
     public init(destination: SSHDestination, session: String = RemoteSessionName.defaultName,
                 remoteBinary: String = SSHHost.defaultRemoteBinary, remoteStateDir: String? = nil,
-                remoteMuxSocket: String? = nil, name: String? = nil) throws(Invalid) {
+                remoteMuxSocket: String? = nil, name label: String? = nil) throws(Invalid) {
         guard let name = try? RemoteSessionName.validate(session) else { throw Invalid(field: "session") }
         guard RemotePath.isSafe(remoteBinary) else { throw Invalid(field: "remote_binary") }
         if let remoteStateDir, !RemotePath.isSafe(remoteStateDir) { throw Invalid(field: "remote_state_dir") }
@@ -40,7 +40,7 @@ public struct SSHHost: Hashable, Sendable {
         self.remoteBinary = remoteBinary
         self.remoteStateDir = remoteStateDir
         self.remoteMuxSocket = remoteMuxSocket
-        self.name = Self.displayName(name)
+        name = Self.displayName(label)
     }
 
     /// The same machine under `name` (nil goes back to the host's name).
