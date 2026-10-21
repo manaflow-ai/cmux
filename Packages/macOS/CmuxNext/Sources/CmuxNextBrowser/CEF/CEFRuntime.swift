@@ -124,6 +124,14 @@ final class CEFRuntime {
         OffTheRecordProfiles.shared.observeEnd { [weak self] profile in self?.releaseOffTheRecordContexts(of: profile) }
     }
 
+    /// `cef_log_severity_t` LOGSEVERITY_WARNING for cef.log and every helper.
+    /// At Chromium's default (INFO), each console call of a page or an
+    /// extension that no handler takes became an `INFO:CONSOLE` line in
+    /// cef.log (an idle 1Password extension wrote 32 lines a minute, all
+    /// day). DevTools and the automation console read the inspector
+    /// protocol, not this log; warnings, errors and FATAL lines stay.
+    nonisolated static let logSeverity: Int32 = 3
+
     /// Process start, from the kernel (`kinfo_proc.p_starttime`).
     nonisolated static let launchUptime: Double = {
         var info = kinfo_proc()
@@ -386,7 +394,7 @@ final class CEFRuntime {
             buffer.baseAddress?.withMemoryRebound(to: UnsafePointer<CChar>?.self, capacity: buffer.count) { list in
                 CEFStartSteps.shared.timed("cef_initialize") { shim.initialize(
                     layout.frameworkDirectory.path, layout.mainBundle.path, layout.helperExecutable.path,
-                    storage.root.path, storage.logFile.path, 0, locale.locale, locale.acceptLanguages, list, context,
+                    storage.root.path, storage.logFile.path, Self.logSeverity, locale.locale, locale.acceptLanguages, list, context,
                     cefScheduleCallback, cefEventCallback, cefKeyCallback
                 ) }
             } ?? 0

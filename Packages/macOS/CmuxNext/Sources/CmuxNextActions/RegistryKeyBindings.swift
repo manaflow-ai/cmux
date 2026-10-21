@@ -64,6 +64,10 @@ public struct RegistryKeyBindings {
             if KeyBindingDefaults.yieldsToTerminal.contains(id) {
                 defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
             }
+            // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+            if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
+            }
             let specificity = requires.rawValue.nonzeroBitCount
             // A focused text field's own keys win over these defaults (Cmd-Return steers the chat);
             // an action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.

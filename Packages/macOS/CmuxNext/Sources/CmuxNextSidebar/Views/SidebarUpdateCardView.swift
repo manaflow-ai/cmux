@@ -245,13 +245,16 @@ final class SidebarUpdateCardView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { closeMenu }
 
-    /// Hide: one click hides this version's card at once (no menu).
+    /// Hide: one click hides this version's card (no menu). It fades out; under Reduce Motion it
+    /// goes in one frame (Lawrence 2026-10-20).
     private func closePressed() {
         hideNotes()
+        presence.hidesNextAtOnce = motionPolicy().reduceMotion
         if let id = card?.id, let action = card?.closeAction { onCloseAction?(id, action) }
     }
 
     @objc private func closeItem(_ item: NSMenuItem) {
+        presence.hidesNextAtOnce = motionPolicy().reduceMotion
         if let id = card?.id, let action = item.representedObject as? String { onCloseAction?(id, action) }
     }
 
