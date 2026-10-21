@@ -160,9 +160,15 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 export const ATTACHMENT_PUT = "_acpmux/attachment_put";
 /// How long one put may take before its attachment goes inline instead.
 const PUT_DEADLINE_MS = 30_000;
-/// An attachment `putAttachments` sends ahead: an image's or a PDF's bytes.
+/// The most bytes acpmux keeps for one put (cmux-tui acpmux `hub/prompt_images.rs` MAX_PUT_BYTES).
+export const MAX_PUT_BYTES = 10 * 1024 * 1024;
+/// An attachment `putAttachments` sends ahead: an image's or a PDF's bytes, at most
+/// `MAX_PUT_BYTES`. A bigger one's put alone would pass acpmux's frame limit and reset the
+/// connection, so it goes inline as before.
 const puts = (attachment: ComposerAttachment) =>
-  (attachment.kind === "image" || attachment.kind === "document") && Boolean(attachment.data);
+  (attachment.kind === "image" || attachment.kind === "document") &&
+  Boolean(attachment.data) &&
+  attachment.data!.length <= Math.floor(MAX_PUT_BYTES / 3) * 4;
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
 /// How long Stop waits for the turn to end before the pane stops showing it as working. It is
