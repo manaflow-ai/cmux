@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { brokenReason, brokenStates, judge, stateKey, summary } from "./health";
 
-const ready = { id: "a", params: { entry: "ui.select", variant: "open" }, ready: "1", painted: true };
+const ready = { id: "a", params: { entry: "ui.select", variant: "open" }, ready: "1" };
 
 test("a state that rendered is healthy, even with quality findings", () => {
   expect(brokenReason(ready)).toBeNull();
@@ -12,20 +12,15 @@ test("a state that rendered is healthy, even with quality findings", () => {
   expect(brokenReason({ ...ready, play: { status: "warn" } })).toBeNull();
 });
 
-test("a stage that errors, never readies, draws nothing or dies is broken", () => {
+test("a stage that errors, never readies or dies is broken; one that is empty on purpose is not", () => {
   expect(brokenReason({ ...ready, ready: "error" })).toBe("the stage reported an error");
   expect(brokenReason({ ...ready, ready: null })).toBe("never reported ready");
-  expect(brokenReason({ ...ready, painted: false })).toBe("blank: nothing visible on the stage");
   expect(brokenReason({ ...ready, ready: "error", error: "Target crashed" })).toBe("did not render: Target crashed");
 });
 
 test("a play that cannot find or reach its state is broken", () => {
-  for (const error of [
-    'play: no element for menuitemradio "Comfortable"',
-    "play: waitFor did not hold within 5000 ms",
-    "pages.settings#x failed to mount: Error: Gallery control missing: [data-card]",
-  ])
-    expect(brokenReason({ ...ready, play: { status: "fail", error } })).toBe(`play: ${error}`);
+  for (const error of ['play: no element for menuitemradio "Comfortable"', "play: waitFor did not hold within 5000 ms"])
+    expect(brokenReason({ ...ready, play: { status: "fail", error } })).toBe(error);
 });
 
 test("states are keyed by entry and variant, whatever the theme or width", () => {

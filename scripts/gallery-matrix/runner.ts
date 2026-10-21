@@ -229,13 +229,6 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
-    // Whether the stage drew anything visible: a ready stage with nothing on it is blank (health.ts).
-    const painted = await page.evaluate(() =>
-      [...(document.getElementById("root") ?? document.body).querySelectorAll("*")].some((element) => {
-        const box = element.getBoundingClientRect();
-        return box.width > 2 && box.height > 2 && getComputedStyle(element).visibility !== "hidden";
-      }),
-    );
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {
@@ -255,7 +248,7 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
-    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, painted, revision, play, ...(experiment ? { experiment } : {}) };
+    const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, revision, play, ...(experiment ? { experiment } : {}) };
     if (stills.length) result.steps = stills.sort((a, b) => a.index - b.index);
     if (baselineDir) {
       const baselinePath = join(baselineDir, screenshotName);

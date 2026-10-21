@@ -1,9 +1,11 @@
 name: gallery health
 
 # Every gallery state must render (scripts/gallery-matrix/health.ts): a state that errors, never
-# reports ready, draws nothing, crashes the renderer, or whose play cannot reach it fails this check
-# unless scripts/gallery-matrix/broken-allowlist.json names it with why. A pull request renders the
-# entries it touches; the daily run and a manual run render every entry.
+# reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
+# scripts/gallery-matrix/broken-allowlist.json names it with why. A pull request, and each push to
+# feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
+# a change to the checker). A schedule here would never fire: GitHub runs schedules only from the
+# default branch (main), and this workflow lives on feat-cmux-next.
 
 on:
   pull_request:
@@ -14,15 +16,20 @@ on:
       - "scripts/gallery-matrix/**"
       - "bun.lock"
       - ".github/workflows/gallery-health.yml"
-  schedule:
-    - cron: "17 9 * * *"
-  workflow_dispatch:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "webviews/**"
+      - "scripts/gallery-matrix/**"
+      - "bun.lock"
+      - ".github/workflows/gallery-health.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: gallery-health-${{ github.event.pull_request.number || github.ref }}
+  # A push renders only what it touched, so a later push must not cancel it.
+  group: gallery-health-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -64,12 +71,20 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           cd webviews
           bun install --frozen-lockfile
           if [ "$EVENT" = pull_request ]; then
             git diff --name-only "$(git merge-base "origin/$BASE_REF" HEAD)" HEAD > "$RUNNER_TEMP/changed.txt"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
+          else
+            # A new branch tip with no previous commit to compare: render everything.
+            echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
+          fi
+          if [ -s "$RUNNER_TEMP/changed.txt" ]; then
             bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
             # The checker itself changed: render everything with it.
             if grep -q '^scripts/gallery-matrix/\|^\.github/workflows/gallery-health\.yml$' "$RUNNER_TEMP/changed.txt"; then
@@ -79,7 +94,7 @@ jobs:
             fi
             echo "ids=$(jq -r '.entries | join(",")' "$RUNNER_TEMP/touched.json")" >> "$GITHUB_OUTPUT"
           else
-            echo 'all=true' >> "$GITHUB_OUTPUT"
+            echo 'all=false' >> "$GITHUB_OUTPUT"
             echo 'ids=' >> "$GITHUB_OUTPUT"
           fi
 

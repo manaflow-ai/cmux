@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-// Gallery health: every gallery state must render. A state is broken when its stage errors, never
-// reports ready, draws nothing, the renderer dies, or its play cannot find or reach the state it
-// describes. Quality findings (layout shift, long frames, motion) are the matrix's, not this check's.
+// Gallery health: every gallery state must render. A state is broken when its stage errors (a
+// fixture that cannot find its control fails the mount), never reports ready, the renderer dies, or
+// its play cannot find or reach the state it describes. A stage that draws nothing is not broken by
+// itself: some states are empty on purpose. Quality findings (layout shift, long frames, motion) are
+// the matrix's, not this check's.
 //
 // A case broken on the first run is rendered twice more; only a case broken every time counts.
 // broken-allowlist.json names known broken states (`entry#variant`) with the reason each is
@@ -19,22 +21,20 @@ export type HealthResult = {
   id: string;
   params?: Record<string, unknown>;
   ready?: string | null;
-  painted?: boolean;
   error?: string;
   play?: { status?: string; error?: string } | null;
 };
 
-/** Play errors that mean the state was never reached, not that it was reached imperfectly. */
-const UNREACHED = /no element for|waitFor did not hold|failed to mount|Gallery control missing/;
+/** Play errors (frame/playRunner.ts) that mean the state was never reached, not reached imperfectly. */
+const UNREACHED = /no element for|waitFor did not hold/;
 
 /** Why a rendered case is broken, or null when it rendered. */
 export function brokenReason(result: HealthResult): string | null {
   if (result.error) return `did not render: ${result.error}`;
   if (result.ready === "error") return "the stage reported an error";
   if (result.ready !== "1") return "never reported ready";
-  if (result.painted === false) return "blank: nothing visible on the stage";
   const play = result.play;
-  if (play?.status === "fail" && play.error && UNREACHED.test(play.error)) return `play: ${play.error}`;
+  if (play?.status === "fail" && play.error && UNREACHED.test(play.error)) return play.error;
   return null;
 }
 
@@ -111,7 +111,15 @@ async function main(): Promise<void> {
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));
-  let results = (await run(shard, 0)) as HealthResult[];
+  let results: HealthResult[];
+  try {
+    results = (await run(shard, 0)) as HealthResult[];
+  } catch (error) {
+    // The matrix itself could not run (browser launch, manifest): say so in the verdict file too.
+    const message = `gallery health could not render: ${error instanceof Error ? error.message : String(error)}`;
+    await writeFile(join(outputDir, "health.json"), `${JSON.stringify({ error: message }, null, 2)}\n`);
+    throw new Error(message);
+  }
   let broken = brokenStates(results);
   for (let attempt = 1; attempt <= Number(values.retries) && broken.size; attempt++) {
     // Render again only the cases of states still broken; a state stays broken only if it breaks again.
