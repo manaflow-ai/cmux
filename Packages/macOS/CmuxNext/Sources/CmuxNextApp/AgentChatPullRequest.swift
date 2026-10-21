@@ -4,8 +4,9 @@ import Foundation
 import Observation
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
-/// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder. Nil when gh is not installed,
-/// the branch has no pull request, or gh does not answer in time; it never prompts.
+/// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
+/// link (a hover card's `pr.inspect`). Nil when gh is not installed, there is no such pull
+/// request, or gh does not answer in time; it never prompts.
 nonisolated struct AgentChatPullRequestReader: Sendable {
     /// `gh`'s path; nil looks in the App's PATH and the usual install folders.
     var gh: String?
@@ -36,11 +37,22 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
     }()
 
     func read(in folder: String) async -> AgentPanePullRequest? {
+        await read(["pr", "view", "--json", AgentPanePullRequest.fields], in: folder)
+    }
+
+    /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
+    /// gh's argument is never anything but that URL. Runs in the home folder: no repository needed.
+    func read(url: URL) async -> AgentPanePullRequest? {
+        await read(["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
+                   in: environment["HOME"] ?? NSHomeDirectory())
+    }
+
+    private func read(_ arguments: [String], in folder: String) async -> AgentPanePullRequest? {
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
         let timeout = timeout, environment = Self.environment(environment)
         return await withCheckedContinuation { continuation in
             Self.queue.addOperation {
-                continuation.resume(returning: Self.run(gh, in: folder, environment: environment, timeout: timeout)
+                continuation.resume(returning: Self.run(gh, arguments, in: folder, environment: environment, timeout: timeout)
                     .flatMap(AgentPanePullRequest.init(ghView:)))
             }
         }
@@ -66,10 +78,10 @@ nonisolated struct AgentChatPullRequestReader: Sendable {
         let process = Process()
     }
 
-    private static func run(_ gh: String, in folder: String, environment: [String: String], timeout: Duration) -> Data? {
+    private static func run(_ gh: String, _ arguments: [String], in folder: String, environment: [String: String], timeout: Duration) -> Data? {
         let held = Held(), process = held.process
         process.executableURL = URL(fileURLWithPath: gh)
-        process.arguments = ["pr", "view", "--json", AgentPanePullRequest.fields]
+        process.arguments = arguments
         process.currentDirectoryURL = URL(fileURLWithPath: folder)
         process.environment = environment
         // A file, not a pipe: a child gh left holding its output cannot keep this read (and one of
@@ -155,5 +167,47 @@ final class AgentChatPullRequest {
                 ask(cwd)
             }
         }
+    }
+}
+
+/// The pull requests reply links and the pull request bars point at, for their hover cards
+/// (`pr.inspect`): each read with gh once, and again only after `freshness`, so hovering the same
+/// link again asks nothing; two hovers of one link while it is read share that read.
+@MainActor
+final class AgentReplyPullRequests {
+    private struct Answer {
+        var pullRequest: AgentPanePullRequest?
+        var at: ContinuousClock.Instant
+    }
+
+    /// The App's one cache: every chat's cards read through it.
+    static let shared = AgentReplyPullRequests()
+    /// The most links kept; the oldest go first.
+    static let maximumKept = 200
+
+    private let reader: AgentChatPullRequestReader
+    private let freshness: Duration
+    private var answers: [URL: Answer] = [:]
+    private var reading: [URL: Task<AgentPanePullRequest?, Never>] = [:]
+
+    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(60)) {
+        self.reader = reader
+        self.freshness = freshness
+    }
+
+    func read(_ url: URL) async -> AgentPanePullRequest? {
+        if let answer = answers[url], ContinuousClock.now - answer.at < freshness { return answer.pullRequest }
+        if let task = reading[url] { return await task.value }
+        let reader = reader
+        // task-owner: one gh read per stale link; hovers of the same link await it.
+        let task = Task { await reader.read(url: url) }
+        reading[url] = task
+        let pullRequest = await task.value
+        reading[url] = nil
+        answers[url] = Answer(pullRequest: pullRequest, at: .now)
+        if answers.count > Self.maximumKept, let oldest = answers.min(by: { $0.value.at < $1.value.at })?.key {
+            answers[oldest] = nil
+        }
+        return pullRequest
     }
 }
