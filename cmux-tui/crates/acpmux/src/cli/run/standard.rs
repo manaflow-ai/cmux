@@ -388,6 +388,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             session,
             prompt,
             steer,
+            no_steer,
             no_wait,
             quiet,
             timeout,
@@ -396,6 +397,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id,
         } => {
             let prompt_id = PromptId::new(prompt_id);
+            let steer = send_steers(steer, no_steer);
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
@@ -408,7 +410,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
             let behind =
                 json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
-            if (running || pending > 0) && !steer {
+            // As the hub decides: a running turn of an agent that steers, pending permission or not.
+            let steers_now = steer && running && steering(&info);
+            if (running || pending > 0) && !steers_now {
                 let mut parts = Vec::new();
                 if pending > 0 {
                     parts.push(format!(
@@ -428,10 +432,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if no_wait {
                 // Return once the daemon recorded the prompt, not after a guess.
                 let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
+                let steered = accepted.get("steer") == Some(&json!(true));
                 if json_out {
                     print_json(
-                        &json!({"sessionId": id, "queued": true, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
+                        &json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
                     );
+                } else if steered {
+                    println!("steered");
                 } else {
                     println!("queued");
                 }
@@ -550,5 +557,29 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
+    }
+}
+
+/// Whether `acpmux send` steers: only with `--steer`. A send queues behind the running turn by
+/// default (2026-10-20: steered messages cancelled the receiver's tool calls), and `--no-steer`
+/// says so explicitly for scripts that must keep queueing if the default changes.
+fn send_steers(steer: bool, no_steer: bool) -> bool {
+    steer && !no_steer
+}
+
+/// The agent of the session `info` describes takes a prompt mid-turn.
+fn steering(info: &Value) -> bool {
+    info.get("steering").and_then(Value::as_bool) == Some(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::send_steers;
+
+    #[test]
+    fn send_queues_unless_given_steer() {
+        assert!(!send_steers(false, false), "a send queues by default");
+        assert!(!send_steers(false, true), "--no-steer queues");
+        assert!(send_steers(true, false), "--steer steers");
     }
 }
