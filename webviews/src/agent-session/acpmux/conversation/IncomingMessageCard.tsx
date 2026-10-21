@@ -181,6 +181,10 @@ export function IncomingMessageLine({
             initial={replyDrafts.get(key) ?? ""}
             canSend
             label={t("message.replyTo", { name: message.name })}
+            // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
+            // the DOM attribute the rule is about: the reader opened this reply editor with a
+            // click and types into it next.
+            // oxlint-disable-next-line jsx-a11y/no-autofocus
             autoFocus={focusEditor}
             onChange={(text) => {
               if (text) replyDrafts.set(key, text);

@@ -54,5 +54,21 @@ class FeatRunsTheCiGuardGroup(unittest.TestCase):
                 self.assertTrue(found, f"no {event} workflow for feat-cmux-next runs scripts/ci/guards-local.sh")
 
 
+class TheBaseIsCheckedOutOnPullRequests(unittest.TestCase):
+    """On pull_request, github.event.before is null, and the expression language's loose `!=` turns null and the
+    all-zeros sha into 0, so `github.event.before != '000…'` was false. The base checkout was skipped, and every base
+    red counted as the change's (24 reds on every feat PR, run 39562873067). The zero test must be on the chosen sha."""
+
+    def test_the_zero_sha_test_is_on_the_sha_it_checks_out(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = [s for job in workflow["jobs"].values() for s in job.get("steps") or []
+                 if s.get("name") == "Checkout the base"]
+        self.assertEqual(len(steps), 1)
+        step = steps[0]
+        chosen = step["with"]["ref"].removeprefix("${{").removesuffix("}}").strip()
+        self.assertIn(f"({chosen}) != '{'0' * 40}'", step["if"])
+        self.assertNotIn(f"github.event.before != '{'0' * 40}'", step["if"])
+
+
 if __name__ == "__main__":
     unittest.main()

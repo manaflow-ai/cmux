@@ -11,10 +11,11 @@
 // cx-ncc.61). Fork forks the chat through the prompt's own turn, as its right-click Fork does. The
 // images a prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they
 // vanished once sent).
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -31,13 +32,19 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   const resend = row.resend ?? row.text ?? text;
+  // A prompt that went out with an image as `data:` text (before the composer stopped making them)
+  // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
+  // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
+  const imageName = t("image.viewer");
+  const shown = useMemo(() => withoutDataUris(text, imageName), [text, imageName]);
+  const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
   if (editing) {
     return (
       <PromptEditor
-        initial={row.text ?? text}
+        initial={editable}
         canSend={edit !== undefined && through !== undefined}
         onCancel={() => setEditing(false)}
         onSend={async (value) => {
@@ -51,7 +58,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">
-        {text}
+        {shown}
         {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
         {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
       </div>
