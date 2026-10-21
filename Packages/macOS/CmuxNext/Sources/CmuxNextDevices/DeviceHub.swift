@@ -84,6 +84,11 @@ public final class DeviceHub {
                          renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
     }
 
+    /// Loads a device identity for a hub.
+    static func loadIdentity(_ load: @escaping @Sendable () throws -> DeviceIdentity) async throws -> DeviceIdentity {
+        try load()
+    }
+
     public var identity: DeviceIdentity { client.identity }
     public var thisDevice: HubDevice? { devices.first { $0.id == identity.id } }
     /// The user's other devices.
