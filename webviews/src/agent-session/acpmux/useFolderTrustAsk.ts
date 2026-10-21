@@ -16,8 +16,9 @@ export type FolderTrustAsk =
   | { cwd: string; state: "ask" | "failed" | "remote" }
   | { cwd: string; state: "decided"; level: Exclude<TrustLevel, "unknown"> };
 
-/// Why Send is off; no `reason` while the folder's trust is still being read.
-export type SendBlock = { reason?: StringKey };
+/// Why Send is off; no `reason` while the folder's trust is still being read. `shownAbove`: the
+/// question over the card already says it, so the card draws no caption (Send's tooltip keeps it).
+export type SendBlock = { reason?: StringKey; shownAbove?: boolean };
 
 /// The last answer read for each folder, kept for the next chat there (another tab, workspace, or
 /// a new page from the pool): a switch draws the folder's known trust from its first render, and
@@ -231,7 +232,7 @@ export function useFolderTrustAsk(
   const blocked: SendBlock | undefined = reading
     ? {}
     : ask?.state === "ask" || ask?.state === "failed"
-      ? { reason: "trust.answerFirst" }
+      ? { reason: "trust.answerFirst", shownAbove: true }
       : ask?.state === "remote"
         ? { reason: "trust.remote" }
         : ask?.state === "decided" && ask.level === "untrusted"

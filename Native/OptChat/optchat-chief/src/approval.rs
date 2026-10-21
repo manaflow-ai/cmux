@@ -1,10 +1,9 @@
-//! Approvals of a remote-origin turn's local effects (README "Remote-origin
-//! messages"). The turn session runs with acpmux policy `ask`; each
-//! permission request it raises is either one of the memory tools (answered
-//! at once: reading the memory has no local effect) or shown in the Chief
-//! chat and answered by the next `allow` or `deny` a person of the
-//! conversation sends. Every answer goes to the trace with the approving
-//! device.
+//! Permission requests of a turn another person started (README
+//! "Remote-origin messages"). That turn's session runs with acpmux policy
+//! `ask`; the host answers each request at once: the memory tools and the
+//! Chief's own tools are allowed, every other local effect is refused. The
+//! Chief never asks a person (Lawrence, 2026-10-20). Every refusal goes to
+//! the trace.
 
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
@@ -20,8 +19,7 @@ pub const MEMORY_TOOLS: [&str; 3] = [
 ];
 
 /// The Chief's own tools: Chief talking to the person and to its
-/// subagents, never a local effect of their own. They never wait for an
-/// approval. `spawn` is safe in a gated turn because a child spawned there
+/// subagents, never a local effect of their own. `spawn` is safe in a gated turn because a child spawned there
 /// takes the ask floor (`spawn_policy`); `tell` and `control` are checked
 /// against their target by the brain (`Brain::internal_allowed`).
 pub const CHIEF_TOOLS: [&str; 9] = [
@@ -36,18 +34,20 @@ pub const CHIEF_TOOLS: [&str; 9] = [
     "mcp__optchat__profile",
 ];
 
-/// Why a turn asks before its local effects.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Why {
-    /// Someone other than the Chief's owner wrote in the turn (always on).
-    Participant,
-    /// A paired device started it, and `remote.ask` is on; the device's name.
-    Device(String),
-    /// The turn reads the Home workspace, and `home.ask` is on.
-    Home,
+/// The tools a turn session runs without a permission request (its
+/// project settings' `permissions.allow`): acpmux takes an allow only from
+/// the person's app, so a request the host answered itself would wait
+/// forever. In a turn another person started, `Brain::internal_allowed`
+/// checks each call's input when the tool runs (`Orchestrator::turn_gate`).
+pub fn turn_allowed_tools() -> Vec<&'static str> {
+    MEMORY_TOOLS
+        .iter()
+        .chain(CHIEF_TOOLS.iter())
+        .copied()
+        .collect()
 }
 
-/// One permission request waiting for a person.
+/// One permission request the host answers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
     pub session_id: String,
@@ -56,16 +56,10 @@ pub struct Pending {
     pub request: Value,
     /// The child agent that asked (its name), None for the turn itself.
     pub child: Option<String>,
-    /// The side conversation whose turn asked (None: the main one, which
-    /// also takes every child's request). Only a message in this
-    /// conversation answers it.
-    pub conversation: Option<String>,
-    /// Why the turn asks (None: a child's request).
-    pub why: Option<Why>,
 }
 
 /// The tag `chief agents spawn` puts on a child that runs with policy `ask`
-/// (the host's spawn floor): its approvals go to the Chief chat.
+/// (the host's spawn floor): the host refuses its local effects.
 pub const POLICY_TAG: &str = "optchat.policy";
 pub const ASK: &str = "ask";
 
@@ -89,7 +83,7 @@ pub fn is_memory_tool(request: &Value) -> bool {
     MEMORY_TOOLS.contains(&tool_name(request).as_str())
 }
 
-/// A person's answer in a chat message: `allow` or `deny` (any case, alone).
+/// The host's answer to a permission request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Answer {
     Allow,
@@ -97,14 +91,6 @@ pub enum Answer {
 }
 
 impl Answer {
-    pub fn parse(text: &str) -> Option<Answer> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "allow" => Some(Answer::Allow),
-            "deny" => Some(Answer::Deny),
-            _ => None,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Answer::Allow => "allow",
@@ -113,8 +99,8 @@ impl Answer {
     }
 }
 
-/// The option that answers `request`: allow once (never "always": each
-/// effect is approved on its own), or reject once. None: no such option.
+/// The option that answers `request`: allow once (never "always"), or
+/// reject once. None: no such option.
 pub fn option_for(request: &Value, answer: Answer) -> Option<String> {
     let options = request.get("options").and_then(Value::as_array)?;
     fn kind(o: &Value) -> &str {
@@ -214,139 +200,25 @@ fn code_span(text: &str) -> String {
     }
 }
 
-/// Why the card asks, one muted line ("Started from your iPhone: local
-/// actions need your OK").
-pub fn reason(pending: &Pending) -> String {
-    match (&pending.child, &pending.why) {
-        (Some(_), _) => {
-            "It started in a turn that needs approvals, so its local actions need your OK."
-                .to_owned()
-        }
-        (None, Some(Why::Device(device))) => format!(
-            "Started from {device}: Ask before acting on requests from other devices is on."
-        ),
-        (None, Some(Why::Participant)) => {
-            "Someone else in this conversation asked: local actions need your OK.".to_owned()
-        }
-        (None, Some(Why::Home)) => {
-            "This turn read your Home screens: Ask before acting on what Home shows is on."
-                .to_owned()
-        }
-        (None, None) => "This turn needs your OK for local actions.".to_owned(),
-    }
-}
-
-/// The card's bold line: the action and its target, as a question.
-pub fn headline(pending: &Pending) -> String {
-    let what = describe(&pending.tool, pending.request.pointer("/toolCall/rawInput"));
-    match &pending.child {
-        Some(child) => format!("Allow subagent {child} to {what}?"),
-        None => format!("Allow Chief to {what}?"),
-    }
-}
-
-/// The request's arguments, pretty-printed and cut to `max` bytes (the
-/// card's monospace block; never in a chat bubble).
-pub fn arguments(pending: &Pending, max: usize) -> Option<String> {
-    let raw = pending.request.pointer("/toolCall/rawInput")?;
-    if raw.as_object().is_some_and(serde_json::Map::is_empty) || raw.is_null() {
-        return None;
-    }
-    let text = serde_json::to_string_pretty(raw).ok()?;
-    if text.len() <= max {
-        return Some(text);
-    }
-    let mut cut = max.saturating_sub(4);
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    Some(format!("{}\n\u{2026}", &text[..cut]))
-}
-
-/// The text form of the card: two lines and how to answer (a client that
-/// draws no question card, the CLI, and the fallback when the owner
-/// refuses the question part). No JSON.
-pub fn question(pending: &Pending) -> String {
-    // The arguments too, in a fence no backtick in them can close: the
-    // headline's command may be cut.
-    let args = arguments(pending, 1_500).map_or(String::new(), |a| {
-        let fence = "`".repeat(longest_backticks(&a).max(2) + 1);
-        format!("\n{fence}\n{a}\n{fence}")
-    });
-    format!(
-        "{}\n{}{args}\nReply allow or deny.",
-        headline(pending),
-        reason(pending)
-    )
-}
-
-/// The option ids of the card's question part.
-pub const ALLOW_OPTION: &str = "allow";
-pub const DENY_OPTION: &str = "deny";
-
-/// The card: one `question` part (harness `chief`, the permission it
-/// settles): the headline as its prompt, the reason as Allow's detail and
-/// the arguments as Allow's monospace preview, then Allow once and Deny.
-/// No "always": each effect is approved on its own (`option_for`).
-pub fn card(pending: &Pending) -> cmux_conversation::Part {
-    use cmux_conversation::{
-        PreviewFormat, Question, QuestionHarness, QuestionItem, QuestionOption, QuestionPreview,
-        QuestionState,
-    };
-    let short = |text: String, max: usize| -> String { text.chars().take(max).collect() };
-    cmux_conversation::Part::Question(Question {
-        harness: QuestionHarness::Chief,
-        session: short(pending.session_id.clone(), 200),
-        permission: Some(short(pending.permission_id.clone(), 200)),
-        agent: pending.child.clone().map(|c| short(c, 200)),
-        items: vec![QuestionItem {
-            id: "approval".to_owned(),
-            header: Some("Approval".to_owned()),
-            prompt: short(headline(pending), 400),
-            options: vec![
-                QuestionOption {
-                    id: ALLOW_OPTION.to_owned(),
-                    label: "Allow once".to_owned(),
-                    detail: Some(short(reason(pending), 400)),
-                    preview: arguments(pending, 6_000).map(|text| QuestionPreview {
-                        text,
-                        format: PreviewFormat::Monospace,
-                    }),
-                },
-                QuestionOption {
-                    id: DENY_OPTION.to_owned(),
-                    label: "Deny".to_owned(),
-                    detail: None,
-                    preview: None,
-                },
-            ],
-            multi_select: false,
-            allows_other: false,
-        }],
-        state: QuestionState::Pending,
-    })
-}
-
-/// The answer a card's selection gives.
-pub fn card_answer(answer: &cmux_conversation::QuestionAnswer) -> Option<Answer> {
-    let chosen = answer.selections.get("approval")?.option_ids.first()?;
-    match chosen.as_str() {
-        ALLOW_OPTION => Some(Answer::Allow),
-        DENY_OPTION => Some(Answer::Deny),
-        _ => None,
-    }
-}
-
-/// A request's identity within one turn: the tool and its input. A request
-/// denied once is denied again at once when the model repeats it.
+/// A request's identity within one turn: the tool and its input. A
+/// repeat of a refused request counts toward stopping the turn.
 pub fn signature(pending: &Pending) -> String {
-    let input = pending
-        .request
-        .pointer("/toolCall/rawInput")
-        .map(Value::to_string)
-        .unwrap_or_default();
-    format!("{}\u{0}{input}", pending.tool)
+    signature_of(&pending.tool, pending.request.pointer("/toolCall/rawInput"))
 }
+
+/// [`signature`] of a call of `tool` with `input` (a permission request's
+/// `rawInput`, or the arguments a Chief tool runs with).
+pub fn signature_of(tool: &str, input: Option<&Value>) -> String {
+    let input = input.map(Value::to_string).unwrap_or_default();
+    format!("{tool}\u{0}{input}")
+}
+
+/// The longest a permission request of the Chief's turn session or of one
+/// of its children may wait with no answer before the host denies it
+/// (`Brain::deny_overdue_permissions_at`): a request nobody sees never holds
+/// a turn forever. A subagent's prompt that the person's app shows with an
+/// approval button waits for the person instead.
+pub const PERMISSION_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Appends one `approval` event to the trace in `dir`
 /// (`traces/YYYY-MM-DD.jsonl`, the monitoring trace's layout:

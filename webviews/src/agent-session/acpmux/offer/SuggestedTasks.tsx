@@ -155,7 +155,6 @@ function OpenTask({
             className="acpmux-task-dismiss"
             aria-label={t("offer.dismiss")}
             aria-describedby={titleId}
-            title={t("offer.dismiss")}
             disabled={off}
             onClick={onDismiss}
           >

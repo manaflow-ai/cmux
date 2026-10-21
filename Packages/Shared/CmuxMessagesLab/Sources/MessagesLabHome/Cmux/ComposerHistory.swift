@@ -33,7 +33,7 @@ struct ComposerHistory: Equatable {
     var isBrowsing: Bool { index != nil }
 
     /// The entry the box shows now, nil when it shows the draft.
-    var shown: String? { index.map { snapshot[$0] } }
+    var shown: String? { index.flatMap { snapshot[checked: $0] } }
 
     /// One step. `current` is the box's text now; `entries` the history now
     /// (read only when a browse begins). Returns the text the box should show,
@@ -52,7 +52,7 @@ struct ComposerHistory: Equatable {
             }
             guard i + 1 < snapshot.count else { return nil }
             index = i + 1
-            return snapshot[i + 1]
+            return snapshot[checked: i + 1]
         case .newer:
             guard let i = index else { return nil }
             if i == 0 {
@@ -61,7 +61,7 @@ struct ComposerHistory: Equatable {
                 return draft
             }
             index = i - 1
-            return snapshot[i - 1]
+            return snapshot[checked: i - 1]
         }
     }
 

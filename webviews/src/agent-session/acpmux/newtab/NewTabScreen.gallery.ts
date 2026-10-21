@@ -1005,7 +1005,7 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three tall chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },
