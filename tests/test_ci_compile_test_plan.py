@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -137,6 +138,206 @@ class CompileTestsPhaseArgsTests(unittest.TestCase):
             done = self.run_lane(*args)
             self.assertEqual(done.returncode, 2, (args, done.stdout, done.stderr))
             self.assertIn("compile-tests MERGE_BASE_SHA", done.stderr)
+
+
+MARKER = "compile-tests: a test target did not compile"
+
+FAKE_SWIFT = r"""#!/usr/bin/env bash
+echo "swift $*" >> "$FAKE_SEEN"
+[ "$1" = build ] || exit 0
+target=""
+prev=""
+for a in "$@"; do
+  [ "$prev" = --target ] && target="$a"
+  prev="$a"
+done
+case " $FAKE_BAD " in *" $target "*)
+  [ -n "$target" ] && { echo "Tests/$target/T.swift:74:106: error: call can throw, but it is not marked with 'try'"; exit 1; } ;;
+esac
+case " $FAKE_REFUSED " in *" $target "*)
+  [ -n "$target" ] && { echo "error: no target named '$target'"; exit 1; } ;;
+esac
+echo "Build complete!"
+"""
+
+FAKE_XCRUN = r"""#!/usr/bin/env bash
+for a in "$@"; do
+  [ "$a" = --show-sdk-path ] && { echo "$DEVELOPER_DIR/SDKs/MacOSX.sdk"; exit 0; }
+done
+exit 1
+"""
+
+# The plan comes from FAKE_PLAN (";" between packages), and one package's
+# submodule setup fails when it is FAKE_BROKEN_SETUP.
+FAKE_PLAN = r"""import os
+for line in os.environ.get("FAKE_PLAN", "").split(";"):
+    if line.strip():
+        print(line.strip())
+"""
+
+FAKE_SUBMODULES = r"""import os, sys
+if sys.argv[2] == os.environ.get("FAKE_BROKEN_SETUP"):
+    print("vendor/not-a-submodule")
+"""
+
+
+class CompileTestsPhaseTests(unittest.TestCase):
+    """package-test-lane.sh compile-tests with a fake `swift`: what reaches red."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        repo = self.repo = self.tmp / "repo"
+        bin_dir = self.bin = self.tmp / "bin"
+        (repo / "scripts" / "ci").mkdir(parents=True)
+        (repo / "scripts" / "cmux-next").mkdir(parents=True)
+        (repo / "vendor" / "not-a-submodule").mkdir(parents=True)
+        bin_dir.mkdir()
+        for name in ("package-test-lane.sh", "swift-test-debug-info.sh", "swiftpm-binary-module-guard.sh"):
+            (repo / "scripts" / "ci" / name).write_bytes((ROOT / "scripts" / "ci" / name).read_bytes())
+        stale = ROOT / "scripts" / "cmux-next" / "stale-pcm-retry-needed.sh"
+        (repo / "scripts" / "cmux-next" / stale.name).write_bytes(stale.read_bytes())
+        (repo / "scripts" / "ci" / "compile_test_plan.py").write_text(FAKE_PLAN)
+        (repo / "scripts" / "ci" / "swift_package_submodules.py").write_text(FAKE_SUBMODULES)
+        for package in ("Alpha", "Beta"):
+            pkg = repo / "Packages" / "macOS" / package
+            pkg.mkdir(parents=True)
+            (pkg / "Package.swift").write_text(
+                f'// swift-tools-version:5.9\nimport PackageDescription\nlet package = Package(name: "{package}")\n')
+        for name, text in (("swift", FAKE_SWIFT), ("xcrun", FAKE_XCRUN)):
+            (bin_dir / name).write_text(text)
+            (bin_dir / name).chmod(0o755)
+        (bin_dir / "python3").symlink_to(sys.executable)
+        self.dev = self.tmp / "Xcode.app" / "Contents" / "Developer"
+        (self.dev / "SDKs" / "MacOSX.sdk").mkdir(parents=True)
+        git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-C", str(repo)]
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "base"], check=True)
+        self.base = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        (repo / "Packages" / "macOS" / "Alpha" / "A.swift").write_text("let a = 1\n")
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-qm", "change"], check=True)
+        self.seen = self.tmp / "seen"
+
+    def lane(self, plan: str, bad: str = "", refused: str = "", broken: str = "") -> subprocess.CompletedProcess:
+        self.seen.write_text("")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+        env.update(PATH=f"{self.bin}:{env['PATH']}", DEVELOPER_DIR=str(self.dev), RUNNER_TEMP=str(self.tmp),
+                   FAKE_SEEN=str(self.seen), FAKE_PLAN=plan, FAKE_BAD=bad, FAKE_REFUSED=refused,
+                   FAKE_BROKEN_SETUP=broken)
+        return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "compile-tests", self.base],
+                              cwd=self.repo, env=env, capture_output=True, text=True, timeout=120)
+
+    def builds(self) -> list[str]:
+        return [line for line in self.seen.read_text().splitlines() if line.startswith("swift build")]
+
+    def test_every_target_compiles(self) -> None:
+        done = self.lane("Packages/macOS/Alpha AlphaTests OtherTests;Packages/macOS/Beta")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("every planned test target compiled (3)", done.stdout)
+        self.assertNotIn(MARKER, done.stdout)
+        self.assertEqual(len(self.builds()), 3, self.builds())
+        self.assertTrue(any("--build-tests" in b and "Beta" in b for b in self.builds()))
+
+    def test_an_empty_plan_builds_nothing(self) -> None:
+        done = self.lane("")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("nothing to compile", done.stdout)
+        self.assertEqual(self.builds(), [])
+
+    def test_a_target_that_does_not_compile_is_red(self) -> None:
+        done = self.lane("Packages/macOS/Alpha AlphaTests BadTests;Packages/macOS/Beta", bad="BadTests")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(MARKER, done.stdout)
+        self.assertIn("::error title=Test target did not compile::Packages/macOS/Alpha: BadTests", done.stdout)
+        # A failing target does not stop the ones after it.
+        self.assertTrue(any("Beta" in b for b in self.builds()), self.builds())
+
+    def test_a_later_setup_failure_keeps_an_earlier_target_failure_red(self) -> None:
+        # Beta's submodule setup fails after Alpha's BadTests did not compile:
+        # the run ends early, but the failure marker must already be out.
+        done = self.lane("Packages/macOS/Alpha BadTests;Packages/macOS/Beta", bad="BadTests",
+                         broken="Packages/macOS/Beta")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(MARKER, done.stdout, done.stdout + done.stderr)
+
+    def test_a_setup_failure_alone_is_no_verdict(self) -> None:
+        done = self.lane("Packages/macOS/Alpha AlphaTests;Packages/macOS/Beta", broken="Packages/macOS/Beta")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn(MARKER, done.stdout)
+
+    def test_a_refused_target_falls_back_to_build_tests_once_per_package(self) -> None:
+        done = self.lane("Packages/macOS/Alpha OneTests TwoTests ThreeTests", refused="OneTests TwoTests ThreeTests")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        whole = [b for b in self.builds() if "--build-tests" in b]
+        self.assertEqual(len(whole), 1, self.builds())
+        self.assertEqual(len([b for b in self.builds() if "--target" in b]), 1, self.builds())
+
+
+WORKFLOW = ROOT / ".github" / "workflows" / "fleet-test-compile.yml"
+STEP = "Compile the planned test targets on a fleet Mac"
+
+
+def step_script() -> str:
+    lines = WORKFLOW.read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {STEP}")
+    run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
+    indent = len(lines[run]) - len(lines[run].lstrip()) + 2
+    body = []
+    for line in lines[run + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) < indent:
+            break
+        body.append(line[indent:])
+    return "\n".join(body) + "\n"
+
+
+class AdvisoryVerdictTests(unittest.TestCase):
+    """fleet-test-compile.yml: red only for a test target that does not compile; anything else is no verdict."""
+
+    def verdict(self, status: int, output: str, needed: str = "true", client: bool = True) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as scratch:
+            fake = Path(scratch) / "cmux-ci"
+            if client:
+                fake.write_text(f"#!/usr/bin/env bash\ncat <<'OUT'\n{output}\nOUT\nexit {status}\n")
+                fake.chmod(0o755)
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+            env.update(NEEDED=needed, REF="a" * 40, BASE="b" * 40, RUNNER_TEMP=scratch, RUNNER_NAME="gateway",
+                       CMUX_CI_CLIENT=str(fake))
+            return subprocess.run(["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60)
+
+    def assert_green(self, done, warned: bool) -> None:
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertEqual("::warning" in done.stdout, warned, done.stdout)
+
+    def test_exit_codes_map_to_red_warning_or_green(self) -> None:
+        self.assert_green(self.verdict(0, "compile-tests: every planned test target compiled (3)"), warned=False)
+        red = self.verdict(1, f"{MARKER} (1 of 3)")
+        self.assertEqual(red.returncode, 1, red.stdout)
+        self.assertIn("::error", red.stdout)
+        # A later setup failure ends the lane with another status after the marker: still red.
+        red = self.verdict(128, f"{MARKER}: Alpha BadTests\nfatal: not a submodule")
+        self.assertEqual(red.returncode, 1, red.stdout)
+        # No marker: the queue, a timeout, a setup failure or the client itself. A warning, never red.
+        for status in (1, 2, 3, 124, 137):
+            with self.subTest(status=status):
+                self.assert_green(self.verdict(status, "error: queue timeout"), warned=True)
+
+    def test_no_plan_or_no_client_is_green(self) -> None:
+        self.assert_green(self.verdict(1, MARKER, needed="false"), warned=False)
+        self.assert_green(self.verdict(0, "", client=False), warned=True)
+
+    def test_the_job_outlasts_the_client_so_a_slow_fleet_never_reads_red(self) -> None:
+        # A GitHub job timeout concludes as a failure: the client's queue and run
+        # timeouts must end first, with room for the client to report.
+        text = WORKFLOW.read_text()
+        job = text.split("\n  compile:\n", 1)[1]
+        minutes = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+        queue = int(re.search(r"--queue-timeout (\d+)", job).group(1))
+        run = int(re.search(r"--timeout (\d+)", job).group(1))
+        self.assertGreaterEqual(minutes * 60, queue + run + 300, (minutes, queue, run))
 
 
 if __name__ == "__main__":
