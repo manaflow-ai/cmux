@@ -20,6 +20,10 @@ import Testing
 /// budget; (2) while a reply streams, a width pass re-measures the kept rows and derives only the
 /// newest message's rows and the stream again, not every loaded message.
 @MainActor @Suite(.serialized) struct HomeStreamingResizeTests {
+    /// These tests make a `MessagesWindowView` without a Home pane: springs.json comes from the package, as
+    /// `HomeMarkdownPolicy.install()` sets it for a pane (Springs.swift fails loudly without it, MessagesLab cdee8d9).
+    init() { HomeMarkdownPolicy.installSprings() }
+
     static let me = ParticipantID("user_me")
     static let chief = ParticipantID("agent_chief")
     static let id = ConversationID("conv_stream_resize")

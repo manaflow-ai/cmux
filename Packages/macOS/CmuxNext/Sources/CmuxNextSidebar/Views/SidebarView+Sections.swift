@@ -42,9 +42,9 @@ extension SidebarViewComponents {
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
-        // The footer row (the profile control and the spaces dots) takes no
-        // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
-        // The band below keeps the same rule it had while it held the footer.
+        // The footer row's items (the profile control) do not drag; its space
+        // dots reorder by their own drag, dropped on the footer band
+        // (`ProfileBarView+DotDrag`). The band below keeps the rule it had while it held the footer.
         footerRegion.allowsDrag = false
         footerRegion.emptySpaceTarget = .footer
         belowRegion.allowsDrag = false
@@ -87,9 +87,9 @@ extension SidebarViewComponents {
         // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
-        func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
+        func content(_ sections: [LayoutSection], metrics shown: SidebarRegionMetrics? = nil) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
-                                      look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
+                                      look: look, metrics: shown ?? metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
                                       fontSize: SidebarStyle.titleFont.pointSize)
         }
         if model.docDrag != nil {
@@ -119,7 +119,10 @@ extension SidebarViewComponents {
         // its sections there (no user data is removed); they just do not draw.
         belowRegion.update(content([]), width: width)
         let footer = shownBelow.filter(isFooter)
-        footerRegion.update(content(footer), width: width)
+        // The footer line ends on the bottom margin, not on the section's padding over it.
+        var footerMetrics = metrics
+        footerMetrics.bottomPadding = footerBand.footerBottomPadding(rowHeight: metrics.rowHeight)
+        footerRegion.update(content(footer, metrics: footerMetrics), width: width)
         releaseAppSections(shown: shownAbove + footer)
     }
 
