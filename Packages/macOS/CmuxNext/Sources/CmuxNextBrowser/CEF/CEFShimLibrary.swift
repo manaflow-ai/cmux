@@ -202,6 +202,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
     let pageSchemeAddFirstParty: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same with the page's dynamic prefixes (newline-separated), which the page host answers,
+    /// and the file `/` serves (NULL = index.html).
+    let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                        UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
+    let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -370,6 +376,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         bookmarksSync = try r("cmux_shim_bookmarks_sync")
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
+        pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
+        pageResourceRespond = try r("cmux_shim_page_resource_respond")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

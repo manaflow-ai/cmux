@@ -359,7 +359,7 @@
       "size": 76388304,
       "format": "raw",
       "fileName": "cmux-tui",
-      "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
+      "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
       "source": "https://files.cmux.com/cmux-tui/d9d752fd1ab431f92e8870efdd26a9be65809997/manifest.json (cmux-tui-artifacts run 38658515603, feat-cmux-next push d9d752fd1ab; tree bd3db56a0b34; issue #18912)"
     },
