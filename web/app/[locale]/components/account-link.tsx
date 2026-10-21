@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Suspense } from "react";
 import { Link } from "../../../i18n/navigation";
 import { IsolatedErrorBoundary } from "../../components/error-boundary";
+import { stackClientApp } from "../../lib/stack-client";
 
 /**
  * Billing shows the visitor's plan and the price they actually pay. A
@@ -35,11 +36,13 @@ type AccountLinkProps = { className?: string; onClick?: () => void };
 
 /**
  * "Account" for a signed-in visitor, otherwise "Sign in"; both open billing.
- * `useUser` throws without a Hexclave provider or during an outage, so the
- * link falls back to "Sign in" on its own instead of unmounting the header.
+ * Without a Hexclave client (no provider is mounted) there is no session to
+ * read. `useUser` also throws during an outage, so the link falls back to
+ * "Sign in" on its own instead of unmounting the header.
  */
 export function AccountLink(props: AccountLinkProps) {
   const fallback = <SignInLink {...props} />;
+  if (!stackClientApp) return fallback;
   return (
     <IsolatedErrorBoundary name="site-header-account-link" fallback={fallback}>
       <Suspense fallback={fallback}>
