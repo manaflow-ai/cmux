@@ -14284,6 +14284,268 @@
         }
       }
     },
+    "store.feature.chiefSidebarItem.name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief في الشريط الجانبي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief u bočnoj traci"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief i sidepanelet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief in der Seitenleiste"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief in Sidebar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief en la barra lateral"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief dans la barre latérale"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief nella barra laterale"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーのChief"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief នៅក្នុងរបារចំហៀង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바의 Chief"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief i sidepanelet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief na pasku bocznym"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief na barra lateral"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief на боковой панели"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief ในแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar çubuğunda Chief"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief на бічній панелі"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chief trên thanh bên"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "边栏中的 Chief"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "側邊欄中的 Chief"
+          }
+        }
+      }
+    },
+    "store.feature.chiefSidebarItem.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تحدث إلى Chief من الشريط الجانبي واعرف ما إذا كان يعمل أو يحتاج إليك، مع وكلائه الفرعيين أسفله."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Razgovarajte s Chiefom iz bočne trake i vidite radi li ili vas treba, s njegovim podagentima ispod."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tal med Chief fra sidepanelet, og se om den arbejder eller har brug for dig, med dens underagenter under sig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sprich mit dem Chief in der Seitenleiste und sieh, ob er arbeitet oder dich braucht, mit seinen Subagenten darunter."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Talk to the Chief from the sidebar and see whether it works or needs you, with its subagents under it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Habla con Chief desde la barra lateral y ve si está trabajando o te necesita, con sus subagentes debajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parlez au Chief depuis la barre latérale et voyez s’il travaille ou a besoin de vous, avec ses sous-agents en dessous."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parla con Chief dalla barra laterale e vedi se sta lavorando o ha bisogno di te, con i suoi subagenti sotto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドバーからChiefと話し、作業中か対応が必要かをサブエージェントとともに確認できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "និយាយជាមួយ Chief ពីរបារចំហៀង ហើយមើលថាវាកំពុងធ្វើការ ឬត្រូវការអ្នក ជាមួយភ្នាក់ងាររងរបស់វានៅខាងក្រោម។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바에서 Chief와 대화하고, 하위 에이전트와 함께 작업 중인지 사용자가 필요한지 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Snakk med Chief fra sidepanelet og se om den jobber eller trenger deg, med underagentene under seg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rozmawiaj z Chiefem z paska bocznego i sprawdzaj, czy pracuje, czy cię potrzebuje, z jego podagentami poniżej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fale com o Chief pela barra lateral e veja se ele está trabalhando ou precisa de você, com seus subagentes abaixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Общайтесь с Chief на боковой панели и смотрите, работает ли он или ждёт вас, вместе с его субагентами."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คุยกับ Chief จากแถบด้านข้าง และดูว่ากำลังทำงานหรือต้องการคุณ พร้อมเอเจนต์ย่อยด้านล่าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kenar çubuğundan Chief ile konuşun ve çalışıp çalışmadığını ya da size ihtiyaç duyup duymadığını alt ajanlarıyla birlikte görün."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спілкуйтеся з Chief на бічній панелі й бачте, чи він працює або чекає на вас, разом із його субагентами."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trò chuyện với Chief từ thanh bên và xem nó đang làm việc hay cần bạn, cùng các tác tử phụ bên dưới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在边栏中与 Chief 对话，查看它是在工作还是需要你，下面列出它的子代理。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在側邊欄中與 Chief 對話，查看它是在工作還是需要你，下方列出它的子代理。"
+          }
+        }
+      }
+    },
     "store.feature.chiefPet.name" : {
       "extractionState" : "manual",
       "localizations" : {
