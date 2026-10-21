@@ -23,6 +23,11 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.linkTargetGone", "the linked item is gone: it was closed or deleted, or its machine isn't connected")
     }
 
+    /// A `cmux://agent/…` link while Debug Settings turned agent links off.
+    public static var agentLinksOff: String {
+        text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")
+    }
+
     /// A nightly pane or tab link: its workspace opened, the item itself has no counterpart here.
     public static var linkItemNotFound: String {
         text("handlers.refusal.linkItemNotFound", "opened the workspace, but the linked pane or tab couldn't be found")
@@ -47,6 +52,12 @@ nonisolated extension RefusalStrings {
     /// tab of another machine, or the reverse: a session never leaves its machine (cx-k21v).
     public static var agentTabMachineMismatch: String {
         text("handlers.refusal.agentTabMachineMismatch", "this chat runs on another machine: it cannot open in this tab")
+    }
+
+    /// `app_agent_open` with another machine's host: the same session opens without the host (through
+    /// the peer) or from that machine's workspace (coord-deputy 2026-10-20).
+    public static func agentTabRunsOnHost(_ host: String) -> String {
+        format("handlers.refusal.agentTabRunsOnHost", "this session runs on %@: open it without a host, or from that machine's workspace", host)
     }
 
     /// The store refused or failed a new agent chat tab; the tab shown at once goes away.

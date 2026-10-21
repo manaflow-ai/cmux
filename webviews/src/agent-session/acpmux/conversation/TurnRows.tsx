@@ -17,7 +17,8 @@ import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
+import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../../ui/Menu";
+import { retryModelSections, type RetryModel } from "./retryModelSections";
 import type { TurnActions } from "./turnActions";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -86,10 +87,11 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
-/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). Each
+/// group and call keeps its own line, in a live turn and in an ended turn's open "Worked for"
+/// alike, so the work stays readable without a click. Only the Codex-style runs (Debug toggle)
+/// fold a run of two or more entries under one summary line (`foldRun`, toolRunSummary.ts) or
+/// show its newest entry alone (`inFlight`); a run that is one group already has its line.
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
@@ -98,7 +100,7 @@ export function shouldFoldToolRun(
   // Coordination cards stay visible beside tool calls so a settled run never hides the
   // agent-to-agent receipt inside the generic tool summary.
   return (
-    row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
@@ -169,7 +171,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              title={copied ? t("turn.copied") : t("turn.copy")}
               onClick={() =>
                 void copyText(text).then(
                   () => setCopied(true),
@@ -219,7 +220,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   );
 }
 
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
+/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked, drawn
+/// as the pane's other menus (the Reasoning menu's look, composerControls.css: its rows and trailing check column): releases under
+/// Models, the harness's aliases and modes under their own title, each model once
+/// (retryModelSections.ts). One section draws without a title.
 function RetryModelMenu({
   retryWith,
   onPick,
@@ -228,6 +232,19 @@ function RetryModelMenu({
   onPick(model: string): void;
 }) {
   const t = useT();
+  const { models, aliases } = retryModelSections(retryWith.models, retryWith.current);
+  const rows = (list: readonly RetryModel[]) => (
+    <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
+      {list.map((model) => (
+        <MenuRadioItem key={model.id} value={model.id} className="acpmux-retry-item" closeOnClick>
+          <span className="acpmux-retry-text">
+            <span className="acpmux-menu-label">{model.name}</span>
+          </span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+  const titled = models.length > 0 && aliases.length > 0;
   return (
     <Menu>
       <MenuButton
@@ -237,14 +254,16 @@ function RetryModelMenu({
       >
         <ChevronDown size={12} />
       </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
+      <MenuPopup label={t("turn.retryWith")} align="start" className="acpmux-retry-menu">
+        {titled ? (
+          <>
+            <MenuGroup label={t("turn.retryWith.models")}>{rows(models)}</MenuGroup>
+            <MenuSeparator />
+            <MenuGroup label={t("turn.retryWith.aliases")}>{rows(aliases)}</MenuGroup>
+          </>
+        ) : (
+          rows([...models, ...aliases])
+        )}
       </MenuPopup>
     </Menu>
   );

@@ -37,11 +37,21 @@ export interface HeaderState {
   readonly floatingChat: boolean;
   /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101).
   readonly sessionRail: boolean;
+  /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
+  /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).
+  readonly browserOpensPreview: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
+
+/// When the App first reported each pull request's current state (epoch ms), so a state the chat
+/// set itself (a close) can tell an older read from a newer one.
+const stateSince = new Map<string, { state: string; at: number }>();
+
+/// When the App first reported pull request `url` in the state it has now.
+export const pullRequestStateSince = (url: string): number | undefined => stateSince.get(url)?.at;
 
 let current: HeaderState = {
   pinned: false,
@@ -49,6 +59,7 @@ let current: HeaderState = {
   lit: [],
   floatingChat: false,
   sessionRail: false,
+  browserOpensPreview: true,
   version: 0,
 };
 const listeners = new Set<() => void>();
@@ -61,6 +72,7 @@ export function setHeaderState(value: unknown): void {
     lit?: unknown;
     floatingChat?: unknown;
     sessionRail?: unknown;
+    browserOpensPreview?: unknown;
     pullRequest?: unknown;
     version?: unknown;
   };
@@ -72,10 +84,14 @@ export function setHeaderState(value: unknown): void {
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     sessionRail: typeof raw.sessionRail === "boolean" ? raw.sessionRail : current.sessionRail,
+    browserOpensPreview:
+      typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;
+  const pr = next.pullRequest;
+  if (pr && stateSince.get(pr.url)?.state !== pr.state) stateSince.set(pr.url, { state: pr.state, at: Date.now() });
   current = next;
   for (const listener of listeners) listener();
 }
