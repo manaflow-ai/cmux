@@ -102,6 +102,8 @@ pub(super) const GUIDES: &[Guide] = &[
             "harness",
             "peer",
             "enroll",
+            "machine",
+            "ssh",
         ],
         text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
         ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
@@ -109,8 +111,13 @@ pub(super) const GUIDES: &[Guide] = &[
         commands that check it, the commands that do it, and what only the person can do. \
         `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
         trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
-        prints the plan, and every result names its undo command. Every `cmux setup` command \
-        prints one JSON object: state is ok, changed, planned, needs_user or failed.",
+        prints the plan, and every result names its undo command. `cmux setup machine \
+        SSH_TARGET [--name NAME]` adds an ssh machine as an acpmux peer (`cmux acp host \
+        setup`), updates a peer on an older build (`cmux acp host update`), and is ok when the \
+        peer is connected and current; it uses key-only ssh, and a host it cannot reach comes \
+        back as needs_user with the ssh command to try. `cmux setup status` lists every peer \
+        with connected and outdated. Every `cmux setup` command prints one JSON object: state \
+        is ok, changed, planned, needs_user or failed.",
     },
 ];
 
