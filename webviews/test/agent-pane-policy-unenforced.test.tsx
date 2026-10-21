@@ -140,6 +140,7 @@ test("the note names the harness and the policy, never acpmux's reason", async (
   const drawn = (note: Parameters<typeof PolicyUnenforcedNote>[0]["note"]) =>
     renderToStaticMarkup(<PolicyUnenforcedNote note={note} />)
       .replace(/<[^>]+>/g, " ")
+      .replace(/&#x27;/g, "'")
       .replace(/\s+/g, " ")
       .trim();
   expect(drawn({ policy: "approve-reads", harness: "opencode", why: "ownSettings" })).toBe(
