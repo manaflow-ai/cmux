@@ -337,6 +337,33 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       );
     });
 
+  test.each(engines.map(([name]) => name))(
+    "%s: a queued prompt deleted while the turn runs a tool leaves no gap for long",
+    async (name) => {
+      const page = await open(name);
+      const turn = events.length;
+      await stream(`p-${turn}`, `Busy turn ${turn}`, `Busy marker ${turn}`, 30, (index) => {
+        if (index === 10) enqueue(`q-${turn}`, "never mind this one either");
+      });
+      // The turn runs a tool: nothing streams while the prompt is deleted.
+      toolCall(`t-${turn}`);
+      await page.waitForTimeout(400);
+      const resting = await gapAbove(page);
+      unqueue("queue_removed", `q-${turn}`);
+      await page.locator(".acpmux-queued").waitFor({ state: "detached" });
+      await page.waitForTimeout(600);
+      const gap = await gapAbove(page);
+      toolDone(`t-${turn}`);
+      endTurn();
+      // The last row rests on the stack's top again, a card's height lower, well before a second.
+      expect({ gap: Math.abs(gap - resting) <= 4, atEnd: (await fromEnd(page)) <= 4 }).toEqual({
+        gap: true,
+        atEnd: true,
+      });
+      await page.close();
+    },
+  );
+
   test.each(engines.flatMap(([name]) => [`${name} event first`, `${name} queue first`]))(
     "%s: a deleted queued prompt leaves no gap under the last row",
     async (label) => {
