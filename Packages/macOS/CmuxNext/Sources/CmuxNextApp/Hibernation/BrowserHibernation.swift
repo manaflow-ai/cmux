@@ -594,8 +594,10 @@ struct PageProbe {
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
+            // A video in Picture in Picture plays on in its floating window, paused or muted alike.
+            let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)
