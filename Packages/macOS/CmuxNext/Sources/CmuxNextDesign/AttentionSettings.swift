@@ -19,7 +19,7 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// plays when the person goes into the pane and the ring goes away
     /// (`MotionGate.attentionDismissAnimation`).
     public var style: AttentionStyle = .steady
-    /// nil takes the theme's attention color (`Palette.attention`).
+    /// nil takes the notification blue (`Palette.notificationBlue`, the unread dot's color).
     public var color: ThemeRGB?
     public var width: CGFloat = 2
     public var blinkCount = 2
@@ -28,6 +28,13 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     /// The ring stays after its animation until the notification is dismissed;
     /// false makes it a one-shot flash.
     public var persists = true
+    /// Going into an unread pane (a click, a key, opening it) flashes its ring
+    /// as it goes, as classic's dismiss flash did (`notifications.attention.flash`,
+    /// classic `notifications.paneFlash`).
+    public var flashesOnRead = true
+    /// A key typed into the pane flashes it too (`notifications.attention.flashOnTyping`,
+    /// classic `notifications.paneFlashOnTyping`).
+    public var flashesOnTyping = true
     public var showsOnTab = true
     public var showsOnSidebar = true
     /// A notification for a pane the user is not looking at moves its

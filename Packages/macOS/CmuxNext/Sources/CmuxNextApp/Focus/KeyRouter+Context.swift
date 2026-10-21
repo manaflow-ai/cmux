@@ -53,6 +53,7 @@ extension KeyRouter {
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
+        if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
         return context
     }
 
@@ -112,7 +113,8 @@ extension KeyRouter {
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
                      topPage: controller.shownTopPage == .home ? "home" : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
-                     textBoxFocused: window.firstResponder is TextBoxTextView)
+                     textBoxFocused: window.firstResponder is TextBoxTextView,
+                     sidebarMultiSelection: controller.sidebar.model.selection.count > 1)
     }
 
     /// The page id of the focused internal page tab.

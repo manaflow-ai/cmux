@@ -26,7 +26,7 @@ struct RapidWorkspaceCreateTests {
     private static func name(_ press: Int) -> String { String(format: "race-%02d", press) }
 
     /// Polls until `done` holds or `limit` passes (a poll, as in `FirstLaunchTests`).
-    private static func wait(within limit: Duration, until done: () -> Bool) async {
+    static func wait(within limit: Duration, until done: () -> Bool) async {
         let deadline = ContinuousClock.now + limit
         while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(100))
@@ -34,7 +34,7 @@ struct RapidWorkspaceCreateTests {
     }
 
     /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.
-    private struct Launched {
+    struct Launched {
         let services: AppServices
         let root: URL
 
@@ -50,7 +50,7 @@ struct RapidWorkspaceCreateTests {
         }
     }
 
-    private static func launch() async throws -> Launched {
+    static func launch() async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"

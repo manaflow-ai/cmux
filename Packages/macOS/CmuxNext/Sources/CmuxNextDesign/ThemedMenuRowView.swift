@@ -128,13 +128,16 @@ public final class ThemedMenuRowView: NSView {
     /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
     /// that opens a field, popover or another menu never does it inside the closing one. Rows with
-    /// a submenu open it instead (AppKit does that).
+    /// a submenu open it instead (AppKit does that). A row the menu's `runsInPlace` picks runs as
+    /// the menu closes instead.
     func activate() {
         guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
         var root = menu
         while let parent = root.supermenu { root = parent }
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
+        // An engine's own item runs now, while its engine still holds the menu (`runsInPlace`).
+        if session.runsInPlace(item) { return menu.performActionForItem(at: menu.index(of: item)) }
         pendingItem = item
         pendingMenu = menu
         RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])

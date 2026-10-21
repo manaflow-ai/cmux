@@ -42,7 +42,7 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 
 ## Running a command in a new terminal
 
-`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep` controls the tab after the process exits, and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
+`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep|shell` controls the tab after the process exits (`shell` drops it into a new shell), and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
 
 ## App actions
 
