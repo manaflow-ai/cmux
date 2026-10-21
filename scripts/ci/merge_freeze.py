@@ -23,18 +23,28 @@ who let a pull request through.
 
 Usage:
   merge_freeze.py check --repo OWNER/REPO --pr N [--base BRANCH] [--files FILE]
-                        [--issues-file FILE --events-file FILE]
+                        [--changed-files N] [--issues-file FILE --events-file FILE]
   merge_freeze.py list --repo OWNER/REPO
   merge_freeze.py expire --repo OWNER/REPO [--dry-run]
 
 `check` exits 0 when nothing blocks the merge, 1 when a freeze does (it prints which), and
 2 when GitHub can't be read: an unknown freeze state never reads as clear.
+
+`check` reads the open freezes first (one call) and stops there when none is active for the
+base, which is nearly every run: the pull request's files and label events are read only when
+a freeze could block it. `--changed-files` is the pull request's file count from the event
+payload, so the pull request itself is not read again to check the file list is complete.
+
+With GH_FALLBACK_TOKEN set (the workflow's own token, when GH_TOKEN is an App's), a read that
+GH_TOKEN may not make or has no budget left for (HTTP 401, 403 or a rate limit) is tried again
+with it; writes are never retried.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -120,8 +130,19 @@ def parse_issue(issue: dict) -> Freeze:
     return freeze
 
 
-def gh(*args: str) -> str:
-    return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials", re.I)
+
+
+def gh(*args: str, write: bool = False) -> str:
+    try:
+        return subprocess.run(["gh", *args], check=True, capture_output=True, text=True).stdout
+    except subprocess.CalledProcessError as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN", "")
+        if write or not fallback or fallback == os.environ.get("GH_TOKEN") \
+                or not FALLBACK_ERRORS.search(error.stderr or ""):
+            raise
+        env = {**os.environ, "GH_TOKEN": fallback}
+        return subprocess.run(["gh", *args], check=True, capture_output=True, text=True, env=env).stdout
 
 
 def gh_items(endpoint: str) -> list[dict]:
@@ -212,11 +233,16 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
     return freezes
 
 
+def applies(freeze: Freeze, base: str | None, now: datetime) -> bool:
+    """Whether the freeze is active and covers pull requests into this base."""
+    return freeze.active(now) and not (freeze.branch and base and freeze.branch != base)
+
+
 def blocking(freezes: list[Freeze], files: list[str], base: str | None, labeler: str | None,
              now: datetime) -> list[str]:
     out = []
     for freeze in freezes:
-        if not freeze.active(now) or (freeze.branch and base and freeze.branch != base):
+        if not applies(freeze, base, now):
             continue
         hits = [(path, prefix) for path in files if (prefix := freeze.covers(path))]
         if not hits or (labeler and labeler.lower() == freeze.owner.lower()):
@@ -259,6 +285,8 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument("--pr", required=True)
     check.add_argument("--base")
     check.add_argument("--files", help="changed paths, one per line (default: read from GitHub)")
+    check.add_argument("--changed-files", type=int,
+                       help="the pull request's changed file count (the event's; default: read from GitHub)")
     check.add_argument("--issues-file", help="the open issues as JSON, instead of reading GitHub")
     check.add_argument("--events-file", help="the pull request's issue events as JSON, instead of reading GitHub")
     for name in ("list", "expire"):
@@ -285,9 +313,15 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.dry_run:
                     gh("issue", "close", str(freeze.number), "--repo", args.repo, "--comment",
                        f"This freeze {state} {lapsed:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
-                       f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).")
+                       f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).",
+                       write=True)
             return 0
-        if args.files:
+        files: list[str] = []
+        labeler = None
+        # No freeze can block this pull request: its files and label events are not needed.
+        if not any(applies(f, args.base, now) for f in freezes):
+            pass
+        elif args.files:
             with open(args.files) as handle:
                 files = [line.strip() for line in handle if line.strip()]
         else:
@@ -296,11 +330,12 @@ def main(argv: list[str] | None = None) -> int:
             files = [e["filename"] for e in entries] + [e["previous_filename"] for e in entries
                                                         if e.get("previous_filename")]
             # The files API stops at 3000 files; an incomplete list can't clear a freeze.
-            expected = json.loads(gh("api", f"repos/{args.repo}/pulls/{args.pr}")).get("changed_files")
+            expected = args.changed_files
+            if expected is None:
+                expected = json.loads(gh("api", f"repos/{args.repo}/pulls/{args.pr}")).get("changed_files")
             if expected is not None and len(entries) < expected:
                 raise ValueError(f"GitHub listed {len(entries)} of {expected} changed files")
-        labeler = None
-        if any(f.active(now) for f in freezes):
+        if any(applies(f, args.base, now) for f in freezes):
             events = (read_json_list(args.events_file) if args.events_file is not None
                       else gh_items(f"repos/{args.repo}/issues/{args.pr}/events?per_page=100"))
             labeler = ok_labeler(events)
