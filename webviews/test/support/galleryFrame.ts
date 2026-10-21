@@ -32,6 +32,20 @@ export function galleryEntryPath(id: string): string {
 
 type Params = Record<string, string | number | undefined>;
 
+/**
+ * Whether a load error is a dependency-optimizer reload. Only its first line, without the URLs it
+ * names (an entry id or path could spell "cancelled"): Playwright appends a call log ("navigating
+ * to …") to every goto error, a refused connection too.
+ */
+export function reloaded(error: unknown): boolean {
+  const first = String(error)
+    .split("\n")[0]!
+    .replace(/\bhttps?:\/\/\S+/g, "");
+  return /context was destroyed|interrupted by another navigation|ERR_ABORTED|cancell?ed|frame was detached/i.test(
+    first,
+  );
+}
+
 /** `/gallery/frame.html` for one variant of one entry, narrowed to the entry's own file. */
 export function galleryFrame(entry: string, params: Params = {}): string {
   const query = new URLSearchParams({ entry, entryPath: galleryEntryPath(entry) });
@@ -80,8 +94,8 @@ export async function warmGalleryFrame(
             ]);
             break;
           } catch (error) {
-            if (Date.now() >= deadline || !/context was destroyed|navigat|ERR_ABORTED/i.test(String(error)))
-              throw error;
+            if (Date.now() >= deadline || !reloaded(error))
+              throw new Error(`warmGalleryFrame: ${entry}: ${String(error)}`, { cause: error });
           }
         }
         if (ready === "error") throw new Error(`warmGalleryFrame: ${entry}: ${message}`);
