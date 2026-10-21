@@ -97,7 +97,7 @@ export function SourcesAddMenu({ attach, tools }: { attach?: () => void; tools: 
       <MenuButton className="acpmux-summary-add" label={label} title={label} data-menu="summary-sources-add">
         <Icon name="action.add" size={ROW_ICON} />
       </MenuButton>
-      <MenuPopup className="acpmux-chat-menu-popover" align="end">
+      <MenuPopup className="acpmux-chat-menu-popover acpmux-summary-menu" align="end">
         {attach && (
           <MenuItem className="acpmux-chat-menu-item" onSelect={attach}>
             <PaperclipIcon />
@@ -106,7 +106,7 @@ export function SourcesAddMenu({ attach, tools }: { attach?: () => void; tools: 
         )}
         <Submenu
           className="acpmux-chat-menu-item"
-          popupClassName="acpmux-chat-menu-popover acpmux-tools-menu"
+          popupClassName="acpmux-chat-menu-popover acpmux-summary-menu acpmux-tools-menu"
           label={
             <>
               <BuildIcon />
