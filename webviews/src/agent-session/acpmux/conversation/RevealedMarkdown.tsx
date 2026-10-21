@@ -2,6 +2,7 @@
 // bursts, one per acpmux delta. The same element shows the reply before and after the stream
 // ends, so nothing remounts when it settles.
 import { useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { StreamReveal } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
@@ -66,7 +67,11 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
       const next = { length, fresh, now };
       latest.current.shown = next;
-      setShown(next);
+      // The backlog commits in this frame, before it paints: a state update from a frame callback
+      // renders in a later task, so the first frame back showed the reply as the user left it and
+      // the next one grew it and moved the transcript (Leo 2026-10-20, "no layout shifts").
+      if (away) flushSync(() => setShown(next));
+      else setShown(next);
       if (!current.settled || fresh.length) handle = revealFrames.request(tick);
     };
     handle = revealFrames.request(tick);

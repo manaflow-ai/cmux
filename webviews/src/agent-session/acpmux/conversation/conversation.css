@@ -246,6 +246,42 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
+/* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
+   and a failed prompt's actions and Details. */
+/* Beside the bubble's lower left, out of the layout: a mark appearing or changing never moves a row. */
+.cv-user__bubble {
+  position: relative;
+}
+.cv-user__delivery {
+  position: absolute;
+  right: calc(100% + 6px);
+  bottom: 2px;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  user-select: none;
+}
+.cv-user__status--failed {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cv-user__failure {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 8px;
+}
+.cv-user__delivery-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
 /* Cancel on the start status line, which then reads "Thinking" in the same place (cx-ncc.58). */
 .cv-thinking__cancel {
   margin-left: 6px;
@@ -886,6 +922,14 @@ pre.cv-math-source {
   right: 0;
   opacity: 0;
 }
+/* A prompt's bubble sits at the right, at most 70% wide: its floating Copy (a selected range's,
+   or keyboard focus's) goes in the empty left corner, never over the bubble's text (layout pass,
+   2026-10-20). Only a row drawn as the bubble: another agent's message or a task's result is a
+   line from the left edge, whose Copy stays at the right. */
+.acpmux-row.acpmux-user:has(> .cv-user) .acpmux-row__copy {
+  right: auto;
+  left: 0;
+}
 /* Not on hover: a prompt has Copy under its bubble and an answer in its turn's footer, so a hover
    showed two or three Copy buttons per turn. Keyboard focus and a selected range still show it. */
 .acpmux-row:focus-within .acpmux-row__copy,
@@ -1224,6 +1268,13 @@ pre.cv-math-source {
 .cv-tool.is-strong {
   color: var(--cv-tool-strong);
 }
+/* The running rows' spinner (`Spinner`: compaction, tool groups, MCP calls, command and shell rows):
+   the shared `cmux-spin` turn (ui/spinnerClock.ts); it holds still under Reduce Motion and the static look. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-spinner {
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  }
+}
 .cv-tool__icon {
   display: flex;
   flex: none;
@@ -1542,24 +1593,84 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-/* Another agent's message (IncomingMessageCard.tsx): Show more and Open on one line, and the
-   prompt as the agent got it once opened. */
-.cv-message__foot {
+/* Another agent's message (IncomingMessageCard.tsx): one quiet line, "Received message from
+   <sender> ›", as Claude desktop draws it. The sender is a link to its chat; › opens the message
+   under the line. No box on hover: the name's underline and the chevron brighten. */
+.cv-received {
   display: flex;
-  gap: 12px;
-  margin: -6px 0 7px 32.5px;
+  flex-direction: column;
+  min-width: 0;
+  margin: 2px 0;
 }
-.cv-message__foot .cv-message__more {
-  margin: 0;
+.cv-received__line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 26px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-control);
+  white-space: pre;
+  user-select: none;
 }
-/* Another agent's images, under its message and in line with it (IncomingMessageCard.tsx). */
-.cv-message.is-incoming > .cv-message__images {
+.cv-received__name,
+.cv-received__toggle {
+  all: unset;
+  cursor: pointer;
+}
+.cv-received__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cv-text) 35%, transparent);
+  text-underline-offset: 3px;
+}
+.cv-received__name.is-plain {
+  text-decoration: none;
+}
+button.cv-received__name:hover,
+button.cv-received__name:focus-visible {
+  text-decoration-color: currentColor;
+}
+.cv-received__toggle {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 26px;
+  margin-left: 2px;
+}
+.cv-received__toggle:hover,
+.cv-received__toggle:focus-visible,
+.cv-received__text:hover ~ .cv-received__toggle {
+  color: var(--cv-text);
+}
+.cv-received__text {
+  cursor: pointer;
+}
+/* The message, opened: under the line, set off by a hairline rather than a card. */
+.cv-received__body {
+  margin: 2px 0 6px 1px;
+  padding-left: 12px;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--cv-text) 16%, transparent);
+  color: var(--cv-text-muted);
+  font-size: var(--text-control);
+  line-height: 19px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* Another agent's images and its raw prompt, under its line. */
+.cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;
-  margin: 0 10px 6px 32.5px;
+  margin: 2px 0 6px;
 }
-.cv-message.is-incoming > .cv-tool-output {
-  margin: 0 10px 8px 32.5px;
+.cv-received > .cv-tool-output {
+  margin: 0 0 8px 13px;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
@@ -2157,29 +2268,35 @@ pre.cv-math-source {
   white-space: nowrap;
 }
 
-/* The preview card before the reader loads its frame (PreviewCard.tsx): the same height as the
-   frame, so loading it does not move the transcript. */
-.acpmux-turn-preview-unloaded {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 180px;
-  background: var(--agent-page-bg);
+/* The preview card before the reader loads its frame (PreviewCard.tsx): one compact row
+   (previewUrl.ts PREVIEW_COMPACT_HEIGHT), the page's icon unboxed, no thumbnail box. "Load preview"
+   is a quiet text button among the row's actions; the frame appears only after the click. */
+.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head {
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 8px 6px 12px;
+  box-shadow: none;
 }
-/* A gallery stage's placeholder takes its live frame's height (previewUrl.ts GALLERY_FRAME_HEIGHT). */
-.acpmux-turn-preview-unloaded--live {
-  height: 360px;
+.acpmux-turn-preview[data-compact] .acpmux-turn-preview-icon {
+  width: 16px;
+  height: 16px;
+  background: none;
 }
 .acpmux-turn-preview-load {
-  height: 28px;
-  padding: 0 10px;
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 8px;
-  background: var(--agent-control, color-mix(in srgb, var(--agent-text) 10%, var(--agent-page-bg)));
-  box-shadow: inset 0 0 0 1px var(--agent-border);
-  color: var(--agent-text);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
   font: inherit;
+  font-size: var(--text-detail);
   cursor: pointer;
+}
+.acpmux-turn-preview-load:hover {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  color: var(--agent-text);
 }
 .acpmux-turn-preview-load:focus-visible {
   outline: 1.5px solid var(--agent-muted);
@@ -2635,12 +2752,7 @@ pre.cv-math-source {
     .cv-plan:not([data-ended])
     .cv-plan__item[data-status="in_progress"]
     .cv-plan__mark {
-    animation: cv-plan-spin 0.9s linear infinite;
-  }
-}
-@keyframes cv-plan-spin {
-  to {
-    transform: rotate(1turn);
+    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
   }
 }
 

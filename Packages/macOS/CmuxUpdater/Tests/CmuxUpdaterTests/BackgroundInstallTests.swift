@@ -151,6 +151,21 @@ import Testing
         #expect(harness.controller.stagedUpdate != nil)
     }
 
+    /// Sparkle's own silent driver (`SUAutomaticallyUpdate`) stages through
+    /// `willInstallUpdateOnQuit`, not this driver: the host still learns which
+    /// build waits, so it can show its version and never offer the build it runs.
+    @Test func sparklesSilentInstallNamesTheStagedUpdate() {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        let updater = unsafeBitCast(NSNull(), to: SPUUpdater.self)
+        _ = harness.controller.driver.updater(updater, willInstallUpdateOnQuit: item, immediateInstallationBlock: {})
+        #expect(harness.controller.stagedUpdate?.versionString == "0.64.17")
+        #expect(harness.controller.stagedUpdate?.displayVersionString == "0.64.17")
+
+        harness.controller.installStagedUpdate()
+        #expect(harness.controller.stagedUpdate == nil, "the installing update still reads as staged")
+    }
+
     @Test func backgroundModeWritesNothingToDefaults() {
         let harness = Harness()
         let before = persisted(harness)

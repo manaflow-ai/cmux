@@ -76,19 +76,135 @@ describe("Hexclave webhook inbox store", () => {
     expect([...claimedA, ...claimedB, ...rest.map((entry) => entry.svixId)].sort()).toEqual(["m1", "m2", "m3", "m4"]);
   });
 
+  dbTest("entity selection skips a claim whose establishment lock is held", async () => {
+    const store = createDrizzleHexclaveInboxStore();
+    await store.enqueue({ svixId: "m-locked", eventType: "user.updated", target: user("u-locked") });
+    const lockKey = "hexclave:inbox:user:u-locked";
+    let unlock!: () => void;
+    let locked!: () => void;
+    const release = new Promise<void>((resolve) => { unlock = resolve; });
+    const ready = new Promise<void>((resolve) => { locked = resolve; });
+    const holder = sql!.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+      locked();
+      await release;
+    });
+    await ready;
+    const now = new Date();
+    try {
+      expect(await store.claimDue(now, 1, new Date(now.getTime() + 60_000))).toEqual([]);
+    } finally {
+      unlock();
+      await holder;
+    }
+    expect((await store.claimDue(now, 1, new Date(now.getTime() + 60_000))).map((entry) => entry.svixId))
+      .toEqual(["m-locked"]);
+  });
+
+  dbTest("claim renewal contends on the same entity-establishment lock", async () => {
+    const store = createDrizzleHexclaveInboxStore();
+    await store.enqueue({ svixId: "m-renew-locked", eventType: "user.updated", target: user("u-renew-locked") });
+    const now = new Date();
+    const claimedUntil = new Date(now.getTime() + 60_000);
+    expect(await store.claimDue(now, 1, claimedUntil)).toHaveLength(1);
+
+    let unlock!: () => void;
+    let locked!: () => void;
+    const release = new Promise<void>((resolve) => { unlock = resolve; });
+    const ready = new Promise<void>((resolve) => { locked = resolve; });
+    const holder = sql!.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended('hexclave:inbox:user:u-renew-locked', 0))`;
+      locked();
+      await release;
+    });
+    await ready;
+    const renewedUntil = new Date(claimedUntil.getTime() + 60_000);
+    try {
+      expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(false);
+    } finally {
+      unlock();
+      await holder;
+    }
+    expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(true);
+  });
+
+  dbTest("a new event for an entity waits for that entity's active claim", async () => {
+    const store = createDrizzleHexclaveInboxStore();
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + 60_000);
+    await store.enqueue({ svixId: "m-remove", eventType: "user.updated", target: user("u-one") });
+    expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
+
+    await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
+    expect(await store.claimDue(now, 5, leaseUntil)).toEqual([]);
+    const afterLease = new Date(leaseUntil.getTime() + 1);
+    expect((await store.claimDue(afterLease, 5, new Date(afterLease.getTime() + 60_000)))
+      .map((entry) => entry.svixId).sort()).toEqual(["m-readd", "m-remove"]);
+  });
+
+  dbTest("claim mutations are fenced by the exact lease token", async () => {
+    const store = createDrizzleHexclaveInboxStore();
+    for (const svixId of ["m-complete", "m-fail", "m-defer"]) {
+      await store.enqueue({ svixId, eventType: "user.updated", target: user("u-fenced") });
+    }
+    const firstAt = new Date();
+    const firstUntil = new Date(firstAt.getTime() + 60_000);
+    const first = await store.claimDue(firstAt, 1, firstUntil);
+    expect(first).toHaveLength(3);
+    const renewedUntil = new Date(firstUntil.getTime() + 60_000);
+    expect(await store.renewClaims(first.map((entry) => entry.svixId), firstUntil, renewedUntil)).toBe(true);
+    expect(await store.claimDue(new Date(firstUntil.getTime() + 1), 1, renewedUntil)).toEqual([]);
+    const secondAt = new Date(renewedUntil.getTime() + 1);
+    const secondUntil = new Date(secondAt.getTime() + 60_000);
+    expect(await store.claimDue(secondAt, 1, secondUntil)).toHaveLength(3);
+
+    expect(await store.renewClaims(["m-complete"], renewedUntil, new Date(secondUntil.getTime() + 60_000))).toBe(false);
+    expect(await store.complete(["m-complete"], renewedUntil)).toBe(false);
+    expect(await store.recordFailure(["m-fail"], renewedUntil, {
+      now: secondAt,
+      nextAttemptAt: secondAt,
+      error: "stale worker",
+      maxAttempts: 3,
+    })).toBe(false);
+    expect(await store.defer(["m-defer"], renewedUntil, secondAt)).toBe(false);
+    const rows = await sql!<{ svix_id: string; attempts: number; claimed_until: Date }[]>`
+      select svix_id, attempts, claimed_until
+      from hexclave_webhook_inbox
+      order by svix_id
+    `;
+    expect(rows).toEqual([
+      { svix_id: "m-complete", attempts: 0, claimed_until: secondUntil },
+      { svix_id: "m-defer", attempts: 0, claimed_until: secondUntil },
+      { svix_id: "m-fail", attempts: 0, claimed_until: secondUntil },
+    ]);
+  });
+
   dbTest("a failed entity counts an attempt and dead-letters at the cap; a deferred one does not count", async () => {
     const store = createDrizzleHexclaveInboxStore();
     await store.enqueue({ svixId: "m1", eventType: "team.updated", target: { kind: "team", id: "t1", revokeCandidateTeamIds: [] } });
     await store.enqueue({ svixId: "m2", eventType: "team.updated", target: { kind: "team", id: "t2", revokeCandidateTeamIds: [] } });
     await sql!`update hexclave_webhook_inbox set next_attempt_at = now() - interval '1 minute'`;
     const now = new Date();
-    expect(await store.claimDue(now, 5, new Date(now.getTime() + 60_000))).toHaveLength(2);
-    await store.recordFailure(["m1"], { now, nextAttemptAt: new Date(now.getTime() + 30_000), error: "HexclaveApiError 429", maxAttempts: 3 });
-    await store.defer(["m2"], new Date(now.getTime() + 1_000));
+    const initial = await store.claimDue(now, 5, new Date(now.getTime() + 60_000));
+    expect(initial).toHaveLength(2);
+    const initialClaim = initial[0]!.claimUntil;
+    const throttleUntil = new Date(now.getTime() + 15_000);
+    expect(await store.recordFailure(["m1"], initialClaim, {
+      now,
+      nextAttemptAt: new Date(now.getTime() + 30_000),
+      error: "HexclaveApiError 429",
+      maxAttempts: 3,
+      throttleUntil,
+    })).toBe(true);
+    expect(await store.claimDrainSlot(new Date(now.getTime() + 1), new Date(now.getTime() + 60_000), 2)).toBeNull();
+    expect(await store.defer(["m2"], initialClaim, new Date(now.getTime() + 1_000))).toBe(true);
     const later = await store.claimDue(new Date(now.getTime() + 31_000), 5, new Date(now.getTime() + 90_000));
     expect(later.map((entry) => [entry.svixId, entry.attempts])).toEqual([["m1", 1], ["m2", 0]]);
-    await store.recordFailure(["m1"], { now, nextAttemptAt: now, error: "x", maxAttempts: 3 });
-    await store.recordFailure(["m1"], { now, nextAttemptAt: now, error: "x", maxAttempts: 3 });
+    const laterClaim = later[0]!.claimUntil;
+    expect(await store.recordFailure(["m1"], laterClaim, { now, nextAttemptAt: now, error: "x", maxAttempts: 3 })).toBe(true);
+    const final = await store.claimDue(new Date(now.getTime() + 31_001), 1, new Date(now.getTime() + 120_000));
+    expect(final.map((entry) => entry.svixId)).toEqual(["m1"]);
+    expect(await store.recordFailure(["m1"], final[0]!.claimUntil, { now, nextAttemptAt: now, error: "x", maxAttempts: 3 })).toBe(true);
     expect(await store.health(2)).toEqual({ stuck: 0, deadLettered: 1 });
     expect(await store.claimDue(new Date(now.getTime() + 3_600_000), 5, new Date(now.getTime() + 3_700_000)))
       .toEqual([expect.objectContaining({ svixId: "m2" })]);

@@ -25,7 +25,7 @@ export const CONTEXT_LABELS = {
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
-  connectCloud: "composer.connectCloud",
+  newCloudMachine: "composer.newCloudMachine",
   newChatHere: "composer.newChatHere",
   noProject: "composer.noProject",
   environment: "composer.environment",
@@ -84,7 +84,7 @@ export function ComposerContext({
   onNewChat?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
-  /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
+  /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
 }) {
@@ -254,7 +254,7 @@ export function ComposerContext({
                 !started && onConnect
                   ? [
                       { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.connectCloud), onSelect: () => onConnect("cloud") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
                     ]
                   : undefined
               }
