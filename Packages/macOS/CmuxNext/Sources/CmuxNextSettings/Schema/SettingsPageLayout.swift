@@ -91,7 +91,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "general", title: section(.general), symbol: "gearshape",
             groups: [
-                group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
+                // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
+                group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
+                group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
@@ -201,7 +203,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
             // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone")],
+            groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(

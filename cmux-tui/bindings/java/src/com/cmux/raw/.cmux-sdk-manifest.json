@@ -656,6 +656,11 @@
       "size": 1409
     },
     {
+      "path": "CloudSelfhostInfoRequest.java",
+      "sha256": "ea6a31b3008dfceb97a4f6a4847a811f37e8a91dd8945e32e928d002ec730b5b",
+      "size": 1409
+    },
+    {
       "path": "CloudSessionClearRequest.java",
       "sha256": "1abc73226ded01960a5f0f3d4a76a159b8963c32c117601dab0c2930a9fa89c4",
       "size": 1409
@@ -667,8 +672,8 @@
     },
     {
       "path": "CloudSessionSetRequest.java",
-      "sha256": "009e06b3f521064b0dec76358e6e35e386eb72bec6acaf2dea4ed0c9e52edb36",
-      "size": 4488
+      "sha256": "15602957adaafd5befac3c6d59ea4dab68b80a7c450ea2609f7bd2713a3842e3",
+      "size": 4888
     },
     {
       "path": "CloudSessionStatusRequest.java",
@@ -702,8 +707,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "0d79efd9bd51faf357e35a78a1532da49b6d4e1eebebf86169b53ac7bbabe249",
-      "size": 77097
+      "sha256": "e1af96a8170f92fb3c34f4d0134cc78c54920318a2f2ccf46916c5b8d6569d34",
+      "size": 77352
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1352,8 +1357,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "6c4554c71fb7fcfd570a7286e4ec927676ae59b28121297177fad0037e27063c",
-      "size": 66869
+      "sha256": "a3c8644663e5a6ad03553b9af315ec20819e1c9d74f0e0b66764e31ce456ce92",
+      "size": 67059
     },
     {
       "path": "GetBlobRequest.java",
@@ -2082,7 +2087,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "19f5d886de8ea6a3a1ee71b292614dccf01907d149c0bee3316f0884c50c1070",
+      "sha256": "f10a21a929a1c847d5b74228ee478237b3fca90a1b9157a06df06f0c57c8c6dc",
       "size": 7486
     },
     {
@@ -3352,7 +3357,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67",
+  "ir_sha256": "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

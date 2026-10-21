@@ -230,8 +230,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// when every frame is final: the agent cursor goes back on top after a
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
-    /// window's overlay host.
+    /// window's overlay host. The sidebar's resize band gets a catcher panel
+    /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        // Before the guard: the band's catcher needs no overlay host.
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden

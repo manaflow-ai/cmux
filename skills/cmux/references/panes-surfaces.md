@@ -44,6 +44,6 @@ Only a loaded browser tab can be muted. MCP offers the same verbs as tools.
 
 ## Running a command
 
-`pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep` decides whether the tab stays after the process exits. To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
+`pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep|shell` decides whether the tab stays after the process exits (`shell` drops it into a new shell). To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
 
 `pane <sel> split -- <argv…>` (or `--shell '<script>'`) makes the new pane run that command instead of a shell. The old `new-split`, `new-pane`, `new-surface`, `list-panels`, `list-pane-surfaces`, `split-off` and `reorder-surface` commands are gone. The app action `cmux workspace new --command "…"` still types a first command into a new workspace.
