@@ -34,4 +34,21 @@ extension AgentPaneView {
         }
         addSubview(page)
     }
+
+    /// The view that takes the keyboard when the chat is focused: Chromium's view when the page
+    /// shows in Chromium (the `agent.chromium` spike), else the WebKit view.
+    public var focusTarget: NSView { page?.focusView ?? webView }
+
+    /// Gives the chat the keyboard unless ``focusTarget`` already has it.
+    func focusChat() {
+        guard let window, window.firstResponder !== focusTarget else { return }
+        if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
+    }
+
+    /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
+    /// (``PageWebView/callPageScript(_:arguments:)``).
+    public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        if let page { return try await page.callPageScript(body, arguments: arguments) }
+        return try await webView.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
+    }
 }

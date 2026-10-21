@@ -154,7 +154,7 @@ enum DebugAgentPane {
             });
             """
             do {
-                let result = try await view.webView.callAsyncJavaScript(script, arguments: [:], in: nil, contentWorld: .page)
+                let result = try await view.callPageScript(script)
                 guard let text = result as? String,
                       let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                       let value = JSONValue(foundation: object) else {
@@ -178,9 +178,7 @@ enum DebugAgentPane {
             return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, answer_permission, open_changes, set_model, models, stream, layout_watch, readiness, click, pid, full_rate, gesture_state or inspector")])
         }
         do {
-            let result = try await view.webView.callAsyncJavaScript(
-                script, arguments: ["fn": function, "args": arguments(action, params)], in: nil, contentWorld: .page
-            )
+            let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object) else {
@@ -222,8 +220,7 @@ enum DebugAgentPane {
         """
         do {
             // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
-            let result = try await view.webView.callAsyncJavaScript(script, arguments: ["waitForAnimations": waitForAnimations],
-                                                                    in: nil, contentWorld: .page)
+            let result = try await view.callPageScript(script, arguments: ["waitForAnimations": waitForAnimations])
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),
@@ -245,9 +242,7 @@ enum DebugAgentPane {
             return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
             """
         do {
-            let result = try await view.webView.callAsyncJavaScript(
-                script, arguments: ["open": open.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page
-            )
+            let result = try await view.callPageScript(script, arguments: ["open": open.map { $0 as Any } ?? NSNull()])
             guard let isOpen = result as? Bool else {
                 return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
             }
