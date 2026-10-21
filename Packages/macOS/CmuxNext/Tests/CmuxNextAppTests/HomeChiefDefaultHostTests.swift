@@ -1,0 +1,158 @@
+import AppKit
+@testable import CmuxNextApp
+@testable import CmuxNextHomeEngine
+@testable import CmuxNextHostedChief
+import Foundation
+import Observation
+import Synchronization
+import Testing
+
+/// What the default Chief (#64) reads and starts: whether this Mac's optchat-chief runs, kept
+/// current by the brain keeper's events, and that showing the Hosted Chief never starts it (a
+/// started host would turn Auto into this Mac's Chief on the next Chief tab check).
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+struct HomeChiefDefaultHostTests {
+    // MARK: Showing the Hosted Chief starts no host
+
+    @Test func showingTheHostedChiefNeverStartsThisMacsHost() {
+        let home = HomeChiefDefaultTests.services().home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+        home.localChiefRunning = false
+        #expect(!home.startsLocalBrain(for: "conv_hosted"), "the Hosted Chief's conversation")
+        #expect(!home.startsLocalBrain(for: nil), "Home itself (a reconnect, Channels) while the default resolves to Hosted")
+        #expect(home.startsLocalBrain(for: HomeChiefDefaultTests.local), "this Mac's Chief, opened by the person")
+        // Auto resolves to this Mac's Chief: Home itself keeps its host running; the Hosted Chief still starts none.
+        home.localChiefRunning = true
+        #expect(home.startsLocalBrain(for: nil))
+        #expect(!home.startsLocalBrain(for: "conv_hosted"))
+        // Signed out (no cloud Chief): Home's Chief is this Mac's, so Home starts it as before.
+        home.setCloudChiefs(HomeCloudChiefs())
+        home.localChiefRunning = false
+        #expect(home.startsLocalBrain(for: nil))
+    }
+
+    // MARK: The running state follows the brain keeper
+
+    @Test func aChangeOfTheRunningStateReRunsTheChiefTabCheck() {
+        let home = HomeChiefDefaultTests.services().home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: HomeChiefDefaultTests.hosted))
+        home.localChiefRunning = true
+        #expect(home.cloudChief == nil)
+        // HomeService.start's Chief tab check re-runs on a change of what it reads: the default Chief.
+        let fired = ChiefDefaultFlag()
+        withObservationTracking { _ = home.prefersLocalChief } onChange: { fired.set() }
+        // The keeper saw the host exit for good (a crash past its retries, `cmux chief shutdown`).
+        home.noteLocalChiefHost(running: false)
+        #expect(fired.value, "the Chief tab check runs again")
+        #expect(home.cloudChief == HomeChiefDefaultTests.hosted, "Auto falls back to the Hosted Chief")
+        // No change, no new check.
+        let again = ChiefDefaultFlag()
+        withObservationTracking { _ = home.prefersLocalChief } onChange: { again.set() }
+        home.noteLocalChiefHost(running: false)
+        #expect(!again.value)
+    }
+
+    @Test func theBrainWatchReportsAHostAndItsExit() async throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        // `cmux chief shutdown` stopped it: the watch does not start it again.
+        try FileManager.default.createDirectory(at: home.shutdownMarker.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: home.shutdownMarker)
+        let host = try Self.fakeHost(in: root)
+        let (events, report) = AsyncStream<Bool>.makeStream()
+        let watch = ChiefBrainWatch(home: home) { nil }
+        watch.onChange = { report.yield($0) }
+        var next = events.makeAsyncIterator()
+        watch.watch(host.processIdentifier)
+        #expect(await next.next() == true, "a watched host runs")
+        await Self.end(host)
+        #expect(await next.next() == false, "its exit, not restarted, is reported")
+    }
+
+    // MARK: localChiefRuns reads the lock
+
+    @Test func theLockCountsOnlyWhileItsOptchatChiefLives() async throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let none = await HomeService.localChiefRuns(home)
+        #expect(!none, "no lock")
+        let host = try Self.fakeHost(in: root)
+        try Self.writeLock(host.processIdentifier, home: home)
+        let live = await HomeService.localChiefRuns(home)
+        #expect(live, "a live optchat-chief holds the lock")
+        await Self.end(host)
+        let dead = await HomeService.localChiefRuns(home)
+        #expect(!dead, "the lock names a dead pid")
+        // A live process that is not an optchat-chief (this test runner) never counts.
+        try Self.writeLock(ProcessInfo.processInfo.processIdentifier, home: home)
+        let other = await HomeService.localChiefRuns(home)
+        #expect(!other)
+    }
+
+    // MARK: The two histories
+
+    /// The Hosted Chief gets this Mac's history once (``HostedChiefMigration``). A switch to this
+    /// Mac's Chief and back never copies again, so what was said to one stays with that one.
+    @Test func thisMacsHistoryReachesTheHostedChiefOnlyOnce() throws {
+        let root = Self.root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = ChiefHome(root: root, isolated: true)
+        let hosted = HomeChiefDefaultTests.hosted
+        let first = Self.migration(home: home)
+        first.start(hosted)
+        #expect(first.pending, "before the copy: the one copy is due")
+        HostedChiefLedger(session: home.session).mark(.history, chief: hosted.id)
+        // Later starts (every connect, after any number of messages to this Mac's Chief) copy nothing.
+        let later = Self.migration(home: home)
+        later.start(hosted)
+        #expect(!later.pending, "after the copy: no copy is due again")
+    }
+
+    // MARK: Helpers
+
+    static func root() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("chief-default-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// A process named `optchat-chief` (a copy of /bin/sleep), as `ChiefHostStop.isChiefHost` reads names.
+    static func fakeHost(in root: URL) throws -> Process {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let executable = root.appendingPathComponent(HomeBrainHost.bundledChiefName)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: executable)
+        let process = Process()
+        process.executableURL = executable
+        process.arguments = ["60"]
+        try process.run()
+        return process
+    }
+
+    static func end(_ process: Process) async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            process.terminationHandler = { _ in done.resume() }
+            process.terminate()
+        }
+    }
+
+    static func writeLock(_ pid: pid_t, home: ChiefHome) throws {
+        let lock = home.root.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: lock.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("\(pid)\n".utf8).write(to: lock)
+    }
+
+    static func migration(home: ChiefHome) -> HostedChiefMigration {
+        let migration = HostedChiefMigration()
+        migration.wire(.init(apiBase: { URL(fileURLWithPath: "/dev/null") }, token: { throw CancellationError() },
+                             ops: { _ in throw CancellationError() }, user: { "user_default_chief" }, debugBuild: false,
+                             owner: ChiefConversationOwner(home: home), localChief: "agent_mux", refreshTab: {}))
+        return migration
+    }
+}
+
+/// A flag an Observation change sets (its handler runs on whichever thread changed the value).
+private nonisolated final class ChiefDefaultFlag: Sendable {
+    private let state = Mutex(false)
+    var value: Bool { state.withLock { $0 } }
+    func set() { state.withLock { $0 = true } }
+}
