@@ -1792,11 +1792,11 @@ export class FreestyleProvider implements VMProvider {
       spanAttributes(vmId, "open_cmux_remote"),
       async (span) => {
         try {
-          // Attach never runs guest work (NO-WORK INVARIANT at the top of this
-          // file) and reads no provider state: a snapshot-v2 row records its
-          // private addresses at create. A row without the contract or its
-          // addresses is refused; older running machines get the contract by
-          // the upgrade and backfill in docs/cloud-guest-upgrades.md.
+          // The row supplies addresses and immutable auth mode without a
+          // provider read. Only a first enrollment may execute the bounded
+          // invitation command; known fingerprints remain exec-free. A row
+          // without the contract or addresses is refused; older running
+          // machines get the contract through the upgrade/backfill runbook.
           const routeAddresses = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !routeAddresses) {
             throw new ProviderMachineRecreateRequiredError(
@@ -1819,7 +1819,7 @@ export class FreestyleProvider implements VMProvider {
           const addresses = freestyleNetworkAddressMetadata(routeAddresses);
           span.setAttribute("cmux.vm.network.private", (routeAddresses.vpcs ?? routeAddresses.networks ?? []).length > 0);
           span.setAttribute("cmux.vm.cmux_remote.healed", false);
-          span.setAttribute("cmux.vm.cmux_remote.invited", false);
+          span.setAttribute("cmux.vm.cmux_remote.invited", invitation !== undefined);
           const networkAddresses = {
             ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
             ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
