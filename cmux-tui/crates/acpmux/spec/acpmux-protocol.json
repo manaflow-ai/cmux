@@ -566,6 +566,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/file_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/permission_respond",
       "params": {
         "$ref": "#/types/PermissionRespondParams"
