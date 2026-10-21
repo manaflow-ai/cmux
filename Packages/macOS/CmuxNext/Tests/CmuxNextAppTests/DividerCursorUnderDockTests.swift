@@ -74,8 +74,9 @@ struct DividerCursorUnderDockTests {
         let handle = try #require(screen.dividerViews[.split("x")])
         let under = handle.frame.intersection(cover)
         try #require(under.width > 1, "the divider runs on under the dock: \(handle.frame), dock \(cover)")
-        let beside = handle.frame.remainder(outside: cover)
-        try #require(beside.width > 1, "the divider shows beside the dock: \(handle.frame), dock \(cover)")
+        // Where it shows its resize cursor (an overlay dock's uncovered area stops short of its cover).
+        let beside = screen.convert(handle.cursorRectInBounds, from: handle)
+        try #require(beside.width > 1 && beside.height > 1, "the divider shows beside the dock: \(beside), dock \(cover)")
         var pointer = CGPoint(x: under.midX, y: under.midY)
         fixture.root.context.hoverPointer = { _ in screen.convert(pointer, to: nil) }
         fixture.root.context.hoverReachesWindow = { _ in true }
