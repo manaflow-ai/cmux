@@ -81,7 +81,7 @@ extension AppFeature {
             AppFeature(id: "sidebar.priorityView", setting: "sidebar.priorityView.enabled", on: .toggle,
                        category: .sidebar, preview: .icon(.notification),
                        name: t("store.feature.priorityView.name", "Priority View"),
-                       summary: t("store.feature.priorityView.summary", "A bell at the top of the sidebar ranks every agent chat, here and on your other machines, by what needs you."),
+                       summary: t("store.feature.priorityView.summary", "A bell atop the sidebar ranks your agent chats on every machine by what needs you."),
                        keywords: ["attention", "agents", "chats", "bell"]),
             AppFeature(id: "sidebar.workspaceTabs", setting: "sidebar.showWorkspaceTabs", on: .toggle,
                        category: .sidebar, preview: .icon(.tunableTabs),
