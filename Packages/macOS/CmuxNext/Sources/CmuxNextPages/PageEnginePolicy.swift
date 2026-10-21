@@ -40,7 +40,8 @@ public nonisolated struct PageEnginePolicy: Sendable, Hashable {
     /// - Returns: Chromium, or WebKit with the reason.
     public func decide(for page: PageDescriptor, options: PageEngineOptions) -> PageEngineDecision {
         guard preference == .chromium else { return .webKit(.personChoseWebKit) }
-        if let reason = page.chromiumBlocker ?? options.requiresWebKit { return .webKit(reason) }
+        let blocker = options.chromiumAgentChat && page.chromiumBlocker == .agentChat ? nil : page.chromiumBlocker
+        if let reason = blocker ?? options.requiresWebKit { return .webKit(reason) }
         guard chromiumAvailable else { return .webKit(.chromiumUnavailable) }
         guard chromiumServes else { return .webKit(.notServedByChromium) }
         return .chromium
@@ -51,7 +52,6 @@ nonisolated extension PageDescriptor {
     /// Why this page cannot run in Chromium yet, nil when it can (``PageEnginePolicy``).
     public var chromiumBlocker: PageWebKitReason? {
         if id == Self.agentPageID { return .agentChat }
-        if !dynamicPrefixes.isEmpty { return .runtimeResources }
         return nil
     }
 

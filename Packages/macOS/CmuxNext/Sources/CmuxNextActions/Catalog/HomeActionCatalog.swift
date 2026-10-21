@@ -31,6 +31,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .menu], cliName: "home show",
                 mainMenu: .file
             ),
+            // The Chief's conversation in the Home workspace's chat pane: the sidebar's Chief item
+            // (`ChiefSidebar`, off by default) runs it, and so can the palette and `cmux home open-chief`.
+            ActionDescriptor(
+                id: "home.openChief", title: t("action.home.openChief", "Open Chief"),
+                keywords: ["chief", "home", "chat", "conversation", "talk", "mux", "orchestrator", "subagents"],
+                category: .window, symbol: "sparkles", surfaces: [.palette, .keyboard], cliName: "home open-chief",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             // The native Home as a pane tab (HomePageTab): it splits next to any other tab
             // (the channels Home among them) over the same Home data. Each run opens one more.
             ActionDescriptor(
@@ -208,7 +216,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noTargetSurface)
             ),
             ActionDescriptor(
-                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group…"),
+                id: "home.renameConversation", title: t("action.home.renameConversation", "Rename Group Chat…"),
                 keywords: ["home", "group", "rename", "name", "title", "conversation"],
                 category: .window, symbol: "pencil", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation,
@@ -302,6 +310,17 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                             ActionArgument(name: "text", title: t("argument.home.send.text", "Message"), kind: .string)],
                 cliName: "home send",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Stop all agents (coordinator 2026-10-20): the Chief's turn and every
+            // subagent (chief.stop {all}); a plain stop never stops a subagent.
+            // Option-click on the compose bar's stop button runs it too; its
+            // toast lists what stopped and offers Restart.
+            ActionDescriptor(
+                id: "home.stopAllAgents",
+                title: String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module),
+                keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
+                symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
             // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).

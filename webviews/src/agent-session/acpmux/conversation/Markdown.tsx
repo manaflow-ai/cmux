@@ -8,7 +8,9 @@
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { appHref, safeHref } from "../model";
+import { needsYouTarget, openNeedsYou } from "../needsYou/links";
 import { CodeBlock } from "./CodeBlock";
+import { TableBlock } from "./TableBlock";
 import { DiagramBlock, isChart } from "./DiagramBlock";
 import { canRender, RenderCard } from "./RenderCard";
 import { renderFence } from "./renderCall";
@@ -367,7 +369,8 @@ export const linkIcon = (href: string) => {
 
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  const refs = githubReferences(text, repository);
+  // A pull request address, so the chip opens the pull request card (an issue redirects there).
+  const refs = githubReferences(text, repository, "pull");
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
@@ -454,7 +457,18 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
       const named = linked ? opts.started?.mentions.find((mention) => mention.sessionId === linked) : undefined;
       const app = href ? undefined : appHref(lm[2]);
-      if (named) out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
+      // An agent pointing at an open ask (`cmux://needs-you/<permissionId>`, needsYou/links.ts):
+      // a chip that opens the header's Needs you list on it, so the ask is never restated.
+      const ask = href ? undefined : needsYouTarget(lm[2]);
+      if (ask)
+        out.push(
+          <button key={k++} type="button" className="cv-link is-needs-you" onClick={() => openNeedsYou(ask)}>
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {renderInline(lm[1], labelOpts)}
+          </button>,
+        );
+      else if (named)
+        out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
       else if (path) out.push(<PathChip key={k++} path={path} label={renderInline(lm[1], labelOpts)} />);
       else if (app)
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
@@ -651,37 +665,8 @@ function Block({
         </L>
       );
     }
-    case "table": {
-      // Long-text columns get a 256px minimum and the rest 128px.
-      const plain = (t: string) => t.replace(/[`*_~]|\[|\]\([^)]*\)/g, "");
-      const wide = block.header.map((_, i) => block.rows.some((r) => plain(r[i] ?? "").length > 40));
-      return (
-        <div className={`cv-table-wrap${motion}`}>
-          <table className="cv-table">
-            <thead>
-              <tr>
-                {block.header.map((c, i) => (
-                  <th key={i} style={{ textAlign: block.align[i] ?? "left", width: wide[i] ? 256 : 128 }}>
-                    {renderInline(c, opts)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((r, ri) => (
-                <tr key={ri}>
-                  {r.map((c, i) => (
-                    <td key={i} style={{ textAlign: block.align[i] ?? "left" }}>
-                      {renderInline(c, opts)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
-    }
+    case "table":
+      return <TableBlock table={block} cell={(text) => renderInline(text, opts)} className={motion} />;
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
@@ -815,9 +800,6 @@ export function Markdown({
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
       : undefined;
-  // An odd number of fence lines: the last block is a fence still arriving. The parser counts
-  // only the text it has not closed yet, so a reveal frame does not scan the whole reply.
-  const openFence = streaming && parser.current.fenceOpen;
   // A block that streamed in while the chat was hidden, or that lands before its first frame back,
   // came while the user was away: it never enters (WebKit would play its suspended entrance on
   // return, shared/pageReveal.ts). It still hands its code over like any live block.
@@ -825,7 +807,11 @@ export function Markdown({
   const draw = (entry: KeyedBlock, index: number) => {
     const live = !atMount.current!.has(entry.key);
     if (live && away) awayBlocks.current.add(entry.key);
-    const open = openFence && index === blocks.length - 1;
+    // The last block is a fence still arriving. Read from the parsed (safe) tail, not the raw
+    // fence count: a closer still being typed is held back (safeTail.ts), so the card stays open
+    // until the closed one draws the same lines, and an opener held back after a closed fence does
+    // not turn that fence back into an open one.
+    const open = streaming && index === blocks.length - 1 && entry.block.type === "code" && entry.block.open === true;
     if (open) streamedFences.current.add(entry.key);
     return (
       <BlockView

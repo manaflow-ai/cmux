@@ -121,3 +121,46 @@ test("a pending edit's approval shows the file's change without Expand details",
     })),
   ).toEqual([{ name: "upload.sh", added: "+1", removed: "-0" }]);
 });
+
+test("a long edit awaiting approval shows whole, never cut to a preview", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { PermissionPanel } = await import("../src/agent-session/acpmux/permissions/Panel");
+  await act(async () => root?.unmount());
+  const long = Array.from({ length: 30 }, (_, index) => `echo step ${index + 1}`).join("\n") + "\n";
+  const item = group.items[0]!;
+  const longGroup: PermissionGroup = {
+    ...group,
+    groupId: "group-long",
+    items: [
+      {
+        ...item,
+        permissionId: "permission-long",
+        request: {
+          toolCall: {
+            title: "Edit upload.sh",
+            kind: "edit",
+            locations: [{ path }],
+            content: [{ type: "diff", path, oldText: before, newText: before + long }],
+          },
+        },
+      },
+    ],
+  };
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <PermissionPanel
+        state={{ ...state, groups: [longGroup] }}
+        working
+        onRespond={() => {}}
+        onRetry={() => {}}
+        onRevoke={() => {}}
+        onRefresh={() => {}}
+      />,
+    ),
+  );
+  const diff = host.querySelector(".acpmux-ask .cv-edit-diff")!;
+  expect(Boolean(diff)).toBe(true);
+  expect(diff.querySelector(".cv-edit-diff__body")?.hasAttribute("data-preview")).toBe(false);
+  expect([...diff.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
+});

@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 
 /// Import and default-app actions. Import from Browser opens the tool window
@@ -13,6 +15,13 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        registry.bind("browserProfile.removeImportedData", run: { invocation in
+            let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
+            Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
+                let counts = try? await sync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
+                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+            }
+        })
         // No path argument: only the person's own pick in the open panel brings passwords in.
         registry.bind("password.importCSV", run: { invocation in
             try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))
@@ -45,6 +54,11 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Import suggestion cards (Home, New Tab, Settings › Import): the same import run as the window's.
+        ImportSuggestionsCenter.shared.bind(into: registry, host: ImportCardsHost(
+            runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
+            importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
+            openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) }))
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in

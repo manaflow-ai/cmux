@@ -23,9 +23,12 @@ public struct RegistryKeyBindings {
     /// (Cmd-R Reload in a page) comes after a general one (Cmd-R Rename
     /// Tab), and catalog order breaks a tie (the first catalog action wins).
     public var table: KeyBindingTable {
-        if let table = registry.currentShortcutIndex().bindingTable { return table }
+        let workspaceTabKeys = registry.includesWorkspaceTabKeys()
+        let index = registry.currentShortcutIndex()
+        if let table = index.bindingTable, index.bindingTableHasWorkspaceTabKeys == workspaceTabKeys { return table }
         let table = makeTable()
         registry.shortcutIndex?.bindingTable = table
+        registry.shortcutIndex?.bindingTableHasWorkspaceTabKeys = workspaceTabKeys
         return table
     }
 
@@ -63,6 +66,10 @@ public struct RegistryKeyBindings {
             // A terminal program's own keys win over these defaults (amendment 3).
             if KeyBindingDefaults.yieldsToTerminal.contains(id) {
                 defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
+            }
+            // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+            if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
             }
             let specificity = requires.rawValue.nonzeroBitCount
             // A focused text field's own keys win over these defaults (Cmd-Return steers the chat);
@@ -118,6 +125,7 @@ public struct RegistryKeyBindings {
                 entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
                 // The Chrome tab keys win over every focus and the Ghostty config; cmux.json still decides.
                 entries += KeyBindingDefaults.tabSwitching(registry: registry)
+                entries += KeyBindingDefaults.workspacesAsTabs(registry: registry)
             case .user: entries += extra.user.filter(enabled)
             }
         }

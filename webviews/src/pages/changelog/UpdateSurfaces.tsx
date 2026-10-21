@@ -81,7 +81,6 @@ export function UpdatedCard({
           type="button"
           className="wn-card-close"
           aria-label={strings.t("updates.card.dismiss")}
-          title={strings.t("updates.card.dismiss")}
           onClick={actions.dismiss}
         >
           <svg viewBox="0 0 10 10" aria-hidden="true">

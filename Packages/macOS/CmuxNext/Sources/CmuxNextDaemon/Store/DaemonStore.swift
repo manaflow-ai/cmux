@@ -244,6 +244,7 @@ public final class DaemonStore: StateResourceQueries {
                 restoredTabIDs = currentTabIDs
             }
             rebuildIndex()
+            ProvisionalSplit.noteDaemonPanes(in: self)
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)

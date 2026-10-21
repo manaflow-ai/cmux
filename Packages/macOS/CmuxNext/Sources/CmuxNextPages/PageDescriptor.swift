@@ -166,7 +166,9 @@ public extension PageDescriptor {
                   // Machines > Add Server… opens the Add Server card (no code: the page never approves).
                   "server.addServer",
                   // Agents > Computer Use card (ComputerUseSetup).
-                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
+                  "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
+                  // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
+                  "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
         dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
 
@@ -201,7 +203,7 @@ public extension PageDescriptor {
     /// The actions a changelog "Try it" may run (compiled in, reviewed with each addition).
     static let changelogTryItActions: Set<String> = [
         "palette.checkForUpdates", "openSettings", "palette.searchShortcuts", "palette.newAgentChat",
-        "home.show", "appStore.show", "newBrowserWorkspace", "space.new",
+        "home.show", "appStore.show", "newBrowserWorkspace", "space.new", "renameWorkspace",
     ]
 
     /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and

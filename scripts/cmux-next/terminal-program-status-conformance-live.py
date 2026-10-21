@@ -240,7 +240,7 @@ def banner_titles():
 
 
 def expect_banner(name, title):
-    found = wait(lambda: any(b.get("title") == title for b in banners()), 8)
+    found = wait(lambda: any((b.get("subtitle") or "").split(" · ")[0] == title for b in banners()), 8)
     entry = report["steps"].setdefault(name, {})
     entry["banner_expected"] = title
     entry["banner_found"] = bool(found)

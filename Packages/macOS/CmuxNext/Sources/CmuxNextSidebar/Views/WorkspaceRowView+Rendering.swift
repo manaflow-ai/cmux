@@ -45,20 +45,32 @@ extension WorkspaceRowView {
         // name (wrapped), so no second popover (a tooltip) shows with it.
         layoutSubtreeIfNeeded()
         title.startMarquee()
+        updateCalmTitleTip()
+    }
+
+    /// Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows as
+    /// the row's themed tooltip instead (the title view takes no hits). Layout sets it too: a
+    /// themed tracker added while the pointer is already inside gets no mouseEntered, so it has
+    /// to exist before the pointer arrives.
+    func updateCalmTitleTip() {
+        let tip = DesignSettings.shared.calmMode != .off && title.isTruncated ? title.stringValue : nil
+        if themedToolTip != tip { themedToolTip = tip }
     }
 
     override func updateLayer() {
         performWithTheme {
             title.textColor = Palette.textPrimary
-            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
+            subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel, elapsedLabel].forEach { $0.setColor(Palette.textTertiary) }
+            if let chip { timeLabel.setColor(SidebarPriorityRowView.chipColor(chip)) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
+            tintSessionTree()
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
-            // Fills only, no borders: drop target, selection, multi-selection, hover.
-            let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isPlaceholderRow ? Palette.hoverFill : nil
+            // Fills only, no borders: drop target, selection, multi-selection or on screen, hover.
+            let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
+                : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
             paintFill(fill)
             (rowBadge.ringColor, rowBadge.chipColor) = (Self.badgeBackdrop(fill), Palette.sidebarStep.cgColor)
             // The sidebar's own tonal step, once more: a bar a step apart.
@@ -81,7 +93,8 @@ extension WorkspaceRowView {
 
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
-        let indent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        let groupIndent: CGFloat = grouped ? SidebarStyle.groupMemberIndent : 0
+        let indent = groupIndent + CGFloat(treeDepth) * SidebarStyle.treeIndent // a started workspace sits in under its parent
         let (th, sh, top, cy) = textMetrics(head: b)
         // A custom workspace icon takes the leading slot; without one the
         // title starts at the leading inset (no default kind glyph).
@@ -93,6 +106,7 @@ extension WorkspaceRowView {
         case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: cy - side / 2, width: side, height: side)
+        layoutTreeLine(leading: SidebarStyle.horizontalInset + groupIndent)
 
         // Trailing cluster, right to left: the disclosure and the tab count
         // (fixed slots, the same with or without hover), close-or-badge, then
@@ -118,6 +132,7 @@ extension WorkspaceRowView {
             prBadge.frame = NSRect(x: trailing - w, y: cy - h / 2, width: w, height: h)
             trailing -= w + Metrics.space2
         }
+        trailing = layoutPullRequests(trailing: trailing, cy: cy)
         // Lawrence 2026-10-11 ("Overlay with fade"): the title keeps its full
         // width at rest and on hover. The x and the more button draw over the
         // end of the title, which fades out before them (an alpha mask), so
@@ -128,7 +143,10 @@ extension WorkspaceRowView {
         let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
         setHoverShown(closeButton, showClose, fades: fades)
         setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
+        // The keycap of one of the first rows takes the unread mark's slot when there is no mark.
+        setHoverShown(keycap, keycap.number != nil && !badge.state.isUnread && !(showClose || (showMore && !isClosable)), fades: fades)
         var slot: CGFloat = 0
+        if !badge.state.isUnread, keycap.number != nil { slot = layoutKeycap(trailing: trailing, cy: cy, control: control) }
         if badge.state.isUnread {
             let w = badge.preferredWidth
             let h = badge.state == .dot ? SidebarStyle.dotSize : SidebarStyle.badgeHeight
@@ -187,6 +205,7 @@ extension WorkspaceRowView {
             agentMark.frame = NSRect(x: textX + Self.labelInset, y: cy - ind / 2, width: ind, height: ind)
             textX = agentMark.frame.maxX + Metrics.space1
         }
+        trailing = layoutElapsed(trailing: trailing, textX: textX, cy: cy, height: sh)
         let textW = max(0, trailing - textX)
         let titleArrival = titleArrivalPending || titleArrivalActive
         title.isHidden = renaming || (isShowingPlaceholder && !titleArrival)
@@ -205,9 +224,10 @@ extension WorkspaceRowView {
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
+        updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel, elapsedLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

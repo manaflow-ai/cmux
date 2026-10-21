@@ -59,10 +59,16 @@ public struct UpdateFeedResolver: Sendable {
         }
 
         /// The `sparkle:channel` values this channel's updater accepts besides
-        /// the default (untagged) items.
+        /// the default (untagged) items, for the default ``UpdateRing/nightly`` ring.
         public var allowedSparkleChannels: Set<String> {
+            allowedSparkleChannels(ring: .nightly)
+        }
+
+        /// The `sparkle:channel` values accepted on `ring`. Only the cmux-next feed has rings;
+        /// every other feed accepts no tagged item whatever the ring.
+        public func allowedSparkleChannels(ring: UpdateRing) -> Set<String> {
             switch self {
-            case .nightlyNext: [Self.nightlyNextSparkleChannel]
+            case .nightlyNext: ring.acceptedSparkleChannels
             case .stable, .nightly, .rc: []
             }
         }
