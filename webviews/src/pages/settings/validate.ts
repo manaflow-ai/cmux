@@ -104,7 +104,10 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
   const choices = row.choices?.map((choice) => choice.value) ?? [];
   if (row.validation === "domain:backdrop_selection") {
     // A listed painting, Shuffle Paintings, a shuffled folder, or a macOS wallpaper by absolute path (each Mac has its own set).
-    if (typeof value === "string" && (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value)))
+    if (
+      typeof value === "string" &&
+      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value))
+    )
       return null;
     return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
   }
