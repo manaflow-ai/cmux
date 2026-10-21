@@ -894,6 +894,13 @@ export function Composer({
       escapeStop.press(event.repeat);
       return;
     }
+    // Esc in an idle prompt lets go of the keyboard, as Claude desktop's does: the caret goes, and a
+    // printed key or a click brings it back (composerFocus.ts). Menus and pickers took theirs above.
+    if (event.key === "Escape" && plain && !open && !quick) {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && form.current?.contains(focused)) focused.blur();
+      return;
+    }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
       onOpenInWindow &&
