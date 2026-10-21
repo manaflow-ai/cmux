@@ -120,6 +120,25 @@ struct PaneArrival: Equatable {
         return nil
     }
 
+    /// A split whose added pane takes over what `giver` showed (`LayoutModel.handOffContent(of:)`):
+    /// the added pane's arrival starts at its target, so it never grows in, and `giver` starts
+    /// at its new size just past the screen edge across from the added pane (`slide`, where it
+    /// shows, in view points), so it slides in. Nil when `arrivals` added no pane beside `giver`.
+    static func handoff(_ arrivals: [PaneID: PaneArrival], giver: PaneID, from old: ScreenGeometry, to new: ScreenGeometry,
+                        offset: CGFloat) -> (arrivals: [PaneID: PaneArrival], slide: CGRect)? {
+        guard arrivals.count == 1, let (added, _) = arrivals.first, added != giver, old.panes[giver] != nil,
+              let target = new.panes[added], let kept = new.panes[giver] else { return nil }
+        let shown = Self.shown([giver: kept], in: new, offset: offset)[giver] ?? kept
+        let horizontal = abs(kept.midX - target.midX) >= abs(kept.midY - target.midY)
+        let slide: CGRect
+        if horizontal {
+            slide = shown.offsetBy(dx: kept.midX >= target.midX ? new.clipMaxX - shown.minX : new.clipMinX - shown.maxX, dy: 0)
+        } else {
+            slide = shown.offsetBy(dx: 0, dy: kept.midY >= target.midY ? new.clipMaxY - shown.minY : new.clipMinY - shown.maxY)
+        }
+        return ([added: PaneArrival(seed: target, edgeOffset: .zero)], slide)
+    }
+
     private static func shown(_ rects: [PaneID: CGRect], in geometry: ScreenGeometry, offset: CGFloat) -> [PaneID: CGRect] {
         let shift = geometry.viewShift(offset: offset)
         return Dictionary(uniqueKeysWithValues: rects.map { pane, rect in

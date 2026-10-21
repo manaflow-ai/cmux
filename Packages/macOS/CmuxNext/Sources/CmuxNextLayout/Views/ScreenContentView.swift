@@ -164,8 +164,17 @@ final class ScreenContentView: NSView {
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout
-        let arrivals = splits && structural && !unzooming
+        var arrivals = splits && structural && !unzooming
             ? PaneArrival.split(paneFrames.mapValues(\.targetRect), from: before, to: baseGeometry, offset: scroll.value) : [:]
+        // A pane that hands what it shows to the pane this change adds (`LayoutModel.handOffContent`): the
+        // added pane shows in place and the giver slides in (`PaneArrival.handoff`). Any added pane spends it.
+        var handoff: (pane: PaneID, slide: CGRect)?
+        if structural, let giver = context.model.pendingContentHandoff, baseGeometry.panes.keys.contains(where: { before.panes[$0] == nil }) {
+            context.model.contentHandoff = nil
+            if let played = PaneArrival.handoff(arrivals, giver: giver, from: before, to: baseGeometry, offset: scroll.value) {
+                (arrivals, handoff) = (played.arrivals, (giver, played.slide))
+            }
+        }
         let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
@@ -197,6 +206,11 @@ final class ScreenContentView: NSView {
                 if carried {
                     carriedShown[pane] = existing.x.value + shift(before, pane)
                     existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
+                }
+                if let handoff, handoff.pane == pane {
+                    // At its new size past the screen edge, from where it slides in.
+                    existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
+                    carriedShown[pane] = handoff.slide.minX
                 }
                 existing.setTarget(target, alpha: 1)
                 if !animateFrames { existing.snap() }
