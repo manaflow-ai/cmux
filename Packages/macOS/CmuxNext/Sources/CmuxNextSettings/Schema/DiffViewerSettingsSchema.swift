@@ -44,7 +44,8 @@ nonisolated enum DiffViewerSettingsSchema {
                 default: .string("theme"), keywords: ["diff", "color", "green", "red", "added", "removed"]
             ),
             toggle("wordWrap", SettingsText.keyed("settings.diff.wordWrap", "Wrap Lines"), false, ["wrap", "lines"]),
-            toggle("wordDiffs", SettingsText.keyed("settings.diff.wordDiffs", "Highlight Word Changes"), false, ["word", "inline"]),
+            // On by default (Leo, 2026-10-20: the diff viewer shows word-level changes, as a code review does).
+            toggle("wordDiffs", SettingsText.keyed("settings.diff.wordDiffs", "Highlight Word Changes"), true, ["word", "inline"]),
             toggle("lineNumbers", SettingsText.keyed("settings.diff.lineNumbers", "Line Numbers"), true, ["line numbers", "gutter"]),
             toggle("showBackgrounds", SettingsText.keyed("settings.diff.showBackgrounds", "Change Backgrounds"), true, ["background", "color"]),
             toggle("expandUnchanged", SettingsText.keyed("settings.diff.expandUnchanged", "Expand Unchanged Lines"), false,
