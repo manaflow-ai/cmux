@@ -4,12 +4,6 @@
 use super::*;
 use crate::store::EventRecord;
 
-/// A record that asks a client to answer a prompt: a new one, or one the
-/// next daemon adopted with a new decision nonce (`hub/hosts.rs`).
-pub(super) fn is_permission_ask(kind: &str) -> bool {
-    matches!(kind, "permission_request" | "permission_reissued")
-}
-
 /// The `_acpmux/permission_pending` notification. The record's
 /// `decisionNonce` and `personInstance` (the daemon run that asks, also for a
 /// peer's session) are what a relayed allow's decision proof covers

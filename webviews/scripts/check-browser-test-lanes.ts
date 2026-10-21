@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
+import { checkFrameReadsSource, FRAME_READS_PENDING } from "./check-frame-reads";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helper = path.join(root, "test/support/requireBrowserLane");
@@ -98,51 +99,9 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
  * moves to galleryFrame. Narrowed in batches by area; the files other lanes' open PRs change wait
  * for those PRs.
  */
-const EVERY_ENTRY_PENDING = new Map<string, string>([
-  // Agent pane, New Tab, menus and chips.
-  ["test/agent-pane-chat-width.test.ts", "narrowed in the agent-pane batch"],
-  ["test/agent-pane-column-edges.test.ts", "narrowed in the agent-pane batch"],
-  ["test/agent-pane-trust-ask-corner.test.ts", "narrowed in the agent-pane batch"],
-  ["test/chat-palette-actions.test.ts", "narrowed in the agent-pane batch"],
-  ["test/chief-context-copy.test.ts", "narrowed in the agent-pane batch"],
-  ["test/claude-reasoning-default.test.ts", "narrowed in the agent-pane batch"],
-  ["test/ghost-button-balance.test.ts", "narrowed in the agent-pane batch"],
-  ["test/menu-focus.test.ts", "narrowed in the agent-pane batch"],
-  ["test/menu-pointer-close-focus.test.ts", "narrowed in the agent-pane batch"],
-  ["test/model-picker-round-rail.test.ts", "narrowed in the agent-pane batch"],
-  ["test/narrow-layouts.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-chat-effort-chip.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-add-project-layer.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-list-motion.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-now-playing-look.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-scroll.test.ts", "narrowed in the agent-pane batch"],
-  ["test/popup-escape.test.ts", "narrowed in the agent-pane batch"],
-  ["test/popup-reduce-motion.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-chip-steps.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-menu-check.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-own-control.test.ts", "narrowed in the agent-pane batch"],
-  ["test/retry-model-menu.test.ts", "narrowed in the agent-pane batch"],
+export const EVERY_ENTRY_PENDING = new Map<string, string>([
   // Files other lanes' open PRs change.
-  ["test/suggestion-lists-float.test.ts", "#22795 (directional-motion) changes this file"],
   ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
-  // Transcript, changes, markdown and the rest.
-  ["test/changes-address-thread.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/changes-review-threads.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/changes-stage-hunk-keys.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/code-block-highlight-height.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/history-closed-rows.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/instructions-notice.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-table-obsidian.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-table-scroll-cases.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-wide-table-scroll.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/markdown-wide-width-layout.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/secret-card.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/session-hover-card-surface.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/sources-changes.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/status-glyphs.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/text-field-focus.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/turn-fork.test.ts", "narrowed in the transcript and markdown batch"],
-  ["test/worktree-creating.test.ts", "narrowed in the transcript and markdown batch"],
 ]);
 
 /**
@@ -152,9 +111,10 @@ const EVERY_ENTRY_PENDING = new Map<string, string>([
  * says why in a `// gallery-frame-every-entry: <reason>` comment.
  */
 export function checkGalleryFrameSource(file: string, text: string): string[] {
-  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text)) return [];
   const name = path.relative(root, file);
   const pending = EVERY_ENTRY_PENDING.has(name);
+  if (!/^import\b[^;]*\bfrom "playwright";/m.test(text))
+    return pending ? [`${name}: opens no browser now; remove it from EVERY_ENTRY_PENDING`] : [];
   if (/^\s*\/\/ gallery-frame-every-entry: \S/m.test(text))
     return pending ? [`${name}: says why it opens every entry; remove it from EVERY_ENTRY_PENDING`] : [];
   const errors = text
@@ -182,6 +142,7 @@ if (import.meta.main) {
           ...checkBrowserLaneSource(file, text),
           ...checkDevServerWarmSource(file, text),
           ...checkGalleryFrameSource(file, text),
+          ...checkFrameReadsSource(file, text),
         );
       }
     }
@@ -190,6 +151,8 @@ if (import.meta.main) {
   scan(path.join(root, "src"));
   for (const name of EVERY_ENTRY_PENDING.keys())
     if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from EVERY_ENTRY_PENDING`);
+  for (const name of FRAME_READS_PENDING.keys())
+    if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from FRAME_READS_PENDING`);
   for (const error of errors) console.error(error);
   if (errors.length) process.exitCode = 1;
   else console.log("Browser test lane imports checked.");

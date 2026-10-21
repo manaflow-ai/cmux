@@ -510,6 +510,16 @@ pub fn resolve(inputs: &Inputs) -> AgentTools {
             env: vec![],
         });
     }
+    if let Some(acpmux) = &inputs.acpmux {
+        // announce, rules and ack (`forum_mcp.rs`, hq#2570): acts as the
+        // session with its caller token, like the sub-session server.
+        servers.push(McpServer {
+            name: crate::forum_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["forum-mcp"]),
+            env: vec![],
+        });
+    }
     if let Some(cmux) = executable("cmux")
         && !inputs.cmux_json.as_deref().is_some_and(mcp_disabled)
     {
@@ -630,7 +640,9 @@ impl AgentTools {
             // and the one socket the CLI sends it to (`hub/person.rs` (a)).
             // The harness already holds the same token in its env; a Claude
             // Code config with it is a 0600 file (`claude_args`).
-            if server.name == crate::subsession_mcp::SERVER_NAME {
+            if server.name == crate::subsession_mcp::SERVER_NAME
+                || server.name == crate::forum_mcp::SERVER_NAME
+            {
                 let socket = crate::config::socket_path().to_string_lossy().into_owned();
                 server.env = vec![
                     (crate::subsession_mcp::SESSION_ENV.to_owned(), session_id.to_owned()),
