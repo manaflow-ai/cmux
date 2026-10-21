@@ -384,9 +384,10 @@ async fn fake_signaling_records_a_device_before_its_connect_returns() {
     };
     let phone = connect(uuid::Uuid::new_v4().to_string()).await;
     // The stall blocks a runtime worker, which can hold up tokio's timers:
-    // time `connect` on the wall clock, not with `tokio::time::timeout`.
-    server.stall_for(Duration::from_millis(600));
+    // time `connect` on the wall clock, not with `tokio::time::timeout`, from
+    // before the stall so a late wake-up here cannot shorten it.
     let started = std::time::Instant::now();
+    server.stall_for(Duration::from_millis(600));
     connect(uuid::Uuid::new_v4().to_string()).await.close();
     let took = started.elapsed();
     assert!(
