@@ -260,6 +260,7 @@ html[data-cmux-page="changelog"] body {
 .cll .cl-group ul { list-style: disc outside; padding-left: 20px; }
 .cll .cl-group li { display: list-item; padding: 3px 0; }
 .cll .cl-row-text { display: inline; }
+.cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that
    change as the first row's bold title above its picture. */
