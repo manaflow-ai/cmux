@@ -164,14 +164,15 @@ const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const shown = useStableImage({ id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
+  const width = sentImageWidth(shown);
+  // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   if (shown.src !== undefined && failed === shown.src)
     return (
-      <span className="cv-user__image-failed">
+      <span className="cv-user__image-failed" style={{ width }}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
     );
-  const width = sentImageWidth(shown);
   // Keep the thumbnail's row slot while the host reads the attachment. Without this, the
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.

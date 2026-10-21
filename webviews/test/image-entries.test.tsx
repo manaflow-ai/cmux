@@ -171,6 +171,53 @@ try {
     act(() => root.unmount());
   });
 
+  test("a shown sent image survives the cache forgetting it, through a re-render with a new reader", async () => {
+    const src = png(300, 150, 11);
+    await images.loadSentImage("kept", async () => src);
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    const row = {
+      id: "user-e",
+      version: 1,
+      at: 1,
+      kind: "user_message",
+      text: "evict",
+      images: [{ id: "kept", mimeType: "image/png" }],
+    };
+    const render = (promptImage: (id: string) => Promise<string | undefined>) =>
+      act(async () =>
+        root.render(
+          <TurnActionsContext.Provider value={{ promptImage }}>
+            <UserBubble row={row} text="evict" />
+          </TurnActionsContext.Provider>,
+        ),
+      );
+    // Mounted on a cache hit: the effect has nothing to read.
+    await render(async () => src);
+    const first = host.querySelector<HTMLImageElement>(".cv-user__images img")!;
+    expect(first.getAttribute("src")).toBe(src);
+    // More images than the cache keeps push this one out while its bubble is on screen.
+    for (let index = 0; index < 130; index++)
+      await images.loadSentImage(`other-${index}`, async () => png(10, 10, 100 + index));
+    expect(images.sentImageEntry("kept")).toBeUndefined();
+    // A turn moves: App hands a new reader; the bubble keeps its image.
+    await render(() => new Promise<never>(() => {}));
+    expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
+    expect(host.querySelector<HTMLImageElement>(".cv-user__images img")).toBe(first);
+    expect(first.getAttribute("src")).toBe(src);
+    // An image that then fails to draw keeps its shape: 2:1 is the widest share, 1.6 × 120px.
+    await act(async () => {
+      first.dispatchEvent(new dom.window.Event("error"));
+    });
+    expect(host.querySelector<HTMLElement>(".cv-user__image-failed")!.style.width).toBe("192px");
+    act(() => root.unmount());
+  });
+
+  test("a data URL's key holds none of its text", () => {
+    const big = png(10, 10, 1) + "A".repeat(4_000);
+    expect(images.sourceKey(big)).not.toContain("data:");
+  });
+
   test("a prompt image's metadata reserves its placeholder before it is read", async () => {
     const host = dom.window.document.getElementById("root")!;
     const root = createRoot(host);

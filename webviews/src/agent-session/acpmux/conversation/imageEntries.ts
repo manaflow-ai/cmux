@@ -37,12 +37,22 @@ const headless = new Set<string>();
 
 /// A short key for an image source: a data URL can be megabytes, so a key never holds the source
 /// itself. Its length, its header and tail, and a sample through its middle.
+/// The key holds only numbers: a slice of a data URL can keep the whole URL alive in V8.
 export function sourceKey(src: string): string {
   if (src.length <= 256) return src;
   const step = Math.max(1, Math.floor(src.length / 2048));
-  let hash = 0x811c9dc5;
-  for (let at = 0; at < src.length; at += step) hash = Math.imul(hash ^ src.charCodeAt(at), 0x01000193);
-  return `${src.length}:${(hash >>> 0).toString(36)}:${src.slice(0, 96)}:${src.slice(-96)}`;
+  // Two FNV-1a hashes over the header, the tail and a sample through the middle.
+  let first = 0x811c9dc5;
+  let second = 0x01000193;
+  const mix = (at: number) => {
+    const char = src.charCodeAt(at);
+    first = Math.imul(first ^ char, 0x01000193);
+    second = Math.imul(second ^ char, 0x5bd1e995) ^ (second >>> 15);
+  };
+  for (let at = 0; at < 128; at++) mix(at);
+  for (let at = src.length - 128; at < src.length; at++) mix(at);
+  for (let at = 0; at < src.length; at += step) mix(at);
+  return `${src.length}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}`;
 }
 
 function remember(key: string, size: ImageSize) {
@@ -222,7 +232,17 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const canRead = read !== undefined;
   const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
   const [, measured] = useReducer((count: number) => count + 1, 0);
-  const entry = id === undefined ? undefined : ((loaded?.id === id ? loaded.entry : undefined) ?? sentImageEntry(id));
+  // The entry this image drew from stays with it: the cache may forget the image (other images
+  // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
+  // or a new id, so the bubble must never depend on the cache still holding what it shows.
+  const held = useRef<{ id: string; entry: ImageEntry }>(undefined);
+  const entry =
+    id === undefined
+      ? undefined
+      : ((loaded?.id === id ? loaded.entry : undefined) ??
+        sentImageEntry(id) ??
+        (held.current?.id === id ? held.current.entry : undefined));
+  if (id !== undefined && entry && held.current?.entry !== entry) held.current = { id, entry };
   useEffect(() => {
     if (id === undefined || !canRead || sentImageEntry(id)) return;
     let live = true;
