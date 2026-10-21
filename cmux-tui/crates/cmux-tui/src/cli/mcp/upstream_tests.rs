@@ -18,7 +18,13 @@ for line in sys.stdin:
     elif method == "tools/list":
         result = {"tools": [
             {"name": "look", "description": "Look at the screen", "inputSchema": {"type": "object"}},
-            {"name": "fail", "description": "Always fails", "inputSchema": {"type": "object"}}]}
+            {"name": "fail", "description": "Always fails", "inputSchema": {"type": "object"}},
+            {"name": "hold", "description": "Waits for a file", "inputSchema": {"type": "object"}}]}
+    elif method == "tools/call" and m["params"]["name"] == "hold":
+        import os, time
+        while not os.path.exists(m["params"]["arguments"]["path"]):
+            time.sleep(0.02)
+        result = {"content": [{"type": "text", "text": "held"}]}
     elif method == "tools/call" and m["params"]["name"] == "look":
         result = {"content": [{"type": "text", "text": "saw " + json.dumps(m["params"]["arguments"])},
                               {"type": "image", "data": "aW1n", "mimeType": "image/png"}]}
@@ -46,18 +52,21 @@ fn upstream_server(name: &str) -> upstream::Upstream {
 #[test]
 fn code_mode_runs_the_chats_other_servers_behind_it() {
     let mut server = code_mode_server(Fake::with_actions());
-    server.upstreams = vec![upstream_server("cmux-cua")];
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
     // The other server's tools are in the list under its prefix, and the
     // index carries its own instructions.
     let listed =
         server.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
-    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (2)"));
+    assert!(listed["result"]["tools"][0]["description"].as_str().unwrap().contains("cua (3)"));
     // Listed directly (every tool), each carries its server's rules.
     let all = server.list();
     let look = all.iter().find(|t| t["name"] == "cua_look").expect("cua_look is listed");
     assert!(look["description"].as_str().unwrap().contains("Ask before you click."), "{look}");
     let index = call(&mut server, "cmux_docs", json!({}));
-    assert_eq!(index["structuredContent"]["families"]["cua"], json!(["cua_look", "cua_fail"]));
+    assert_eq!(
+        index["structuredContent"]["families"]["cua"],
+        json!(["cua_look", "cua_fail", "cua_hold"])
+    );
     assert_eq!(index["structuredContent"]["servers"]["cmux-cua"], "Ask before you click.");
     // A search that finds its tools carries the rules too; one that does not, none.
     let found = call(&mut server, "cmux_docs", json!({"query": "look screen"}));
@@ -105,11 +114,46 @@ fn code_mode_runs_the_chats_other_servers_behind_it() {
             .into(),
     ))
     .into_iter()
-    .map(upstream::Upstream::new)
+    .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
     .collect();
     let listed =
         broken.handle(&json!({"jsonrpc": "2.0", "id": "l", "method": "tools/list"})).unwrap();
     assert!(!listed["result"]["tools"][0]["description"].as_str().unwrap().contains("secrets"));
     let ran = call(&mut broken, "cmux_exec", json!({"script": "return 1;"}));
     assert_eq!(ran["structuredContent"]["result"], 1);
+}
+
+/// A proxied call that waits (a secret card the person has not answered)
+/// holds only its own server: the other tools answer meanwhile.
+#[test]
+fn a_waiting_proxied_call_never_holds_up_the_other_tools() {
+    let mut server = code_mode_server(Fake::with_actions());
+    server.code_mode = false;
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
+    let release = std::env::temp_dir().join(format!("cmux-mcp-hold-{}", std::process::id()));
+    let _ = std::fs::remove_file(&release);
+    let input = format!(
+        "{}\n{}\n",
+        json!({"jsonrpc": "2.0", "id": "held", "method": "tools/call",
+               "params": {"name": "secrets_hold", "arguments": {"path": release}}}),
+        json!({"jsonrpc": "2.0", "id": "quick", "method": "tools/call",
+               "params": {"name": "window_list", "arguments": {}}}),
+    );
+    let buffer = SharedBuffer::default();
+    assert_eq!(server.run(input.as_bytes(), &watch::Output::new(buffer.clone())), 0);
+    // stdin ended with the quick answer written; the held one still waits.
+    let ids = |text: String| -> Vec<String> {
+        text.lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|v| v["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    assert_eq!(ids(buffer.text()), ["quick"], "{}", buffer.text());
+    std::fs::write(&release, "").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while ids(buffer.text()).len() < 2 && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert_eq!(ids(buffer.text()), ["quick", "held"], "{}", buffer.text());
+    let _ = std::fs::remove_file(&release);
 }

@@ -334,7 +334,7 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
     server.upstreams = upstream::specs(std::env::var_os(upstream::ENV))
         .into_iter()
-        .map(upstream::Upstream::new)
+        .map(|spec| upstream::Proxied::new(upstream::Upstream::new(spec)))
         .collect();
     server.run(io::stdin().lock(), &output)
 }
@@ -408,7 +408,10 @@ pub(super) struct Server<B> {
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
-    upstreams: Vec<upstream::Upstream>,
+    upstreams: Vec<upstream::Proxied>,
+    /// While a `cmux_exec` script runs: its time limit, which also bounds a
+    /// proxied call it makes (the script holds this thread).
+    call_cap: Option<Duration>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
 }
@@ -427,6 +430,7 @@ impl<B: Backend> Server<B> {
             script_limits: code_mode::Limits::default(),
             allowed: None,
             upstreams: Vec::new(),
+            call_cap: None,
             notes: None,
         }
     }
@@ -497,7 +501,20 @@ impl<B: Backend> Server<B> {
                 Ok(json!({ "tools": code_mode::descriptors(&tools) }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
-            "tools/call" => self.call(&params),
+            "tools/call" => {
+                // A proxied server's call runs on its own thread, so one that
+                // waits (a secret card) never holds up the other tools.
+                if let Some(output) = self.notes.clone()
+                    && let Some(job) = self.proxied_job(&params)
+                {
+                    std::thread::spawn(move || {
+                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
+                        let _ = output.send(&response);
+                    });
+                    return None;
+                }
+                self.call(&params)
+            }
             _ => Err((-32601, format!("method not found: {method}"))),
         };
         Some(match result {
@@ -526,12 +543,19 @@ impl<B: Backend> Server<B> {
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for upstream in &mut self.upstreams {
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
                 .collect::<BTreeSet<_>>();
-            tools.extend(upstream.descriptors(&taken));
+            tools.extend(
+                proxied
+                    .listed
+                    .iter()
+                    .filter(|t| t["name"].as_str().is_some_and(|n| !taken.contains(n)))
+                    .cloned(),
+            );
         }
         if let Some(allowed) = &self.allowed {
             tools.retain(|tool| tool["name"].as_str().is_some_and(|name| allowed.contains(name)));
@@ -597,9 +621,11 @@ impl<B: Backend> Server<B> {
             // One tool list per script, for its docs searches.
             let mut tools = None;
             let mut images = Vec::new();
+            self.call_cap = Some(self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
                 self.script_request(request, &mut tools, &mut images)
             });
+            self.call_cap = None;
             let mut result = answered.unwrap_or_else(|message| {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
@@ -608,28 +634,8 @@ impl<B: Backend> Server<B> {
             }
             return Ok(result);
         }
-        if let Some(index) = self.upstreams.iter().position(|u| {
-            name.strip_prefix(u.prefix.as_str()).is_some_and(|rest| rest.starts_with('_'))
-        }) {
-            let upstream = &mut self.upstreams[index];
-            if upstream.owns(name).is_none() {
-                // Not started yet (no list so far), or gone: list it now.
-                upstream.descriptors(&BTreeSet::new());
-            }
-            if let Some(tool) = upstream.owns(name) {
-                return Ok(match upstream.call(&tool, Value::Object(arguments)) {
-                    Ok(result) => result,
-                    Err((message, state)) => {
-                        let error = json!({
-                            "code": "upstream.failed",
-                            "message": format!("{}: {message}", upstream.name()),
-                            "details": {},
-                            "retryable": state == "not_run",
-                        });
-                        tool_error(envelope(error, state, None))
-                    }
-                });
-            }
+        if let Some(job) = self.proxied_tool(name, &arguments) {
+            return Ok(job.run(self.call_cap));
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -793,35 +799,6 @@ impl<B: Backend> Server<B> {
                 self.add_server_rules(&mut value);
                 value
             }
-        }
-    }
-
-    /// A docs answer that shows another server's tools carries that
-    /// server's own instructions as `servers.<name>` (the computer use
-    /// consent rules among them), since its `initialize` no longer reaches
-    /// the model.
-    fn add_server_rules(&self, value: &mut Value) {
-        let mut names = Vec::new();
-        for tool in value["tools"].as_array().into_iter().flatten() {
-            names.extend(tool["name"].as_str().map(str::to_owned));
-        }
-        for name in value["more"].as_array().into_iter().flatten() {
-            names.extend(name.as_str().map(str::to_owned));
-        }
-        for family in value["families"].as_object().into_iter().flat_map(|f| f.keys()) {
-            names.push(format!("{family}_"));
-        }
-        let servers = self
-            .upstreams
-            .iter()
-            .filter(|u| {
-                let prefix = format!("{}_", u.prefix);
-                names.iter().any(|name| name.starts_with(&prefix))
-            })
-            .filter_map(|u| Some((u.name().to_owned(), json!(u.instructions.clone()?))))
-            .collect::<Map<_, _>>();
-        if !servers.is_empty() {
-            value["servers"] = Value::Object(servers);
         }
     }
 

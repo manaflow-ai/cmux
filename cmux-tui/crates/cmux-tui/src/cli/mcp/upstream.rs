@@ -15,7 +15,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -188,16 +188,19 @@ impl Upstream {
 
     /// `tools/call` of `tool`: the server's result unchanged, or why there
     /// is none (`in_progress` when it may have run).
+    /// `cap` shortens the call's timeout (a `cmux_exec` script's own limit).
     pub(super) fn call(
         &mut self,
         tool: &str,
         arguments: Value,
+        cap: Option<Duration>,
     ) -> Result<Value, (String, &'static str)> {
         if self.conn.is_none() {
             self.start().map_err(|error| (error, "not_run"))?;
         }
         let params = json!({"name": tool, "arguments": arguments});
-        match self.request("tools/call", params, self.spec.call_timeout) {
+        let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
+        match self.request("tools/call", params, timeout) {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
             Err(Failure::Lost(error)) => {
@@ -329,5 +332,139 @@ impl Upstream {
             }
             return Ok(reply["result"].clone());
         }
+    }
+}
+
+/// One proxied server (`upstream`): its client behind a lock, so a call
+/// that waits holds only this server, and its tools as last listed.
+pub(super) struct Proxied {
+    pub prefix: String,
+    pub name: String,
+    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub listed: Vec<Value>,
+    pub instructions: Option<String>,
+}
+
+impl Proxied {
+    pub(super) fn new(upstream: Upstream) -> Self {
+        Self {
+            prefix: upstream.prefix.clone(),
+            name: upstream.name().to_owned(),
+            inner: std::sync::Arc::new(std::sync::Mutex::new(upstream)),
+            listed: Vec::new(),
+            instructions: None,
+        }
+    }
+
+    /// Lists its tools again, unless a call holds it: then the last list.
+    pub(super) fn refresh(&mut self) {
+        if let Ok(mut upstream) = self.inner.try_lock() {
+            self.listed = upstream.descriptors(&BTreeSet::new());
+            self.instructions = upstream.instructions.clone();
+        }
+    }
+
+    pub(super) fn lists(&self, name: &str) -> bool {
+        self.listed.iter().any(|tool| tool["name"] == name)
+    }
+}
+
+/// A proxied tool call, runnable on any thread.
+pub(super) struct ProxiedCall {
+    pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
+    pub name: String,
+    pub arguments: Value,
+}
+
+impl ProxiedCall {
+    /// The server's result, or a tool error with the call's state.
+    pub(super) fn run(self, cap: Option<Duration>) -> Value {
+        let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(tool) = upstream.owns(&self.name) else {
+            let error = json!({"code": "upstream.failed", "message": format!(
+                "{}: the server no longer lists {}", upstream.name(), self.name),
+                "details": {}, "retryable": true});
+            return super::tool_error(super::envelope(error, "not_run", None));
+        };
+        match upstream.call(&tool, self.arguments, cap) {
+            Ok(result) => result,
+            Err((message, state)) => {
+                let error = json!({
+                    "code": "upstream.failed",
+                    "message": format!("{}: {message}", upstream.name()),
+                    "details": {},
+                    "retryable": state == "not_run",
+                });
+                super::tool_error(super::envelope(error, state, None))
+            }
+        }
+    }
+}
+
+impl<B: super::Backend> super::Server<B> {
+    /// A docs answer that shows another server's tools carries that
+    /// server's own instructions as `servers.<name>` (the computer use
+    /// consent rules among them), since its `initialize` no longer reaches
+    /// the model.
+    pub(super) fn add_server_rules(&self, value: &mut Value) {
+        let mut names = Vec::new();
+        for tool in value["tools"].as_array().into_iter().flatten() {
+            names.extend(tool["name"].as_str().map(str::to_owned));
+        }
+        for name in value["more"].as_array().into_iter().flatten() {
+            names.extend(name.as_str().map(str::to_owned));
+        }
+        for family in value["families"].as_object().into_iter().flat_map(|f| f.keys()) {
+            names.push(format!("{family}_"));
+        }
+        let servers = self
+            .upstreams
+            .iter()
+            .filter(|u| {
+                let prefix = format!("{}_", u.prefix);
+                names.iter().any(|name| name.starts_with(&prefix))
+            })
+            .filter_map(|u| Some((u.name.clone(), json!(u.instructions.clone()?))))
+            .collect::<Map<_, _>>();
+        if !servers.is_empty() {
+            value["servers"] = Value::Object(servers);
+        }
+    }
+
+    /// A `tools/call` of a proxied server's tool that this server may run
+    /// (the same refusal and allowlist checks as `call`), or `None`.
+    pub(super) fn proxied_job(&mut self, params: &Value) -> Option<ProxiedCall> {
+        let name = params["name"].as_str()?;
+        if self.config.as_ref().is_some_and(|path| super::refusal(path).is_some())
+            || self.allowed.as_ref().is_some_and(|allowed| !allowed.contains(name))
+        {
+            return None;
+        }
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return None,
+        };
+        self.proxied_tool(name, &arguments)
+    }
+
+    /// The call of `name` when it is a proxied server's tool.
+    pub(super) fn proxied_tool(
+        &mut self,
+        name: &str,
+        arguments: &Map<String, Value>,
+    ) -> Option<ProxiedCall> {
+        let proxied = self.upstreams.iter_mut().find(|p| {
+            name.strip_prefix(p.prefix.as_str()).is_some_and(|rest| rest.starts_with('_'))
+        })?;
+        if !proxied.lists(name) {
+            // Not started yet (no list so far), or gone: list it now.
+            proxied.refresh();
+        }
+        proxied.lists(name).then(|| ProxiedCall {
+            inner: proxied.inner.clone(),
+            name: name.to_owned(),
+            arguments: Value::Object(arguments.clone()),
+        })
     }
 }
