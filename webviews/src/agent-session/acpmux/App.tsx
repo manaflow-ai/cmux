@@ -1151,19 +1151,24 @@ function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string 
 /// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
 type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
+/// Whether `entry` is the height already kept for its row. Heights compare exactly: a fold's last
+/// frame draws its row a fraction of a pixel short of the height it settles at (145.72px, then
+/// 146px), and with any slack the row kept the frame's height, so every row below it sat that
+/// fraction too high, over the row above. A height that did not change still compares equal, so
+/// it renders nothing.
+function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
+  return (
+    old !== undefined &&
+    old.sessionId === entry.sessionId &&
+    old.version === entry.version &&
+    old.width === entry.width &&
+    old.height === entry.height
+  );
+}
+
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
-  for (const [id, entry] of updates) {
-    const old = current.get(id);
-    if (
-      !old ||
-      old.sessionId !== entry.sessionId ||
-      old.version !== entry.version ||
-      old.width !== entry.width ||
-      Math.abs(old.height - entry.height) >= 0.5
-    )
-      return true;
-  }
+  for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
   return false;
 }
 
@@ -1872,15 +1877,7 @@ export function VirtualTranscript({
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
-        const old = current.get(id);
-        if (
-          old &&
-          old.sessionId === entry.sessionId &&
-          old.version === entry.version &&
-          old.width === entry.width &&
-          Math.abs(old.height - entry.height) < 0.5
-        )
-          continue;
+        if (sameDrawn(current.get(id), entry)) continue;
         next ??= new Map(current);
         next.set(id, entry);
       }
