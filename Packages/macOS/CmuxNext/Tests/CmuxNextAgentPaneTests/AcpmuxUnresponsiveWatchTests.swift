@@ -46,6 +46,19 @@ struct AcpmuxUnresponsiveWatchTests {
         #expect(watch.missed(home: "/h", pid: 7))
     }
 
+    /// A daemon that wedges again after every start is left for a person after `perLaunch`.
+    @Test func eachHomeRestartsAtMostPerLaunchTimes() {
+        let watch = AcpmuxUnresponsiveWatch(clock: clock, misses: 1, window: .zero, perLaunch: 2)
+        #expect(watch.missed(home: "/h", pid: 7))
+        #expect(watch.claim(home: "/h", pid: 7))
+        #expect(!watch.claim(home: "/h", pid: 7), "one restart per pid")
+        #expect(watch.missed(home: "/h", pid: 8))
+        #expect(watch.claim(home: "/h", pid: 8))
+        #expect(!watch.missed(home: "/h", pid: 9), "two restarts of /h in this launch")
+        #expect(!watch.claim(home: "/h", pid: 9))
+        #expect(watch.missed(home: "/other", pid: 9), "another home has its own")
+    }
+
     @Test func anAnswerEndsTheStreak() {
         let watch = watch()
         #expect(!watch.missed(home: "/h", pid: 7))

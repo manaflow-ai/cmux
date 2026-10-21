@@ -13,7 +13,9 @@ import os
 ///
 /// Only a pid that is this home's (`daemon.pid` in the home), runs `acpmux` (or the bundle's `cmux`)
 /// and is the process listening on the home's socket (`LOCAL_PEERPID`) is ever signalled, and
-/// each pid at most once. The `agent.restartUnresponsiveAcpmux` Debug Settings toggle turns it off.
+/// each pid at most once, and at most `perLaunch` times per home in one app launch (a daemon that
+/// wedges again after every start is left for a person). The `agent.restartUnresponsiveAcpmux`
+/// Debug Settings toggle turns it off.
 nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     static let shared = AcpmuxUnresponsiveWatch(clock: ContinuousClock())
 
@@ -25,6 +27,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     let streakGap: Duration
     let confirm: Duration
     let termGrace: Duration
+    /// Restarts per home in this launch.
+    let perLaunch: Int
     /// The clock's time since this watch was made.
     private let elapsed: @Sendable () -> Duration
 
@@ -38,12 +42,13 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     private struct State {
         var streaks: [String: Streak] = [:]
         var restarted: Set<String> = []
+        var restartsPerHome: [String: Int] = [:]
     }
 
     private let state = Mutex(State())
 
     init<C: Clock>(clock: C, misses: Int = 3, window: Duration = .seconds(20), streakGap: Duration = .seconds(300),
-                   confirm: Duration = .seconds(5), termGrace: Duration = .seconds(10)) where C.Duration == Duration {
+                   confirm: Duration = .seconds(5), termGrace: Duration = .seconds(10), perLaunch: Int = 3) where C.Duration == Duration {
         let start = clock.now
         elapsed = { start.duration(to: clock.now) }
         self.misses = misses
@@ -51,6 +56,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         self.streakGap = streakGap
         self.confirm = confirm
         self.termGrace = termGrace
+        self.perLaunch = perLaunch
     }
 
     /// `home`'s daemon answered a status call: its streak ends.
@@ -59,7 +65,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     }
 
     /// A status call to daemon `pid` of `home` missed its deadline. True when this miss makes
-    /// `misses` in a row spanning at least `window` and `pid` was never restarted.
+    /// `misses` in a row spanning at least `window`, `pid` was never restarted and `home` has
+    /// restarts left in this launch.
     func missed(home: String, pid: Int32) -> Bool {
         let now = elapsed()
         return state.withLock { state in
@@ -71,14 +78,18 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
             streak.last = now
             state.streaks[home] = streak
             return streak.count >= misses && now - streak.first >= window && !state.restarted.contains("\(home)|\(pid)")
+                && state.restartsPerHome[home, default: 0] < perLaunch
         }
     }
 
-    /// Takes `pid`'s one restart; false when another caller already took it.
-    private func claim(home: String, pid: Int32) -> Bool {
+    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when another caller
+    /// already took it or `home` has none left.
+    func claim(home: String, pid: Int32) -> Bool {
         state.withLock { state in
             state.streaks.removeValue(forKey: home)
-            return state.restarted.insert("\(home)|\(pid)").inserted
+            guard state.restartsPerHome[home, default: 0] < perLaunch, state.restarted.insert("\(home)|\(pid)").inserted else { return false }
+            state.restartsPerHome[home, default: 0] += 1
+            return true
         }
     }
 

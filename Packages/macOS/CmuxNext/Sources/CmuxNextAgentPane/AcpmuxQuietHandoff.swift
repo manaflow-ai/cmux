@@ -107,6 +107,12 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
 
     /// Returns at the daemon's next session change that can end a busy moment, or when its
     /// connection ends or fails. `_acpmux/watch` with `limit: 1` keeps its first reply small.
+    /// Whether `line` is the JSON-RPC reply to request `id`.
+    static func isReply(_ line: Data, id: Int) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return false }
+        return (object["id"] as? NSNumber)?.intValue == id && object["method"] == nil
+    }
+
     @concurrent static func nextChange(socketPath: String) async {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
@@ -129,6 +135,9 @@ nonisolated final class AcpmuxQuietHandoff: Sendable {
                     let line = Data(buffer[buffer.startIndex..<newline])
                     buffer.removeSubrange(buffer.startIndex...newline)
                     if endsBusy(line) { return }
+                    // An event between the caller's quiet check and this watch is not replayed:
+                    // once the watch is on, ask once more.
+                    if isReply(line, id: 2), await quiet(socketPath: socketPath) { return }
                 }
                 if buffer.count > 64 << 20 { return }
             }

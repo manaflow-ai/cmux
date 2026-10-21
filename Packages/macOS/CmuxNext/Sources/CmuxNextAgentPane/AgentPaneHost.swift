@@ -192,6 +192,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
+        // A start during a reconnect's lookup waits for it: that lookup may hand a stale daemon
+        // off, and a second handoff at the same time could stop the daemon it started.
+        if startsDaemon, let task = inFlight[false] {
+            _ = try? await task.value
+            if let task = inFlight[true] { return try await task.value }
+        }
         if environment == nil { environment = resolveEnvironment() }
         guard var environment else {
             Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
@@ -235,6 +241,12 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// A stale daemon that was busy may be quiet now: a reconnect's lookup hands it off and
     /// starts the bundled one (``AcpmuxQuietHandoff``).
     private func recheckStale() async {
+        // A lookup already under way read the sessions before the event that woke this one.
+        var waited: Task<AcpmuxWebEndpoint, any Error>?
+        while let task = inFlight[false] ?? inFlight[true], task != waited {
+            waited = task
+            _ = try? await task.value
+        }
         _ = try? await endpoint(startsDaemon: false)
     }
 

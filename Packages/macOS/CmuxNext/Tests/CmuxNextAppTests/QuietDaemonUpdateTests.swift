@@ -54,6 +54,14 @@ struct QuietDaemonUpdateTests {
     }
 
     /// Bounded wait for the restart's probe, which runs off the main actor.
+    /// Until the update recorded `count` accepted restarts (its health check is armed), not only
+    /// until the stand-in restart ran.
+    private static func accepted(_ update: QuietDaemonUpdate, reach count: Int) async {
+        for _ in 0..<400 where update.restarts < count {
+            try? await Task.sleep(for: .milliseconds(5))  // test harness poll of the restart task
+        }
+    }
+
     private static func restarts(_ world: World, reach count: Int) async {
         for _ in 0..<400 where world.restarts.count < count {
             try? await Task.sleep(for: .milliseconds(5))  // test harness poll of the restart task
@@ -110,7 +118,7 @@ struct QuietDaemonUpdateTests {
         let clock = ManualClock()
         let update = Self.update(world, clock: clock)
         update.consider(Self.daemon(pid: 12), bundledBuild: Self.bundled, appCapabilities: [])
-        try await clock.waitForSleeper()
+        try await clock.waitForSleepers(2)  // the overdue timer and the retry timer
         world.personIdle = true
         clock.advance(by: .seconds(60))
         await Self.restarts(world, reach: 1)
@@ -226,11 +234,11 @@ struct QuietDaemonUpdateTests {
         world.personIdle = true
         let update = Self.update(world)
         update.consider(Self.daemon(pid: 24), bundledBuild: Self.bundled, appCapabilities: [])
-        await Self.restarts(world, reach: 1)
+        await Self.accepted(update, reach: 1)
         // The successor runs another build still: one more restart.
         update.consider(Self.daemon(pid: 25, build: "c3c3c3c"), bundledBuild: Self.bundled, appCapabilities: [])
         #expect(update.healthFailure == nil)
-        await Self.restarts(world, reach: 2)
+        await Self.accepted(update, reach: 2)
         #expect(world.restarts == [24, 25])
         // Again: reported, and no third restart.
         update.consider(Self.daemon(pid: 26, build: "c3c3c3c"), bundledBuild: Self.bundled, appCapabilities: [])
