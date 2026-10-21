@@ -53,7 +53,8 @@
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
-#               task-local and workspace-open rules; CI blocks on it.
+#               generic-class deinit, task-local and workspace-open rules; CI
+#               blocks on it.
 #   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
 #               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
 #               is current, a task local lives in the thread's fallback storage,
@@ -212,7 +213,7 @@ def declares_nonisolated_deinit(lines, index):
     depth = 0
     opened = False
     for line in lines[index:]:
-        code = line.split("//", 1)[0]
+        code = main_actor_scope.strip(line)  # no braces from string literals or comments
         if opened and depth == 1 and NONISOLATED_DEINIT.match(code):
             return True
         for char in code:
