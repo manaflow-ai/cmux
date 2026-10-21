@@ -31,12 +31,15 @@ public final class SidebarContainerView: NSView {
     /// Holds the sidebar at `model.width`, pinned to the clip's edge that
     /// faces the content (`side`).
     private let panel = NSView()
-    private lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
+    /// Internal, not private: the resize drag sets it from its own file
+    /// (`SidebarContainerView+Resize`).
+    lazy var panelWidth: NSLayoutConstraint = panel.widthAnchor.constraint(equalToConstant: model.width)
     let handle: SidebarResizeHandle
     private var observation: Task<Void, Never>?
     /// Width the constraint is at or animating to. The animator reports
-    /// intermediate constants, so compare against this instead.
-    private var targetWidth: CGFloat
+    /// intermediate constants, so compare against this instead. Internal for
+    /// the same reason as `panelWidth`.
+    var targetWidth: CGFloat
     /// Bumped per width animation; a stale completion does nothing.
     private var animationGeneration = 0
     /// Completion gates for the optional opacity leg. Width and opacity use
@@ -244,31 +247,9 @@ public final class SidebarContainerView: NSView {
 
     // MARK: Resize
 
-    private var liveStartWidth: CGFloat = 0
-
-    private func handleDrag(_ phase: SidebarResizeHandle.Phase) {
-        switch phase {
-        case .began:
-            liveStartWidth = model.width
-        case let .changed(dx):
-            guard !model.isHidden else { return }
-            // A right sidebar widens as its leading edge moves left.
-            let proposed = liveStartWidth + (side == .left ? dx : -dx)
-            if proposed < Self.hideThreshold {
-                // Hide outright and come back at the width the drag began at.
-                handle.endDrag()
-                model.width = liveStartWidth
-                model.presentation = .hidden
-            } else {
-                model.width = proposed
-                panelWidth.constant = model.width
-                targetWidth = model.width
-                widthConstraint.constant = model.width
-            }
-        case .ended:
-            break
-        }
-    }
+    /// The width the live drag started from. The drag itself is in
+    /// `SidebarContainerView+Resize`; a stored property cannot live there.
+    var liveStartWidth: CGFloat = 0
 
     // MARK: Observation
 
