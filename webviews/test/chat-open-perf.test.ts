@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts, replies and mode names, not shipped UI.
-// cmux-web-test-timeout: 300
+// cmux-web-test-timeout: 540
 //
 // Leo, 2026-10-20: "do chats load fast yet? even with a high number of chats and high load? does it
 // still flash or flicker? It should have no layout shift, then a fast fade-in, and be instant if
@@ -11,6 +11,11 @@
 //   - a chat opened for the first time draws in COLD_PAINT_MS;
 //   - from the frame a chat draws on, no row it drew moves (no layout shift) and no frame leaves
 //     part of the transcript's view empty.
+//
+// Twice: once with the daemon quiet, once with BUSY_LANES chats working, each reporting a change
+// that redraws the pane's live chat list — the "high load" half of the ask, which a list of 120
+// idle chats does not measure. Under load the millisecond budgets get the dev bundle's render
+// frame as slack; the frame counts and the no-shift, no-blank rules are held to the same numbers.
 //
 // The frame sampler reads each row's place in the view every frame after the chat draws, so a row
 // placed by an estimate and then by its drawn height (the flicker Leo saw) counts as a shift.
@@ -43,6 +48,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// A busy daemon's round trip, and what an attach of a chat with a tail costs on top.
   const CALL_MS = 20;
   const ATTACH_MS = 150;
+  /// Chats that keep working while the reader opens others: a person with many agents running
+  /// (Leo: "high load"). Each reports a change of its own, which is what a busy daemon pushes at
+  /// a pane: the chat list is live, so every one of them redraws it.
+  const BUSY_LANES = 40;
+  /// One lane reports every tick, round robin, so the list changes twenty times a second.
+  const BUSY_TICK_MS = 50;
   /// What the brief asks of the shipped pane: a chat the page already read draws inside 100 ms, a
   /// chat read for the first time inside 400 ms (the attach's round trip and the rows' layout).
   const CACHED_PAINT_MS = 100;
@@ -135,6 +146,15 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const byId = new Map(chats.map((entry) => [entry.sessionId, entry]));
 
   let attaches = 0;
+  /// The chats one run opens: far apart in the list, as a person picks them out of the sidebar.
+  const picked = [...Array(VISITS).keys()].map((at) => chats[7 + at * 17]!);
+  /// The chats that keep working under load. None of them is one the run opens: a reader's own
+  /// chat redrawing is its attach, not the load around it.
+  const busyLanes = chats.filter((entry) => !picked.includes(entry)).slice(-BUSY_LANES);
+  /// The load is on, which the second phase turns on; `pushed` is how many changes have gone out.
+  let busy = false;
+  let pushed = 0;
+  const timers = new Map<unknown, ReturnType<typeof setInterval>>();
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -169,7 +189,36 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
         return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
-        open() {},
+        // The lanes report while the socket is open, when a run turned them on: one lane per tick,
+        // each with the whole summary a change carries, as acpmux sends it.
+        open(ws) {
+          const timer = setInterval(() => {
+            if (!busy) return;
+            const entry = busyLanes[pushed % busyLanes.length]!;
+            pushed += 1;
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: {
+                  kind: "updated",
+                  session: {
+                    ...entry.listed,
+                    status: "running",
+                    turnCount: entry.listed.turnCount + pushed,
+                    updatedAt: START + pushed * BUSY_TICK_MS,
+                  },
+                },
+              }),
+            );
+          }, BUSY_TICK_MS);
+          timers.set(ws, timer);
+        },
+        close(ws) {
+          const timer = timers.get(ws);
+          if (timer !== undefined) clearInterval(timer);
+          timers.delete(ws);
+        },
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
@@ -380,7 +429,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     return worst;
   };
 
-  test(`opening chats with ${CHAT_COUNT} in the list draws fast, with no shift and no blank frame`, async () => {
+  /// Opens `picked` cold, then each again from the page's cache, and reports both phases.
+  const openEachTwice = async (name: string) => {
     const page = await browser!.newPage({
       viewport: { width: 1000, height: 760 },
       ...(videoDir ? { recordVideo: { dir: videoDir, size: { width: 1000, height: 760 } } } : {}),
@@ -397,8 +447,6 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           limitMs: 8_000,
         })})`,
       ) as Promise<Opened>;
-    // Chats far apart in a 120-chat list, as a person picks them out of the sidebar.
-    const picked = [...Array(VISITS).keys()].map((at) => chats[7 + at * 17]);
     const cold: Opened[] = [];
     for (const entry of picked) cold.push(await open(entry));
     // Each of them again: the page read every one of these chats already.
@@ -406,9 +454,19 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     for (const entry of picked) cached.push(await open(entry));
     await page.close();
 
-    const worstCold = report("cold", cold);
-    const worstCached = report("cached", cached);
-    console.log(`chat-open-perf: ${attaches} attaches for ${picked.length} cold and ${picked.length} cached opens`);
+    const worstCold = report(`${name} cold`, cold);
+    const worstCached = report(`${name} cached`, cached);
+    console.log(`chat-open-perf ${name}: ${attaches} attaches for ${picked.length} cold and ${picked.length} cached`);
+    return { cold, cached, worstCold, worstCached };
+  };
+
+  /// Holds one run's two phases to what the brief asks. `slack` is what the load phase may take on
+  /// top of the quiet one in milliseconds: the frame counts, which are what actually tell a cached
+  /// open from a cold one, are held to the same number either way.
+  const holdToTheBrief = (
+    { cold, cached, worstCold, worstCached }: Awaited<ReturnType<typeof openEachTwice>>,
+    slack = 0,
+  ) => {
     for (const opened of [...cold, ...cached]) {
       expect(opened.drawn).not.toBeNull();
       // Leo: "It should have no layout shift"; a row placed by an estimate then by its drawn
@@ -420,12 +478,38 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     }
     // Leo: "instant if cached". This is what tells a cached open from a cold one here, and what a
     // regression would break: the chat draws in the first frames after the select, with no wait on
-    // acpmux in between. A cold open takes ten-plus frames (the log's `frames to the draw`), so the
+    // acpmux in between. A cold open takes ten-plus frames (the log's `draw frame count`), so the
     // few frames allowed leave room for a loaded runner without letting a round trip through. The
     // budgets below are the brief's plus the dev bundle's render frame, so they are a ceiling, not
     // the line between the two.
     for (const opened of cached) expect(opened.cadence.length).toBeLessThanOrEqual(CACHED_DRAW_FRAMES);
-    expect(worstCached).toBeLessThan(CACHED_PAINT_MS + DEV_RENDER_MS);
-    expect(worstCold).toBeLessThan(COLD_PAINT_MS + DEV_RENDER_MS);
+    expect(worstCached).toBeLessThan(CACHED_PAINT_MS + DEV_RENDER_MS + slack);
+    expect(worstCold).toBeLessThan(COLD_PAINT_MS + DEV_RENDER_MS + slack);
+  };
+
+  test(`opening chats with ${CHAT_COUNT} in the list draws fast, with no shift and no blank frame`, async () => {
+    holdToTheBrief(await openEachTwice("quiet"));
+  });
+
+  /// The other half of Leo's ask: "even with a high number of chats and high load?". The list is
+  /// live, so every working chat's `session_changed` redraws the pane's chat list while the reader
+  /// opens chats of their own — which is the load a person with forty agents running puts on it,
+  /// and the load under which a cached open must still land on the frame it lands on.
+  ///
+  /// The millisecond budgets get the dev bundle's render frame again as slack (a second unminified
+  /// React render under this much traffic), because what this test is really for is the two things
+  /// no amount of load may change: a cached open still draws within ``CACHED_DRAW_FRAMES`` frames,
+  /// and no frame of either phase shifts a row or goes blank.
+  test(`opening chats with ${BUSY_LANES} chats working draws fast, with no shift and no blank frame`, async () => {
+    busy = true;
+    try {
+      const run = await openEachTwice("loaded");
+      console.log(`chat-open-perf loaded: ${pushed} chat-list changes pushed while opening`);
+      // The load really was on: a change every BUSY_TICK_MS for as long as the run took.
+      expect(pushed).toBeGreaterThan(BUSY_LANES);
+      holdToTheBrief(run, DEV_RENDER_MS);
+    } finally {
+      busy = false;
+    }
   });
 });
