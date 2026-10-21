@@ -4582,6 +4582,17 @@
               "name": "LayoutColumnDock"
             }
           }
+        },
+        "rows": {
+          "required": false,
+          "description": "rows-v1: the column's rows, top to bottom. Omitted for a column with one row.",
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "LayoutRow"
+            }
+          }
         }
       },
       "extra": false,
@@ -4589,7 +4600,35 @@
         "column_id is stable for the lifetime of the viewport column.",
         "width is finite and greater than or equal to 0.1 and less than or equal to 1.",
         "dock is omitted from a document the daemon returns while the column scrolls. In workspace.layout.apply, null clears the flag, an object sets it, and an omitted dock keeps the flag of the column with the same column_id.",
-        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls."
+        "When workspace.layout.apply sets a flag that differs from the stored flag of that column_id, the document must have at most one docked column per edge and at least one scrolling column. Flags that are kept or echoed unchanged are normalized: a second flag on one edge is cleared, and all flags are cleared when no column scrolls.",
+        "rows is omitted from a document the daemon returns for a column with one row, and otherwise holds two or more rows. The column's root is the compat chain: the rows folded into vertical splits nested through first, so the root's split_id is the last row's row_id, the split_id of each chain split is the row_id of the row below it, and each row's content is its subtree. The chain ratios follow the heights.",
+        "In workspace.layout.apply an omitted rows keeps the rows of the column with the same column_id; [] leaves the column one row (the chain splits stay as plain splits); two or more rows set the rows and their heights. Row 1's row_id is the column's current row 1 id, or omitted for the current row 1 (a new id when the column has no rows). Rows 2..n must be the compat chain of the document's root; otherwise the document is refused and changes nothing."
+      ]
+    },
+    "LayoutRow": {
+      "kind": "object",
+      "fields": {
+        "row_id": {
+          "required": false,
+          "type": {
+            "kind": "resource_id",
+            "resource": "split"
+          }
+        },
+        "height": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint16",
+            "minimum": 100,
+            "maximum": 1000
+          }
+        }
+      },
+      "extra": false,
+      "constraints": [
+        "height is the row's height in permille of the column's viewport height, from 100 to 1000. The sum is not fixed: at most 1000 fills the column, and more scrolls it.",
+        "row_id is the row's stable id; no row id is reused. A document the daemon returns names every row. In workspace.layout.apply only row 1 may omit it."
       ]
     },
     "LayoutColumnDock": {
@@ -22481,6 +22520,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22508,7 +22568,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {
@@ -24818,6 +24879,27 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new screen's first terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -24827,7 +24909,10 @@
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "At most one of argv or shell is present; argv[0] is non-empty."
+        ]
       },
       "result": {
         "kind": "apply",
@@ -29059,6 +29144,27 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new tab's terminal runs instead of a shell. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new tab's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
           "name": {
             "required": false,
             "type": {
@@ -29094,7 +29200,8 @@
         },
         "extra": false,
         "constraints": [
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty."
         ]
       },
       "result": {

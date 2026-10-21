@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -111,9 +112,22 @@ export type PromptDelivery = {
   connection?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
+/// A prompt waiting for the running turn, with the images it sends, in its order (Leo,
+/// 2026-10-21: a queued row showed only its text).
+export type QueuedPrompt = {
+  id: string;
+  prompt: string;
+  next?: boolean;
+  sending?: boolean;
+  images?: QueuedPromptImage[];
+};
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
+/// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
+/// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
+/// acpmux names it, so an edit cannot keep or drop it by id yet.
+export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 export type AcpmuxRow = {
   id: string;
@@ -376,7 +390,8 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  | { op: "update"; text: string }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
+  | { op: "update"; text: string; images?: string[] }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }
@@ -486,6 +501,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
