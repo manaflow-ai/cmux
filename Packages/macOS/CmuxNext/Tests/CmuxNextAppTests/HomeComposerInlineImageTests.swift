@@ -294,6 +294,39 @@ import UniformTypeIdentifiers
         #expect(h.compose.fieldRect.height >= picture.height + 2 * Fixture.lineHeight, "the field holds the text, the picture and the caret's line")
     }
 
+    /// Just before a picture that follows text, the caret ends the text's line above the picture,
+    /// where a typed character goes (not over the picture's corner).
+    @Test func theCaretBeforeAPictureEndsTheTextAbove() async throws {
+        let h = try await home()
+        defer { h.close() }
+        type("hello", caret: 5, in: h)
+        try await attach(.pastePicture, to: h.view)
+        h.field.layoutSubtreeIfNeeded()
+        let picture = try #require(h.compose.inlineHover.attachmentRects().first).rect
+        let caret = try #require(h.field.caretRects(at: [5]).fresh.first ?? nil)
+        #expect(caret.maxY <= picture.minY + 4, "on the text line above (\(caret), picture \(picture))")
+        #expect(caret.minX > 10, "after the text (\(caret))")
+    }
+
+    /// The field measures each picture as its own line, as it lays them out: no blank line between
+    /// two pictures, and the caret's line after a picture that ends with a line break.
+    @Test func theFieldMeasuresPicturesAsTheirOwnLines() async throws {
+        let h = try await home()
+        defer { h.close() }
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png()])))
+        await h.view.attachmentsReady()
+        #expect(h.view.handlePaste(Board(items: [.png: try Self.png(red: 0.8)])))
+        await h.view.attachmentsReady()
+        let two = try #require(h.field.textStorage)
+        #expect(ComposeInlineText.blockLines(two).string == "\u{FFFC}\n\u{FFFC}\n ")
+        let pictures = try #require(h.compose.inlineHover.attachmentRects().map(\.rect) as [CGRect]?)
+        #expect(pictures.count == 2)
+        if pictures.count == 2 { #expect(pictures[1].minY - pictures[0].maxY < Fixture.lineHeight, "no blank line between them (\(pictures))") }
+        h.field.insertText("\n", replacementRange: h.field.selectedRange())
+        let trailing = try #require(h.field.textStorage)
+        #expect(ComposeInlineText.blockLines(trailing).string.hasSuffix("\u{FFFC}\n "), "the caret's line after the break is measured")
+    }
+
     /// Hovering a picture in the field shows a remove button at its top right; the button takes
     /// the picture out (Austin 2026-10-20: hovering a pasted picture showed no remove button).
     @Test func hoveringAPictureShowsItsRemoveButton() async throws {

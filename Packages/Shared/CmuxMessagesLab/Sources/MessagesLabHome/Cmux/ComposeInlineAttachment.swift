@@ -201,7 +201,8 @@ final class ComposeInlineAttachment: NSTextAttachment {
 
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
         let provider = ComposeInlineAttachmentViewProvider(textAttachment: self, parentView: parentView, textLayoutManager: textContainer?.textLayoutManager, location: location)
-        provider.tracksTextAttachmentViewBounds = true
+        // The box is the attachment's own (its whole line, `attachmentBounds`), not the view's size.
+        provider.tracksTextAttachmentViewBounds = false
         return provider
     }
 
