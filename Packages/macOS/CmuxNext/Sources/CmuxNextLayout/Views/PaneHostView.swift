@@ -36,6 +36,9 @@ final class PaneHostView: NSView, RestingPlacement {
         wantsLayer = true
         layer?.masksToBounds = true
         clipView.frame = bounds
+        // `layoutClip` places the content itself: autoresizing would resize held content on every
+        // spring frame before it is set back (`contentFrame(in:)`).
+        clipView.autoresizesSubviews = false
         addSubview(clipView)
         content.translatesAutoresizingMaskIntoConstraints = true
         content.autoresizingMask = [.width, .height]

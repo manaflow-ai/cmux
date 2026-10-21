@@ -159,7 +159,8 @@
    the edge, `data-presence` the phase. The durations scale the host's motion tokens, which the
    native gate sets to 0 when the area's animations are off (and :root[data-agent-motion="off"]
    stops them in the pane). A surface that travels its own size (a side panel) sets
-   --ui-enter-distance: 100%. Reduce Motion keeps the fade and drops the travel. */
+   --ui-enter-distance: 100%. Under Reduce Motion a panel with presence keeps the fade and drops
+   the travel; an enter-only surface appears at once, as the page's other animations do. */
 :root {
   --ui-enter-duration: calc(var(--agent-motion-in, 120ms) * 1.25);
   --ui-exit-duration: calc(var(--agent-motion-out, 80ms) * 1.25);

@@ -54,7 +54,8 @@ import Testing
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
         column.host.restOffset = .zero
         column.host.isOnLayoutSpring = false
-        #expect(column.page.frame.width == 200 - 16, "one layout at the landed size: \(column.page.frame)")
+        let landed: CGFloat = 184 // 200 less the 8 pt padding on each side
+        #expect(column.page.frame.width == landed, "one layout at the landed size: \(column.page.frame)")
     }
 
     @Test func aPaneOpeningOnTheRightLaysOutAtItsRestSizeAndRidesItsRightEdge() {
@@ -66,7 +67,8 @@ import Testing
         column.host.frame = CGRect(x: 560, y: 0, width: 40, height: 300)
         column.host.restOffset = CGVector(dx: -360, dy: 0)
         column.host.frame = CGRect(x: 550, y: 0, width: 50, height: 300)
-        #expect(column.page.frame.width == 400 - 16, "laid out once, at its size at rest: \(column.page.frame)")
+        let rest: CGFloat = 384 // 400 less the 8 pt padding on each side
+        #expect(column.page.frame.width == rest, "laid out once, at its size at rest: \(column.page.frame)")
         let clip = column.page.superview?.bounds ?? .zero
         #expect(column.page.frame.maxX == clip.maxX, "the content slides in with the pane's right edge: \(column.page.frame)")
     }
