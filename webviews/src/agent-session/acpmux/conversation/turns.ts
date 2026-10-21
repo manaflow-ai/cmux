@@ -79,7 +79,14 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; sessionStatus?: boolean; lineBelow?: boolean } = {},
+  options: {
+    now?: number;
+    working?: boolean;
+    clockOffset?: number;
+    liveRuns?: boolean;
+    sessionStatus?: boolean;
+    lineBelow?: boolean;
+  } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -115,7 +122,14 @@ export function turnViewFrom(
     liveRuns = false,
     sessionStatus = false,
     lineBelow = false,
-  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; sessionStatus?: boolean; lineBelow?: boolean } = {},
+  }: {
+    now?: number;
+    working?: boolean;
+    clockOffset?: number;
+    liveRuns?: boolean;
+    sessionStatus?: boolean;
+    lineBelow?: boolean;
+  } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -392,7 +406,7 @@ function shapeTurn(
     // running turn (codexRuns).
     if (open)
       shaped.push(
-        ...work.map((row) => ({
+        ...(liveRuns ? mergeShortNotes(work) : work).map((row) => ({
           ...row,
           id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
           settled: true,
@@ -554,13 +568,15 @@ function liveTurn(
   let last: AcpmuxRow | undefined;
   for (let index = drawn.length - 1; index >= 0 && !last; index -= 1)
     if (drawn[index]!.kind !== STARTED_SESSIONS) last = drawn[index];
-  const rows = liveRuns ? codexRuns(drawn) : drawn;
+  const rows = liveRuns ? codexRuns(mergeShortNotes(drawn)) : drawn;
   // The status ticks on this computer's clock, from the prompt moved onto it.
   const at = user.at + clockOffset;
   if (lineBelow && liveRuns) return codexLiveTurn(user, drawn, rows, last, at, clockOffset, sessionStatus);
   if (lineBelow) {
     const shown = withLiveStep(rows, last);
-    const plan = sessionStatus ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length) : undefined;
+    const plan = sessionStatus
+      ? [...shown].reverse().find((row) => row.kind === "plan" && row.plan?.length)
+      : undefined;
     // With a todo list the activity line under it is the live line (cx-ncc.102); it is already
     // the turn's last row and ticks from the prompt.
     if (plan && last?.kind !== "assistant") {
@@ -737,6 +753,41 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
     return [{ ...row, items, settled: true, foldRun: true, version: row.version * 4 + 1 }];
   });
 }
+
+/// An interim note short enough to fold into the work around it: one short paragraph, no code.
+export const SHORT_NOTE_CHARS = 160;
+const isShortNote = (row: AcpmuxRow | undefined) =>
+  row?.kind === "assistant" &&
+  !row.incoming &&
+  (row.text ?? "").trim().length > 0 &&
+  (row.text ?? "").trim().length <= SHORT_NOTE_CHARS &&
+  !/\n\s*\n|```/.test(row.text ?? "");
+const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdit(row);
+
+/// Two runs with only a short interim note between them ("Relay the decisions, then answer.") are
+/// one stretch of work (Leo 2026-10-20: "it can consolidate a ton of these tool calls"): they draw
+/// as one run, the note folded in among its calls as a quiet line (`note` item, TurnRows.tsx). The
+/// merged row keeps the first run's id; its version moves with each part's.
+export function mergeShortNotes(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
+  const out: AcpmuxRow[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    const previous = out.at(-1);
+    if (isRun(previous) && isShortNote(row) && isRun(rows[index + 1])) {
+      const next = rows[index + 1]!;
+      out[out.length - 1] = {
+        ...previous!,
+        items: [...(previous!.items ?? []), { kind: "note", text: row.text!.trim() }, ...(next.items ?? [])],
+        toolCount: (previous!.toolCount ?? 0) + (next.toolCount ?? 0),
+        version: mixVersion(mixVersion(previous!.version, row.version), next.version),
+      };
+      index += 1;
+    } else out.push(row);
+  }
+  return out.length === rows.length ? (rows as AcpmuxRow[]) : out;
+}
+
+const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483_647;
 
 /// The "Worked for" fold that holds `rows[index]`: the one of the turn its prompt opened, past
 /// steers (turnStart.ts). Find and a shell's row open it to reveal a row the fold hides.

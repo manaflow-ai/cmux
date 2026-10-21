@@ -32,7 +32,8 @@ const live = [
   row("u", "user"),
   text("plan"),
   run("reads", [call("README.md", "read"), call("retry.py", "read"), call("ls src", "execute")]),
-  text("between"),
+  // Text long enough to stand between the runs (a short note folds into them: turns.ts mergeShortNotes).
+  row("between", "assistant", { text: "between ".repeat(30) }),
   run("commands", [call("git log", "execute"), call("wc -l retry.py", "execute", "in_progress")]),
 ];
 
@@ -66,7 +67,7 @@ test("with live runs on, a thought still coming leaves the latest run; earlier o
   const rows = [
     row("u", "user"),
     run("first", [thought("Looking around"), call("README.md", "read"), call("ls src", "execute")]),
-    text("next"),
+    row("next", "assistant", { text: "next ".repeat(40) }),
     run("latest", [call("git log", "execute"), thought("Now I should check")]),
   ];
   const shaped = turnView(rows, new Set(), { working: true, liveRuns: true });

@@ -413,6 +413,16 @@ const describedShell = (command: string, description: string, fields: Parameters
     ...fields,
   });
 
+/// A finished command written the way agents write them, behind a PATH export, with no description.
+const envShell = (command: string) =>
+  tool(command, "execute", "completed", {
+    command: `export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"\n${command}`,
+    exitCode: 0,
+    output: "",
+    startedAt: minutesAgo(1.9),
+    endedAt: minutesAgo(1.88),
+  });
+
 /// Opens the turn's Worked for, then its one run's folded line.
 const openGroupedRun = async (ctx: PlayContext) => {
   await openWorked(ctx);
@@ -1033,6 +1043,44 @@ export default agentPaneEntry({
               }),
             ],
             1.9,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "codex-turn-raw-commands": {
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots.",
+      snapshot: chat(
+        [
+          user("What did the lanes decide? Relay it and answer.", 2),
+          assistant("I'll read the lanes' latest reports first.", 1.95),
+          activity(
+            [
+              envShell("acpmux ls 2>&1 | head -40"),
+              envShell("acpmux history huge-blue/activity-indicators | tail -c 4000"),
+              envShell("acpmux history transcript-density | tail -c 4000"),
+              tool("grep -l -i chief /tmp/l*.txt /tmp/r*.txt", "execute", "completed", {
+                command:
+                  "grep -l -i chief /tmp/l*.txt /tmp/r*.txt 2>/dev/null | head; for f in $(grep -l chief /tmp/*.txt); do wc -l $f; done",
+                exitCode: 0,
+                output: "",
+                startedAt: minutesAgo(1.9),
+                endedAt: minutesAgo(1.89),
+              }),
+              envShell("acpmux history chat-background | tail -c 4000"),
+            ],
+            1.9,
+          ),
+          assistant("Relay the decisions, then answer.", 1.5),
+          activity(
+            [
+              envShell("gh pr view 22363 --json state,mergeable"),
+              tool("acpmux send", "execute", "in_progress", {
+                command: `export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"\nacpmux send --no-wait coord-deputy "[lanes] decisions relayed"`,
+                startedAt: minutesAgo(0.22),
+              }),
+            ],
+            1.4,
           ),
         ],
         { isWorking: true },

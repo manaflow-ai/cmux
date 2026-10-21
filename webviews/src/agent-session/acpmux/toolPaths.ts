@@ -75,16 +75,24 @@ export function toolLabel(
 }
 
 /// A command line as a short label: the setup a script starts with (`export PATH=…;`, `B=~/x;`,
-/// `cd dir &&`) dropped, so "export PATH=\"/Applications/…\"; gh run list" reads "gh run list".
-/// The whole line stays in the call's Shell block. A line that is only setup keeps its last part.
+/// `cd dir &&`) and the environment set in front of a command (`PATH="…" acpmux ls`) dropped, so
+/// "export PATH=\"/Applications/…\"; gh run list" reads "gh run list". The whole line stays in the
+/// call's Shell block. A line that is only setup keeps its last part.
 export function shortCommand(command: string): string {
   const parts = command
     .trim()
     .split(/\s*(?:&&|;|\n)\s*/)
     .filter(Boolean);
-  const setup = (part: string) => /^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=/.test(part) || /^cd(?:\s|$)/.test(part);
-  return (parts.find((part) => !setup(part)) ?? parts.at(-1) ?? command).trim();
+  for (const part of parts) {
+    if (/^cd(?:\s|$)/.test(part)) continue;
+    const bare = part.replace(ASSIGNMENTS, "").trim();
+    if (bare) return bare;
+  }
+  return (parts.at(-1) ?? command).trim();
 }
+
+/// `export A=1 B="x y" ` in front of a command: the assignments a shell line sets before it runs.
+const ASSIGNMENTS = /^(?:(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S*)\s*)+/;
 
 /// A shell tool's own name standing in for a label: "Bash", "Shell", "Terminal", `exec_command`.
 const BARE_SHELL_NAMES = /^(bash|shell|terminal|exec|exec_command|run_shell_command|local_shell|command)$/i;

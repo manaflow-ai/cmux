@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/toolPaths";
 
@@ -100,9 +101,11 @@ test("the live line draws Running with the call's time, or Thinking alone; both 
   );
   expect(words(running)).toBe("Running bun test 13s");
   expect(running).toContain("is-shimmer");
-  const described = renderToStaticMarkup(<Thinking doing="Run the web tests" doingAt={start} now={() => start + 2_000} />);
+  const described = renderToStaticMarkup(
+    <Thinking doing="Run the web tests" doingAt={start} now={() => start + 2_000} />,
+  );
   expect(words(described)).toBe("Run the web tests 2s");
-  expect(words(renderToStaticMarkup(<Thinking doing="" doingShell doingAt={start} now={() => start}/>))).toBe(
+  expect(words(renderToStaticMarkup(<Thinking doing="" doingShell doingAt={start} now={() => start} />))).toBe(
     "Running a command 0s",
   );
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
@@ -119,4 +122,60 @@ test("shortCommand drops the setup a script starts with", () => {
   expect(shortCommand("cd ~/Projects/cmux && git status")).toBe("git status");
   expect(shortCommand("bun test")).toBe("bun test");
   expect(shortCommand("export A=1")).toBe("export A=1");
+});
+
+test("shortCommand drops environment set in front of the command, quoted values with spaces too", () => {
+  expect(
+    shortCommand('export PATH="/Applications/cmux NIGHTLY.app/Contents/Resources/bin:$PATH"\nacpmux ls 2>&1'),
+  ).toBe("acpmux ls 2>&1");
+  expect(shortCommand('PATH="/Applications/cmux NIGHTLY.app/bin:$PATH" acpmux ls')).toBe("acpmux ls");
+  expect(shortCommand("A=1 B='x y' bun test src")).toBe("bun test src");
+});
+
+test("two runs with only a short note between them draw as one run, the note folded in", () => {
+  const shaped = codex([
+    row("u", "user"),
+    row("r1", "activity", { items: [call("acpmux ls"), call("gh pr list")] }),
+    row("n", "assistant", { text: "Relay the decisions, then answer." }),
+    row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
+  ]);
+  expect(kinds(shaped)).toEqual(["user", WORKING, "activity", THINKING]);
+  const run = shaped.find((entry) => entry.kind === "activity")!;
+  expect(run.id).toBe("r1");
+  expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
+    "acpmux ls",
+    "gh pr list",
+    "Relay the decisions, then answer.",
+    "gh pr view 1",
+  ]);
+  const html = renderToStaticMarkup(<ToolRows row={{ ...run, foldRun: false }} />);
+  expect(html).toContain('<p class="cv-tool-note">Relay the decisions, then answer.</p>');
+  expect(shaped.at(-1)!.doing).toBe("acpmux send");
+});
+
+test("a long note, or one with code, stays its own paragraph between the runs", () => {
+  const long = "x".repeat(200);
+  for (const text of [long, "First.\n\nSecond.", "Run ```bun test``` next"]) {
+    const shaped = codex([
+      row("u", "user"),
+      row("r1", "activity", { items: [call("a")] }),
+      row("n", "assistant", { text }),
+      row("r2", "activity", { items: [call("b")] }),
+    ]);
+    expect(kinds(shaped)).toEqual(["user", WORKING, "activity", "assistant", "activity", THINKING]);
+  }
+});
+
+test("an ended turn's open Worked for merges runs split by a short note too", () => {
+  const rows = [
+    row("u", "user"),
+    row("r1", "activity", { items: [call("a"), call("b")] }),
+    row("n", "assistant", { text: "Checking the logs next." }),
+    row("r2", "activity", { items: [call("c")] }),
+    row("ans", "assistant", { text: "Done: the fix is in." }),
+    row("s", "turnSummary", { status: "completed", toolCount: 3 }),
+  ];
+  const open = turnView(rows, new Set(["worked-u"]), { liveRuns: true });
+  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
+  expect(open.find((entry) => entry.kind === "assistant")!.id).toBe("ans");
 });

@@ -79,6 +79,13 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
     case "item":
+      // A short interim note folded into the run (turns.ts mergeShortNotes).
+      if (group.item.kind === "note")
+        return (
+          <p key={index} className="cv-tool-note">
+            {group.item.text}
+          </p>
+        );
       return group.item.tool ? (
         <ToolRow key={group.item.tool.id || index} item={group.item} />
       ) : (
