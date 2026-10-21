@@ -36,6 +36,7 @@ extension NSMenu {
         case "tabGroup.create": String(localized: "tabSelection.createGroup", defaultValue: "Add Tabs to New Group", bundle: .module)
         case "tabGroup.addTab": String(localized: "tabSelection.addToGroup", defaultValue: "Add Tabs to Group…", bundle: .module)
         case "tabGroup.removeTab": String(localized: "tabSelection.removeFromGroup", defaultValue: "Remove Tabs from Group", bundle: .module)
+        case "tab.stash": String(localized: "tabSelection.stash", defaultValue: "Save and Close Tabs", bundle: .module)
         default: nil
         }
     }

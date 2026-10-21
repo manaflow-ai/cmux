@@ -16,11 +16,18 @@ extension StateResourceClient {
     /// What `stash.create` closed.
     public struct StashCreated: Decodable, Sendable, Equatable {
         public var stashID: String
+        /// The pages it closed (empty for whole workspaces).
         public var tabIDs: [ResourceID]
 
         enum CodingKeys: String, CodingKey {
             case stashID = "stash_id"
             case tabIDs = "tab_ids"
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            stashID = try c.decode(String.self, forKey: .stashID)
+            tabIDs = try c.decodeIfPresent([ResourceID].self, forKey: .tabIDs) ?? []
         }
     }
 
@@ -67,6 +74,16 @@ extension StateResourceClient {
     @discardableResult
     public func stashWorkspace(_ workspace: ResourceID) async throws -> StashCreated {
         try await stateMutation("stash.create", ["workspace": .string(workspace.rawValue)], as: StashCreated.self)
+    }
+
+    /// Closes workspaces `workspaces` whole (every tab, ending their terminals) into one stash
+    /// named `name` (else the workspace's name for one, none for several). Needs
+    /// `DaemonCapabilities.stashWorkspaces`.
+    @discardableResult
+    public func stashWorkspaces(_ workspaces: [ResourceID], name: String? = nil) async throws -> StashCreated {
+        var params: [String: JSONValue] = ["workspaces": Self.ids(workspaces)]
+        if let name { params["name"] = .string(name) }
+        return try await stateMutation("stash.create", params, as: StashCreated.self)
     }
 
     /// Every stash, newest first (`stash.list`).

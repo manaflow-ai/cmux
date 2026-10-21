@@ -57,6 +57,20 @@ public final class StashPageModel {
     /// Every tab in every group.
     public var tabCount: Int { groups.reduce(0) { $0 + $1.tabs.count } }
 
+    /// The groups whose members match `query`: a page's title or address, a workspace's name or tab, or the group's name
+    /// (which keeps all its pages), ignoring case and diacritics. Every group for a blank query.
+    public func groups(matching query: String) -> [StashedGroup] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return groups }
+        func matches(_ text: String?) -> Bool { text?.localizedStandardContains(query) == true }
+        return groups.compactMap { group in
+            if matches(group.name) { return group }
+            var shown = group
+            shown.tabs.removeAll { tab in !(matches(tab.title) || matches(tab.url) || tab.workspaceTabs.contains { matches($0) }) }
+            return shown.tabs.isEmpty ? nil : shown
+        }
+    }
+
     /// Reads the groups again; a slower older read never replaces a newer one, and returns once
     /// the newest read has landed (a stash change event may start one while this one runs). A
     /// good read clears a failure notice.
@@ -164,12 +178,14 @@ public final class StashPageModel {
     }
 }
 
-/// One Stashed page's OneTab paste box (Import from OneTab…): inline, never a sheet, and its
-/// own per window. It closes when its page closes.
+/// One Stashed page's own state: its search text, and its OneTab paste box (Import from
+/// OneTab…), inline, never a sheet, its own per window. The box closes when its page closes.
 @Observable
 public final class StashImportDraft {
     public var isOpen = false
     public var text = ""
+    /// The page's search text (``StashPageModel/groups(matching:)``).
+    public var query = ""
 
     public init() {}
 
@@ -178,5 +194,13 @@ public final class StashImportDraft {
     public func close() {
         isOpen = false
         text = ""
+    }
+}
+
+extension URL {
+    /// The Stashed Tabs page's address, `cmux://stashed` (with or without a trailing slash, query
+    /// or fragment): typed in the address bar or opened as a link, it shows the page.
+    public nonisolated var isStashedPage: Bool {
+        scheme?.lowercased() == "cmux" && host()?.lowercased() == "stashed"
     }
 }
