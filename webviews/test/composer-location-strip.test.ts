@@ -62,10 +62,15 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    // The entry files and the agent pane they mount (frame/agentPane.ts imports acpmux/main), not
-    // the frame: its registry names every entry. Module URLs carry the config's base, /gallery/; a
-    // path outside it is a 404 that warms nothing, so that fails here.
-    for (const file of [...Object.values(ENTRY_PATHS), "src/gallery/frame/agentPane.ts"])
+    // The entry files and the hosts they mount (the strip and the New Tab in frame/agentPane.ts,
+    // which imports acpmux/main; the folder popover in frame/component.tsx), not the frame: its
+    // registry names every entry. Module URLs carry the config's base, /gallery/; a path outside it
+    // is a 404 that warms nothing, so that fails here.
+    for (const file of [
+      ...Object.values(ENTRY_PATHS),
+      "src/gallery/frame/agentPane.ts",
+      "src/gallery/frame/component.tsx",
+    ])
       if ((await warmViteServer(vite, `/gallery/${file}`)) === 0)
         throw new Error(`warmViteServer: ${file} imports nothing; is it served?`);
     browser = await chromium.launch({ headless: true });
