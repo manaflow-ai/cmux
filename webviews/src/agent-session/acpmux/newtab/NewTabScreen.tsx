@@ -1038,7 +1038,7 @@ export function NewTabScreen(props: Props) {
     </>
   );
   // The ambient widgets (weather, machines): their own row under the field, so they never move it;
-  // with the stage, whose composer sits at the foot, the row is in the stage over it instead.
+  // with the stage, whose composer sits at the foot, the row is in the stage, after the cards.
   const ambient = (
     <AmbientWidgets
       {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}

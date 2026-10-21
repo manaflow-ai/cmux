@@ -51,7 +51,7 @@ export function environmentDigit(
 type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: string | undefined };
 
 /// The machines besides this one, in order: acpmux's peers, then the hosts its chats ran on (a
-/// chat's peer, else a Cloud chat's host), then `extra`, each once. A peer's transport names its
+/// chat's peer, else a Cloud chat's host), then `extra`, each once, never this one (`local`). A peer's transport names its
 /// kind (`peerKinds`): an `ssh://` peer is SSH, any other, or a Cloud chat's host acpmux no longer
 /// lists, is Cloud. The composer's computers and the New Tab machines widget both list these.
 export function knownMachines(
@@ -63,7 +63,7 @@ export function knownMachines(
   const machines: Environment[] = [];
   const seen = new Set<string>();
   const add = (id: string, label: string, cloudHost: boolean) => {
-    if (seen.has(id)) return;
+    if (id === "local" || seen.has(id)) return;
     seen.add(id);
     machines.push({ id, label, kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud" });
   };

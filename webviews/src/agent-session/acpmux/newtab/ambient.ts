@@ -88,7 +88,6 @@ export function newTabMachines(
   ];
   const online = new Set(snapshot.peers ?? []);
   for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    if (machine.id === "local") continue;
     machines.push({ ...machine, online: online.has(machine.id), hue: machineHue(machine.label) });
   }
   return machines;
