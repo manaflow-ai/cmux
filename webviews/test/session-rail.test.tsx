@@ -339,7 +339,12 @@ test("a pull request the chat closed shows Closed until the App reads it again a
     activity(
       [
         opened(13, "Retry"),
-        tool("gh pr close", "execute", "completed", { command: "gh pr close 13", output: "", exitCode: 0, endedAt: 2000 }),
+        tool("gh pr close", "execute", "completed", {
+          command: "gh pr close 13",
+          output: "",
+          exitCode: 0,
+          endedAt: 2000,
+        }),
       ],
       2,
     ),

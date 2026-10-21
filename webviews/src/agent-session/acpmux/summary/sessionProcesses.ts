@@ -50,7 +50,7 @@ export function mergeProcess(
   const process = processOf(value, sessionId);
   if (!process) return processes;
   const index = processes.findIndex((known) => known.id === process.id);
-  return index < 0 ? [...processes, process] : processes.with(index, process);
+  return index < 0 ? [...processes, process] : processes.map((known, i) => (i === index ? process : known));
 }
 
 /// What the pane's acpmux client offers for them.
