@@ -3,26 +3,31 @@
 # (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
 # app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
 #
-#   web-overlay.sh server http://127.0.0.1:4181/   # load pages and the agent pane from a Vite
-#                                                   # server (fastloop slot, `bun run dev`): hot reload
-#   web-overlay.sh server off                       # stop using the server
-#   web-overlay.sh build [--on HOST:WORKTREE]       # build the web bundles (here, or on HOST in
-#                                                   # WORKTREE and copy them back), then install them;
-#                                                   # WEB_OVERLAY_REMOTE_PATH=DIR puts DIR first on HOST's PATH
-#   web-overlay.sh install DIR                      # install bundles built with
-#                                                   # build-web-bundles.sh --out-root DIR
-#   web-overlay.sh off                              # bundled pages again (keeps the overlay files)
+#   web-overlay.sh server --local [--worktree DIR] [--port N]
+#                        # the default: run the webviews Vite server from a checkout on this Mac
+#                        # (this one unless --worktree) and point the app at it; edits hot reload
+#   web-overlay.sh server --slot
+#                        # a remote slot declared in web-dev.json ("slot": {"host": H, "port": N}):
+#                        # tunnel to it; when it does not answer, fall back to --local
+#   web-overlay.sh server URL | off   # any loopback server; off also stops what `server` started
+#   web-overlay.sh fleet [--ref SHA | --working-tree] [--submitter LOGIN] [--workspace PR_URL]
+#                        # build the app on the fleet (cmux-ci; the Linux pool for cmux-next) and
+#                        # install its web bundles as the overlay
+#   web-overlay.sh build              # build the web bundles in this checkout and install them
+#   web-overlay.sh install DIR        # install a build-web-bundles.sh --out-root DIR
+#   web-overlay.sh install-app APP    # install the web bundles of a built cmux .app
+#   web-overlay.sh off                # bundled pages again (keeps the overlay files)
 #   web-overlay.sh status
 #
 # The overlay folder is $CMUX_WEB_OVERLAY_DIR, else ~/Library/Application Support/cmux-next/web-overlay.
 # An install copies the bundles into a new generation folder, swaps the agent-pane, pages and
 # webviews-app symlinks to it one by one (a page loading mid-swap gets its bundled files), writes
-# manifest.json last (the app reloads on it) and keeps the two newest generations. A server wins
-# over the overlay for the files it serves; a stopped server falls back to the overlay or bundle.
+# manifest.json last (the app reloads on it) and keeps the newest generations. A server wins over
+# the overlay for the files it serves; a stopped server falls back to the overlay or bundle.
 #
-# The bundles talk to the app over the page bridge, so build them from a tree close to the app's
-# commit (`cmux --version` or CMUXCommit in the app's Info.plist): an overlay much newer than the
-# app can call ops the app does not have yet.
+# The bundles talk to the app over the page bridge, so serve or build them from a tree close to the
+# app's commit (CMUXCommit in the app's Info.plist): a tree much newer than the app can call ops the
+# app does not have yet.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -36,7 +41,10 @@ PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 APP="Resources/markdown-viewer/webviews-app"
 
-usage() { sed -n 2,24p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n 2,31p "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# What `server --local` and `server --slot` started (pid files, the dev server's log).
+state="${CMUX_WEB_SLOT_STATE_DIR:-$HOME/Library/Caches/cmux-next/web-slot}"
+DEFAULT_PORT=4200
 
 # Sets keys of web-dev.json to JSON values in one write (`null` removes a key), keeping the others:
 # set_key KEY VALUE [KEY VALUE]...
@@ -69,20 +77,20 @@ PY
 
 json_string() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"; }
 
-install_from() {
-  local from="$1"
-  [[ -d "$from" ]] || { echo "no such directory: $from" >&2; exit 1; }
+# Installs the bundles in $1 (agent pane), $2 (pages) and $3 (webviews app); $4 is their commit.
+install_dirs() {
+  local pane="$1" pages="$2" app="$3" source_commit="$4"
   local stamp gen
   stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$"
   gen="$overlay/.gen-$stamp"
   mkdir -p "$gen"
   local installed=()
-  if [[ -f "$from/$PANE/index.html" ]]; then cp -R "$from/$PANE" "$gen/agent-pane"; installed+=(agent-pane); fi
-  if [[ -d "$from/$PAGES" ]]; then cp -R "$from/$PAGES" "$gen/pages"; installed+=(pages); fi
-  if [[ -d "$from/$APP" ]]; then cp -R "$from/$APP" "$gen/webviews-app"; installed+=(webviews-app); fi
+  if [[ -f "$pane/index.html" ]]; then cp -R "$pane" "$gen/agent-pane"; installed+=(agent-pane); fi
+  if [[ -d "$pages" ]]; then cp -R "$pages" "$gen/pages"; installed+=(pages); fi
+  if [[ -d "$app" ]]; then cp -R "$app" "$gen/webviews-app"; installed+=(webviews-app); fi
   if [[ ${#installed[@]} -eq 0 ]]; then
     rm -rf "$gen"
-    echo "$from holds none of $PANE, $PAGES, $APP" >&2
+    echo "no web bundles in $pane, $pages or $app" >&2
     exit 1
   fi
   for name in "${installed[@]}"; do
@@ -90,9 +98,6 @@ install_from() {
     ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
-  local source_commit
-  # The tree the bundles were built from: a remote build leaves .commit, a local one is this tree.
-  source_commit="$(cat "$from/.commit" 2>/dev/null || git -C "$ROOT" rev-parse HEAD)"
   python3 - "$overlay" "$stamp" "$source_commit" "${installed[@]}" <<'PY'
 import json, os, sys, tempfile
 overlay, stamp, commit, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
@@ -113,51 +118,182 @@ PY
     [[ "$live" == *" ${old##*/} "* ]] || rm -rf "$old"
   done
   set_key overlay "$(json_string "$overlay")" enabled true
-  echo "installed ${installed[*]} from $from ($source_commit) into $overlay"
+  echo "installed ${installed[*]} ($source_commit) into $overlay"
+}
+
+# An output root of build-web-bundles.sh --out-root, built from this checkout.
+install_from() {
+  install_dirs "$1/$PANE" "$1/$PAGES" "$1/$APP" "$(git -C "$ROOT" rev-parse HEAD)"
+}
+
+# A built cmux .app: its module bundles and its viewer folder hold the same files.
+install_app() {
+  local res="$1/Contents/Resources" commit
+  commit="$(/usr/libexec/PlistBuddy -c "Print CMUXCommit" "$1/Contents/Info.plist" 2>/dev/null || echo unknown)"
+  install_dirs "$res/CmuxNext_CmuxNextAgentPane.bundle/Contents/Resources/agent-pane" \
+    "$res/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages" "$res/markdown-viewer/webviews-app" "$commit"
+}
+
+# Whether a server on 127.0.0.1:$1 serves the agent pane, retrying for up to $2 seconds (a server
+# that is starting).
+answers() {
+  curl -fsS -o /dev/null --max-time 3 --retry "${2:-0}" --retry-delay 1 --retry-connrefused --retry-all-errors \
+    "http://127.0.0.1:$1/agent-pane/index.html" 2>/dev/null
+}
+
+# Stops what `server` started (the local dev server, the slot tunnel).
+stop_started() {
+  local file pid
+  for file in "$state"/*.pid; do
+    [[ -f "$file" ]] || continue
+    pid="$(cat "$file")"
+    # The dev server's process group (bun and its children), else the tunnel itself.
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    rm -f "$file"
+  done
+}
+
+# A field of web-dev.json's "slot" (host or port), empty when unset.
+slot_field() {
+  python3 - "$web_dev" "$1" <<'PY'
+import json, sys
+try:
+    slot = json.load(open(sys.argv[1])).get("slot") or {}
+except (OSError, ValueError, AttributeError):
+    slot = {}
+value = slot.get(sys.argv[2]) if isinstance(slot, dict) else None
+print("" if value is None else value)
+PY
+}
+
+# Runs checkout $1's webviews dev server on port $2, detached, unless one already answers there.
+start_local() {
+  local tree="$1" port="$2"
+  [[ -f "$tree/webviews/package.json" ]] || { echo "no webviews/ in $tree" >&2; exit 1; }
+  if answers "$port"; then
+    echo "a dev server already answers on 127.0.0.1:$port; using it"
+    return
+  fi
+  mkdir -p "$state"
+  [[ -d "$tree/webviews/node_modules" ]] || (cd "$tree/webviews" && bun install --frozen-lockfile >/dev/null)
+  # The generated string tables are gitignored; the dev server imports them.
+  (cd "$tree/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1)
+  # Its own process group (set -m), so `server off` stops bun and its children together.
+  # Every descriptor goes to the log, so the caller's pipe closes when this script exits.
+  ( set -m
+    ( cd "$tree/webviews" && CMUX_WEBVIEWS_DEV_PORT="$port" exec nohup bun run dev ) </dev/null >"$state/dev-server.log" 2>&1 &
+    echo $! >"$state/dev-server.pid" )
+  answers "$port" 60 || { echo "the dev server did not start; see $state/dev-server.log" >&2; exit 1; }
+  echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
+}
+
+point_at() {
+  set_key server "$(json_string "http://127.0.0.1:$1/")" enabled true
 }
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
   server)
-    url="${1:-}"; [[ -n "$url" ]] || usage 1
-    if [[ "$url" == off ]]; then set_key server null; exit 0; fi
-    [[ "$url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+(/.*)?$ ]] || {
-      echo "the server must be http://127.0.0.1:PORT/ (forward a remote slot with ssh -L PORT:127.0.0.1:PORT)" >&2; exit 1; }
-    if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
-      echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
-    fi
-    set_key server "$(json_string "$url")" enabled true
+    mode="${1:-}"; [[ -n "$mode" ]] || usage 1; shift
+    case "$mode" in
+      off)
+        stop_started
+        set_key server null
+        ;;
+      --local)
+        tree="$ROOT" port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}"
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            --worktree) tree="$(cd "$2" && pwd)"; shift 2 ;;
+            --port) port="$2"; shift 2 ;;
+            *) usage 1 ;;
+          esac
+        done
+        start_local "$tree" "$port"
+        point_at "$port"
+        ;;
+      --slot)
+        host="$(slot_field host)" port="$(slot_field port)"; port="${port:-$DEFAULT_PORT}"
+        if [[ -z "$host" ]]; then
+          echo "no slot in $web_dev (\"slot\": {\"host\": \"<ssh host>\", \"port\": N}); using a local dev server" >&2
+        elif answers "$port"; then
+          echo "127.0.0.1:$port already answers; using it"
+          point_at "$port"; exit 0
+        else
+          # The same port on both ends: the Vite client opens its HMR socket on the server's port.
+          mkdir -p "$state"
+          ssh -N -o ExitOnForwardFailure=yes -o ConnectTimeout=10 -L "$port:127.0.0.1:$port" "$host" </dev/null >"$state/tunnel.log" 2>&1 &
+          echo $! >"$state/tunnel.pid"
+          if answers "$port" 15; then
+            echo "slot: $host:$port through a tunnel"
+            point_at "$port"; exit 0
+          fi
+          kill "$(cat "$state/tunnel.pid")" 2>/dev/null || true; rm -f "$state/tunnel.pid"
+          echo "the slot on $host:$port does not answer; using a local dev server" >&2
+        fi
+        start_local "$ROOT" "$port"
+        point_at "$port"
+        ;;
+      *)
+        url="$mode"
+        [[ "$url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+(/.*)?$ ]] || {
+          echo "the server must be http://127.0.0.1:PORT/" >&2; exit 1; }
+        if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
+          echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
+        fi
+        set_key server "$(json_string "$url")" enabled true
+        ;;
+    esac
     ;;
   install)
     [[ -n "${1:-}" ]] || usage 1
     install_from "$(cd "$1" && pwd)"
     ;;
+  install-app)
+    [[ -d "${1:-}" ]] || usage 1
+    install_app "$(cd "$1" && pwd)"
+    ;;
   build)
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-build.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
-    if [[ "${1:-}" == --on ]]; then
-      target="${2:-}"; [[ "$target" == *:* ]] || usage 1
-      host="${target%%:*}"; tree="${target#*:}"
-      # `~/x` is the remote home's; the path goes to the remote shell double-quoted, so no `"`, `$` or `\``.
-      [[ "$tree" == "~/"* ]] && tree="\$HOME/${tree#\~/}"
-      [[ "$tree" != *[\"\`]* && "${tree#\$HOME/}" != *'$'* ]] || { echo "unsupported characters in $tree" >&2; exit 1; }
-      remote_out="/tmp/web-overlay-build-$$"
-      # Built where the CPU is (big-red, a fleet box); nothing compiles on this Mac.
-      # WEB_OVERLAY_REMOTE_PATH goes first on the remote PATH (a bun matching the webviews pin).
-      ssh "$host" "${WEB_OVERLAY_REMOTE_PATH:+PATH=$WEB_OVERLAY_REMOTE_PATH:\$PATH; }cd \"$tree\" && rm -rf '$remote_out' && \
-        \$(command -v heavy >/dev/null && echo 'heavy --mem 6G') ./scripts/cmux-next/build-web-bundles.sh --force --out-root '$remote_out' >&2 && \
-        git rev-parse HEAD > '$remote_out/.commit'"
-      rsync -a --delete "$host:$remote_out/" "$out/"
-      ssh "$host" "rm -rf '$remote_out'"
-    else
-      "$ROOT/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$out"
-    fi
+    "$ROOT/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$out"
     install_from "$out"
+    ;;
+  fleet)
+    # The fleet builds the app (cmux-ci; the Linux pool for cmux-next) and the overlay takes its web
+    # bundles: nothing builds on this Mac, and the job is also a dev build of the whole app.
+    ref="" args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --ref) ref="$2"; shift 2 ;;
+        --working-tree) args+=(--working-tree); shift ;;
+        --submitter|--workspace) args+=("$1" "$2"); shift 2 ;;
+        *) usage 1 ;;
+      esac
+    done
+    ci="${CMUX_CI:-$HOME/.local/bin/cmux-ci}"
+    [[ -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
+    if [[ " ${args[*]-} " != *" --working-tree "* ]]; then
+      args+=(--ref "${ref:-$(git -C "$ROOT" rev-parse HEAD)}")
+    fi
+    out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
+    trap 'rm -rf "$out"' EXIT
+    job_json="$(cd "$ROOT" && "$ci" build cmux --builder linux "${args[@]}")"
+    job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")"
+    echo "fleet job $job" >&2
+    "$ci" wait "$job" >&2
+    "$ci" artifact "$job" "$out/bundle" --bundle >&2
+    app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
+    [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
+    install_app "$app"
     ;;
   off)
     set_key enabled false
     ;;
   status)
+    for file in "$state"/*.pid; do
+      [[ -f "$file" ]] && kill -0 "$(cat "$file")" 2>/dev/null && echo "running: $(basename "$file" .pid) (pid $(cat "$file"))"
+    done
     echo "web-dev.json: $web_dev"
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"

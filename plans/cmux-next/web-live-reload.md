@@ -14,8 +14,8 @@ by default) ignores the file while off, without editing it.
 {"server": "http://127.0.0.1:4181/", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}
 ```
 
-- **server**: a Vite server on loopback with an explicit port (a fastloop slot, `bun run dev`,
-  `dev-slot.sh`). The React pages, the diff, markdown and editor viewers, and the bundled agent pane
+- **server**: a Vite server on loopback with an explicit port (`web-overlay.sh server --local`,
+  `bun run dev`, `dev-slot.sh`, or a declared remote slot through an ssh tunnel). The React pages, the diff, markdown and editor viewers, and the bundled agent pane
   fetch their files from it, and HMR applies edits in about a second. The page keeps its own origin
   (`cmux-page://<id>`, `cmux-agent://pane`). The scheme handler fetches the file from the server
   and answers under that origin, so the host bridge, the CSP and the trust checks stay the shipped
@@ -37,21 +37,30 @@ Not covered: pages the policy hosts in Chromium (CEF) keep their bundled files. 
 started with `CMUX_NEXT_AGENT_PANE_DEV_URL`, the Debug launch variable, keeps that server.
 `CMUX_NEXT_PAGES_DEV_URL` still works and wins over the file.
 
-### Turning it on (Leo's NIGHTLY on cosmic-gray)
+### Turning it on (anyone on the team, a Debug or NIGHTLY app)
 
-1. Run a slot on big-red that follows the branch, or a lane's worktree:
-   `fastloop up 1 --track feat-cmux-next` (big-red slot 1 already does), or
-   `fastloop up auto --worktree ~/wt/<lane>`.
-2. On cosmic-gray, forward the slot's Vite port with the same port number (HMR uses it):
-   `ssh -N -L 4181:127.0.0.1:4181 big-red`.
-3. `scripts/cmux-next/web-overlay.sh server http://127.0.0.1:4181/`. Open pages and agent panes
-   reload from the slot; later edits hot reload.
-4. Back to the shipped pages: `scripts/cmux-next/web-overlay.sh off`.
+One command from any cmux checkout on your own Mac:
 
-With no server, `WEB_OVERLAY_REMOTE_PATH='$HOME/.cache/bun-v1.4.2/bin' web-overlay.sh build --on
-big-red:~/wt/<lane>` builds every bundle on big-red and installs them as the overlay (228 s
-measured: the build, the copy back and the install). The remote PATH entry is a bun matching the
-webviews pin; big-red's default bun is older.
+```sh
+scripts/cmux-next/web-overlay.sh server --local            # this checkout
+scripts/cmux-next/web-overlay.sh server --local --worktree ~/path/to/lane-worktree
+```
+
+It installs the webviews dependencies if needed, generates the string tables, starts the webviews
+Vite server on `127.0.0.1:4200` (`--port N` for another), and points `web-dev.json` at it. Open
+pages and agent panes reload from it; later edits hot reload. `web-overlay.sh server off` stops the
+server and restores the bundled pages; `web-overlay.sh status` shows what runs.
+
+- **A shared slot instead.** Declare it in `web-dev.json` as `"slot": {"host": "<ssh host>",
+  "port": N}`, on a fleet host listed in `machines/fleet-registry.json` (a CI mini or the GCP pool),
+  never a personal machine. `web-overlay.sh server --slot` tunnels the port to `127.0.0.1:N` (the
+  same number, since the Vite client opens its HMR socket on it) and falls back to `--local` when
+  the slot does not answer.
+- **No dev server: built bundles.** `web-overlay.sh fleet [--ref SHA | --working-tree]` builds the
+  app on the fleet (`cmux-ci build cmux`, the Linux pool) and installs its web bundles as the
+  overlay. `web-overlay.sh build` does the same from this checkout's own web build, and
+  `install-app APP` takes the bundles of any built cmux app.
+- **Back to the shipped pages:** `web-overlay.sh off`, or Debug Settings > Pages > "Live web reload".
 
 ### Bundle and app skew
 
