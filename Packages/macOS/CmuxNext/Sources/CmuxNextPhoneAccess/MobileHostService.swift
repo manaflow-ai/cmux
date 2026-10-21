@@ -52,6 +52,7 @@ public final class MobileHostService {
     /// listener starts now when phone access is on, else when it is turned on.
     public func start(auth: any MobileHostAuth, launch: LaunchIdentity, daemon: DaemonService) {
         account = (auth, launch, daemon)
+        admission?.setUser(auth.userID)
         allowed ? startHost(auth: auth, launch: launch, daemon: daemon) : stopHost()
         servingChanged()
     }
@@ -59,6 +60,7 @@ public final class MobileHostService {
     /// Signed out, or the app quits: no account, no listener.
     public func stop() {
         account = nil
+        admission?.setUser(nil)
         stopHost()
         servingChanged()
     }
@@ -79,10 +81,11 @@ public final class MobileHostService {
     public func follow(_ settings: SettingsController, launch: LaunchIdentity) {
         guard follower == nil else { return }
         let directory = Self.stateDirectory(namespace: Self.namespace(launch))
-        let admission = PhoneAdmission(store: PhoneDeviceStore(directory: directory))
+        let admission = PhoneAdmission(phones: AllowedPhones(directory: directory))
+        admission.setUser(account?.auth.userID)
         self.admission = admission
-        let store = admission.store
-        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { store.contains($0) })
+        let phones = admission.phones
+        access.setAdmission({ device in await admission.decide(device) }, stillAllowed: { phones.contains($0) })
         follower = PhoneAccessFollower(mobile: self, settings: settings, history: MobileHostHistory(stateDirectory: directory))
         follower?.start()
     }

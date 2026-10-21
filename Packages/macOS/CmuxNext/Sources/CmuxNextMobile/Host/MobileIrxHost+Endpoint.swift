@@ -158,8 +158,11 @@ extension MobileIrxHost {
         }
         // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now. A phone
         // is the connection's endpoint key (its TLS identity), never the device id it registered with
-        // the account, which another device on the same account could claim.
-        let device = PhoneDevice(id: peer.endpointIDHex.lowercased(), name: descriptor?.metadata.displayName ?? peer.deviceID)
+        // the account, which another device on the same account could claim. The Iroh link has no
+        // Face ID approval key: the list it is kept in never reaches acpmux's approvers.
+        let key = peer.endpointIDHex.lowercased()
+        let device = MobileHostPairRequest(phoneDeviceID: key, name: descriptor?.metadata.displayName ?? peer.deviceID,
+                                           identityKey: key, approvalKey: "")
         guard await access.admits(device) else {
             journal.record("next-host", "phone-not-allowed", ["session": sessionID])
             await irx.close(code: .revoked, origin: .local)
@@ -172,7 +175,7 @@ extension MobileIrxHost {
             return
         }
         // A Remove that landed while this connection was being admitted closed nothing yet: check again.
-        guard access.stillAllows(device.id) else {
+        guard access.stillAllows(device.phoneDeviceID) else {
             await irx.close(code: .revoked, origin: .local)
             await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
             return

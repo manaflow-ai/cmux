@@ -9,12 +9,18 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct PhoneAdmissionTests {
-    private static func admission() -> (PhoneAdmission, URL) {
+    private static func admission(user: String? = "user-1") -> (PhoneAdmission, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("phone-admission-\(UUID().uuidString)")
-        return (PhoneAdmission(store: PhoneDeviceStore(directory: directory)), directory)
+        let admission = PhoneAdmission(phones: AllowedPhones(directory: directory))
+        admission.setUser(user)
+        return (admission, directory)
     }
 
-    private static let phone = PhoneDevice(id: "dev-1", name: "Leo's iPhone")
+    private static func phone(_ id: String, _ name: String) -> MobileHostPairRequest {
+        MobileHostPairRequest(phoneDeviceID: id, name: name, identityKey: id, approvalKey: "")
+    }
+
+    private static let phone = phone("dev-1", "Leo's iPhone")
 
     @Test func allowListsThePhoneAndAsksOnce() async {
         let (admission, directory) = Self.admission()
@@ -25,7 +31,7 @@ struct PhoneAdmissionTests {
         #expect(await admission.decide(Self.phone))
         #expect(asked == 1)
         #expect(admission.devices.map(\.id) == ["dev-1"])
-        #expect(admission.devices.first?.lastSeenAt != nil)
+        #expect(admission.lastSeen["dev-1"] != nil)
     }
 
     @Test func denyHoldsForTenMinutes() async {
@@ -70,11 +76,11 @@ struct PhoneAdmissionTests {
         var asked: [String] = []
         var release: [CheckedContinuation<Void, Never>] = []
         admission.ask = { device in
-            asked.append(device.id)
+            asked.append(device.phoneDeviceID)
             await withCheckedContinuation { release.append($0) }
             return true
         }
-        let phones = (1...4).map { PhoneDevice(id: "dev-\($0)", name: "Phone \($0)") }
+        let phones = (1...4).map { Self.phone("dev-\($0)", "Phone \($0)") }
         let first = Task { await admission.decide(phones[0]) }
         let second = Task { await admission.decide(phones[1]) }
         while release.count < 2 { await Task.yield() }
@@ -85,7 +91,7 @@ struct PhoneAdmissionTests {
         #expect(await second.value)
         #expect(Set(asked) == ["dev-1", "dev-2"])
         // A turned-away phone was not denied: it is asked once a question is free.
-        admission.ask = { device in asked.append(device.id); return true }
+        admission.ask = { device in asked.append(device.phoneDeviceID); return true }
         #expect(await admission.decide(phones[2]))
         #expect(asked.last == "dev-3")
     }
@@ -115,7 +121,7 @@ struct PhoneAdmissionTests {
         var answers = [true, false]
         admission.ask = { _ in answers.removeFirst() }
         #expect(await admission.decide(Self.phone))
-        try admission.remove(Self.phone.id)
+        try admission.remove(Self.phone.phoneDeviceID)
         #expect(admission.devices.isEmpty)
         #expect(!(await admission.decide(Self.phone)))
         #expect(answers.isEmpty)
@@ -135,5 +141,38 @@ struct PhoneAdmissionTests {
         let results = await [first, second]
         #expect(results == [true, true])
         #expect(asked == 1)
+    }
+
+    /// The list is base's paired-devices file under phone-access, 0600, read again at the next launch.
+    @Test func theListSurvivesARelaunchInAPrivateFile() async throws {
+        let (admission, directory) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        admission.ask = { _ in true }
+        #expect(await admission.decide(Self.phone))
+        let file = directory.appendingPathComponent("phone-access/paired-devices.json")
+        let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
+        #expect(mode == 0o600)
+        let relaunched = PhoneAdmission(phones: AllowedPhones(directory: directory))
+        relaunched.setUser("user-1")
+        relaunched.ask = { _ in Issue.record("asked an allowed phone"); return false }
+        #expect(await relaunched.decide(Self.phone))
+        #expect(relaunched.devices.map(\.id) == ["dev-1"])
+    }
+
+    /// Another user signing in starts with no allowed phones; signing out lets no phone in.
+    @Test func theListBelongsToTheSignedInUser() async {
+        let (admission, directory) = Self.admission()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        admission.ask = { _ in true }
+        #expect(await admission.decide(Self.phone))
+        admission.setUser("user-2")
+        #expect(admission.devices.isEmpty)
+        admission.ask = { _ in false }
+        #expect(!(await admission.decide(Self.phone)))
+        admission.setUser(nil)
+        admission.mode = .account
+        admission.ask = { _ in true }
+        #expect(!(await admission.decide(Self.phone)))
+        #expect(admission.devices.isEmpty)
     }
 }

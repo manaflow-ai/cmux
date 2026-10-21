@@ -9,7 +9,7 @@ public final class PhoneAccessGate: Sendable {
     private let startsSessions: Mutex<Bool>
     /// Decides whether a phone may use this Mac at all (`phone.newDevices`); nil admits every
     /// phone the transport's account check admitted.
-    private let admission = Mutex<(@Sendable (PhoneDevice) async -> Bool)?>(nil)
+    private let admission = Mutex<(@Sendable (MobileHostPairRequest) async -> Bool)?>(nil)
     /// Whether a phone admitted a moment ago is still allowed (no question asked); nil allows.
     private let stillAllowed = Mutex<(@Sendable (String) -> Bool)?>(nil)
 
@@ -27,7 +27,7 @@ public final class PhoneAccessGate: Sendable {
         startsSessions.withLock { $0 = allowed }
     }
 
-    public func setAdmission(_ decide: (@Sendable (PhoneDevice) async -> Bool)?,
+    public func setAdmission(_ decide: (@Sendable (MobileHostPairRequest) async -> Bool)?,
                              stillAllowed check: (@Sendable (String) -> Bool)? = nil) {
         admission.withLock { $0 = decide }
         stillAllowed.withLock { $0 = check }
@@ -39,7 +39,7 @@ public final class PhoneAccessGate: Sendable {
     }
 
     /// Whether `device` may use this Mac: on the allowed list, or the person allowed it now.
-    public func admits(_ device: PhoneDevice) async -> Bool {
+    public func admits(_ device: MobileHostPairRequest) async -> Bool {
         guard let decide = admission.withLock({ $0 }) else { return true }
         return await decide(device)
     }
