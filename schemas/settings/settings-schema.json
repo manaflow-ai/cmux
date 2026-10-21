@@ -789,6 +789,7 @@
             "key" : "settings.group.subsessions",
             "rows" : [
               "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
               "agents.subsessions.maxDepth"
             ],
@@ -4944,6 +4945,56 @@
       "title" : {
         "key" : "settings.agents.subsessions.enabled",
         "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.answerQuestions.help",
+        "text" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.answerQuestions",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "question",
+        "answer",
+        "coordinator",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "answerQuestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.answerQuestions",
+        "text" : "Let Sessions Answer Their Sub-sessions' Questions"
       },
       "validation" : "portable"
     },
