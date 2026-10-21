@@ -648,6 +648,23 @@ impl HybridUnderlay {
                         self.pinned_until = None;
                         self.demote("the peer left the chosen route's address");
                     }
+                    // So is a route to a relayed address the peer replaced (its
+                    // old allocation is gone). Relabeled below it would pass for
+                    // a direct route, which a relayed arrival never displaces
+                    // while it delivered within RELAYED_RECENT: the new relay's
+                    // first datagram takes the route instead, and until then
+                    // every route gets what is sent.
+                    if !relayed.is_empty()
+                        && self.direct.is_some_and(|route| {
+                            route.carrier == Carrier::Udp
+                                && self.labels.peer_relayed.contains(&route.addr)
+                                && !relayed.contains(&route.addr.to_string())
+                        })
+                    {
+                        self.direct = None;
+                        self.pinned_until = None;
+                        self.demote("the peer replaced the route's relayed address");
+                    }
                     self.set_peer_endpoints(endpoints);
                     // A roaming phone announces its new TURN address; an
                     // older peer lists none, and the old ones stay (a stale
