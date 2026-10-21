@@ -662,15 +662,12 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
   const out: { key: string; path?: string; failed?: true }[] = [];
   const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool) return;
+    // An edit still waiting for its permission has changed nothing yet.
+    if (!item.tool || item.tool.status === "pending") return;
     const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission wrote nothing yet.
-    const sent = item.tool.status !== "pending";
     const failed = item.tool.status === "failed";
     const mark = failed ? { failed: true as const } : {};
-    const paths = diffs.length
-      ? diffs.filter((diff) => sent && contentsUnknown(diff)).map((diff) => diff.path)
-      : editedPaths(item.tool);
+    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
     if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
     for (const path of paths) {
       const listed = at.get(path);

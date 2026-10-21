@@ -104249,265 +104249,265 @@
       }
     },
     "edited.undoSkip.unknown.one": {
-      "comment": "Agent pane: the edited-files card's Undo confirmation, for a file the turn changed whose earlier contents the pane never saw (listed without +/- counts), so Undo leaves it as it is. {file} is the file's name.",
+      "comment": "Agent pane: the edited-files card's Undo confirmation, for a file the turn changed that Undo leaves as it is (the pane never had its earlier contents; the card may list it with or without +/- counts). \"Undo\" is the card's Undo button. {file} is the file's name.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سيتم تخطي {file}: محتواه قبل هذا الدور غير معروف."
+            "value": "لا يستطيع «تراجع» استعادة {file}."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Datoteka {file} bit će preskočena: njen sadržaj prije ovog poteza nije poznat."
+            "value": "„Poništi“ ne može vratiti {file}."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} springes over: indholdet før denne tur er ukendt."
+            "value": "Fortryd kan ikke gendanne {file}."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} wird übersprungen: Der Inhalt vor diesem Durchgang ist unbekannt."
+            "value": "„Rückgängig“ kann {file} nicht wiederherstellen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "{file} will be skipped: its contents before this turn are unknown."
+            "value": "Undo can't restore {file}."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} se omitirá: se desconoce su contenido antes de este turno."
+            "value": "Deshacer no puede restaurar {file}."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} sera ignoré : son contenu avant ce tour est inconnu."
+            "value": "Annuler ne peut pas restaurer {file}."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} verrà saltato: il suo contenuto prima di questo turno è sconosciuto."
+            "value": "Annulla non può ripristinare {file}."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} はこのターンより前の内容が不明なため、スキップします。"
+            "value": "元に戻すでは {file} を復元できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} នឹងត្រូវរំលង៖ មិនដឹងខ្លឹមសាររបស់វាមុនវេននេះទេ។"
+            "value": "មិនធ្វើវិញ មិនអាចស្ដារ {file} បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file}은(는) 이번 턴 이전 내용을 알 수 없어 건너뜁니다."
+            "value": "실행 취소로 {file}을(를) 복원할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} hoppes over: innholdet før denne runden er ukjent."
+            "value": "Angre kan ikke gjenopprette {file}."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Plik {file} zostanie pominięty: jego zawartość sprzed tej tury jest nieznana."
+            "value": "Cofnij nie przywróci pliku {file}."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} será ignorado: o conteúdo dele antes deste turno é desconhecido."
+            "value": "Desfazer não pode restaurar {file}."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Файл {file} будет пропущен: его содержимое до этого хода неизвестно."
+            "value": "«Отменить» не восстановит файл {file}."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} จะถูกข้าม เพราะไม่ทราบเนื้อหาก่อนรอบนี้"
+            "value": "เลิกทำไม่สามารถกู้คืน {file} ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} atlanacak: bu turdan önceki içeriği bilinmiyor."
+            "value": "Geri al, {file} dosyasını geri yükleyemez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Файл {file} буде пропущено: його вміст до цього ходу невідомий."
+            "value": "«Скасувати» не відновить файл {file}."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} sẽ bị bỏ qua: không rõ nội dung của tệp trước lượt này."
+            "value": "Hoàn tác không thể khôi phục {file}."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} 将被跳过：本轮之前的内容未知。"
+            "value": "撤销无法恢复 {file}。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{file} 將被略過：本輪之前的內容未知。"
+            "value": "還原無法復原 {file}。"
           }
         }
       }
     },
     "edited.undoSkip.unknown.other": {
-      "comment": "Agent pane: the edited-files card's Undo confirmation, for two or more files the turn changed whose earlier contents the pane never saw (listed without +/- counts), so Undo leaves them as they are. {files} is their names as a list (\"a.txt, b.txt and c.txt\").",
+      "comment": "Agent pane: the edited-files card's Undo confirmation, for two or more files the turn changed that Undo leaves as they are (the pane never had their earlier contents; the card may list them with or without +/- counts). \"Undo\" is the card's Undo button. {files} is their names as a list (\"a.txt, b.txt and c.txt\").",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سيتم تخطي هذه الملفات لأن محتواها قبل هذا الدور غير معروف: {files}."
+            "value": "لا يستطيع «تراجع» استعادة {files}."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ove datoteke bit će preskočene jer njihov sadržaj prije ovog poteza nije poznat: {files}."
+            "value": "„Poništi“ ne može vratiti {files}."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Disse filer springes over, fordi deres indhold før denne tur er ukendt: {files}."
+            "value": "Fortryd kan ikke gendanne {files}."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Dateien werden übersprungen, weil ihr Inhalt vor diesem Durchgang unbekannt ist: {files}."
+            "value": "„Rückgängig“ kann {files} nicht wiederherstellen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These files will be skipped, since their contents before this turn are unknown: {files}."
+            "value": "Undo can't restore {files}."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estos archivos se omitirán porque se desconoce su contenido antes de este turno: {files}."
+            "value": "Deshacer no puede restaurar {files}."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ces fichiers seront ignorés, car leur contenu avant ce tour est inconnu : {files}."
+            "value": "Annuler ne peut pas restaurer {files}."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questi file verranno saltati perché il loro contenuto prima di questo turno è sconosciuto: {files}."
+            "value": "Annulla non può ripristinare {files}."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "次のファイルはこのターンより前の内容が不明なため、スキップします：{files}"
+            "value": "元に戻すでは {files} を復元できません。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឯកសារទាំងនេះនឹងត្រូវរំលង ព្រោះមិនដឹងខ្លឹមសាររបស់វាមុនវេននេះ៖ {files}"
+            "value": "មិនធ្វើវិញ មិនអាចស្ដារ {files} បានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "다음 파일은 이번 턴 이전 내용을 알 수 없어 건너뜁니다: {files}"
+            "value": "실행 취소로 {files}을(를) 복원할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Disse filene hoppes over fordi innholdet før denne runden er ukjent: {files}."
+            "value": "Angre kan ikke gjenopprette {files}."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Te pliki zostaną pominięte, ponieważ ich zawartość sprzed tej tury jest nieznana: {files}."
+            "value": "Cofnij nie przywróci plików {files}."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estes arquivos serão ignorados porque o conteúdo deles antes deste turno é desconhecido: {files}."
+            "value": "Desfazer não pode restaurar {files}."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Эти файлы будут пропущены, так как их содержимое до этого хода неизвестно: {files}."
+            "value": "«Отменить» не восстановит файлы {files}."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไฟล์เหล่านี้จะถูกข้าม เพราะไม่ทราบเนื้อหาก่อนรอบนี้: {files}"
+            "value": "เลิกทำไม่สามารถกู้คืน {files} ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu dosyalar atlanacak, çünkü bu turdan önceki içerikleri bilinmiyor: {files}."
+            "value": "Geri al şu dosyaları geri yükleyemez: {files}."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ці файли буде пропущено, бо їхній вміст до цього ходу невідомий: {files}."
+            "value": "«Скасувати» не відновить файли {files}."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các tệp này sẽ bị bỏ qua vì không rõ nội dung trước lượt này: {files}."
+            "value": "Hoàn tác không thể khôi phục {files}."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "以下文件将被跳过，因为本轮之前的内容未知：{files}"
+            "value": "撤销无法恢复 {files}。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "以下檔案將被略過，因為本輪之前的內容未知：{files}"
+            "value": "還原無法復原 {files}。"
           }
         }
       }

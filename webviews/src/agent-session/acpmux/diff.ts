@@ -169,7 +169,9 @@ export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
 /// (direct.ts `continued`): its summary ends only that part, and the turn ends with a later one.
 export const endsTurn = (row: AcpmuxRow) => row.kind === "turnSummary" && !row.continued;
 
-function commonDirectory(paths: string[]): string {
+/// The directory `paths` share, with its trailing slash ("" for none): what a file's displayed path
+/// leaves out (`toolFiles` `displayPath`).
+export function commonDirectory(paths: string[]): string {
   if (paths.length === 0) return "";
   const split = paths.map((path) => path.split("/").slice(0, -1));
   let shared = 0;

@@ -12,7 +12,7 @@
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
 import { useContext, useMemo, useState } from "react";
-import { turnFiles, turnPathsOnly, type TurnFile } from "../diff";
+import { commonDirectory, turnFiles, turnPathsOnly, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
@@ -89,15 +89,19 @@ function Card({
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
   // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
-  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs.
+  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs, and a
+  // failed call's, which no checkpoint file covers.
   const plain =
     counts.files === toolFiles
       ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
-      : outsideRepository(
-          labels.flatMap((entry) => (entry.path ? [{ ...entry, path: entry.path }] : [])),
-          counts.root,
-          files,
-        );
+      : [
+          ...outsideRepository(
+            labels.flatMap((entry) => (entry.path && !entry.failed ? [{ ...entry, path: entry.path }] : [])),
+            counts.root,
+            files,
+          ),
+          ...labels.filter(({ path, failed }) => failed && !files.some((file) => file.path === path)),
+        ];
   const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
     ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path, failed: entry.failed })),
@@ -305,7 +309,9 @@ function UndoConfirm({
   t: Translate;
 }) {
   const language = usePaneLanguage();
-  const names = kept.map((path) => path.split("/").pop() || path);
+  // Named from their shared directory, as the card's rows are: a/x.ts and b/x.ts, not x.ts twice.
+  const base = commonDirectory([...kept]).length;
+  const names = kept.map((path) => path.slice(base));
   return (
     <div className="acpmux-edited-confirm" role="alertdialog" aria-label={t("edited.undo")}>
       <div className="acpmux-edited-confirm-text">
