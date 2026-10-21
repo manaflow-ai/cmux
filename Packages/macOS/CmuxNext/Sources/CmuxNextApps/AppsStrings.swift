@@ -57,6 +57,12 @@ nonisolated enum AppsStrings {
     static var logs: String { t("store.action.logs", "Logs") }
     static var hideLogs: String { t("store.action.hideLogs", "Hide Logs") }
     static var openRepository: String { t("store.action.repository", "Repository") }
+    static var cloudFeatureEyebrow: String { t("store.cloud.eyebrow", "Featured") }
+    static var cloudFeatureTitle: String { t("store.cloud.title", "Cloud Machines") }
+    static var cloudFeatureBody: String {
+        t("store.cloud.body", "Run agents, builds and tests on your own machine in the cloud. Your Mac stays quick, and the work goes on while it sleeps.")
+    }
+    static var cloudFeatureOpen: String { t("store.cloud.open", "Explore Cloud") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
     static var localBadge: String { t("store.badge.local", "Local") }

@@ -213,6 +213,12 @@
       "title" : "Global Hot Key",
       "type" : "boolean"
     },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -3024,6 +3030,12 @@
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
     },
+    "sessions.resumeAgents" : {
+      "default" : true,
+      "description" : "Terminal agents reopen their session after a crash or restart.",
+      "title" : "Resume Agents After Restart",
+      "type" : "boolean"
+    },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,
       "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
@@ -4093,6 +4105,18 @@
         "nightly"
       ],
       "title" : "UpdateChannel",
+      "type" : "string"
+    },
+    "updates.channel" : {
+      "default" : "nightly",
+      "description" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while.",
+      "enum" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "title" : "Update Channel",
       "type" : "string"
     },
     "updates.checkAutomatically" : {
