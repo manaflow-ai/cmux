@@ -133,7 +133,8 @@ extension HomeService {
         guard !Task.isCancelled else { return }
         // The local Chief keeps the tab until its history is in the Hosted Chief (``HostedChiefMigration/pending``).
         hostedChief.start(cloudChiefs.hosted)
-        // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault).
+        // The default Chief is this Mac's while its optchat-chief runs (HomeService+ChiefDefault). The
+        // copy above runs once: after it the two Chiefs' histories grow apart and a switch never merges them.
         await refreshLocalChiefRunning()
         let cloud = tabChiefs
         let shown = cloudChief
@@ -215,7 +216,7 @@ extension HomeService {
         let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
-        if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
+        homeDidOpen(asked: true, conversation: conversation)
         return view
     }
 

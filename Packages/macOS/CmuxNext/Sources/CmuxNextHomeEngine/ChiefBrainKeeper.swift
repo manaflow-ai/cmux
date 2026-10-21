@@ -26,6 +26,8 @@ public final class ChiefBrainKeeper {
     /// A start is in flight.
     private var starting = false
     private var watch: ChiefBrainWatch?
+    /// Whether this home's host runs, after each settled change its watch sees (``ChiefBrainWatch/onChange``).
+    public var onHostChange: (@MainActor (_ running: Bool) -> Void)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     public init(home: ChiefHome, connection: @escaping Connection, resolveHost: @escaping ResolveHost,
@@ -112,6 +114,7 @@ public final class ChiefBrainKeeper {
             return await launch(host, connection: connection)
         }
         self.watch = watch
+        watch.onChange = { [weak self] running in self?.onHostChange?(running) }
         watch.watch(pid)
     }
 

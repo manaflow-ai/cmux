@@ -23,6 +23,10 @@ public final class ChiefBrainWatch {
     private var stopped = false
     private var restarting = false
     private let clock = ContinuousClock()
+    /// Reports whether a host runs after each settled change: one is watched (true), or none is
+    /// and none is being started again (false: no host, `cmux chief shutdown`, too many deaths).
+    /// A restart in progress reports nothing until it settles. Quit (``stop()``) reports nothing.
+    public var onChange: (@MainActor (_ running: Bool) -> Void)?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     static let deathLimit = 3
@@ -41,6 +45,7 @@ public final class ChiefBrainWatch {
         watchedPID = nil
         guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home) else {
             logger.info("chief brain watch: no host process to watch")
+            onChange?(false)
             return
         }
         watchedPID = pid
@@ -52,6 +57,7 @@ public final class ChiefBrainWatch {
         }
         self.source = source
         source.resume()
+        onChange?(true)
         // An exit before the source was armed raises no event.
         if kill(pid, 0) != 0, errno == ESRCH { exited(pid) }
     }
@@ -85,12 +91,14 @@ public final class ChiefBrainWatch {
         // concurrency-allow: one small stat at a brain exit
         if FileManager.default.fileExists(atPath: home.shutdownMarker.path) {
             logger.info("chief brain \(pid, privacy: .public) stopped by cmux chief shutdown; not restarting until asked")
+            onChange?(false)
             return
         }
         let now = clock.now
         deaths = deaths.filter { now - $0 < Self.deathWindow } + [now]
         guard deaths.count < Self.deathLimit else {
             logger.error("chief brain exited \(self.deaths.count, privacy: .public) times within a minute; not restarting until asked again")
+            onChange?(false)
             return
         }
         logger.info("chief brain \(pid, privacy: .public) exited; starting it again")
@@ -106,6 +114,7 @@ public final class ChiefBrainWatch {
             let shutdown = FileManager.default.fileExists(atPath: home.shutdownMarker.path)
             if stopped || shutdown, let next, ChiefHostStop.isChiefHost(next) {
                 kill(next, SIGTERM)
+                if !stopped { onChange?(false) }
                 return
             }
             watch(next)

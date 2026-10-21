@@ -76,7 +76,7 @@ final class HomeService {
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``).
     var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
-    /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
+    /// This Mac's optchat-chief runs, as the brain keeper's last report or the last Chief tab check saw it (HomeService+ChiefDefault).
     var localChiefRunning = false
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
@@ -156,6 +156,7 @@ final class HomeService {
             if case .cloudConversations = event { self?.handle(event) }
         }
         installChiefMigration()
+        wireChiefDefault()
         pinMigration.attach([homeInbox, homeCloudInbox])
         settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
             if self?.settleNotice != text { self?.settleNotice = text }
@@ -164,13 +165,14 @@ final class HomeService {
         let local = services.machines.local
         let auth = services.cloud.auth
         let chief = chief
+        let prefersLocal: @MainActor @Sendable () -> Bool = { [weak self] in self?.prefersLocalChief ?? false }
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it; so does a
-            // change of Debug Settings' Default Chief (HomeService+ChiefDefault).
+            // change of the default Chief: Debug Settings' choice, or this Mac's host starting or stopping (HomeService+ChiefDefault).
             for await (connection, _, _) in ObservationStream({
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil,
-                 HomeTunables.chiefDefault.value)
+                 prefersLocal())
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
@@ -215,15 +217,16 @@ final class HomeService {
         if cloudChiefs != chiefs { cloudChiefs = chiefs }
     }
 
-    /// Home opened in a window (or its owner reconnected, not `asked`): start
-    /// the Chief home's brain host when none runs (ChiefBrainKeeper).
-    func homeDidOpen(asked: Bool) {
+    /// Home opened in a window showing `conversation` (nil: Home itself; or its owner reconnected, not
+    /// `asked`): start the Chief home's brain host when none runs (ChiefBrainKeeper), unless what
+    /// Home shows is a cloud Chief (``startsLocalBrain(for:)``).
+    func homeDidOpen(asked: Bool, conversation: String? = nil) {
         if !homeWasOpened {
             homeWasOpened = true
             publishAppLinks()
             observeActivation()
         }
-        brain.ensure(asked: asked)
+        if startsLocalBrain(for: conversation) { brain.ensure(asked: asked) }
     }
 
     /// The open session for `conversation`, loaded on first use.
