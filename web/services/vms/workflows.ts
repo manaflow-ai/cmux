@@ -2086,11 +2086,6 @@ function afterResponseOrNow<E>(
   return Effect.sync(() => defer(work.pipe(Effect.catchAll(() => Effect.void))));
 }
 
-/**
- * A pending snapshot request older than this belongs to an attempt that died
- * without finishing (the route budget is 600 s), so a retry may take it over.
- */
-export const SNAPSHOT_REQUEST_STALE_MS = 15 * 60 * 1000;
 export const VM_SNAPSHOT_LIMIT = 10;
 
 export function snapshotVm(input: {
@@ -2114,6 +2109,50 @@ export function snapshotVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
     const key = input.idempotencyKey;
+    const recordSnapshotCreated = (snapshot: SnapshotRef) => Effect.gen(function* () {
+      const alreadyOwned = yield* repo.hasOwnedSnapshot({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        provider: vm.provider,
+        snapshotId: snapshot.id,
+      });
+      if (alreadyOwned) return;
+      // Read after the provider confirms the snapshot. Grow-only resizes that
+      // finish during snapshot creation are then included in the captured claim;
+      // a later resize can only make this conservative.
+      const snapshotStats = providers.getStats
+        ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
+          Effect.timeoutFail({
+            duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+            onTimeout: () => new Error(`snapshot stats timed out for ${vm.providerVmId ?? input.providerVmId}`),
+          }),
+          Effect.map((stats) => ({
+            vcpus: vmProviderResourceSize("vcpus", stats.cpus),
+            memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
+            diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb),
+          })),
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+        : null;
+      const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
+      yield* repo.recordUsageEvent({
+        userId: vm.userId,
+        billingTeamId: vm.billingTeamId,
+        billingPlanId: vm.billingPlanId,
+        vmId: vm.id,
+        eventType: "vm.snapshot.created",
+        provider: vm.provider,
+        imageId: vm.imageId,
+        metadata: {
+          snapshotId: snapshot.id,
+          named: !!input.name,
+          name: input.name ?? null,
+          vcpus: snapshotReservation.vcpus,
+          memoryMb: snapshotReservation.memoryMb,
+          diskMb: snapshotReservation.diskMb,
+        },
+      });
+    });
     if (key) {
       if (!repo.beginSnapshotRequest || !repo.finishSnapshotRequest) {
         return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "snapshotIdempotency" }));
@@ -2122,10 +2161,12 @@ export function snapshotVm(input: {
         vmId: vm.id,
         idempotencyKey: key,
         name: input.name ?? null,
-        staleBefore: new Date(Date.now() - SNAPSHOT_REQUEST_STALE_MS),
         maxSnapshots: VM_SNAPSHOT_LIMIT,
       });
-      if (begin.kind === "succeeded") return begin.snapshot;
+      if (begin.kind === "succeeded") {
+        yield* recordSnapshotCreated(begin.snapshot);
+        return begin.snapshot;
+      }
       if (begin.kind === "in_progress") return yield* Effect.fail(new VmSnapshotInProgressError({ vmId: vm.id }));
       if (begin.kind === "conflict") return yield* Effect.fail(new VmSnapshotIdempotencyConflictError({ vmId: vm.id }));
       if (begin.kind === "quota_exceeded") {
@@ -2139,58 +2180,16 @@ export function snapshotVm(input: {
         provider: vm.provider,
         operation: "snapshot",
       }));
-    // A failed attempt frees the key so the same request can retry. The
-    // original error wins over a failure to free it.
-    const freeKey: Effect.Effect<void> = key && finish
-      ? Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "failed" } }))
-      : Effect.void;
-    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", Effect.tapError(takeSnapshot, () => freeKey));
+    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", takeSnapshot);
     if (key && finish) {
-      // The snapshot exists now. A failed write here leaves the row pending;
-      // a retry then waits for the stale window instead of failing this call.
+      // The snapshot exists now. A failed write leaves a permanent pending
+      // fence; retries cannot duplicate the ambiguous provider result.
       yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
     }
-    // Read after the provider confirms the snapshot. Grow-only resizes that
-    // finish during snapshot creation are then included in the captured claim;
-    // a later resize can only make this conservative.
-    const recordCreated = Effect.gen(function* () {
-    const snapshotStats = providers.getStats
-      ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
-        Effect.timeoutFail({
-          duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
-          onTimeout: () => new Error(`snapshot stats timed out for ${vm.providerVmId ?? input.providerVmId}`),
-        }),
-        Effect.map((stats) => ({
-          vcpus: vmProviderResourceSize("vcpus", stats.cpus),
-          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
-          diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb),
-        })),
-        Effect.catchAll(() => Effect.succeed(null)),
-      )
-      : null;
-    const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
-    yield* repo.recordUsageEvent({
-      userId: vm.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.snapshot.created",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: {
-        snapshotId: snapshot.id,
-        named: !!input.name,
-        name: input.name ?? null,
-        // Persist the complete source claim with the snapshot event. Restores
-        // can then reserve the captured shape after the source VM is gone or
-        // grows. Unknown dimensions already use a fail-closed pool claim.
-        vcpus: snapshotReservation.vcpus,
-        memoryMb: snapshotReservation.memoryMb,
-        diskMb: snapshotReservation.diskMb,
-      },
-    });
-    });
-    yield* afterResponseOrNow(recordCreated, input.deferAfterResponse);
+    const recordCreated = recordSnapshotCreated(snapshot);
+    // Idempotent requests must durably record ownership before returning. A
+    // succeeded replay repairs a missing event without touching the provider.
+    yield* key ? recordCreated : afterResponseOrNow(recordCreated, input.deferAfterResponse);
     return snapshot;
   });
 }
