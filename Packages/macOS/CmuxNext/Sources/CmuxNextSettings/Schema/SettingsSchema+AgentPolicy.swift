@@ -90,6 +90,7 @@ extension SettingsSchema {
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
+        "appearance.inactiveWindowDim",
         "appearance.background",
         "appearance.backgroundRotation",
         "appearance.paneBackgrounds",

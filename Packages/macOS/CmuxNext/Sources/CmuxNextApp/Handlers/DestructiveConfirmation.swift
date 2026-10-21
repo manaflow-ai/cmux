@@ -13,7 +13,7 @@ import os
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
 /// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
-/// Closing a workspace, a group's workspaces or a space asks only while one of its terminals runs a
+/// Closing a workspace (after the press, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -27,10 +27,21 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
+        /// Return presses the button. False for a question that comes after the press
+        /// (WorkspaceCloseFlow): typing on in the next workspace must not confirm it.
+        var returnConfirms = true
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
+            // Close Workspace runs at the press and asks afterwards, so its row leaves before any
+            // process-info round trip (WorkspaceCloseFlow). A selection's close asks once first, as the bulk closes do.
+            if id == "closeWorkspace", ((try? WorkspaceBulkClose.plan(id, invocation, AppActionContext(services: services)))?.0.count ?? 0) < 2 {
+                var run = invocation.confirmed()
+                run.asksIfRunning = true
+                services.registry.perform(id, invocation: run)
+                return
+            }
             Task { @MainActor in
                 guard let prompt = await prompt(for: id, invocation, services) else { return proceed() }
                 present(prompt, in: services.windows.active?.window, settings: services.settings) { if $0 { proceed() } }
@@ -58,7 +69,7 @@ enum DestructiveConfirmation {
             guard let group = try? context.group(invocation) else { return nil }
             return await WorkspaceBulkClose.prompt(WorkspaceGroupClose.members(of: group, context), warn: warn,
                                                    title: ConfirmationStrings.closeGroupWorkspacesTitle(group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name))
-        case let id where WorkspaceBulkClose.ids.contains(id):
+        case let id where WorkspaceBulkClose.ids.contains(id) || id == "closeWorkspace":
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)
@@ -85,8 +96,6 @@ enum DestructiveConfirmation {
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)
-        case "closeWorkspace":
-            return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn) // the selection's question, once
         default:
             return nil
         }
@@ -157,7 +166,7 @@ enum DestructiveConfirmation {
     static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
         CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
-                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: .default)],
+                       buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: prompt.returnConfirms ? .default : .destructive)],
                        identifier: "cmux.dialog.confirmation")
     }
 
