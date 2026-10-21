@@ -69,8 +69,9 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one.
-    public func cancelStagedUpdate() {
+    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    @discardableResult
+    public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
