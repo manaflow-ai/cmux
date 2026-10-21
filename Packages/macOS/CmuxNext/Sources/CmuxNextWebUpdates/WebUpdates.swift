@@ -1,0 +1,124 @@
+import AppKit
+import CmuxNextAgentPane
+import CmuxNextPages
+public import CmuxNextSettings
+public import CmuxNextUpdater
+import CmuxNextWakeups
+public import Foundation
+
+/// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
+/// bundled web output sits in an update, starts the launch check of the kept update before a
+/// page loads, follows `updates.web`, and makes a ready update the served one at a safe point:
+/// at once while no page shows, else once cmux has been in the background for a moment (nobody is
+/// typing; a composer draft survives the reload in its origin's storage), then reloads every page
+/// and agent pane in place. Until then
+/// open pages keep the files they started with, so a page never mixes two builds' chunks.
+/// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
+public final class WebUpdates {
+    public static let shared = WebUpdates()
+
+    public private(set) var updater: WebUpdater?
+    /// The folder to serve from the next safe point (`.some(nil)`: the bundled web).
+    public private(set) var pending: URL??
+    /// The wait in the background before an update swaps in.
+    private let safePoint = DemandTimer(owner: "web-updates.safe-point")
+    private var observers: [Task<Void, Never>] = []
+    private var started = false
+    /// How long cmux stays in the background before an update swaps in.
+    let grace: Duration = .seconds(3)
+
+    /// NIGHTLY bundles only (`com.cmuxterm.app.nightly[.<tag>]`): Debug builds keep a developer's
+    /// own web, and Release and RC builds the web they were built with.
+    static func isAvailable(bundleID: String?) -> Bool {
+        guard let bundle = bundleID else { return false }
+        return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
+    }
+
+    /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
+    /// the kept update waits for a safe point.
+    func start(bundle: Bundle) {
+        guard !started else { return }
+        started = true
+        guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
+              let app = Self.app(pages: WebBundleOverlay.bundledPages),
+              let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
+        else { return }
+        let overlay = WebBundleOverlay.shared
+        if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
+            overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
+        }
+        if let resources = bundle.resourceURL {
+            overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
+        }
+        let updater = WebUpdater(store: store, app: app)
+        updater.onReady = { [weak self] tree in self?.ready(tree) }
+        updater.served = { WebBundleOverlay.shared.activeTree }
+        self.updater = updater
+        if WebBundleServedViews.shared.isEmpty {
+            overlay.load { await updater.launchTree() }
+        } else {
+            // A page already loaded bundled files: the kept update waits for a safe point.
+            // task-owner: one launch check; it ends by itself
+            Task { [weak self] in
+                let tree = await updater.launchTree()
+                if tree != nil { self?.ready(tree) }
+            }
+        }
+        // task-owner: the app's activation events, for the life of the app
+        observers.append(Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
+                self?.scheduleSafePoint()
+            }
+        })
+        // task-owner: the app's activation events, for the life of the app
+        observers.append(Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.safePoint.cancel()
+                self?.updater?.noteActivation()
+            }
+        })
+    }
+
+    /// The running app's bundled web: the abi and build time of its `pages/web-abi.json`.
+    static func app(pages: URL?) -> WebUpdater.App? {
+        guard let pages, let abi = WebUpdateTree.abi(inPages: pages),
+              let built = (try? pages.appending(path: "web-abi.json").resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+        else { return nil }
+        return WebUpdater.App(abi: abi, webBuiltAt: Int(built.timeIntervalSince1970))
+    }
+
+    /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
+    public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+        start(bundle: bundle)
+        guard let updater else { return }
+        updater.allowsConstrained = settings.meteredNetwork == .download
+        updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
+        updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)
+    }
+
+    /// The updater kept `tree` (nil: serve the bundled web): swap it in at the next safe point.
+    func ready(_ tree: URL?) {
+        pending = .some(tree)
+        if WebBundleServedViews.shared.isEmpty || !NSApp.isActive { scheduleSafePoint() }
+    }
+
+    /// Serves the pending folder now and reloads the pages; returns how many reloaded.
+    @discardableResult
+    public func applyPending() -> Int {
+        guard let tree = pending else { return 0 }
+        pending = nil
+        guard WebBundleOverlay.shared.activate(tree) else { return 0 }
+        // task-owner: one prune of the trees nothing serves now; it ends by itself
+        if let updater { Task { await updater.pruneUnused() } }
+        return WebBundleServedViews.shared.reloadServed()
+    }
+
+    /// Swaps the pending update in after ``grace`` (at once while no page shows); cmux coming
+    /// back to the front cancels the wait.
+    private func scheduleSafePoint() {
+        guard pending != nil else { return }
+        let wait = WebBundleServedViews.shared.isEmpty ? Duration.zero : grace
+        safePoint.scheduleIfIdle(after: wait) { @MainActor [weak self] in self?.applyPending() }
+    }
+}
