@@ -65,18 +65,15 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   /// The chat with the Inspector on (Debug Settings `agent.inspector`, pushed with the header
   /// state) and the tab row offered, open over the chat and done entering.
   const openInspector = async (page: Page, tabRow: number) => {
-    await page.evaluate(
-      (height) => {
-        const bridge = (
-          window as unknown as {
-            cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void; applyTabRow(row: unknown): void };
-          }
-        ).cmuxAcpmuxBridge;
-        bridge.applyTabRow({ height, trailingInset: 0 });
-        bridge.applyHeaderState({ inspector: true, version: 2 });
-      },
-      tabRow,
-    );
+    await page.evaluate((height) => {
+      const bridge = (
+        window as unknown as {
+          cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void; applyTabRow(row: unknown): void };
+        }
+      ).cmuxAcpmuxBridge;
+      bridge.applyTabRow({ height, trailingInset: 0 });
+      bridge.applyHeaderState({ inspector: true, version: 2 });
+    }, tabRow);
     const panel = page.locator("aside.acpmux-chat-inspector");
     const toggle = page.locator("button.acpmux-chat-inspector-toggle");
     await toggle.waitFor({ timeout: 10_000 });
@@ -89,58 +86,58 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
 
   for (const name of browsers.keys())
     for (const { name: row, tabRow } of rows)
-    test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes the Inspector`, async () => {
-      current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 520 });
-      try {
-        const { panel, toggle } = await openInspector(page, tabRow);
-        expect(await toggle.getAttribute("aria-pressed")).toBe("true");
-        const box = (await toggle.boundingBox())!;
-        const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-        const hit = await page.evaluate(
-          ([px, py]) => {
-            const element = document.elementFromPoint(px!, py!);
-            if (element?.closest("button.acpmux-chat-inspector-toggle")) return "the toggle";
-            return element ? `${element.tagName.toLowerCase()}.${element.className}` : "nothing";
-          },
-          [x, y],
-        );
-        // The panel starts at the header's foot (in the tab row, the row's), not over it.
-        const header = (await page.locator("header.acpmux-header").boundingBox())!;
-        const top = (await panel.boundingBox())!.y;
-        const foot = tabRow > 0 ? tabRow : header.y + header.height;
-        // Where the panel's sections and the header sit, to see that the click moved none of them.
-        const places = () =>
-          page.evaluate(() =>
-            Object.fromEntries(
-              [...document.querySelectorAll("aside.acpmux-chat-inspector [data-section], header.acpmux-header")].map(
-                (element) => [element.getAttribute("data-section") ?? "header", element.getBoundingClientRect().y],
-              ),
-            ),
+      test(`${name}, ${row}: the toggle is above the open overlay and a click on it closes the Inspector`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width: 900, height: 520 });
+        try {
+          const { panel, toggle } = await openInspector(page, tabRow);
+          expect(await toggle.getAttribute("aria-pressed")).toBe("true");
+          const box = (await toggle.boundingBox())!;
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+          const hit = await page.evaluate(
+            ([px, py]) => {
+              const element = document.elementFromPoint(px!, py!);
+              if (element?.closest("button.acpmux-chat-inspector-toggle")) return "the toggle";
+              return element ? `${element.tagName.toLowerCase()}.${element.className}` : "nothing";
+            },
+            [x, y],
           );
-        const before = await places();
-        await page.mouse.click(x, y);
-        const closed = await panel
-          .waitFor({ state: "detached", timeout: 5_000 })
-          .then(() => true)
-          .catch(() => false);
-        const after = await places();
-        // How far the click moved what it left on the page, in px (the misplaced click folded
-        // Environment and Context jumped up).
-        const moved = Math.max(
-          0,
-          ...Object.entries(after).map(([name, y]) => (name in before ? Math.abs(y - before[name]!) : 0)),
-        );
-        expect({
-          hit,
-          atFoot: Math.abs(top - foot) < 0.5,
-          closed,
-          pressed: await toggle.getAttribute("aria-pressed"),
-          moved,
-        }).toEqual({ hit: "the toggle", atFoot: true, closed: true, pressed: "false", moved: 0 });
-      } finally {
-        await page.close();
-      }
-    });
+          // The panel starts at the header's foot (in the tab row, the row's), not over it.
+          const header = (await page.locator("header.acpmux-header").boundingBox())!;
+          const top = (await panel.boundingBox())!.y;
+          const foot = tabRow > 0 ? tabRow : header.y + header.height;
+          // Where the panel's sections and the header sit, to see that the click moved none of them.
+          const places = () =>
+            page.evaluate(() =>
+              Object.fromEntries(
+                [...document.querySelectorAll("aside.acpmux-chat-inspector [data-section], header.acpmux-header")].map(
+                  (element) => [element.getAttribute("data-section") ?? "header", element.getBoundingClientRect().y],
+                ),
+              ),
+            );
+          const before = await places();
+          await page.mouse.click(x, y);
+          const closed = await panel
+            .waitFor({ state: "detached", timeout: 5_000 })
+            .then(() => true)
+            .catch(() => false);
+          const after = await places();
+          // How far the click moved what it left on the page, in px (the misplaced click folded
+          // Environment and Context jumped up).
+          const moved = Math.max(
+            0,
+            ...Object.entries(after).map(([name, y]) => (name in before ? Math.abs(y - before[name]!) : 0)),
+          );
+          expect({
+            hit,
+            atFoot: Math.abs(top - foot) < 0.5,
+            closed,
+            pressed: await toggle.getAttribute("aria-pressed"),
+            moved,
+          }).toEqual({ hit: "the toggle", atFoot: true, closed: true, pressed: "false", moved: 0 });
+        } finally {
+          await page.close();
+        }
+      });
 });
