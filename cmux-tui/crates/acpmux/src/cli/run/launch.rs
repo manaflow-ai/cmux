@@ -295,6 +295,32 @@ pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn launch(words: &[&str]) -> Launch {
+        #[derive(clap::Parser)]
+        struct New {
+            #[command(flatten)]
+            args: NewArgs,
+        }
+        let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let brief = dir.join("brief.md");
+        std::fs::write(&brief, "do it\n").unwrap();
+        let mut argv = vec!["new".to_owned()];
+        argv.extend(words.iter().map(|w| w.replace("BRIEF", &brief.to_string_lossy())));
+        let new = <New as clap::Parser>::try_parse_from(argv).unwrap();
+        Launch::prepare(&new.args).unwrap()
+    }
+
+    #[test]
+    fn a_launched_session_never_gets_ask_user_question() {
+        // Nobody sits at its chat: a multiple-choice question would lock it.
+        let ask = Some(json!(["AskUserQuestion"]));
+        assert_eq!(launch(&["-n", "x", "--prompt-file", "BRIEF"]).disallowed_tools(), ask);
+        assert_eq!(launch(&["--report-to", "coord", "go"]).disallowed_tools(), ask);
+        assert_eq!(launch(&["-n", "x", "go"]).disallowed_tools(), None);
+        assert_eq!(launch(&["-n", "x", "--reuse"]).disallowed_tools(), None);
+    }
+
     #[test]
     fn a_name_with_slashes_becomes_a_session_name() {
         assert_eq!(session_name("gui/composer").unwrap(), "gui-composer");
