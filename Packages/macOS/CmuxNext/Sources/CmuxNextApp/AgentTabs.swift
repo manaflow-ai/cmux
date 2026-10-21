@@ -127,6 +127,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
+    var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
     var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
@@ -236,9 +238,7 @@ final class AgentTabStore {
 
     /// True when a pane of `daemon` can get a new agent chat tab: this build has the page, this
     /// Mac has an install id, and the daemon holds agent session tabs.
-    func canHost(on daemon: DaemonService) -> Bool {
-        canHostChat && localHost != nil && holdsTabs(daemon)
-    }
+    func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
     func tab(showing session: String, host: String? = nil) -> String? {
@@ -381,6 +381,7 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
@@ -443,7 +444,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
@@ -492,7 +493,5 @@ final class AgentTabStore {
         if next != registry.context { registry.context = next }
     }
 
-    func stopCustomizationWhenUnused() {
-        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
+    func stopCustomizationWhenUnused() { if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() } }
 }

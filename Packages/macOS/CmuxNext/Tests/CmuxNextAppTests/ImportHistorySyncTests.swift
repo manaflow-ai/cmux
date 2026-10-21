@@ -139,6 +139,41 @@ import Testing
         #expect(await store.sources().first?.clearedRanges?.count == 1, "the fence survives the re-import for Keep in Sync")
     }
 
+    @Test func aRemovedPageOrSiteStaysOutOfTheSavedImports() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "import-remove-page-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ImportedDataStore(directory: root)
+        let then = Date().addingTimeInterval(-600)
+        let page = { (url: String, at: Date) in ImportedHistoryEntry(url: URL(string: url)!, title: nil, visitCount: 1, lastVisit: at) }
+        var batches: [ImportBatch] = []
+        for (directory, profile) in [("Default", "p1"), ("Profile 1", "p2")] {
+            var batch = ImportBatch(source: ImportSourceRecord(browser: .chrome, profileDirectory: directory, displayName: "Google Chrome",
+                                                               proposedProfileID: profile, targetProfileID: profile), kinds: [.history])
+            batch.history = [page("https://a.example/one", then), page("https://a.example/two", then), page("https://b.example/", then)]
+            try await store.save(batch)
+            batches.append(batch)
+        }
+        let urls = { (profile: String) async in await store.batches(profile: profile).first?.history.map(\.url.absoluteString) ?? [] }
+
+        // One page, in one profile: its saved copy goes, the other profile keeps its own.
+        try await store.forgetPage(URL(string: "https://a.example/one")!, profile: "p1")
+        #expect(await urls("p1") == ["https://a.example/two", "https://b.example/"])
+        #expect(await urls("p2").count == 3)
+
+        // A site, in every profile.
+        try await store.forgetSite(host: "B.example")
+        #expect(await urls("p1") == ["https://a.example/two"])
+        #expect(await urls("p2") == ["https://a.example/one", "https://a.example/two"])
+
+        // A re-import leaves them out; a visit made after the removal comes back.
+        var again = batches[0]
+        again.history.append(page("https://b.example/new", Date().addingTimeInterval(60)))
+        let (saved, _) = try await store.save(again)
+        #expect(saved.history.map(\.url.absoluteString) == ["https://a.example/two", "https://b.example/new"])
+        again.history = [page("https://a.example/one", Date().addingTimeInterval(60))]
+        #expect(try await store.save(again).saved.history.count == 1)
+    }
+
     @Test func clearedRangesMerge() {
         let base = Date(timeIntervalSince1970: 1_000_000)
         let range = { (start: Double, end: Double) in DateInterval(start: base.addingTimeInterval(start), end: base.addingTimeInterval(end)) }
