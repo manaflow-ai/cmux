@@ -14,6 +14,7 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -181,6 +182,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
+  /// as a chip that opens in place (conversation/promptCollapse.ts).
+  pasted?: PasteRange[];
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
@@ -480,6 +484,11 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
@@ -664,24 +673,25 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What edits without a diff list as in the edited-files card: each path they name, once
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
+  const out: { key: string; path?: string; failed?: true }[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool) return;
+    // An edit still waiting for its permission has changed nothing yet.
+    if (!item.tool || item.tool.status === "pending") return;
     const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission, or one that failed, wrote nothing.
-    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
-    const paths = diffs.length
-      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
-      : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    const failed = item.tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
+    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
+    for (const path of paths) {
+      const listed = at.get(path);
+      if (listed === undefined) {
+        at.set(path, out.length);
+        out.push({ key: `path-${path}`, path, ...mark });
+      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+    }
   });
   return out;
 }
@@ -692,9 +702,13 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 /// The space under a message row: the meta gap over its turn's footer (`.acpmux-row--before-footer`,
 /// which also drops the row's 34px floor), else the message gap.
 const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSAGE_GAP);
-/// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
-const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" && next?.kind === "turnSummary";
+/// A reply right over its turn's footer, or over the running turn's line drawn as its last row
+/// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
+/// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
+/// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -925,15 +939,33 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  if (entry.text !== row.text || entry.lexedLength === 0) {
+  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
-  if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
-  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  let contentHeight: number;
+  if (pasted) {
+    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+    // however long it is (conversation/UserBubble.tsx).
+    const { lineHeight } = metrics();
+    contentHeight = 0;
+    for (const part of promptParts(row.text, row.pasted!))
+      contentHeight +=
+        part.kind === "paste"
+          ? PASTE_CHIP_HEIGHT
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+  } else {
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  }
+  // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx).
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
+    contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }

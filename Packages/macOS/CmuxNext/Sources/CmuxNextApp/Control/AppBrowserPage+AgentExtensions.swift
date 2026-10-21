@@ -23,7 +23,7 @@ extension AppBrowserPage {
             }
         // A wait scripts the page and a screenshot or the page's cookies read
         // it, as an evaluate does.
-        case .reload, .evaluate, .evaluateAsync, .screenshot, .cookies, .state: urls = [page.state.url]
+        case .reload, .evaluate, .evaluateAsync, .screenshot, .cookies, .state, .input: urls = [page.state.url]
         }
         var names: [String] = []
         for url in urls {

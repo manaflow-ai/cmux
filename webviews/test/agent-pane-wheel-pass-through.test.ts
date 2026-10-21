@@ -80,11 +80,23 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         expect(await wheelOver(page, ".acpmux-jump-latest", -300)).toBeLessThan(-100);
         expect(await wheelOver(page, ".acpmux-jump-latest", 200)).toBeGreaterThan(100);
         await page.locator(".acpmux-jump-latest").click();
-        await page.waitForTimeout(900);
-        const end = await page.evaluate(() => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-        });
+        const distance = () =>
+          page.evaluate(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+          });
+        // The jump glides to the latest message.
+        await page
+          .waitForFunction(
+            () => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              return scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop < 2;
+            },
+            undefined,
+            { timeout: 5_000 },
+          )
+          .catch(() => {});
+        const end = await distance();
         expect(end).toBeLessThan(2);
         await page.close();
       });

@@ -1031,6 +1031,53 @@ async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
     assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
 }
 
+/// A host of an older build records no caller token, so after an update
+/// restart its agent cannot prove its session and loses its sub-session
+/// tools. The daemon restarts that agent (same conversation) once its turn
+/// ends, never during it; an agent whose host kept its token runs on.
+#[tokio::test]
+async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
+    let mut daemon = Daemon::new("callerold", "approve-all");
+    let kept = new_session(&daemon).await;
+    let kept_token = agent_env(&daemon, &kept, "ACPMUX_SESSION_TOKEN").await;
+    let kept_harness = daemon.host_record(&kept)["harness_pid"].as_i64().unwrap();
+    let (session, host, client) = gated_turn(&daemon).await;
+    let token = recorded_token(&daemon, &session);
+    let harness = host["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(client);
+    // What an older host's record looks like: no caller token.
+    let mut record = host.clone();
+    assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
+    let path = daemon.home.join("hosts").join(format!("{session}.json"));
+    std::fs::write(&path, record.to_string()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(alive(harness), "the agent was restarted mid-turn");
+
+    std::fs::write(daemon.home.join(format!("gate-{session}")), b"go").unwrap();
+    daemon.wait_event(&session, "after-gate chunk", |e| chunk(e, "after-gate"));
+    assert!(
+        gone_within(harness, Duration::from_secs(10)),
+        "the agent without a known caller token was not restarted after its turn"
+    );
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(Some(fresh.as_str()), token.as_deref(), "it kept the earlier run's token");
+    let listed = list_as(&daemon, &session, &fresh).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
+    assert!(alive(kept_harness), "an agent with a known token was restarted");
+    let listed = list_as(&daemon, &kept, &kept_token).await;
+    assert!(listed.get("error").is_none(), "the kept agent's token: {listed}");
+}
+
+/// The caller token a host recorded for its agent, if any.
+fn recorded_token(daemon: &Daemon, session: &str) -> Option<String> {
+    daemon.host_record(session)["caller_token"].as_str().map(str::to_owned)
+}
+
 /// `--keep-agents` stays accepted (a no-op now) for callers that may run an
 /// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
@@ -1471,6 +1518,101 @@ async fn queued_prompts_survive_a_quit_that_ends_the_agent() {
     queue_survives_restart(&mut daemon, Daemon::sigterm, false).await;
 }
 
+/// Two image blocks, and their attachment ids.
+fn shots() -> Vec<(Value, String)> {
+    use base64::Engine;
+    [b"first shot".as_slice(), b"second shot".as_slice()]
+        .iter()
+        .enumerate()
+        .map(|(i, bytes)| {
+            let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+            let block = json!({"type": "image", "mimeType": "image/png", "data": data, "name": format!("shot{i}.png")});
+            let id: String =
+                <sha2::Sha256 as sha2::Digest>::digest(bytes).iter().map(|b| format!("{b:02x}")).collect();
+            (block, id)
+        })
+        .collect()
+}
+
+/// Queues a prompt with two images behind a gated turn, edits it with `edit` (`queue_edit`
+/// `update` params) if given, restarts the daemon for an update, and checks the queue that comes
+/// back: its row names the images `kept` (indexes into the two), reads them back, and the agent
+/// gets them after `text` when the prompt runs.
+async fn queued_images_survive_restart(
+    name: &str,
+    edit: Option<Value>,
+    text: &str,
+    kept: &[usize],
+) {
+    let mut daemon = Daemon::new(name, "approve-all");
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let shots = shots();
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "two shots"}, shots[0].0, shots[1].0], "_meta": {"acpmux": {"promptId": "q-img"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-img"
+    });
+    if let Some(edit) = edit {
+        let mut rpc = daemon.rpc().await;
+        let mut params = json!({"sessionId": session, "promptId": "q-img", "op": "update"});
+        params.as_object_mut().unwrap().extend(edit.as_object().unwrap().clone());
+        let edited = rpc.call("_acpmux/queue_edit", params).await;
+        assert_eq!(edited["ok"], true, "{edited}");
+        drop(rpc);
+    }
+
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let names: Vec<Value> = kept
+        .iter()
+        .map(
+            |&i| json!({"id": shots[i].1, "mimeType": "image/png", "name": format!("shot{i}.png")}),
+        )
+        .collect();
+    assert_eq!(attached["session"]["queue"][0]["prompt"], text, "{attached:#}");
+    assert_eq!(attached["session"]["queue"][0]["images"], json!(names), "{attached:#}");
+    for &i in kept {
+        let read =
+            rpc.call("_acpmux/attachment", json!({"sessionId": session, "id": shots[i].1})).await;
+        assert_eq!(read["data"], shots[i].0["data"], "{read}");
+    }
+
+    let _ = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(&gate)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, b"go"));
+    let images: String = kept.iter().map(|&i| format!(" image:{}", shots[i].1)).collect();
+    let echo = format!("echo: {text}{images}");
+    daemon.wait_event(&session, "the queued prompt's answer", |e| chunk(e, &echo));
+}
+
+/// A queued prompt's images come back with the queue after an update restart (Leo, 2026-10-21):
+/// its row lists them and reads them back, and the agent gets them when it runs.
+#[tokio::test]
+async fn a_queued_prompts_images_survive_an_update_restart() {
+    queued_images_survive_restart("qimg", None, "two shots", &[0, 1]).await;
+}
+
+/// An edited queued prompt comes back after an update restart with the images its edit kept:
+/// a text edit keeps both, and an edit that names one keeps that one.
+#[tokio::test]
+async fn an_edited_queued_prompts_images_survive_an_update_restart() {
+    let text = Some(json!({"text": "two shots, edited"}));
+    queued_images_survive_restart("qimg-text", text, "two shots, edited", &[0, 1]).await;
+    let second = shots()[1].1.clone();
+    let one = Some(json!({"text": "the second shot", "images": [second]}));
+    queued_images_survive_restart("qimg-one", one, "the second shot", &[1]).await;
+}
+
 /// A queue reordered and edited (`_acpmux/queue_edit`) comes back that way after a crash.
 #[tokio::test]
 async fn queue_ops_edits_survive_a_daemon_crash() {
@@ -1629,6 +1771,61 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
         e["kind"] == "user_message" && e["msg"]["promptId"] == "q-prov"
     });
     assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
+}
+
+/// A narrower policy set on a chat whose agent runs in a host the restarted daemon has not
+/// reached yet moves that agent out of full access. Its host is running, so the chat is not
+/// stopped: saving the mode for the next start never reached the agent, because reaching the
+/// host again (`readopt`) replays nothing, and the agent kept `bypassPermissions`.
+#[tokio::test]
+async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
+    let mut daemon = Daemon::new("polhost", "approve-all");
+    daemon.sigterm();
+    let control_log = daemon.home.join("control.log");
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_CONTROL_LOG": control_log}}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all", "defaultPermissionMode": "fullAccess"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness), "the agent did not outlive the daemon");
+    let meta: Value = serde_json::from_slice(
+        &std::fs::read(daemon.home.join("sessions").join(&session).join("session.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(meta["modes"]["currentModeId"], "bypassPermissions", "{meta:#}");
+    let _ = std::fs::remove_file(&control_log);
+    // The host is adopted only after the chat logs load: the policy comes before that.
+    daemon.env = vec![("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into())];
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "ask"})).await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(alive(harness), "a second agent replaced the hosted one");
+    let sent = std::fs::read_to_string(&control_log).unwrap_or_default();
+    assert!(
+        sent.lines().any(|l| l == "set_permission_mode"),
+        "the hosted agent was never moved out of full access: {sent:?}"
+    );
 }
 
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat

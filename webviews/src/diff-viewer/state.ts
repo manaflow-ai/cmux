@@ -19,7 +19,7 @@ import {
 } from "../viewed-files";
 import { readLocalViewerPrefs, sanitizeViewerPrefs, type ViewerPrefs } from "../viewer-prefs";
 import type { DiffViewerStatus } from "../status";
-import type { DiffViewerConfig } from "../types";
+import type { DiffViewerConfig, DiffViewerPayload } from "../types";
 import { canApplyDeferredHydration } from "./deferredHydration";
 import { diffItemPreloadLanguages, mergeLanguages, relanguagedItems, resolveDiffItemLanguage } from "./item-languages";
 
@@ -131,18 +131,13 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     metrics: null,
     options: {
       collapsed: false,
-      colors: "theme",
-      diffIndicators: "bars",
-      expandUnchanged: false,
-      // The delineated diff is opt-in from the toolbar while it is session-local: a reorder of the
-      // file column that a reader cannot durably turn off is not a default (familiar first). It
-      // becomes the default once `diff.groupByKind` has its schema row and the toggle sticks.
+      ...defaultDiffViewerOptions(payload),
+      // Outside `defaultDiffViewerOptions`, which diff-option-defaults.test.ts holds to the
+      // exported `diff.*` schema: this one has no schema row yet. The delineated diff is opt-in
+      // from the toolbar while it is session-local, because a reorder of the file column that a
+      // reader cannot durably turn off is not a default (familiar first). It moves in there, and
+      // can become the default, once `diff.groupByKind` has its row and the toggle sticks.
       groupByKind: false,
-      lineNumbers: true,
-      showBackgrounds: true,
-      // The setting's default (DiffViewerSettingsSchema.swift `diff.wordDiffs`).
-      wordDiffs: true,
-      wordWrap: false,
       ...seededOptions,
       layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
@@ -155,6 +150,28 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
     viewerWidth: 0,
+  };
+}
+
+/**
+ * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
+ * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
+ * diff-option-defaults.test.ts holds every key here to the exported schema — which is why
+ * `groupByKind`, the one display option with no schema row yet, is defaulted by the caller and
+ * named in the type rather than left to drift in here. Word changes are on there (Leo,
+ * 2026-10-20). The classic viewer and the dev server embed their config and keep word changes off.
+ */
+export function defaultDiffViewerOptions(
+  payload: DiffViewerPayload,
+): Omit<DiffViewerOptions, "collapsed" | "layout" | "groupByKind"> {
+  return {
+    colors: "theme",
+    diffIndicators: "bars",
+    expandUnchanged: false,
+    lineNumbers: true,
+    showBackgrounds: true,
+    wordDiffs: payload.transport?.kind === "page",
+    wordWrap: false,
   };
 }
 
