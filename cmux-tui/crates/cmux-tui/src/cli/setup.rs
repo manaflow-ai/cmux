@@ -3,19 +3,21 @@
 //!
 //! `list` names every setup task and the command that checks and does it,
 //! whether `setup` itself runs it yet or an older command does. A task that
-//! `setup` runs (`trust` today) checks before it changes anything, changes
-//! nothing when the state is already right, prints what it would do with
-//! `--dry-run`, and names the command that undoes it. Only what a person
-//! must do themselves (an OAuth sign-in, a secret, a macOS grant) comes back
-//! as `user_action`. Output is always JSON: these commands are for agents.
+//! `setup` runs (`trust` and `machine` today) checks before it changes
+//! anything, changes nothing when the state is already right, prints what it
+//! would do with `--dry-run`, and names the command that undoes it. Only
+//! what a person must do themselves (an OAuth sign-in, a secret, a macOS
+//! grant, a key on an ssh machine) comes back as `user_action`. Output is
+//! always JSON: these commands are for agents.
 
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode, parse_globals, wire};
 
+mod machine;
 mod trust;
 
-const HELP: &str = "Usage: cmux setup <list|status|trust>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do) or failed. undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
+const HELP: &str = "Usage: cmux setup <list|status|trust|machine>\n\nSet up cmux for the person, from an agent. Every command prints one JSON object.\n\n  cmux setup list                 Every setup task and the commands that check and do it\n  cmux setup status               Read-only checks of the tasks setup runs\n  cmux setup trust [FOLDER] [--level trusted|untrusted|unknown] [--dry-run]\n                                  Record the person's trust for a folder (default: this folder, trusted)\n  cmux setup machine SSH_TARGET [--name NAME] [--dry-run]\n                                  Add an ssh machine as an agent peer, or update or repair it (key-only ssh)\n\nA task result is {schema_version, task, state, dry_run, ..., undo, user_action}. state is ok (nothing to do), changed, planned (--dry-run), needs_user (user_action says what the person must do) or failed. undo is the command that puts the old state back, or null. Exits 0 unless the task failed (1) or the arguments are wrong (2).\n";
 
 /// The result of a setup task: the JSON the agent reads, and whether it failed.
 pub(super) struct Outcome {
@@ -53,6 +55,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             .map(|()| Outcome { report: list(), failed: false }),
         Some("status") => no_arguments(&args[1..]).and_then(|()| status()),
         Some("trust") => trust::run(&args[1..]),
+        Some("machine") => machine::run(&args[1..]),
         Some(other) => Err(Refusal::Usage(format!(
             "cmux: setup: unknown task {other:?}; `cmux setup list` names every task"
         ))),
@@ -121,18 +124,18 @@ const TASKS: &[Task] = &[
     },
     Task {
         id: "machine",
-        summary: "Add an ssh machine as an agent peer, both ways",
-        setup: None,
-        check: &["cmux acp host ls --json"],
-        apply: &["cmux acp host setup SSH_TARGET [--name NAME] --json"],
-        person: None,
+        summary: "Add an ssh machine as an agent peer, or update or repair one",
+        setup: Some("cmux setup machine SSH_TARGET [--name NAME] [--dry-run]"),
+        check: &["cmux setup machine SSH_TARGET --dry-run", "cmux setup status"],
+        apply: &["cmux setup machine SSH_TARGET [--name NAME]"],
+        person: Some("key-only ssh to the machine: adding a key there or fixing ssh config"),
     },
     Task {
         id: "host_update",
         summary: "Update acpmux on peer machines that run an older build",
         setup: None,
-        check: &["cmux acp host ls --json"],
-        apply: &["cmux acp host update NAME --json", "cmux acp host update --all --json"],
+        check: &["cmux setup status", "cmux acp host ls --json"],
+        apply: &["cmux setup machine SSH_TARGET --name NAME", "cmux acp host update --all --json"],
         person: None,
     },
     Task {
@@ -231,8 +234,10 @@ fn list() -> Value {
     json!({"schema_version": 1, "tasks": tasks})
 }
 
-/// The read-only check of every task `setup` runs, for this folder.
+/// The read-only check of every task `setup` runs: this folder's trust,
+/// and every acpmux peer with whether it is connected and on this build.
 fn status() -> Result<Outcome, Refusal> {
     let trust = trust::status()?;
-    Ok(Outcome { report: json!({"schema_version": 1, "checks": [trust]}), failed: false })
+    let machine = machine::status()?;
+    Ok(Outcome { report: json!({"schema_version": 1, "checks": [trust, machine]}), failed: false })
 }

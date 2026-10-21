@@ -8,6 +8,8 @@ import CmuxNextUpdater
 /// into an update, then terminates. R138 check update-relaunch-no-prompt.
 /// `{action: "stage", version?, changes?}` shows a staged update with fake
 /// release notes (UPDATE-CARD screenshots; nothing downloads or installs);
+/// `{action: "simulate"}` stages one with real published notes, as Debug Settings "Simulate
+/// pending update" does (`UpdateSimulation.simulate`);
 /// `{action: "unstage"}` follows the real updater again. `{action: "tip",
 /// id?}` shows a "Did you know" tip; `{action: "untip"}` hides it;
 /// `{action: "tips", press?, at?}`: `UpdaterService.debugTips`.
@@ -30,10 +32,9 @@ enum DebugUpdater {
             terminate()
             return .object(["relaunching": true])
         case "stage":
-            let version = params["version"]?.stringValue ?? "1.99.0"
-            let count = max(0, Int(params["changes"]?.doubleValue ?? 12))
-            services.updater.debugStage(version: version, notes: .debugFake(version: version, changes: count))
-            return .object(["staged": .string(version), "changes": JSONValue(count)])
+            let staged = UpdateSimulation.stageSample(services.updater, version: params["version"]?.stringValue, changes: params["changes"]?.doubleValue)
+            return .object(["staged": .string(staged.version), "changes": JSONValue(staged.changes)])
+        case "simulate": return .object(["simulating": .bool(true), "publishedNotes": .bool(UpdateSimulation(updater: services.updater).simulate())])
         case "available":
             services.updater.debugIndicatorPhase = .available(version: params["version"]?.stringValue ?? "1.99.0")
             return .object(["notice": .string(services.updater.card?.kind ?? "none")])
@@ -66,7 +67,7 @@ enum DebugUpdater {
             services.updater.debugStage(version: nil, notes: nil)
             return .object(["staged": .null])
         default:
-            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"feedCards\", \"share\" or \"share-copy\"")
+            throw ControlError.invalidParams("debug.updater: action must be \"relaunch\", \"stage\", \"simulate\", \"unstage\", \"available\", \"snooze\", \"tip\", \"tips\", \"untip\", \"updated\", \"feedCards\", \"share\" or \"share-copy\"")
         }
     }
 
