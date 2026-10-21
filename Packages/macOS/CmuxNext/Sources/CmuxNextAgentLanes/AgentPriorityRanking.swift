@@ -34,6 +34,17 @@ public nonisolated struct AgentPriorityRanking: Sendable {
         }.map(\.entry)
     }
 
+    /// When the rows next change with no lane or mark change: a snooze ends, or an idle chat passes
+    /// `idleHorizon` and leaves. Nil when nothing is pending.
+    public func nextChange(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> Date? {
+        let leaving = lanes.compactMap { lane -> Date? in
+            let read = marks.read[lane.id] == AgentPriorityMarks.stamp(lane)
+            guard !marks.pinned.contains(lane.id), Self.state(lane, read: read) == .idle else { return nil }
+            return lane.since?.addingTimeInterval(idleHorizon)
+        }
+        return (marks.snoozed.values.map(\.until) + leaving).filter { $0 > now }.min()
+    }
+
     /// The chip a lane shows. Marking a finished, failed or lost chat read drops it to idle.
     static func state(_ lane: AgentActivityLane, read: Bool) -> SidebarPriorityEntry.State {
         switch lane.state {

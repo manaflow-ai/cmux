@@ -17,8 +17,9 @@ extension SidebarViewComponents {
             priorityButton.label = panel.shortcut.map { "\(label)  \($0)" } ?? label
             priorityButton.tintOverride = panel.shown ? Palette.notificationBlue : nil
             priorityBellDot.isHidden = !panel.bellDot
-            priorityPanelView.show(panel)
         }
+        // Uninstalled, the view empties too, which stops its minute ticker.
+        priorityPanelView.show(panel ?? SidebarPriorityPanel(entries: []))
         if old?.shown != panel?.shown || old == nil || panel == nil { needsLayout = true }
     }
 

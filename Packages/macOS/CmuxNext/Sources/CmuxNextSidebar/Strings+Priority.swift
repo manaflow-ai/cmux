@@ -25,3 +25,10 @@ extension Strings {
     static var prioritySnooze: String { String(localized: "sidebar.priority.snooze", defaultValue: "Snooze for 1 Hour", bundle: .module) }
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .module) }
 }
+
+extension SidebarPriorityPanel {
+    /// Why Toggle Priority View is unavailable while the view is not installed (`sidebar.priorityView.enabled`).
+    public static var unavailableReason: String {
+        String(localized: "sidebar.priority.off", defaultValue: "the Priority view is off; turn it on in the App Store or Settings", bundle: .module)
+    }
+}

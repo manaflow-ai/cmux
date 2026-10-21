@@ -83,6 +83,23 @@ struct AgentPriorityRankingTests {
         #expect(reloaded.state.archived.isEmpty && reloaded.state.pinned == ["working"])
     }
 
+    @Test func theRowsWakeAtTheNextSnoozeEndOrIdleAgeOut() {
+        let marks = AgentPriorityMarks(defaults: nil)
+        let ranking = AgentPriorityRanking()
+        // idle-old (30 min ago) leaves first: 23.5 hours from now.
+        #expect(ranking.nextChange(Self.lanes, marks: marks.state, now: Self.now) == Self.now.addingTimeInterval(24 * 3600 - 30 * 60))
+        marks.snooze(Self.lane("asks", .input, ago: 50), now: Self.now)
+        #expect(ranking.nextChange(Self.lanes, marks: marks.state, now: Self.now) == Self.now.addingTimeInterval(3600))
+        // Pinned or unseen chats never age out.
+        let pinned = AgentPriorityMarks(defaults: nil)
+        pinned.togglePin("idle-old")
+        pinned.togglePin("idle-new")
+        #expect(ranking.nextChange(Self.lanes, marks: pinned.state, now: Self.now) == nil)
+        marks.archive("broke")
+        marks.unarchive("broke")
+        #expect(ranking.entries(Self.lanes, marks: marks.state, now: Self.now).contains { $0.id == "broke" })
+    }
+
     @Test func theBellDotShowsOnlyWhileTheRowsAreOutOfSight() {
         let entries = AgentPriorityRanking().entries(Self.lanes, marks: .init(), now: Self.now)
         #expect(!SidebarPriorityPanel(entries: entries, shown: true).bellDot)

@@ -42,6 +42,7 @@ public final class AgentTurnStateFeed {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        lanes.socketPath = socketPath
         source = host ?? AgentTurnStateStore.localSource
         if let host { turns.mirroredHosts.insert(host) }
     }

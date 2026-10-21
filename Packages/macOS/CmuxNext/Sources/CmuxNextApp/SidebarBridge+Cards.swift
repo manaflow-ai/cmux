@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import Foundation
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings

@@ -29,7 +29,6 @@ final class SidebarPriorityRowView: NSView {
         title.lineBreakMode = .byTruncatingTail
         tag.lineBreakMode = .byTruncatingTail
         preview.maximumNumberOfLines = 2
-        preview.lineBreakMode = .byTruncatingTail
         preview.truncatesLastVisibleLine = true
         [title, tag, preview, chip, indicator].forEach(addSubview)
         layer?.addSublayer(unreadDot)
@@ -60,7 +59,8 @@ final class SidebarPriorityRowView: NSView {
         chip.stringValue = Self.chipText(entry.state, now: Date())
         indicator.configure(Self.indicatorState(entry.state))
         pin.label = entry.pinned ? Strings.priorityUnpin : Strings.priorityPin
-        markRead.isEnabled = entry.needsAttention
+        // A question is answered, not read: only a result or a failure can be marked read.
+        markRead.isEnabled = entry.needsAttention && entry.state != .needsYou
         setAccessibilityLabel([entry.title, chip.stringValue, entry.preview].compactMap(\.self).joined(separator: ", "))
         needsLayout = true
         needsDisplay = true

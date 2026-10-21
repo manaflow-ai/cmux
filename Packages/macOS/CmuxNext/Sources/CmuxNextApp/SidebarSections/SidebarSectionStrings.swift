@@ -51,11 +51,6 @@ enum SidebarSectionStrings {
     static var workspacesSection: String {
         String(localized: "sidebarSections.workspaces", defaultValue: "Workspaces", table: "SidebarSections", bundle: .module)
     }
-    /// Toggle Priority View while the Priority view is not installed (`sidebar.priorityView.enabled`).
-    static var priorityViewOff: String {
-        String(localized: "sidebarSections.priorityViewOff", defaultValue: "the Priority view is off; turn it on in the App Store or Settings",
-               table: "SidebarSections", bundle: .module)
-    }
     static var alreadyHidden: String {
         String(localized: "sidebarSections.alreadyHidden", defaultValue: "this section is already hidden", table: "SidebarSections", bundle: .module)
     }

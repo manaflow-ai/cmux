@@ -66,6 +66,9 @@ public final class AgentPriorityMarks {
         state.pinned.remove(id)
     }
 
+    /// Undoes `archive` when acpmux refused it, so the chat is not hidden here only.
+    public func unarchive(_ id: String) { state.archived.remove(id) }
+
     public func setCollapsed(_ collapsed: Bool) { state.collapsed = collapsed }
 
     /// Drops the marks of sessions acpmux no longer lists, so the saved marks stay small.

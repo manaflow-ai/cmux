@@ -18996,6 +18996,137 @@
           }
         }
       }
+    },
+    "sidebar.priority.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الأولوية متوقف؛ شغّله من متجر التطبيقات أو الإعدادات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prikaz prioriteta je isključen; uključi ga u App Storeu ili Postavkama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prioritetsvisningen er slået fra; slå den til i App Store eller Indstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Prioritätsansicht ist aus; schalte sie im App Store oder in den Einstellungen ein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the Priority view is off; turn it on in the App Store or Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vista de prioridad está desactivada; actívala en la App Store o en Ajustes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vue Priorité est désactivée ; activez-la dans l’App Store ou les Réglages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vista Priorità è disattivata; attivala nell’App Store o nelle Impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューはオフです。App Store または設定でオンにしてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាពអាទិភាពត្រូវបានបិទ; បើកវានៅក្នុង App Store ឬការកំណត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기가 꺼져 있습니다. App Store나 설정에서 켜세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "prioritetsvisningen er av; slå den på i App Store eller Innstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "widok priorytetów jest wyłączony; włącz go w App Store lub w Ustawieniach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a visualização de prioridade está desativada; ative-a na App Store ou em Ajustes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вид «Приоритет» выключен; включите его в App Store или в настройках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมองลำดับความสำคัญปิดอยู่ เปิดได้ใน App Store หรือการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "öncelik görünümü kapalı; App Store'dan veya Ayarlar'dan açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вигляд «Пріоритет» вимкнено; увімкніть його в App Store або в налаштуваннях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chế độ xem ưu tiên đang tắt; hãy bật trong App Store hoặc Cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先视图已关闭；请在 App Store 或设置中打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先檢視已關閉；請在 App Store 或設定中開啟"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
