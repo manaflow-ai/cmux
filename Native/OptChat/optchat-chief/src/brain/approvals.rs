@@ -44,7 +44,19 @@ impl Brain {
                 self.agents
                     .respond_permission(&session_id, &permission_id, option.as_deref())
             {
-                (self.log)(&format!("allowing {tool}: {e}"));
+                // acpmux takes an allow only from the person's app. A
+                // request left open holds the turn forever: refuse it, so
+                // the model hears why and the turn goes on. The turn's
+                // settings allow these tools, so this is a session started
+                // before them.
+                (self.log)(&format!("allowing {tool}: {e}; refusing it instead"));
+                let deny = option_for(&request, Answer::Deny);
+                if let Err(e) =
+                    self.agents
+                        .respond_permission(&session_id, &permission_id, deny.as_deref())
+                {
+                    (self.log)(&format!("refusing {tool}: {e}"));
+                }
             }
             return;
         }
@@ -95,13 +107,23 @@ impl Brain {
     ///   own effects (policy `ask`), so an untrusted turn cannot launder a
     ///   command through an approve-all subagent.
     pub(super) fn internal_allowed(&self, tool: &str, request: &Value) -> bool {
+        self.internal_allowed_input(tool, request.pointer("/toolCall/rawInput"), self.turn_ask)
+    }
+
+    /// [`Self::internal_allowed`] on a call's `input` (its arguments), in
+    /// an ask turn when `ask`.
+    pub(super) fn internal_allowed_input(
+        &self,
+        tool: &str,
+        input: Option<&Value>,
+        ask: bool,
+    ) -> bool {
         if !crate::approval::CHIEF_TOOLS.contains(&tool) {
             return false;
         }
-        if !self.turn_ask {
+        if !ask {
             return true;
         }
-        let input = request.pointer("/toolCall/rawInput");
         let get = |key: &str| input.and_then(|i| i.get(key));
         let field = |key: &str| get(key).and_then(Value::as_str);
         match tool {
@@ -138,6 +160,21 @@ impl Brain {
         self.state
             .sub(id)
             .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK))
+    }
+
+    /// Whether the turn may run Chief tool `tool` (`mcp__optchat__<name>`)
+    /// with `input` now. The turn's settings allow the Chief's tools with
+    /// no permission request, so this is where a turn another person
+    /// started is held to [`Self::internal_allowed`].
+    pub fn turn_gate(&self, tool: &str, input: &Value) -> Result<(), String> {
+        let ask = self.turn_ask || (self.last_turn_ask && self.state.turn.is_none());
+        if self.internal_allowed_input(tool, Some(input), ask) {
+            return Ok(());
+        }
+        (self.log)(&format!("refused {tool} ({REFUSED_BY})"));
+        Err(format!(
+            "refused: this turn carries another person's text, so {tool} may not run with these arguments"
+        ))
     }
 
     /// A permission request of a child that runs with policy `ask` (spawned

@@ -25,7 +25,7 @@ export const CONTEXT_LABELS = {
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
-  connectCloud: "composer.connectCloud",
+  newCloudMachine: "composer.newCloudMachine",
   newChatHere: "composer.newChatHere",
   noProject: "composer.noProject",
   environment: "composer.environment",
@@ -34,8 +34,9 @@ export const CONTEXT_LABELS = {
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string };
-type Computer = Location & { kind: EnvironmentKind };
+type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
+const NO_PEER_CONNECTED: Record<string, boolean> = {};
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -47,6 +48,7 @@ export function ComposerContext({
   sessions = [],
   peers = [],
   peerKinds = NO_PEER_KINDS,
+  peerConnected = NO_PEER_CONNECTED,
   environments = false,
   started = false,
   onProject,
@@ -59,12 +61,15 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  onRefreshMachines,
 }: {
   summary?: Summary;
   sessions?: Session[];
   peers?: string[];
   /// Each peer's transport (`AcpmuxSnapshot.peerKinds`): its section in the environment picker.
   peerKinds?: Record<string, "ssh" | "cloud">;
+  /// Whether each peer is connected (`AcpmuxSnapshot.peerConnected`): the picker's status mark.
+  peerConnected?: Record<string, boolean>;
   /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
   /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
   environments?: boolean;
@@ -84,14 +89,25 @@ export function ComposerContext({
   onNewChat?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel, then a new chat there.
   onBrowseFolder?(): Promise<string | undefined>;
-  /// A new chat's Computer menu ends with SSH… and cmux Cloud…, which open the host's
+  /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// The environment picker opened: read the machines and their status again.
+  onRefreshMachines?(): void;
 }) {
   const computers = useMemo(
-    // The peers' transports draw only in the environment picker: the plain menu stays as it was.
-    () => availableComputers(summary, sessions, peers, environments ? peerKinds : NO_PEER_KINDS, localName),
-    [summary, sessions, peers, peerKinds, environments, localName],
+    // The peers' transports and status draw only in the environment picker: the plain menu stays
+    // as it was.
+    () =>
+      availableComputers(
+        summary,
+        sessions,
+        peers,
+        environments ? peerKinds : NO_PEER_KINDS,
+        localName,
+        environments ? peerConnected : NO_PEER_CONNECTED,
+      ),
+    [summary, sessions, peers, peerKinds, peerConnected, environments, localName],
   );
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
@@ -239,6 +255,7 @@ export function ComposerContext({
               current={selectedComputer}
               onPick={pickComputer}
               {...(!started && onConnect ? { onConnect } : {})}
+              {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
             />
           ) : (
             <LocationPicker
@@ -254,7 +271,7 @@ export function ComposerContext({
                 !started && onConnect
                   ? [
                       { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.connectCloud), onSelect: () => onConnect("cloud") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
                     ]
                   : undefined
               }
@@ -320,7 +337,8 @@ function availableComputers(
   sessions: Session[],
   peers: string[],
   peerKinds: Record<string, "ssh" | "cloud">,
-  localName?: string,
+  localName: string | undefined,
+  peerConnected: Record<string, boolean>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -332,7 +350,14 @@ function availableComputers(
     if (seen.has(id)) return;
     seen.add(id);
     const kind = !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud";
-    computers.push({ id, label, kind, detail: t(kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud) });
+    const connected = cloudHost ? undefined : peerConnected[id];
+    computers.push({
+      id,
+      label,
+      kind,
+      detail: t(kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud),
+      ...(connected !== undefined ? { connected } : {}),
+    });
   };
   for (const peer of peers) add(peer, peer);
   for (const session of sessions) {

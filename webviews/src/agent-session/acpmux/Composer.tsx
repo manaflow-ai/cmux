@@ -209,8 +209,10 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
-  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// The environment picker opened: read the machines and their status again.
+  onRefreshMachines?(): void;
   /// This Mac's name for the location row.
   localName?: string;
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
@@ -272,6 +274,7 @@ export function Composer({
   onNewWorktree,
   onBrowseFolder,
   onConnect,
+  onRefreshMachines,
   localName,
   environments,
   onNewChat,
@@ -1254,6 +1257,8 @@ export function Composer({
       sessions={snapshot.sessions}
       peers={snapshot.peers}
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+      {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+      {...(onRefreshMachines ? { onRefreshMachines } : {})}
       environments={environments}
       onProject={
         onProject &&
@@ -1304,7 +1309,7 @@ export function Composer({
           {t(remote.note)}
         </p>
       )}
-      {!remote.note && blocked?.reason && (
+      {!remote.note && blocked?.reason && !blocked.shownAbove && (
         <p className="acpmux-composer-remote-note acpmux-composer-trust-note" role="note">
           {t(blocked.reason)}
         </p>

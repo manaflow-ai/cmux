@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -177,6 +178,7 @@
           {
             "key" : "settings.group.updates",
             "rows" : [
+              "updates.channel",
               "updates.checkAutomatically",
               "updates.checkIntervalSeconds",
               "updates.downloadAutomatically",
@@ -774,7 +776,8 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.resumeAgents"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -792,17 +795,6 @@
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
             }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
           }
         ],
         "id" : "agents",
@@ -819,6 +811,39 @@
           "agentHarnesses",
           "chiefs",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief-pet",
+        "lead" : [
+          "chiefPet"
+        ],
+        "symbol" : "pawprint",
+        "title" : {
+          "key" : "settings.category.chiefPet",
+          "text" : "Chief Pet"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -1922,6 +1947,57 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
       },
       "validation" : "portable"
     },
@@ -3380,6 +3456,90 @@
     },
     {
       "accepts" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelStable",
+            "text" : "Stable"
+          },
+          "value" : "stable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelNightly",
+            "text" : "Nightly"
+          },
+          "value" : "nightly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelCanary",
+            "text" : "Canary"
+          },
+          "value" : "canary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelDev",
+            "text" : "Dev"
+          },
+          "value" : "dev"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "nightly",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.channel.help",
+        "text" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.channel",
+      "keywords" : [
+        "update",
+        "channel",
+        "ring",
+        "release",
+        "stable",
+        "nightly",
+        "canary",
+        "beta",
+        "dev"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "channel"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.channel",
+        "text" : "Update Channel"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -4139,6 +4299,57 @@
       "title" : {
         "key" : "settings.sessions.keepAwake",
         "text" : "Keep Mac Awake While Agents Work"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.resumeAgents.help",
+        "text" : "Terminal agents reopen their session after a crash or restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.resumeAgents",
+      "keywords" : [
+        "resume",
+        "restore",
+        "restart",
+        "reboot",
+        "crash",
+        "claude",
+        "codex",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "resumeAgents"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.resumeAgents",
+        "text" : "Resume Agents After Restart"
       },
       "validation" : "portable"
     },

@@ -166,6 +166,15 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
+ * agent's current step to end (PendingSteer.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 5v3.2l2 1.3" />
+  </Svg>
+);
+
 /** Thread summary toggle in the title bar: two rings with bars. */
 export const SummaryToggle = (p: CvIconProps) => (
   <Svg {...p}>

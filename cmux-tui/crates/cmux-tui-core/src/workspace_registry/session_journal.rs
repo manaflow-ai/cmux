@@ -351,7 +351,7 @@ impl JournalRestoreCursor {
             "SELECT segment_id, start_sequence
              FROM journal_segments
              WHERE end_sequence > ?1 AND start_sequence > ?2
-             ORDER BY start_sequence ASC
+             ORDER BY end_sequence ASC
              LIMIT 1",
         )?;
         let segment = statement
@@ -1516,7 +1516,7 @@ fn archived_non_output_after(
         "SELECT segment_id, start_sequence, end_sequence
          FROM journal_segments
          WHERE end_sequence > ?1 AND start_sequence <= ?2
-         ORDER BY start_sequence ASC",
+         ORDER BY end_sequence ASC",
     )?;
     let rows = statement
         .query_map(params![i64::try_from(sequence)?, i64::try_from(through)?], |row| {
@@ -1897,6 +1897,14 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
 
+/// Sealed segments never overlap (sealing appends them in sequence order and
+/// the readers below reject a gap or overlap), so `ORDER BY end_sequence`
+/// is the same order as `ORDER BY start_sequence`. Ordering by the column
+/// the range filters on lets SQLite seek its unique index to the cursor.
+/// Ordering by `start_sequence` scanned every segment row on every read: the
+/// journal fanout tailer reads after each commit, and on a registry with 5 353
+/// segments that took about 10 ms per read, about 100% CPU at 100 commits/s
+/// (NIGHTLY 2026-10-20). The seek takes about 0.02 ms on the same file.
 fn archived_records_after(
     connection: &Connection,
     sequence: u64,
@@ -1907,7 +1915,7 @@ fn archived_records_after(
                 content, uncompressed_bytes, sha256
          FROM journal_segments
          WHERE end_sequence > ?1
-         ORDER BY start_sequence ASC
+         ORDER BY end_sequence ASC
          LIMIT ?2",
     )?;
     let mut segments = statement
