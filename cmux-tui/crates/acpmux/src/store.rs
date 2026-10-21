@@ -645,6 +645,17 @@ fn record_kind(line: &[u8]) -> Option<&[u8]> {
     Some(&line[start..start + len])
 }
 
+/// The `seq` of one serialized record, read without parsing it: records are written
+/// `{"seq":N,...}`. None for a line that does not start that way; the caller parses it.
+fn record_seq(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_prefix(b"{\"seq\":")?;
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
+        return None;
+    }
+    std::str::from_utf8(&rest[..digits]).ok()?.parse().ok()
+}
+
 /// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
 /// returns false: a tail costs its own bytes, not the segment's.
 fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
@@ -678,13 +689,21 @@ fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Resul
 }
 
 fn first_seq(path: &Path) -> Result<Option<u64>> {
-    for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
-        let line = line?;
-        if let Ok(rec) = serde_json::from_str::<EventRecord>(&line) {
+    let mut reader = BufReader::new(crate::config::private_state_file(path)?);
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            return Ok(None);
+        }
+        // The header alone when the line has the daemon's field order; else a parse.
+        if let Some(seq) = record_seq(&line) {
+            return Ok(Some(seq));
+        }
+        if let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) {
             return Ok(Some(rec.seq));
         }
     }
-    Ok(None)
 }
 
 impl Store for LocalStore {
@@ -758,15 +777,35 @@ impl Store for LocalStore {
         Ok(())
     }
 
+    /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
+    /// holds nothing past it and is not opened, and a line at or before `after` is passed
+    /// on its `seq` alone, unparsed. A forward page of a long log costs its own records,
+    /// not the log's prefix (perf100: a 70 MB log read in 10,000-record pages parsed
+    /// every earlier record again on each page).
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        for (_, path) in self.segments(id)? {
-            let file = crate::config::private_state_file(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
+        let segments = self.segments(id)?;
+        let mut line = Vec::new();
+        for (index, (_, path)) in segments.iter().enumerate() {
+            if after > 0
+                && let Some((_, next)) = segments.get(index + 1)
+                && first_seq(next)?.is_some_and(|first| first <= after.saturating_add(1))
+            {
+                continue;
+            }
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
+                if record_seq(&line).is_some_and(|seq| seq <= after) {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
                     return Ok(());
                 }
@@ -870,25 +909,10 @@ impl Store for LocalStore {
 
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let mut out = Vec::new();
-        for (_, path) in self.segments(id)? {
-            let file = crate::config::private_state_file(&path)?;
-            for line in BufReader::new(file).lines() {
-                let line = line?;
-                if line.trim().is_empty() {
-                    continue;
-                }
-                let rec: EventRecord = match serde_json::from_str(&line) {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
-                if rec.seq > after {
-                    out.push(rec);
-                    if out.len() >= limit {
-                        return Ok(out);
-                    }
-                }
-            }
-        }
+        self.scan(id, after, &mut |rec| {
+            out.push(rec);
+            out.len() < limit
+        })?;
         Ok(out)
     }
 
