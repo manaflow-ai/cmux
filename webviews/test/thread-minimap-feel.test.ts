@@ -295,11 +295,12 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         // Every frame found the band's row (NaN: a frame drew no row for it).
         expect(frames.findIndex((frame) => Number.isNaN(frame.y))).toBe(-1);
         // The first frame with the new rows draws the same turns lit, where they were; then the band
-        // moves at most a few px a frame (a glide, not a jump).
+        // moves at most a few px a frame (a glide, not a jump). The glide is the motion scale's
+        // standard step (SHIFT_MS, 180ms): about 41px at its fastest frame; a jump is ~150px.
         expect(frames[0]!.lit).toBe(shifted);
         expect(Math.abs(frames[0]!.y - before.y)).toBeLessThanOrEqual(1);
         for (let index = 1; index < frames.length; index += 1)
-          expect(Math.abs(frames[index]!.y - frames[index - 1]!.y)).toBeLessThanOrEqual(40);
+          expect(Math.abs(frames[index]!.y - frames[index - 1]!.y)).toBeLessThanOrEqual(48);
         // A rail that already scrolled holds the band still.
         if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
