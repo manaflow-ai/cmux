@@ -1,6 +1,8 @@
 /* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push (a setting): a column in the shell's
    flex row beside the chat, which reflows narrower. Overlay (the default): the same column over the chat's right
-   side, with a shadow. Its width comes from the viewer's drag (inline style); it slides in from the right
+   side, with a shadow, from under the chat header (--acpmux-inspector-top, the header's height) to the pane's
+   foot: the header's tools, its own toggle among them, stay above it, and like the pushed column it
+   lies beside the composer's right side. Its width comes from the viewer's drag (inline style); it slides in from the right
    and back out, and the width never animates. Sections are hairline cards a step lighter than the page; rows are 28px;
    a long list scrolls inside its section. */
 .acpmux-chat-inspector {
@@ -22,7 +24,7 @@
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
-  top: 0;
+  top: var(--acpmux-inspector-top, 0px);
   right: 0;
   bottom: 0;
   box-shadow: var(--elevation-2);

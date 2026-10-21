@@ -147,6 +147,24 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     // The transcript opens at its end, so the first reply image, the one these plays click, is
     // above the fold.
     ...["open", "dismiss-and-restore"].map((variant): Case => ({ entry: "image-viewer", variant, play: "steps" })),
+    // The summary's Outputs row offers the chat's gallery; it opens as a dialog, filters by kind,
+    // and an image tile opens the image viewer.
+    { entry: "chat-gallery", variant: "outputs", play: "steps", shows: has(".acpmux-summary-gallery") },
+    { entry: "chat-gallery", variant: "open", play: "steps", shows: has(".acpmux-chat-gallery-tile") },
+    {
+      entry: "chat-gallery",
+      variant: "renders",
+      play: "steps",
+      shows: async (page) =>
+        (await count(page, ".acpmux-chat-gallery-tile.is-render")) === 2 &&
+        (await count(page, ".acpmux-chat-gallery-tile:not(.is-render)")) === 0,
+    },
+    {
+      entry: "chat-gallery",
+      variant: "image",
+      play: "steps",
+      shows: async (page) => (await page.getByRole("dialog", { name: "Weekly builds" }).count()) > 0,
+    },
   ];
 
   setDefaultTimeout(240_000);
