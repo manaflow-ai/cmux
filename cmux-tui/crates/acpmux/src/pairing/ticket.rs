@@ -60,7 +60,7 @@ impl Ticket {
             .map_err(|_| "the ticket is damaged; copy it again".to_owned())?;
         if wire.v != 1 {
             return Err(format!(
-                "this ticket is version {}; update cmux on this machine to use it",
+                "this cmux reads version 1 tickets, not version {}: paste the whole install line the other machine printed (`cmux host ticket new`), which installs a cmux that reads it",
                 wire.v
             ));
         }
