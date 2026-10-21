@@ -172,7 +172,9 @@ fn kill(child: &mut Child) {
 }
 
 fn read_lossy(path: &Path) -> String {
-    std::fs::read(path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default()
+    std::fs::read(path)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
 }
 
 /// A pty pair. The client gets the slave as stdin and stdout; the test keeps

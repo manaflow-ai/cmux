@@ -445,8 +445,7 @@ struct HostInputReaderExit(Arc<HostInputReaderControl>);
 
 impl Drop for HostInputReaderExit {
     fn drop(&mut self) {
-        let mut state =
-            self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.reader_exited = true;
         self.0.exited.notify_all();
     }
@@ -464,10 +463,8 @@ impl HostInputReaderControl {
     /// whether it exited.
     fn wait_for_exit(&self, deadline: Duration) -> bool {
         let state = self.state.lock().unwrap();
-        let (state, _) = self
-            .exited
-            .wait_timeout_while(state, deadline, |state| !state.reader_exited)
-            .unwrap();
+        let (state, _) =
+            self.exited.wait_timeout_while(state, deadline, |state| !state.reader_exited).unwrap();
         state.reader_exited
     }
 }
