@@ -256,6 +256,53 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   expect(held.map((chip) => chip.kind)).toEqual(["image"]);
 });
 
+test("a prompt copied from a bubble with `![…](data:…)` text pastes as a chip and its text, nothing inline", async () => {
+  const composer = await openComposer();
+  await paste({ plain: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck` });
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  expect(field().querySelector("img")).toBeNull();
+  expect(field().textContent).toBe("what the heck");
+  expect(field().innerHTML).not.toContain("data:");
+});
+
+test("the same text pasted into a plain text field leaves its text there without the image", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let held: ComposerAttachment[] = [];
+  function Field() {
+    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    held = attachments;
+    return <textarea aria-label="Prompt" defaultValue="see: " />;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const textarea = host.querySelector("textarea")!;
+  textarea.setSelectionRange(5, 5);
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [],
+      types: ["text/plain"],
+      getData: (type: string) => (type === "text/plain" ? `![a](${dataUri}) ok` : ""),
+    },
+  });
+  await act(async () => {
+    textarea.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+  expect(event.defaultPrevented).toBe(true);
+  expect(textarea.value).toBe("see:  ok");
+  expect(held.map((chip) => chip.kind)).toEqual(["image"]);
+});
+
+test("odd input stays fast: an unclosed image before a long run of spaces, a long run of backticks", () => {
+  const started = performance.now();
+  liftInlineImages(`![a](${dataUri}${" ".repeat(200_000)}x`);
+  liftInlineImages(`${"`".repeat(200_000)}\n![a](${dataUri})`);
+  withoutDataUris(`![a](${dataUri}${" ".repeat(200_000)}x`, "Image");
+  expect(performance.now() - started).toBeLessThan(2_000);
+});
+
 test("a bubble never draws a data: URI: each image reads as its name", async () => {
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");

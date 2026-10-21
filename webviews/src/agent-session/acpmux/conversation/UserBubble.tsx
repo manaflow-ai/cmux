@@ -9,7 +9,7 @@
 // prompt's own turn, as its right-click Fork does. The row is Claude's whole
 // row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
 // sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
@@ -43,8 +43,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
-  const shown = withoutDataUris(text, t("image.viewer"));
-  const editable = liftInlineImages(row.text ?? text).text;
+  const imageName = t("image.viewer");
+  const shown = useMemo(() => withoutDataUris(text, imageName), [text, imageName]);
+  const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.

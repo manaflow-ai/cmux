@@ -11,11 +11,11 @@ import type { ComposerAttachment } from "./attachments";
 const LIFTED_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// A markdown image whose source is a base64 `data:` URI, with its optional title.
 const MARKDOWN_DATA_IMAGE =
-  /!\[([^\]\n]*)\]\(\s*<?data:([a-z]+\/[a-z0-9.+-]+)((?:;[a-z0-9-]+=[^;,\s)]+)*);base64,([a-z0-9+/=\s]+?)>?(?:\s*(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/gi;
+  /!\[([^\]\n]*)\]\(\s*<?data:([a-z]+\/[a-z0-9.+-]+)((?:;[a-z0-9-]+=[^;,\s)]+)*);base64,([a-z0-9+/=]+(?:\s+[a-z0-9+/=]+)*)>?(?:\s*(?:"[^"\n]*"|'[^'\n]*'))?\s*\)/gi;
 /// A bare base64 `data:` URI anywhere in text.
 const BARE_DATA_URI = /data:([a-z]+\/[a-z0-9.+-]+)(?:;[a-z0-9-]+=[^;,\s)"'>]+)*;base64,[a-z0-9+/=]+/gi;
 /// Code in markdown: a fenced block (to its closing fence or the end) or an inline span.
-const CODE = /(^|\n)(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n\2[^\n]*(?=\n|$)|$)|`[^`\n]+`/g;
+const CODE = /(^|\n)(`{3,}(?!`)|~{3,}(?!~))[^\n]*\n[\s\S]*?(?:\n\2[^\n]*(?=\n|$)|$)|`[^`\n]+`/g;
 
 /// Whether `text` holds a base64 `data:` URI.
 export function hasDataUri(text: string): boolean {

@@ -380,25 +380,46 @@ const MIN_HTML_IMAGE_BYTES = 256;
 export function htmlImageFiles(html: string): File[] {
   if (!html || !/<img[\s>]/i.test(html)) return [];
   const files: File[] = [];
-  for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
-    const source = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+  for (const tag of html.match(/<img\b[^<>]*>/gi) ?? []) {
+    const source = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i.exec(tag);
     const uri = /^data:(image\/[a-z0-9.+-]+)(?:;[^,;]+)*;base64,([a-z0-9+/=\s]+)$/i.exec(
-      (source?.[1] ?? source?.[2] ?? "").trim(),
+      (source?.[1] ?? source?.[2] ?? source?.[3] ?? "").trim(),
     );
-    const mimeType = uri?.[1]?.toLowerCase();
-    if (!uri || !mimeType || !IMAGE_TYPES.has(mimeType)) continue;
-    try {
-      const binary = atob(uri[2]!.replace(/\s+/g, ""));
-      if (binary.length < MIN_HTML_IMAGE_BYTES) continue;
-      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-      files.push(
-        new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType }),
-      );
-    } catch {
-      // Not base64 after all: nothing to attach.
-    }
+    const file = uri && imageFile(uri[1]!.toLowerCase(), uri[2]!);
+    if (file) files.push(file);
   }
   return files;
+}
+
+/// The markdown `data:` images of pasted text (a prompt copied from a bubble that went out with
+/// them), as files the composer attaches; `text` is what the field gets in their place.
+export function textImageFiles(plain: string): { text: string; files: File[] } {
+  const lifted = liftInlineImages(plain);
+  if (!lifted.attachments.length) return { text: plain, files: [] };
+  const files = lifted.attachments.flatMap((chip) => imageFile(chip.mimeType, chip.data ?? "") ?? []);
+  return { text: lifted.text, files };
+}
+
+/// The images a paste carries other than as files: an HTML `<img>`'s, else the plain text's.
+export function pastedImageFiles(transfer: DataTransfer | null): { text?: string; files: File[] } {
+  const html = htmlImageFiles(transfer?.getData("text/html") ?? "");
+  if (html.length) return { files: html };
+  return textImageFiles(transfer?.getData("text/plain") ?? "");
+}
+
+/// A file of base64 `data` of an image type an agent takes; none for another type, data that is not
+/// base64, or an image as small as a spacer.
+function imageFile(mimeType: string, data: string): File | undefined {
+  if (!IMAGE_TYPES.has(mimeType)) return undefined;
+  try {
+    const binary = atob(data.replace(/\s+/g, ""));
+    if (binary.length < MIN_HTML_IMAGE_BYTES) return undefined;
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType });
+  } catch {
+    // Not base64 after all: nothing to attach.
+    return undefined;
+  }
 }
 
 /// Whether a drag carries files, so the page takes the drop instead of navigating to it.
