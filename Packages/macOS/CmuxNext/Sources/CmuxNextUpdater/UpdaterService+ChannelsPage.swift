@@ -1,7 +1,7 @@
 import CmuxUpdater
 public import Foundation
 
-/// The Settings > Updates Channels card (`cmux.settings.channels.run`, action `state`): every
+/// The Settings > Updates Channels card (`cmux.settings.channels.state`): every
 /// ring's track as JSON for the page, each text localized here so the page draws no strings of
 /// its own. Each build's PR numbers come from its signed notes (cached once verified).
 extension UpdaterService {

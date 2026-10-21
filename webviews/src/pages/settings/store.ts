@@ -42,6 +42,7 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -499,6 +500,12 @@ export class SettingsStore {
   readonly chiefCalls = {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
+
+  /** Settings > Updates' channels; null when the host has no updater. */
+  async channelsState(): Promise<ChannelsState | null> {
+    const reply = await this.request("cmux.settings.channels.state", {});
+    return reply.ok ? reply.value : null;
+  }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {

@@ -20,6 +20,7 @@ import {
   type AccountsRun,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
   type AccountsState,
   type DevicesRelay,
   type DevicesRun,
@@ -43,6 +44,7 @@ import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
+import { mockChannels } from "./mockChannels";
 import { mockThemeColors } from "./mockThemes";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
@@ -213,6 +215,10 @@ export class MockSettingsProvider {
             iphone: { ...iphone, phones: iphone.phones.filter((p) => p.id !== params.id) },
           });
         return {};
+      },
+      "cmux.settings.channels.state": () => {
+        if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
+        return this.channels;
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
@@ -420,6 +426,7 @@ export class MockSettingsProvider {
       "cmux.settings.host.lists",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.channels.state",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -589,6 +596,8 @@ export class MockSettingsProvider {
     }
   }
 
+  /** Settings > Updates' channels; null: the host has no updater. */
+  channels: ChannelsState | null = mockChannels;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 
