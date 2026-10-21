@@ -4,8 +4,14 @@ public import Foundation
 /// ``AgentSessionAttachClient`` as the pane's ``AgentSessionRemoteClient``.
 public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     public let client: AgentSessionAttachClient
+    public let mode: AgentSessionAttachClient.Mode
 
-    public init(client: AgentSessionAttachClient) { self.client = client }
+    public init(client: AgentSessionAttachClient, mode: AgentSessionAttachClient.Mode) {
+        self.client = client
+        self.mode = mode
+    }
+
+    public var isReadOnly: Bool { mode == .observe }
 
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         try await mapped {
@@ -33,6 +39,8 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
     }
 
     public func detach() async { await client.detach() }
+
+    public func children() async throws -> Data { try await mapped { try await client.children() } }
 
     public func close() async { await client.close() }
 

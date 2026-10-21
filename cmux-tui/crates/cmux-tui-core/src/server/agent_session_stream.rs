@@ -76,9 +76,10 @@ pub(super) fn connect_and_attach(
         page["agentMode"] = facts;
     }
     // Session status changes (`_acpmux/session_changed`) come only to
-    // watchers; the reader keeps only this session's. The answer (every
-    // session's summary) is dropped here and never reaches the client.
-    let _ = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
+    // watchers; the reader keeps only this session's and its descendants'.
+    // The answer (every session's summary) never reaches the client: only
+    // the descendants it names are followed from now on.
+    let watched = link.call("_acpmux/watch", json!({"enabled": true}), CALL_TIMEOUT);
     let attachment = Arc::new(Attachment {
         client,
         surface,
@@ -96,7 +97,12 @@ pub(super) fn connect_and_attach(
         mode_events,
         mode_reading: AtomicBool::new(false),
         mode_again: AtomicBool::new(false),
+        children: Mutex::default(),
     });
+    if let Ok(watched) = &watched {
+        attachment
+            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
+    }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
         if let Some(permission) = pending.get("permissionId").and_then(Value::as_str) {
@@ -199,8 +205,16 @@ pub(super) fn deliver(attachment: &Arc<Attachment>, inbound: Inbound) {
                 attachment.end(None);
             }
         }
-        "_acpmux/session_changed" if same_session => {
-            if matches!(params.get("kind").and_then(Value::as_str), Some("mode" | "config")) {
+        // The session's own changes, and its descendants' (`agent-session-children-v1`),
+        // while the tab still shows the session.
+        "_acpmux/session_changed" if same_session || attachment.follows_change(&params) => {
+            if !same_session && !attachment.tab_current() {
+                return attachment.end(Some("detached"));
+            }
+            // Only the session's own mode change re-reads its mode (a descendant's never does).
+            if same_session
+                && matches!(params.get("kind").and_then(Value::as_str), Some("mode" | "config"))
+            {
                 reread_mode(attachment);
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});

@@ -344,21 +344,21 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     defer { for i in memberRowsStart..<rows.count { rows[i].depth = group.depth + 1 } }
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
-                        // Keep the selected workspace as the one visible member
-                        // of a collapsed group. This preserves orientation and
-                        // selection without reopening the rest of the group.
-                        guard let activeID = o.activeWorkspaceID,
-                              let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
-                              let ws = entry.children.first(where: { $0.id == activeID }) else { return }
-                        let content = o.rowContent(ws, machine: machineLabel)
-                        let h = m.height(for: content)
-                        rows.append(SidebarRow(
-                            key: .workspace(ws.id), y: y, height: h, section: section.id,
-                            group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: true, isCollapsed: false, childCount: 0,
-                            groupColor: group.color, tabDisclosure: disclosure(ws), content: content
-                        ))
-                        y += h + m.rowSpacing
+                        // The selected workspace, and one selected here before, stay visible members of a collapsed
+                        // group: orientation without reopening it, and a click elsewhere removes no row.
+                        let kept = members.indices.compactMap { i -> (Int, SidebarWorkspace)? in
+                            guard case let .workspace(member) = members[i], o.shown(inCollapsed: group.id).contains(member.id) else { return nil }
+                            return entry.children.first(where: { $0.id == member.id }).map { (i, $0) }
+                        }
+                        for (n, (childIndex, ws)) in kept.enumerated() {
+                            let content = o.rowContent(ws, machine: machineLabel)
+                            let h = m.height(for: content)
+                            rows.append(SidebarRow(key: .workspace(ws.id), y: y, height: h, section: section.id, group: group.id,
+                                                   siblingIndex: childIndex, parentIndex: index, isLastInGroup: n == kept.count - 1,
+                                                   isCollapsed: false, childCount: 0, groupColor: group.color,
+                                                   tabDisclosure: disclosure(ws), content: content))
+                            y += h + m.rowSpacing
+                        }
                         return
                     }
                     let drawn = Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents)

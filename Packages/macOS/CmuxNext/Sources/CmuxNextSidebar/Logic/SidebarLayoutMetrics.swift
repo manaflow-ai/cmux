@@ -110,6 +110,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Keep the active workspace visible beneath a collapsed group so the
     /// current destination remains anchored while the other members fold away.
     public var activeWorkspaceID: WorkspaceID?
+    /// Members selected before that a collapsed group keeps drawing beside the active one (`SidebarModel.revealedMembers`).
+    public var revealedWorkspaces: [GroupID: Set<WorkspaceID>] = [:]
+    /// The workspaces collapsed group `id` draws as its visible members.
+    func shown(inCollapsed id: GroupID) -> Set<WorkspaceID> { (revealedWorkspaces[id] ?? []).union(activeWorkspaceID.map { [$0] } ?? []) }
     /// What workspace rows show (`sidebar.workspaceRow.*`).
     public var workspaceRow = WorkspaceRowPreferences.defaults
     /// Minimal mode (`sidebar.minimal`): every row draws only its icon, name

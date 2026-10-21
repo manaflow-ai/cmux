@@ -20,8 +20,10 @@ import Foundation
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
 /// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; another machine's name, as
-/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (another machine's: the name
-/// of that machine's group it joins, made when missing).
+/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (the name of the sidebar
+/// group it goes in, made when no group has that name; `acpmux new --group` sends it; another
+/// machine's chat joins that machine's group of the name). A `key` that names a listed workspace
+/// opens nothing: a launcher run again finds its row.
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -41,7 +43,7 @@ enum AgentSessionWorkspace {
         // A host that names another machine (`cmux agent open NAME --host huge-blue`): its chat opens there.
         let remote = host.flatMap(context.services.machines.remoteDaemon(named:)), group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, group: group, on: $0, services: context.services) }
-            ?? open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
+            ?? open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -56,6 +58,8 @@ enum AgentSessionWorkspace {
         }
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        // A caller's key that names a listed workspace already shows the session: nothing opens twice.
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
         // `group`: that machine's group of the name (made when missing), once the row is listed.
         var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
         if let group { join = { id, sidebar in joinGroup(id, named: group, sidebar: sidebar) } }
@@ -69,7 +73,7 @@ enum AgentSessionWorkspace {
                     return (tab, try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
                 }
                 AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
-                if let pane = await daemon.store.mirroredPane(of: key) {
+                if let pane = await daemon.store.firstPane(mirroring: key) {
                     for window in services.windows.controllers { window.state.selection.select(tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)", in: pane.id) }
                 }
                 return nil
@@ -97,7 +101,7 @@ enum AgentSessionWorkspace {
     /// daemon is offline.
     @discardableResult
     static func open(session: String, name: String?, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
-                     services: AppServices) throws -> ActionWork {
+                     group: String? = nil, services: AppServices) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
@@ -109,13 +113,19 @@ enum AgentSessionWorkspace {
             throw ActionFailure(message: refusal)
         }
         let logger = daemon.logger
+        // A caller's key that names a listed workspace already shows the
+        // session (a launcher run again): nothing is opened twice.
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
-        // workspace the window shows, when it is in one (cx-caoh). A caller's
-        // key that names a listed workspace leaves that workspace where it is.
+        // workspace the window shows, when it is in one (cx-caoh), then into
+        // the named `group`.
         let windows = services.windows
-        if services.machines.workspace(id: key.rawValue) == nil {
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        if let group {
+            join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
         }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
+                                      then: join, windows: windows)
         return Task { @MainActor in
             do {
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
@@ -123,7 +133,7 @@ enum AgentSessionWorkspace {
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await daemon.store.mirroredPane(of: key) else {
+                guard let pane = await daemon.store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
@@ -144,5 +154,21 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Moves workspace `id` into the sidebar group named `name`, or into a new
+    /// group of that name when none has it: the path of a row drag and of
+    /// New Group, so it is one undoable sidebar edit.
+    @MainActor static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
+        let ids = [SidebarWorkspaceID(id)]
+        if let existing = sidebar.services.machines.local.store.personal.groups.first(where: { $0.name == name }) {
+            let target = sidebar.model.groupID(personal: existing.id.rawValue)
+            // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
+            if SidebarEdits.canMove(ids, toGroup: target, in: sidebar.model.sections) {
+                sidebar.handle(.move(ids, toGroup: target))
+                return
+            }
+        }
+        sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
     }
 }

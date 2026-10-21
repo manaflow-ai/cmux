@@ -9,9 +9,11 @@
 //! Tests fail when the committed IR is stale or when the dispatcher serves
 //! a name this registry lacks (`protocol/tests.rs`).
 
+pub mod events;
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod process;
 pub mod session;
 #[cfg(test)]
 mod tests;
@@ -52,6 +54,17 @@ impl Kind {
             Kind::ClientLocal => "client_local",
         }
     }
+}
+
+/// `_acpmux/protocol` takes no params.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ProtocolParams {}
+
+/// What `_acpmux/protocol` answers: `ir()`, built once per daemon run.
+pub fn served() -> &'static Value {
+    static IR: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    IR.get_or_init(ir)
 }
 
 type SchemaFn = fn(&mut SchemaGenerator) -> schemars::Schema;
@@ -107,6 +120,7 @@ pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
     use mailbox::*;
     use permission::*;
+    use process::*;
     use session::*;
     vec![
         // Standard ACP.
@@ -137,11 +151,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // Sessions.
         untyped(method::MUX_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
-        untyped(method::MUX_ATTACH, Request),
-        untyped(method::MUX_DETACH, Request),
-        untyped(method::MUX_VIEW, Request),
-        untyped(method::MUX_MARK_UNREAD, Request),
-        untyped(method::MUX_WATCH, Request),
+        request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
+        request::<events::SessionRef, events::Done>(method::MUX_DETACH),
+        request::<events::ViewParams, events::Done>(method::MUX_VIEW),
+        request::<events::SessionRef, events::Done>(method::MUX_MARK_UNREAD),
+        request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
         untyped(method::MUX_OFFER_RESPOND, Request),
@@ -152,6 +166,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SUBSESSION_SEND, Request),
         untyped(method::MUX_SUBSESSION_START, Request),
         untyped(method::MUX_SUBSESSION_STOP, Request),
+        // Forum announcements (`server/forum.rs`).
+        untyped(method::MUX_FORUM_ACK, Request),
+        untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_STATS, Request),
@@ -162,17 +180,19 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
+        request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         untyped(method::MUX_KILL, Request),
+        untyped(method::MUX_WATCH_TAKE_OVER, Request),
         untyped(method::MUX_ARCHIVE, Request),
         untyped(method::MUX_SIDE, Request),
         untyped(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_INFO, Request),
-        untyped(method::MUX_EVENTS, Request),
+        request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         untyped(method::MUX_ATTACHMENT, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
@@ -189,6 +209,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_QUEUE_EDIT, Request),
         untyped(method::MUX_DRAFT_GET, Request),
         untyped(method::MUX_DRAFT_SET, Request),
+        untyped(method::MUX_COMPOSER_SET, Request),
+        untyped(method::MUX_COMPOSERS, Request),
         untyped(method::MUX_EXPORT, Request),
         untyped(method::MUX_IMPORT, Request),
         // Permissions.
@@ -270,13 +292,17 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
         untyped(method::MUX_RELOAD_CONFIG, Request),
         untyped(method::MUX_SCHEMA, Request),
+        // The result is this IR document (`ir()`), left open: its own
+        // schema would describe itself.
+        request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_add", Request),
+        untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         // Notifications.
-        untyped(method::MUX_EVENT, Notification),
+        notification::<events::SessionEvent>(method::MUX_EVENT),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         untyped(method::MUX_HARNESSES_CHANGED, Notification),

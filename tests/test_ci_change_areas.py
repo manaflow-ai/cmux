@@ -2963,11 +2963,12 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     block = workflow_job_block("react-doctor", WEB_WORKFLOW)
-    assert "needs: web-subarea-scope" in block
+    assert "needs: [web-subarea-scope, runners]" in block
     assert "react-apps-check-shard" not in block
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
-    assert "blacksmith-4vcpu-ubuntu-2404" in block
+    # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
+    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -3076,6 +3077,10 @@ def _job_runs_only_on_linux(job: dict) -> bool:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
     runs_on = str(job.get("runs-on", ""))
+    # A job on the runner capability map (.github/runners.json) names its key.
+    capabilities = re.findall(r"outputs\.map\)\.([a-z0-9_]+)", runs_on)
+    if capabilities:
+        return all(key.startswith("linux") for key in capabilities)
     return "macos" not in runs_on.lower() and ("ubuntu" in runs_on or "LINUX_RUNNER" in runs_on)
 
 
@@ -5062,7 +5067,7 @@ def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Run agent-chat tests", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios' }}" in setup_block
+    assert "if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}" in setup_block
     assert block.count("setup-bun@") == 1
 
 
@@ -5071,7 +5076,7 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
     prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
     setup_block = block[setup:prepare]
-    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+    assert "if: ${{ !cancelled() && matrix.group == 'release-tooling' }}" in setup_block
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
@@ -5080,9 +5085,9 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # the venv.
     # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ !cancelled() && (matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling') }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
@@ -5097,7 +5102,7 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     start = block.index("      - name: Validate pipe-safe CI capture")
     end = block.index("      - name: Validate focused test launcher", start)
     step = block[start:end]
-    assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
+    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
 
 

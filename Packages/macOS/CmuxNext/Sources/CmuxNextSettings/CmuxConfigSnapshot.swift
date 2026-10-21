@@ -56,6 +56,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserAgentMouse = AgentMouseSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
+    /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
+    public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
@@ -116,6 +118,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
     /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
     public var linkPlacement: LinkPlacement = .fallback
+    /// `layout.mainPane`: whether an agent chat is its screen's main pane (``MainPaneSetting``).
+    public var mainPane: MainPaneSetting = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).
     public var newWorkspacePlacement: NewWorkspacePlacement = CmuxConfigSnapshot.newWorkspacePlacementFallback
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -178,12 +182,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
+    /// `tabs.terminalFirst`; off when unset or invalid.
+    public var terminalFirst: Bool = TerminalFirstSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
     /// `tabs.swapCmdTAndCmdN`; off when unset or invalid.
@@ -361,6 +369,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (cmdWClosesPinnedTabs, cmdWClosesPinnedTabsDiagnostic) = CmdWClosesPinnedTabsSetting.parse(root)
         snapshot.cmdWClosesPinnedTabs = cmdWClosesPinnedTabs
         if let cmdWClosesPinnedTabsDiagnostic { snapshot.diagnostics.append(cmdWClosesPinnedTabsDiagnostic) }
+        let (terminalFirst, terminalFirstDiagnostic) = TerminalFirstSetting.parse(root)
+        snapshot.terminalFirst = terminalFirst
+        if let terminalFirstDiagnostic { snapshot.diagnostics.append(terminalFirstDiagnostic) }
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
         let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
         snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN

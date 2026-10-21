@@ -36,7 +36,7 @@ extension SettingDescriptor {
             let on = current?.boolValue ?? false
             return [SettingOption(value: .bool(true), title: SettingsText.text("settings.choice.on", "On"), isCurrent: on),
                     SettingOption(value: .bool(false), title: SettingsText.text("settings.choice.off", "Off"), isCurrent: !on)]
-        case .choice(let choices), .choiceOrNumber(let choices, _):
+        case .choice(let choices), .choiceOrNumber(let choices, _), .choiceOrURL(let choices, _):
             let options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
             return path == BackdropSelectionSetting().configPath ? Self.backgroundOptions(options, current: current) : options
         case .number(let number):

@@ -16,6 +16,8 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_adopt.rs"]
 mod agent_session_adopt;
+#[path = "agent_session_children.rs"]
+pub(super) mod agent_session_children;
 #[path = "agent_session_link.rs"]
 pub(super) mod agent_session_link;
 #[path = "agent_session_observe.rs"]
@@ -75,6 +77,9 @@ pub(crate) struct AgentSessions {
     state: Mutex<AttachState>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
+    /// `agent-session-children-v1`: the descendants acpmux answered, which
+    /// a `registry:` tab of this store may show.
+    pub(crate) known_children: agent_session_children::KnownChildren,
 }
 
 #[derive(Default)]
@@ -167,6 +172,9 @@ struct Attachment {
     /// since it began (it reads again): one reader at a time, in order.
     mode_reading: AtomicBool,
     mode_again: AtomicBool,
+    /// The session's descendants this attachment follows
+    /// (`agent-session-children-v1`): their changes are streamed too.
+    children: Mutex<HashSet<String>>,
 }
 
 impl Attachment {
@@ -251,6 +259,7 @@ enum AgentSessionCommand {
     Cancel(SurfaceParams),
     Permission(PermissionParams),
     Detach(SurfaceParams),
+    Children(SurfaceParams),
 }
 
 impl AgentSessionCommand {
@@ -266,6 +275,7 @@ impl AgentSessionCommand {
             "agent-session-cancel" => Self::Cancel(from_value(params).ok()?),
             "agent-session-permission" => Self::Permission(from_value(params).ok()?),
             "agent-session-detach" => Self::Detach(from_value(params).ok()?),
+            "agent-session-children" => Self::Children(from_value(params).ok()?),
             _ => return None,
         })
     }
@@ -596,7 +606,9 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
         AgentSessionCommand::Attach(params) | AgentSessionCommand::Events(params) => params.surface,
         AgentSessionCommand::Prompt(params) => params.surface,
         AgentSessionCommand::Permission(params) => params.surface,
-        AgentSessionCommand::Cancel(params) | AgentSessionCommand::Detach(params) => params.surface,
+        AgentSessionCommand::Cancel(params)
+        | AgentSessionCommand::Detach(params)
+        | AgentSessionCommand::Children(params) => params.surface,
     }
 }
 
@@ -878,6 +890,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             answered.map_err(Refusal::of)
         }
+        AgentSessionCommand::Children(_) => agent_session_children::list(attachment),
         AgentSessionCommand::Cancel(_) | AgentSessionCommand::Detach(_) => Ok(json!({})),
     }
 }

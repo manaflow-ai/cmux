@@ -61,9 +61,8 @@ extension SidebarBridge {
             // transaction path of its own.
             resync()
         case .reorder(let ids, let position):
-            let before = model.sections
-            model.apply(intent)
-            SidebarDaemonReorder.reorder(ids, to: position, in: before, bridge: self)
+            // A pending edit, as on the personal path: each command's echo shows no step between.
+            SidebarDaemonReorder.reorder(ids, to: position, in: model.sections, edit: rows.add(intent), bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
@@ -114,13 +113,14 @@ extension SidebarBridge {
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
-             .hideNowPlayingCard:
+             .hideNowPlayingCard, .addItems:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .toggleWorkspaceAudio(let id):
-            // The row's speaker runs the workspace menu's, palette's and CLI's action.
-            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID,
-                                          invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user))
+            // The row's speaker runs the workspace menu's, palette's and CLI's action, on its row alone.
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
+            invocation.closesRowOnly = true
+            _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID, invocation: invocation)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

@@ -99,7 +99,6 @@
 :where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
-.acpmux-fast:active,
 .acpmux-location-button:active {
   transition-duration: 0s;
 }
@@ -199,10 +198,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-menu-press);
 }
 
-/* The picker and slash menus fade in on the appear token; ui.animationSpeed off makes it 0ms. */
+/* The picker and slash menus fade in on the appear token, rising a few points out of the composer
+   (or dropping, for a menu that opens below its chip: ui/popupSurface.css --ui-popup-y);
+   ui.animationSpeed off makes it 0ms. */
 @keyframes acpmux-menu-in {
   from {
     opacity: 0;
+    translate: var(--ui-popup-x, 0) var(--ui-popup-y, 4px);
   }
 }
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
@@ -217,8 +219,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
-  .acpmux-mic,
-  .acpmux-fast {
+  .acpmux-mic {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);
