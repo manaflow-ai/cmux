@@ -197,6 +197,21 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       expect(layout).toEqual({ image: "none", rowImage: "none", blur: [], overlap: false });
       await page.close();
     });
+    test("a queued row's actions centre on its first line (layout pass, 2026-10-20)", async () => {
+      const page = await openChat(["one line"]);
+      const row = page.locator('.acpmux-queued[data-prompt-id="q-1"]');
+      await row.hover();
+      const offset = await row.evaluate((li) => {
+        const middle = (el: Element) => {
+          const box = el.getBoundingClientRect();
+          return box.top + box.height / 2;
+        };
+        // The number shows the first line's box: one 18px line.
+        return middle(li.querySelector(".acpmux-queued-action")!) - middle(li.querySelector(".acpmux-queued-mark")!);
+      });
+      expect(Math.abs(offset)).toBeLessThanOrEqual(0.5);
+      await page.close();
+    });
 
     test("six queued prompts fold behind '4 more queued', which opens and closes in place", async () => {
       const page = await openChat(PROMPTS);
