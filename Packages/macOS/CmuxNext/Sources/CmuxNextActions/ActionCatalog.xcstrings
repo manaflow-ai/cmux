@@ -87274,127 +87274,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search Chats & Agents…"
+            "value": "Search Everything…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットとエージェントを検索…"
+            "value": "すべてを検索…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "البحث في الدردشات والوكلاء…"
+            "value": "البحث في كل شيء…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pretraži razgovore i agente…"
+            "value": "Pretraži sve…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søg i chats og agenter…"
+            "value": "Søg overalt…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats und Agenten durchsuchen…"
+            "value": "Alles durchsuchen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar en chats y agentes…"
+            "value": "Buscar en todo…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher dans les discussions et les agents…"
+            "value": "Tout rechercher…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cerca in chat e agenti…"
+            "value": "Cerca ovunque…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្វែងរកការជជែក និងភ្នាក់ងារ…"
+            "value": "ស្វែងរកគ្រប់យ៉ាង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 및 에이전트 검색…"
+            "value": "모두 검색…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Søk i chatter og agenter…"
+            "value": "Søk overalt…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Szukaj w czatach i agentach…"
+            "value": "Szukaj wszędzie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pesquisar chats e agentes…"
+            "value": "Pesquisar tudo…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Искать в чатах и агентах…"
+            "value": "Искать везде…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหาแชทและเอเจนต์…"
+            "value": "ค้นหาทุกอย่าง…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetlerde ve ajanlarda ara…"
+            "value": "Her şeyde ara…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Шукати в чатах і агентах…"
+            "value": "Шукати всюди…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tìm trong trò chuyện và tác tử…"
+            "value": "Tìm kiếm mọi thứ…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜索聊天和智能体…"
+            "value": "搜索全部…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜尋聊天與代理程式…"
+            "value": "搜尋全部…"
           }
         }
       }
