@@ -184,12 +184,13 @@ WantedBy=default.target
 /// no readiness callback there, so the caller reads the status after a grace.
 const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
-/// Refuses (exit 3, the unit named on stderr) when the daemon of `~/.acpmux`
-/// runs under a systemd unit other than `acpmux.service`, such as a
-/// hand-written `acpmux-agent-<host>.service`: a shutdown would end its agents
-/// with that unit's cgroup, and the two units would then take turns on the
-/// lock. `ACPMUX_PROC_ROOT` stands for `/proc` in tests.
-const FOREIGN_UNIT_CHECK: &str = r#"p=$(cat ~/.acpmux/daemon.pid 2>/dev/null); u=
+/// Refuses (exit 3, the unit named on stderr) when the running daemon (its
+/// pid from `daemon status`) runs under a systemd unit other than
+/// `acpmux.service`, such as a hand-written `acpmux-agent-<host>.service`: a
+/// shutdown would end its agents with that unit's cgroup, and the two units
+/// would then take turns on the lock. `ACPMUX_PROC_ROOT` stands for `/proc`
+/// in tests.
+const FOREIGN_UNIT_CHECK: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
 if [ -n "$p" ] && [ -r "${ACPMUX_PROC_ROOT:-/proc}/$p/cgroup" ]; then u=$(sed -n 's|.*/\([^/]*\.service\)$|\1|p' "${ACPMUX_PROC_ROOT:-/proc}/$p/cgroup" | head -1); fi
 if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
 "#;
@@ -514,7 +515,13 @@ mod tests {
             std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
         };
         let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
-        fake("acpmux", "exit 0");
+        let status = match host.daemon_unit {
+            Some(_) => {
+                "case \"$*\" in \"--json daemon status\") printf '{\\n  \"pid\": 4242,\\n  \"running\": true\\n}\\n';; esac; exit 0"
+            }
+            None => "exit 0",
+        };
+        fake("acpmux", status);
         fake(
             "systemctl",
             &format!(
@@ -533,8 +540,6 @@ mod tests {
             ),
         );
         if let Some(unit) = host.daemon_unit {
-            std::fs::create_dir_all(home.join(".acpmux")).unwrap();
-            std::fs::write(home.join(".acpmux/daemon.pid"), "4242\n").unwrap();
             std::fs::create_dir_all(home.join("proc/4242")).unwrap();
             std::fs::write(
                 home.join("proc/4242/cgroup"),
@@ -583,7 +588,9 @@ mod tests {
             .iter()
             .map(String::as_str)
             .filter(|c| {
-                !c.starts_with("systemctl --user show-environment") && !c.starts_with("loginctl")
+                !c.starts_with("systemctl --user show-environment")
+                    && !c.starts_with("loginctl")
+                    && *c != "acpmux --json daemon status"
             })
             .collect();
         assert_eq!(
@@ -604,7 +611,13 @@ mod tests {
     fn linux_update_restarts_a_running_unit_and_never_starts_a_second_daemon() {
         let run = linux_restart_run("update-active", true, LinuxHost { active: true, ..LINGERING });
         assert!(run.calls.contains(&"systemctl --user restart acpmux.service".to_owned()));
-        assert!(!run.calls.iter().any(|c| c.starts_with("acpmux ")), "{:?}", run.calls);
+        assert!(
+            !run.calls
+                .iter()
+                .any(|c| c.starts_with("acpmux ") && c != "acpmux --json daemon status"),
+            "{:?}",
+            run.calls
+        );
         assert!(run.started_by_systemd());
     }
 
@@ -639,7 +652,7 @@ mod tests {
             let run = linux_restart_run(tag, install, host);
             assert_eq!(run.code, Some(3));
             assert!(run.err.contains("acpmux-agent-huge-blue.service"), "{}", run.err);
-            assert!(run.calls.is_empty(), "nothing may run: {:?}", run.calls);
+            assert_eq!(run.calls, ["acpmux --json daemon status"], "nothing else may run");
             assert!(run.unit.is_empty());
         }
         // The daemon under acpmux.service itself, or in a session scope: no refusal.
