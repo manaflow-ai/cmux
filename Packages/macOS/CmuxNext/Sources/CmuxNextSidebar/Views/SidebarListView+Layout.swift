@@ -70,6 +70,8 @@ extension SidebarListViewComponents {
         }
         o.excludedWorkspaces.formUnion(leaving)
         o.openDoneFolds = openDoneFolds
+        // A drop resolves by the drawn rows' model indexes: while a drag runs, Done workspaces show in their places.
+        if shownDrag != nil || external != nil { o.foldsDone = false }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
