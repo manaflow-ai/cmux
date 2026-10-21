@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "build": "3965802926201",
+  "notes": "notes/3965802926201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23619,
+      "title": "acpmux: a turn whose model never answers says so instead of Thinking forever",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23494,
+      "title": "pr-media: feat-cmux-next's tour and reel writers run the shared privacy check before every push",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23596,
+      "title": "cmux-mobile-link: the fake signaling server records a device before its connect returns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23610,
+      "title": "cmux NEXT Feed: the update card survives an early dismiss, and its rest count has plurals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23615,
+      "title": "cmux setup: mcp and computer-use review follow-ups (status agrees with run, unanswered sheet, no stray child)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23608,
+      "title": "ci(guards): admit the nightly-next train's drive job reading the release App in its own environment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23604,
+      "title": "cmux NEXT composer: a kept selection stays with its chat, not its text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23603,
+      "title": "Agent chat: Read aloud stops when the chat switches session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23572,
+      "title": "acpmux: a narrower permission policy starts Codex and Claude in a mode that asks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23463,
+      "title": "cmux NEXT: localization parity is a ratchet, and stacked pull requests skip ci.yml legacy lanes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23220,
+      "title": "acpmux host update: per-platform binary, --if-idle, rollback, unit migration",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22336,
+      "title": "cmux-next: take Saturn and 27 other grim works out of the backdrop art",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22762,
+      "title": "cmux-next: Change Font… with live preview, fonts in their own face, recent fonts first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23601,
+      "title": "cmux setup cloud-machine: have a Cloud machine, made with the person's OK",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23159,
+      "title": "cmux NEXT agent pane: a click on a sub-session opens its chat (chat.offer.open)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23159/bca0b18a/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "bca0b18a",
+      "tour": "agent-pane"
+    }
+  ]
+}
