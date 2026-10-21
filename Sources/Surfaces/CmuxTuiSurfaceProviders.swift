@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudTui
@@ -18,9 +19,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// machines and legacy callers, which follow the selected team.
     let ownerTeamID: String?
     /// Set once the control plane answered that this user can no longer reach
-    /// the machine (404 `vm_not_found`, 403, `vm_owner_mismatch`). Refreshes
-    /// stop dialing and every attached pane shows the access-lost card.
-    var hasLostAccess = false
+    /// the machine (404 `vm_not_found`, 403, `vm_owner_mismatch`) or that this
+    /// Mac's Cloud sign-in was revoked. Refreshes stop dialing and every
+    /// attached pane shows the matching card. An authorized read that lists
+    /// the machine again clears a machine-scoped loss.
+    var accessLoss: CloudMachineAccessLoss?
+    var hasLostAccess: Bool { accessLoss != nil }
+    /// Panes whose attachment the access loss ended, rebuilt when access returns.
+    var accessLostPanelIDs: Set<UUID> = []
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
@@ -40,6 +46,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
@@ -170,6 +177,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ownerTeamID: String? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
@@ -185,6 +193,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
@@ -318,29 +327,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         pendingRemoteRenames.removeAll()
         acceptedCloudGenerations.removeAll(); catalog.notifyChange(for: machine)
     }
-    /// The control plane answered that this user can no longer reach the
-    /// machine. Automatic reconnects stop, and every attached pane shows the
-    /// access-lost card; the pane itself stays open so the user decides.
-    func noteAccessLost() {
-        guard !hasLostAccess else { return }
-        hasLostAccess = true
-        for task in restoredAttachTasks.values { task.cancel() }
-        restoredAttachTasks.removeAll()
-        attachmentRetry.cancel()
-        for session in manualMirrorSessions.values { session.stop(reason: .accessLost) }
-        manualMirrorSessions.removeAll()
-        manualMirrorSurfaceIDsSocketPath = nil
-        let detail = CloudTuiManualMirrorStopReason.accessLost.endedPresentation?.detail ?? ""
-        // Cloud browser and display panes of this machine keep the same state,
-        // in the browser's own unavailable card.
-        for task in browserPaneTasks.values { task.cancel() }
-        browserPaneTasks.removeAll()
-        for projection in catalog.projections where projection.resource.machine == machine {
-            AppDelegate.shared?.browserPanel(for: projection.panelID)?.cloudAccess.showUnavailable(detail)
-        }
-        guard isRegisteredInCatalog() else { return }
-        info.linkState = .error
-        info.linkError = detail
+    /// Publishes a link state the provider decided outside a refresh pass.
+    func publishLinkStatus(_ state: SurfaceLinkState, error: String?) {
+        info.linkState = state
+        info.linkError = error
         catalog.updateMachine(info, from: self)
     }
     /// One refresh pass. Sleeping machines retain their graph without being woken.
@@ -506,9 +496,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            if CloudMachineAccessLoss(error: error) != nil {
+            if let loss = CloudMachineAccessLoss(error: error) {
                 // Retrying cannot succeed; a retry loop would only keep a frozen pane.
-                noteAccessLost()
+                noteAccessLost(loss)
                 return false
             }
             portDiscovery.linkFailed()
@@ -611,10 +601,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 self.catalog.updateMachine(self.info, from: self)
             case .failure(let error):
                 // A carrier link can outlive a revoked membership; the owning
-                // team's authorized read is the first to learn it.
-                guard self.isCurrentLifecycleGeneration(lifecycle),
-                      CloudMachineAccessLoss(error: error) != nil else { return }
-                self.noteAccessLost()
+                // team's authorized read is the first to learn it. Only the
+                // current refresh may report it: an older read failing late
+                // would undo an access confirmation that came after it.
+                guard self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation),
+                      let loss = CloudMachineAccessLoss(error: error) else { return }
+                self.noteAccessLost(loss)
             }
         }
         return snapshotEstablishedCurrentGraph
@@ -1824,9 +1816,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func projectionsRestored(resources: Set<SurfaceResourceID>) {
         reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
     }
-    /// Reprojects restored panes while preserving lifecycle and ownership guards.
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        // Browser and port projections have their own reachability state. A
+        // stale terminal graph must not strand those unrelated panes.
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {

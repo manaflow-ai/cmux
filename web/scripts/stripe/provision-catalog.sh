@@ -272,9 +272,18 @@ price_id_for_lookup_key() {
 }
 
 # The Billing Portal configuration that lets a personal subscription switch
-# from Go to Pro/Max and between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
+# between Pro and Max (web/app/api/billing/portal/route.ts, flow=switch_plan).
 # The account's default configuration stays quantity-only; this one is found
 # by its metadata the way Prices are found by lookup key.
+#
+# The portal only switches a subscription whose current price is listed here,
+# and every listed price is also a choice any subscriber can pick. So the list
+# is PORTAL_SWITCHABLE_LOOKUP_KEYS in web/services/billing/plans.ts: current
+# Pro monthly and both Max intervals. Yearly subscribers switch in the
+# dashboard, which keeps their interval, so Pro yearly would only let a
+# monthly subscriber (Max included) move onto it. Grandfathered prices and the
+# release-gated Go plan are never listed; their subscribers switch in the
+# dashboard too.
 ensure_personal_plan_switch_portal() {
   local pro_product_id="$1"
   local max_product_id="$2"
@@ -310,9 +319,10 @@ ensure_personal_plan_switch_portal() {
   fi
   configuration_id="${matching_ids[0]:-}"
 
-  local pro_monthly_price_id max_monthly_price_id
+  local pro_monthly_price_id max_monthly_price_id max_yearly_price_id
   pro_monthly_price_id="$(price_id_for_lookup_key "cmux-pro-monthly-50")"
   max_monthly_price_id="$(price_id_for_lookup_key "cmux-max-monthly-200")"
+  max_yearly_price_id="$(price_id_for_lookup_key "cmux-max-yearly-1920")"
   local -a feature_args=(
     -d "features[subscription_update][enabled]=true"
     -d "features[subscription_update][default_allowed_updates][]=price"
@@ -322,6 +332,7 @@ ensure_personal_plan_switch_portal() {
     -d "features[subscription_update][products][0][adjustable_quantity][enabled]=false"
     -d "features[subscription_update][products][1][product]=${max_product_id}"
     -d "features[subscription_update][products][1][prices][]=${max_monthly_price_id}"
+    -d "features[subscription_update][products][1][prices][]=${max_yearly_price_id}"
     -d "features[subscription_update][products][1][adjustable_quantity][enabled]=false"
     -d "features[subscription_cancel][enabled]=true"
     -d "features[subscription_cancel][mode]=at_period_end"
@@ -348,11 +359,15 @@ ensure_personal_plan_switch_portal() {
   [[ -n "$privacy" ]] && profile_args+=(--data-urlencode "business_profile[privacy_policy_url]=${privacy}")
   [[ -n "$terms" ]] && profile_args+=(--data-urlencode "business_profile[terms_of_service_url]=${terms}")
 
+  # bash 3.2 (macOS) treats an empty "${array[@]}" as unbound under set -u,
+  # so the profile fields are only passed when the default profile has any.
+  if (( ${#profile_args[@]} > 0 )); then
+    feature_args=("${profile_args[@]}" "${feature_args[@]}")
+  fi
   response="$(
     stripe_post "/billing_portal/configurations" \
       -d "metadata[app]=cmux" \
       -d "metadata[purpose]=personal_plan_switch" \
-      "${profile_args[@]}" \
       "${feature_args[@]}"
   )"
   configuration_id="$(jq -er '.id' <<<"$response")"
@@ -390,8 +405,9 @@ ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, 
 ensure_price "$pro_product_id" "cmux-pro-monthly-50" "5000" "month" "cmux Pro Monthly"
 # Go is monthly only. Its included VM-hours are enforced by cmux, not Stripe.
 ensure_price "$go_product_id" "cmux-go-monthly-10" "1000" "month" "cmux Go Monthly"
-# Max is monthly only (no yearly Price on purpose).
+# Max is sold monthly or yearly at the same 20% annual discount as Pro.
 ensure_price "$max_product_id" "cmux-max-monthly-200" "20000" "month" "cmux Max Monthly"
+ensure_price "$max_product_id" "cmux-max-yearly-1920" "192000" "year" "cmux Max Yearly"
 ensure_price "$team_product_id" "cmux-team-monthly-60" "6000" "month" "cmux Team Monthly"
 # Grandfathered Prices stay active for the subscriptions already on them
 # (LEGACY_PRICE_LOOKUP_KEYS); no new checkout may use these keys.
@@ -401,7 +417,7 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-288" "28800" "year" "cmux Pro Ye
 ensure_price "$team_product_id" "cmux-team-monthly" "3500" "month" "cmux Team Monthly (Legacy \$35)"
 ensure_price "$team_product_id" "cmux-team-yearly-336" "33600" "year" "cmux Team Yearly (Legacy \$336)"
 
-# Pro is the only plan sold yearly (20% off the monthly price).
+# Pro and Max are sold yearly at 20% off their monthly prices.
 ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Yearly"
 
 # Retired annual offer; valid for existing subscribers only, never advertised

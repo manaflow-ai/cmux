@@ -124,6 +124,7 @@ export async function POST(request: Request): Promise<Response> {
         timing,
       }), {
         request,
+        deadline: { operation: "restore" },
         onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,
@@ -140,7 +141,6 @@ export async function POST(request: Request): Promise<Response> {
         status: restored.status,
         createdAt: restored.createdAt,
         capabilities: vmCapabilitiesFor(restored.provider),
-        cmuxTuiStateProtection: restored.cmuxTuiStateProtection,
       });
     },
   );

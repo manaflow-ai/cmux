@@ -22,13 +22,16 @@ struct SidebarAppKitRowCellTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                customColorHex: nil
             ),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
             isMuted: false,
-            customColorHex: nil, cloudWorkspaceLabel: nil,
+            customColorHex: nil,
+            hasManualCustomColor: false,
+            cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
@@ -162,6 +165,7 @@ struct SidebarAppKitRowCellTests {
                 canMarkUnread: false,
                 hasLatestNotification: false,
                 allNotificationsMuted: false,
+                hasManualCustomColor: false,
                 notifications: []
             )
         )
@@ -865,6 +869,172 @@ struct SidebarAppKitRowCellTests {
             #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
             #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
         }
+    }
+
+    @Test
+    func statusPresentationKeepsReadableExplicitColorAndUsesSelectedFallback() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let readableExplicit = try #require(NSColor(hex: "#FFFFFF"))
+        let lowContrastExplicit = try #require(NSColor(hex: "#0066CC"))
+        let inactiveFallback = NSColor.secondaryLabelColor
+        let selectedFallback = try #require(NSColor(hex: "#FF00FF")).withAlphaComponent(0.37)
+
+        let inactive = sidebarStatusPresentationNSColor(
+            explicit: readableExplicit,
+            isActive: false,
+            selectedBackground: selectedBackground,
+            fallback: inactiveFallback
+        )
+        let activeReadable = sidebarStatusPresentationNSColor(
+            explicit: readableExplicit,
+            isActive: true,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let activeFloored = sidebarStatusPresentationNSColor(
+            explicit: lowContrastExplicit,
+            isActive: true,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+
+        #expect(Self.distance(inactive, readableExplicit) < 0.001)
+        #expect(Self.distance(activeReadable, readableExplicit) < 0.001)
+        #expect(Self.distance(activeFloored, selectedFallback) < 0.001)
+    }
+
+    @Test
+    func selectedLogPresentationKeepsReadableTintAndFloorsLowContrastTint() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let readableAccent = CmuxAccentColor(mode: .custom, customHex: "#FFFFFF")
+        let lowContrastAccent = CmuxAccentColor(mode: .custom, customHex: "#0066CC")
+        let selectedFallback = try #require(NSColor(hex: "#FF00FF"))
+        let inactiveFallback = try #require(NSColor(hex: "#00FFFF"))
+
+        let readable = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: true,
+            colorScheme: .dark,
+            accent: readableAccent,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let floored = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: true,
+            colorScheme: .dark,
+            accent: lowContrastAccent,
+            selectedBackground: selectedBackground,
+            fallback: selectedFallback
+        )
+        let inactive = sidebarLogPresentationNSColor(
+            level: .progress,
+            isActive: false,
+            colorScheme: .dark,
+            accent: lowContrastAccent,
+            selectedBackground: selectedBackground,
+            fallback: inactiveFallback
+        )
+
+        #expect(Self.distance(readable, try #require(NSColor(hex: "#FFFFFF"))) < 0.001)
+        #expect(Self.distance(floored, selectedFallback) < 0.001)
+        #expect(Self.distance(inactive, try #require(NSColor(hex: "#0066CC"))) < 0.001)
+    }
+
+    @Test
+    func statusContrastUsesThePaintedSubtleSelectionState() throws {
+        let emphasizedBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .leftRail,
+            subtleSelection: true,
+            isEmphasized: true
+        )
+        let inactiveBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: nil,
+            activeTabIndicatorStyle: .leftRail,
+            subtleSelection: true,
+            isEmphasized: false
+        )
+        #expect(Self.distance(emphasizedBackground, inactiveBackground) > 0.001)
+
+        let explicit = try #require(NSColor(hex: "#FFFFFF"))
+        let fallback = try #require(NSColor(hex: "#FF00FF"))
+        for background in [emphasizedBackground, inactiveBackground] {
+            let contrast = cmuxContrastRatio(foreground: explicit, background: background)
+            let presented = sidebarStatusPresentationNSColor(
+                explicit: explicit,
+                isActive: true,
+                selectedBackground: background,
+                fallback: fallback
+            )
+            let expected = contrast >= sidebarStatusMinimumContrast ? explicit : fallback
+            #expect(Self.distance(presented, expected) < 0.001)
+        }
+    }
+
+    /// Issue #18383: `cmux set-status --color` on the selected workspace row.
+    /// The rendered status text keeps its explicit color whenever that color
+    /// reaches 3:1 against the selection fill, and only falls back to the
+    /// selection foreground below that floor.
+    @Test(arguments: [
+        ("#FFFFFF", true),  // 5.98:1 against #005FCC
+        ("#FFD60A", true),  // 4.24:1, between the 3:1 floor and 4.5:1
+        ("#FF453A", false), // 1.76:1, unreadable on the selection fill
+    ])
+    func selectedRowStatusTextKeepsExplicitColorAboveContrastFloor(
+        _ statusHex: String,
+        _ keepsExplicitColor: Bool
+    ) throws {
+        let selectionHex = "#005FCC"
+        let defaults = Self.makeDefaults()
+        defaults.set(selectionHex, forKey: "sidebarSelectionColorHex")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let selectionBackground = try #require(NSColor(hex: selectionHex)?.usingColorSpace(.sRGB))
+        let explicit = try #require(NSColor(hex: statusHex)?.usingColorSpace(.sRGB))
+        let contrast = cmuxContrastRatio(foreground: explicit, background: selectionBackground)
+        #expect((contrast >= 3) == keepsExplicitColor, "fixture contrast \(contrast) does not match its case")
+
+        let value = "Deploying"
+        let model = Self.makeModel(
+            isActive: true,
+            settings: settings,
+            metadataEntries: [SidebarStatusEntry(key: "deploy", value: value, color: statusHex)]
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: value))
+        let rendered = try #require(textView.textColor?.usingColorSpace(.sRGB))
+
+        let expected: NSColor
+        if keepsExplicitColor {
+            expected = explicit
+        } else {
+            expected = try #require(
+                sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                    .usingColorSpace(.sRGB)
+            )
+        }
+        #expect(
+            Self.distance(rendered, expected) < 0.001,
+            "status \(statusHex) at \(contrast):1 rendered \(rendered), expected \(expected)"
+        )
+    }
+
+    @Test
+    func statusPresentationUsesInactiveFallbackWithoutExplicitColor() throws {
+        let selectedBackground = try #require(NSColor(hex: "#005FCC"))
+        let fallback = try #require(NSColor(hex: "#E0E0E0"))
+
+        let presented = sidebarStatusPresentationNSColor(
+            explicit: nil,
+            isActive: false,
+            selectedBackground: selectedBackground,
+            fallback: fallback
+        )
+
+        #expect(Self.distance(presented, fallback) < 0.001)
     }
 
     @Test

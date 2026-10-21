@@ -12,6 +12,166 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Screen export closes retained temporary-directory handles
+
+- Branch: `issue-21374-screen-export-fd-leak`
+  ([manaflow-ai/ghostty#275](https://github.com/manaflow-ai/ghostty/pull/275)).
+- Commits: `0d706c3c0` (regression test), `ef4f1570d` (fix), both based on
+  the cmux pin and the latter cherry-picked from upstream Ghostty #13644.
+- Summary: screen, scrollback, selection, and active-area exports now close
+  both the temporary directory and its parent handles after dispatching the
+  path, while retaining the directory contents for the consumer. `TempDir`
+  cleanup closes the parent handle after deleting the directory as well.
+- Coverage: `TempDir` tests assert that both handles are closed for delete and
+  retain cleanup, and that the retained directory remains usable.
+- Conflict notes: keep the `retain_tmp_dir` defer around `writeScreenFile` and
+  keep `TempDir.close(.retain)` exhaustive so every action path releases both
+  handles. The cmux pin must continue to use this branch until its change is
+  merged into fork `main`.
+
+### Minimum contrast uses the host-painted background
+
+- Branch: `cmux-min-contrast-host-bg`
+  ([manaflow-ai/ghostty#269](https://github.com/manaflow-ai/ghostty/pull/269)),
+  based on the cmux pin `a53c76d06`. Merge it with a merge commit so the pin
+  stays reachable from fork `main`.
+- Commit: `2b3fdc58e` (fix).
+  Classic cmux pins the combined commit `cb1ef7091` (#270's `fca69640e`
+  with this merged in, [manaflow-ai/ghostty#271](https://github.com/manaflow-ai/ghostty/pull/271));
+  see the CSI 996 entry below.
+- Summary: `macos-background-from-layer` and the macOS glass styles zero the
+  background uniform's alpha, and the Metal `cell_text` vertex shader
+  premultiplied it to black before running `minimum-contrast`. On a light
+  theme, dark text failed the check against black and was drawn white on the
+  light background cmux's host layer paints (#4156, #3967). `updateFrame` now
+  sets a Metal-only `bools.host_paints_background` uniform where it zeroes the
+  alpha, and the text shader treats `bg_color` as opaque for contrast and
+  linear correction when it is set. The fill is still skipped.
+- Coverage: `cmuxTests/GhosttyMinimumContrastLayerBackgroundTests` reads the
+  presented IOSurface for Flexoki Light colors with `minimum-contrast = 2`.
+- GhosttyKit: built by
+  [run 38276408682](https://github.com/manaflow-ai/cmux/actions/runs/38276408682),
+  archive SHA-256 `33af7242117297ed796c72c2f60c801e4b3bb12a703edd9cf9a34b84a9a2d4fc`.
+  The combined pin's archive is listed under the CSI 996 entry.
+- Conflict notes: the flag is set next to the glass and layer-background
+  alpha zeroing in `updateFrame`; keep them together, and keep the Zig
+  `Uniforms.bools` and the MSL `Uniforms` field order identical.
+
+### CSI 996 reports the surface's runtime color scheme
+
+- Branch: `cmux-csi996-runtime-scheme`
+  ([manaflow-ai/ghostty#270](https://github.com/manaflow-ai/ghostty/pull/270)),
+  based on the cmux pin `a53c76d06`. It carries only the termio commit of
+  [manaflow-ai/ghostty#231](https://github.com/manaflow-ai/ghostty/pull/231).
+- Commit: `fca69640e`. cmux pins the combined classic commit `cb1ef7091`
+  ([manaflow-ai/ghostty#271](https://github.com/manaflow-ai/ghostty/pull/271),
+  branch `cmux-classic-csi996-min-contrast`): `fca69640e` with #269's
+  `2b3fdc58e` merged in. Merge #271 with a merge commit so the pin stays
+  reachable from fork `main`.
+- Summary: `CSI ? 996 n` and mode 2031 reports read a new `Termio.color_scheme`
+  field instead of the parsed config's conditional state. `Surface.init` seeds
+  it from the surface's conditional state and `colorSchemeCallback` updates it
+  under the renderer mutex. Config reloads no longer touch it. Before, a config
+  whose final `theme` is plain (cmux always resolves one) never put `.theme` in
+  `_conditional_set`, so `changeConditionalState` kept the parser default and
+  every dark surface answered light (manaflow-ai/cmux#14155).
+- Coverage: `cmuxTests/GhosttyColorSchemeQueryTests` sends `CSI ? 996 n` to a
+  real surface with a plain dark config. GhosttyKit `fca69640e` was built and
+  published by
+  [run 38302975941](https://github.com/manaflow-ai/cmux/actions/runs/38302975941)
+  ([release](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fca69640ecf394f2ef9bd3ca77f2d18ef6f6d991-crashsubdir-cmux-crash-sentry-off-noi18n-v2)).
+  The archive SHA-256 is `eb65ef0727344d8de11f95016c7b54cbe2902c01273271adc622be73561b20e6`.
+  The combined pin `cb1ef7091` was built by
+  [run 38322629210](https://github.com/manaflow-ai/cmux/actions/runs/38322629210)
+  ([release](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-cb1ef7091cdef0b581ee2cbd83742b653253523e-crashsubdir-cmux-crash-sentry-off-noi18n-v2)),
+  archive SHA-256 `413515af9e3739068f91bae98bc33fa1d89d4ea20b35d0fa96b317379bb17ae2`;
+  `GhosttyMinimumContrastLayerBackgroundTests` covers its min-contrast half.
+- Conflict notes: `DerivedConfig` no longer has `conditional_state`; anything
+  upstream that reads `self.config.conditional_state` in termio should read
+  `self.color_scheme`. `termio.Options` gains a required `color_scheme` field.
+  Independent of #269 (minimum contrast, same `a53c76d06` base). Fork `main`
+  is far ahead of classic's pin, so never pin fork `main` for classic. If both
+  land, branch from one fix commit, merge the other (they merge cleanly), merge
+  that branch into fork `main` so it stays reachable, build GhosttyKit for it,
+  and repin to that combined commit, keeping both checksum lines and both
+  entries here.
+
+### Link filter: the embedder vetoes hover regex links
+
+- Branch: `link-filter`
+  ([manaflow-ai/ghostty#267](https://github.com/manaflow-ai/ghostty/pull/267)),
+  based on the cmux pin `7e880f6b6`.
+- Commits: `210d333c9` (regression test and API), `a53c76d06` (fix).
+- Summary: `ghostty_surface_set_link_filter(surface, cb, userdata)` lets the
+  embedder reject a regex link before Ghostty underlines it, changes the
+  pointer, reports mouse-over-link or opens it on click. The callback gets the
+  matched text and runs on the renderer thread, or on the app thread with the
+  terminal lock held, so it answers from what it already knows. OSC 8 links and
+  `always` / `always_mods` highlights are not asked. cmux answers per surface
+  so a Cmd-hovered path that names no file is not a link (cx-do47.1).
+- Coverage: `resolveAtFiltered: the link a filter rejects is no link` runs in
+  the `build-ghosttykit.yml` "Test Ghostty link filter" step. It failed on
+  `210d333c9` in
+  [run 38150926546](https://github.com/manaflow-ai/cmux/actions/runs/38150926546)
+  and passed on `a53c76d06` in
+  [run 38151479998](https://github.com/manaflow-ai/cmux/actions/runs/38151479998),
+  which published
+  [GhosttyKit a53c76d06](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a53c76d06b14c84b4ff5e159b02835ed167901e8-crashsubdir-cmux-crash-sentry-off-noi18n-v2).
+  The archive SHA-256 is `e037a1579a0d3b507dce1d917b0822bdbd0a77c638a9f8fc82d97bc2fe200d5d`.
+- Conflict notes: `link.resolveAt` keeps its signature and calls
+  `resolveAtFiltered` with no filter; the renderer's hover path and
+  `Surface.linkAtPos` pass the filter stored in the renderer state.
+
+### OSC 7501 program status protocol
+
+- Branch: `feat-osc7501-program-status`, based on cmux pin `76f5f8c7c`.
+- Commits: upstream `bae2c3cdbf73f2ac33a67e4b0b7811165f0f62d4` was cherry-picked
+  with `-x` as `abfda426093`; cmux-specific protocol forwarding and C ABI work
+  follows through Ghostty `7e880f6b63e`.
+- Summary: OSC 7501 queries echo the fixed query body and terminator, validated
+  reports reach the full-app surface action path, prompt-start and RIS clear
+  events are emitted, and Ghostty terminfo advertises `Pst`.
+- Conflict notes: the upstream patch was based on a newer Ghostty tree. The
+  fork kept its clipboard, APC, CJK, stream-handler, and action behavior while
+  adding the parser, dispatch, callback, and ABI pieces. `kitty_metadata.zig`
+  was restored as the shared parser helper required by the upstream parser.
+- Coverage: upstream parser and stream-terminal behavior tests are present, with
+  an added `build-ghosttykit.yml` filtered `program_status` lane. Hosted run
+  [37878143382](https://github.com/manaflow-ai/cmux/actions/runs/37878143382)
+  passed all tests and published
+  [GhosttyKit 7e880f6b63e](https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-7e880f6b63ef63f3e3a1b7618e6e13283f155c61-crashsubdir-cmux-crash-sentry-off-noi18n-v2).
+  The archive SHA-256 is `a06ac56041f5624c7f16b6a28a6ed552593aabc31d12f007e23fecf64690ba9b`.
+
+### CJK fallback avoids repeated font collection scans
+
+- Branch: `issue-18648-cjk-fallback-latency`, based on the cmux pin
+  `17357e12a`.
+- Commits: `cf8b9d396` (regression test), `fff35f432` (fix),
+  `76f5f8c7c` (backend coverage guard).
+- Summary: CoreText fallback used `CTFontCollection` discovery for Japanese
+  kana and other CJK ranges. Every missing glyph could synchronously enumerate
+  and score the installed fonts before the terminal rendered it. CJK fallback
+  now uses CoreText's locale-aware `CTFontCreateForString` result directly;
+  non-CJK fallback keeps the existing collection path.
+- Coverage: `coretext CJK fallback keeps the direct codepoint result` failed on
+  the pre-fix commit with `expected 1, found 39`, then passed in the local
+  74-test Ghostty suite. The test now runs only for CoreText backends without
+  FreeType, matching the direct lookup implementation. The existing CJK
+  punctuation suite also passed. The hosted GhosttyKit build and its CJK,
+  shaping, and compatibility lanes passed in
+  [run 37850926294](https://github.com/manaflow-ai/cmux/actions/runs/37850926294);
+  the hosted regression step passed in
+  [run 37852501997](https://github.com/manaflow-ai/cmux/actions/runs/37852501997).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-76f5f8c7cc614d4f42cf67031cda488cbf8bae0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `b2d2528bb20da61bf882f0ba772ff6060cf29e821d5897af79c17bc1f9aee9e4`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- The coverage-only `76f5f8c7c` follow-up leaves the ReleaseFast binary
+  byte-identical to `fff35f432`; the exact-SHA release reuses that verified
+  archive after the hosted build dispatch had no runner assignment.
+- Conflict note: keep the CJK ranges on CoreText's direct fallback path so
+  locale-sensitive selection and the deferred face loading behavior remain
+  intact. Leave generic collection discovery available for other scripts.
+
 ### CJK punctuation keeps the resolver's font
 
 - Branch: `fix-10733-cjk-punctuation-width`

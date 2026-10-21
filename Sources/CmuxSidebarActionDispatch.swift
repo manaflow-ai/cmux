@@ -27,10 +27,12 @@ private let sidebarSelectCoalescer = SidebarSelectCoalescer()
 ///
 /// `cmux(...)` commands run in-process through
 /// `TerminalController.handleSocketLine(_:)` (the same worker-aware surface the
-/// socket CLI uses); `log` is a debug-only no-op for now.
+/// socket CLI uses); `log` is a debug-only no-op for now. JS sidebars'
+/// gesture-gated `clipboard.write` goes through the same plain-text pasteboard
+/// helper as the built-in Copy Workspace ID / Link commands.
 @MainActor
 func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
-    SidebarActionDispatch { action in
+    SidebarActionDispatch(run: { action in
         // Capture the controller on the main actor, then run the whole command
         // sequence on the serial worker queue so the commands keep their authored
         // order. handleSocketLine runs worker-lane methods (browser JS, waits) on
@@ -84,5 +86,7 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                 }
             }
         }
-    }
+    }, writeClipboard: { text in
+        WorkspaceSurfaceIdentifierClipboardText.copy(text)
+    })
 }

@@ -69,7 +69,7 @@ Bočna traka prikazuje git granu, status/broj povezanog PR-a, radni direktorij, 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Paneli preglednika se usmjeravaju kroz udaljenu mrežu tako da localhost jednostavno radi. Prevucite sliku u udaljenu sesiju za upload putem scp.
+<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Proslijedite <code>--command 'omp "investigate auth"'</code> da jednom pokrenete početnu komandu u njenom prvom udaljenom terminalu. Paneli preglednika se usmjeravaju kroz udaljenu mrežu tako da localhost jednostavno radi. Prevucite sliku u udaljenu sesiju za upload putem scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Pri prvom pokretanju, macOS vas može zamoliti da potvrdite otvaranje aplikacije od identificiranog programera. Kliknite **Otvori** da nastavite.
 
+### Dovršavanje u shellu
+
+Homebrew cask instalira dovršavanje za zsh, bash i fish. Pokrenite novi shell nakon instalacije. Ako se ne učita, provjerite da su Homebrewovi direktoriji za dovršavanje povezani s vašim shellom (pogledajte [Homebrew dokumentaciju o dovršavanju u shellu](https://docs.brew.sh/Shell-Completion)).
+
+Ako ste cmux instalirali na drugi način, dodajte odgovarajuću liniju u startnu datoteku svog shella, pa pokrenite novi shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Zašto cmux?
 
 Pokrećem mnogo Claude Code i Codex sesija paralelno. Koristio sam Ghostty sa gomilom podijeljenih panela i oslanjao se na nativna macOS obavještenja da znam kada agent treba mene. Ali tijelo obavještenja Claude Code je uvijek samo „Claude is waiting for your input" bez konteksta, a sa dovoljno otvorenih tabova nisam mogao ni pročitati naslove.
@@ -152,7 +171,9 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 
 | Prečica | Akcija |
 |----------|--------|
-| ⌘ N | Novi radni prostor |
+| ⌘ N | Novi lokalni radni prostor |
+| ⌘ Y | Novi Cloud workspace na posljednjem dostupnom Cloud kontekstu; otvara New Cloud Machine kada ga nema |
+| ⌘ ⇧ Y | Nova Cloud mašina |
 | ⌘ 1–8 | Skoči na radni prostor 1–8 |
 | ⌘ 9 | Skoči na posljednji radni prostor |
 | ⌃ ⌘ ] | Sljedeći radni prostor |

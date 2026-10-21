@@ -39,7 +39,7 @@ public final class CloudWorkspaceCoordinator {
         CloudWorkspaceSelectionState(scopeProvider: { [machinePinStore] in machinePinStore.scopeIdentifier })
     }
 
-    /// Creates on an explicitly selected machine, preserving Cmd+N's current-workspace behavior.
+    /// Creates on an explicitly selected machine for context-following workspace actions.
     /// - Parameters:
     ///   - request: The machine, window, and scope captured at dispatch.
     /// - Returns: The created local workspace identity, or nil if access is unavailable.
@@ -55,10 +55,11 @@ public final class CloudWorkspaceCoordinator {
     ///   - selection: Validated window-owned selection captured at action dispatch.
     ///   - windowID: The originating window.
     ///   - scopeID: The account/team captured synchronously at dispatch.
+    ///   - selectionRevision: Navigation captured before machine lookup may suspend.
     /// - Returns: The exact created local workspace identity, or nil if access changed.
     /// - Throws: ``CloudWorkspaceCreationError/noMachines``, cancellation, or an operation failure.
     public func createOnResolvedMachine(
-        selection: CloudWorkspaceSelection?, windowID: UUID, scopeID: String
+        selection: CloudWorkspaceSelection?, windowID: UUID, scopeID: String, selectionRevision: UInt64? = nil
     ) async throws -> UUID? {
         guard isAvailable, scopeID == scopeIdentifier else { return nil }
         try Task.checkCancellation()
@@ -71,6 +72,8 @@ public final class CloudWorkspaceCoordinator {
         guard let id = targetResolver.resolve(
             lastSelection: selection, currentScopeID: scopeID, sidebarMachineIDs: orderedIDs
         ) else { throw CloudWorkspaceCreationError.noMachines }
-        return try await createWorkspace(CloudWorkspaceCreationRequest(machineID: id, scopeID: scopeID, windowID: windowID))
+        return try await createWorkspace(CloudWorkspaceCreationRequest(
+            machineID: id, scopeID: scopeID, windowID: windowID, selectionRevision: selectionRevision
+        ))
     }
 }

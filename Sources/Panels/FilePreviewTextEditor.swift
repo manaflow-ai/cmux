@@ -408,6 +408,7 @@ extension SavingTextView {
         textView.isRichText = false
         textView.importsGraphics = false
         textView.usesFindPanel = true
+        textView.usesFindBar = true
         textView.usesFontPanel = false
         textView.applyCurrentPreviewFont()
         textView.minSize = NSSize(width: 0, height: 0)
@@ -690,5 +691,88 @@ extension FilePreviewPanel {
         guard previewMode == .text,
               let textView = textView as? SavingTextView else { return false }
         return textView.resetPreviewFontSize()
+    }
+}
+
+// MARK: - Find in the plain-text preview
+
+extension FilePreviewPanel {
+    /// Whether the text preview's native find bar is currently showing.
+    ///
+    /// Read live from the find bar's AppKit container so window-level find
+    /// visibility (the Find menu's "Hide Find Bar" enablement) tracks real UI
+    /// state, including the bar being dismissed with Escape or its Done
+    /// button rather than through `hideFind()`.
+    var isTextFindBarVisible: Bool {
+        guard previewMode == .text else { return false }
+        return textView?.enclosingScrollView?.isFindBarVisible ?? false
+    }
+
+    /// Whether the text preview has a selection that "Use Selection for Find"
+    /// can adopt as the search string.
+    var canUseSelectionForFind: Bool {
+        guard previewMode == .text, let textView else { return false }
+        return textView.selectedRange().length > 0
+    }
+
+    /// Shows the native find bar and focuses its search field. A freshly
+    /// opened bar is prefilled from the current selection; an already-visible
+    /// bar keeps its in-progress query and only retakes focus.
+    @discardableResult
+    func startFind() -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        let barAlreadyVisible = textView.enclosingScrollView?.isFindBarVisible ?? false
+        if !barAlreadyVisible, textView.selectedRange().length > 0 {
+            Self.performTextFindAction(.setSearchString, on: textView)
+        }
+        Self.performTextFindAction(.showFindInterface, on: textView)
+        return true
+    }
+
+    func findNext() {
+        guard previewMode == .text, let textView else { return }
+        Self.performTextFindAction(.nextMatch, on: textView)
+    }
+
+    func findPrevious() {
+        guard previewMode == .text, let textView else { return }
+        Self.performTextFindAction(.previousMatch, on: textView)
+    }
+
+    /// Adopts the current selection as the find string without opening the bar.
+    @discardableResult
+    func useSelectionForFind() -> Bool {
+        guard canUseSelectionForFind, let textView else { return false }
+        Self.performTextFindAction(.setSearchString, on: textView)
+        return true
+    }
+
+    /// Hides the find bar. When the bar's search field owned keyboard focus,
+    /// focus returns to the document so the shortcut never leaves input
+    /// stranded in a hidden control.
+    func hideFind() {
+        guard previewMode == .text,
+              let textView,
+              let scrollView = textView.enclosingScrollView,
+              scrollView.isFindBarVisible else { return }
+        let window = textView.window
+        let findBarOwnedFocus: Bool = {
+            guard let window,
+                  let barView = scrollView.findBarView,
+                  let responder = window.firstResponder as? NSView else { return false }
+            return responder === barView || responder.isDescendant(of: barView)
+        }()
+        Self.performTextFindAction(.hideFindInterface, on: textView)
+        if findBarOwnedFocus {
+            window?.makeFirstResponder(textView)
+        }
+    }
+
+    /// Dispatches an NSTextFinder action through the text view; the action
+    /// travels as the sender tag, the same encoding menu items use.
+    private static func performTextFindAction(_ action: NSTextFinder.Action, on textView: NSTextView) {
+        let sender = NSMenuItem()
+        sender.tag = action.rawValue
+        textView.performFindPanelAction(sender)
     }
 }

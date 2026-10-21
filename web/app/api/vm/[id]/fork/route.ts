@@ -96,6 +96,7 @@ export async function POST(
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        deadline: { operation: "fork" },
         onError: vmCreateLikeErrorResponders({
           operation: "fork",
           planId: entitlements.planId,
@@ -113,7 +114,6 @@ export async function POST(
         status: result.fork.status,
         createdAt: result.fork.createdAt,
         capabilities: vmCapabilitiesFor(result.fork.provider),
-        cmuxTuiStateProtection: result.fork.cmuxTuiStateProtection,
       });
     },
   );

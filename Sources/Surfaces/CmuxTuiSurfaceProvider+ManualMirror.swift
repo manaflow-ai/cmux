@@ -7,6 +7,10 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    nonisolated static func shouldShowRecoverableCloudFailure(observation: CloudVMStateObservation) -> Bool {
+        observation.freshness != .current
+    }
+
     /// Creates a native manual-I/O pane and attaches it to the remote PTY.
     ///
     /// The legacy tree lookup is only an identity bridge: public `term_…`
@@ -20,11 +24,17 @@ extension CmuxTuiSurfaceProvider {
         adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
         try catalog.validateOwnership(of: [resource.id], at: destination)
+        let allowPlacementRepair = reservation?.attachmentPlacement.map { expected in
+            remoteTabID == nil || remoteTabID == expected.remoteTabID
+        } ?? false
         let savedPlacement = try reservation?.validatedAttachmentPlacement(
-            resourceID: resource.id, remoteTabID: remoteTabID, catalog: catalog
+            resourceID: resource.id, remoteTabID: remoteTabID, catalog: catalog,
+            allowPlacementRepair: allowPlacementRepair
         )
-        let requiresExistingView = remoteTabID != nil || savedPlacement != nil
-        let preferredWorkspaceID = savedPlacement?.workspaceID ?? resource.remoteWorkspace?.id
+        let requiresExistingView = !allowPlacementRepair && (remoteTabID != nil || savedPlacement != nil)
+        let preferredWorkspaceID = savedPlacement?.workspaceID
+            ?? reservation?.attachmentPlacement?.remoteWorkspaceID
+            ?? resource.remoteWorkspace?.id
             ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(forLocalWorkspace: destination.workspaceID, on: machine)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
@@ -57,8 +67,14 @@ extension CmuxTuiSurfaceProvider {
         }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
-            materializedPlacement: resolved.placement, catalog: catalog
+            materializedPlacement: resolved.placement, catalog: catalog,
+            allowPlacementRepair: allowPlacementRepair
         ) ?? resolved.placement ?? knownPlacement
+        if allowPlacementRepair, resource.creationAttachment == nil, confirmedPlacement == nil {
+            // A restored pane without a confirmed replacement would attach to a
+            // live numeric surface while losing its remote tab identity.
+            throw CloudDiagnosticFailure.placement
+        }
         try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
@@ -123,7 +139,8 @@ extension CmuxTuiSurfaceProvider {
                         session?.claimGeometry()
                     },
                     attachment: session.attachmentStatus,
-                    allowsRemoteClipboardWrites: machine.cloudMachineID != nil
+                    allowsRemoteClipboardWrites: sshClipboardWriteTrustStore
+                        .allowsRemoteClipboardWrites(for: machine)
                 )
             }
             session.bind(surface: created.surface)
@@ -141,7 +158,7 @@ extension CmuxTuiSurfaceProvider {
                 )
             }
             manualMirrorSessions[created.panelID] = session
-            session.reconnect(socketPath: connected.socketPath)
+            session.reconnect(socketPath: connected.socketPath, handshake: reservation?.takeAttachHandshake())
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
@@ -152,6 +169,24 @@ extension CmuxTuiSurfaceProvider {
         } catch {
             session.stop()
             throw error
+        }
+    }
+
+    /// Registers a new pane's attach stream while the machine creates its
+    /// terminal, so the attachment needs only `attach-surface` once the
+    /// terminal exists. The link is the machine's existing one.
+    func beginAttachHandshake(for reservation: CloudTerminalPaneReservation) {
+        let handshake = CloudTuiManualMirrorHandshake(identity: CloudTuiManualMirrorSession.localSharingIdentity)
+        reservation.beginAttachHandshake(handshake)
+        let links = links
+        let machineID = machineID
+        // Only a link that is already up: connecting or resuming the machine
+        // stays with the create, which owns its diagnostics and backoff.
+        handshake.start {
+            guard let link = await links.link(machineID: machineID),
+                  await link.isConnected,
+                  let connected = await link.connected else { throw CancellationError() }
+            return connected.socketPath
         }
     }
 
@@ -312,12 +347,25 @@ extension CmuxTuiSurfaceProvider {
         reservation.retry = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks[panelID]?.cancel()
+            Workspace.liveWorkspace(id: reservation.workspaceID)?.restartReservedCloudTerminalPane(reservation)
             self.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
         }
         reservation.cancel = { [weak self] in
             guard let self else { return }
             self.restoredAttachTasks.removeValue(forKey: panelID)?.cancel()
             self.materializedPanels.remove(panelID)
+        }
+        if Self.shouldShowRecoverableCloudFailure(
+            observation: catalog.cloudStateObservations[machine] ?? .stale(reason: "missing")
+        ),
+           let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+            restoredAttachTasks[panelID] = nil
+            materializedPanels.remove(panelID)
+            workspace.failReservedCloudTerminalPane(
+                reservation,
+                error: CloudDiagnosticFailure.network
+            )
+            return
         }
         restoredAttachTasks[panelID] = Task { @MainActor [weak self] in
             var failures = 0
@@ -345,7 +393,10 @@ extension CmuxTuiSurfaceProvider {
                     do {
                         _ = try reservation.validatedAttachmentPlacement(
                             resourceID: resource.id, remoteTabID: remoteTabID,
-                            materializedPlacement: materialized.remotePlacement, catalog: self.catalog
+                            materializedPlacement: materialized.remotePlacement, catalog: self.catalog,
+                            allowPlacementRepair: reservation.attachmentPlacement.map { expected in
+                                remoteTabID == nil || remoteTabID == expected.remoteTabID
+                            } ?? false
                         )
                     } catch {
                         self.manualMirrorSessions.removeValue(forKey: materialized.panelID)?.stop()
@@ -377,6 +428,15 @@ extension CmuxTuiSurfaceProvider {
                         self.restoredAttachTasks[panelID] = nil
                         workspace.cancelReservedCloudTerminalPane(panelID: panelID)
                         SurfacePaneFactory.closeExited(panelID: panelID, in: reservation.workspaceID)
+                        return
+                    }
+                    let inventoryIsStale = Self.shouldShowRecoverableCloudFailure(
+                        observation: self.catalog.cloudStateObservations[self.machine] ?? .stale(reason: "missing")
+                    )
+                    if inventoryIsStale {
+                        self.restoredAttachTasks[panelID] = nil
+                        self.materializedPanels.remove(panelID)
+                        workspace.failReservedCloudTerminalPane(reservation, error: error)
                         return
                     }
                     failures += 1

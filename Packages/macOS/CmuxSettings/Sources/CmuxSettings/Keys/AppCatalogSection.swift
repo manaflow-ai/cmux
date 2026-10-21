@@ -58,6 +58,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Ordering used by the Go to Workspace command-palette switcher.
+    public let goToWorkspaceOrder = DefaultsKey<WorkspaceSwitcherOrder>(
+        id: "app.goToWorkspaceOrder",
+        defaultValue: .sidebar,
+        userDefaultsKey: "goToWorkspaceOrder"
+    )
+
     /// Folder the Open Folder panel starts in. Empty keeps the active
     /// workspace's directory. Supports a leading `~`.
     public let defaultWorkspacePath = DefaultsKey<String>(
@@ -240,6 +247,30 @@ public struct AppCatalogSection: SettingCatalogSection {
                 commandPalette: .init(
                     id: "warnBeforeClosingWorkspace",
                     keywords: ["warn", "close", "workspace", "confirmation", "cmd-shift-w"]
+                )
+            ))
+        )
+    )
+
+    /// Opt-in: ask before every workspace close, even when nothing in the
+    /// workspace is running. Overrides `warnBeforeClosingWorkspace` for the
+    /// workspace prompts, the way pinning does for a single workspace.
+    public let alwaysConfirmWorkspaceClose = DefaultsKey<Bool>(
+        id: "app.alwaysConfirmWorkspaceClose",
+        defaultValue: false,
+        userDefaultsKey: "alwaysConfirmWorkspaceClose",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.alwaysConfirmWorkspaceClose",
+                defaultValue: "Always Confirm Closing Workspaces"
+            ),
+            section: .app,
+            searchID: "always-confirm-workspace-close",
+            searchKeywords: ["always", "close", "workspace", "confirmation", "idle", "protect"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "alwaysConfirmWorkspaceClose",
+                    keywords: ["always", "confirm", "close", "workspace"]
                 )
             ))
         )

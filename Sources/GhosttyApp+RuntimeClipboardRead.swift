@@ -19,9 +19,20 @@ extension GhosttyApp {
         guard let callbackContext = Self.callbackContext(from: userdata) else {
             return false
         }
+        // Manual mirrors are write-only remote transports. A user-configured
+        // `clipboard-read = allow` must not turn an unsequenced OSC 52 read into
+        // a Mac clipboard read; explicit Cmd+V/Paste dispatch is marked in the
+        // callback context and remains allowed. Ordinary remote PTYs retain
+        // their existing clipboard-read setting.
+        guard callbackContext.allowsRuntimeClipboardRead else {
+            return false
+        }
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         let operation = TerminalImageTransferOperation()
+#if DEBUG
+        let clipboardReadStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
         guard let pasteboardReadLease = terminalPasteboard
             .reserveClipboardRead(from: location) else {
             return false
@@ -130,6 +141,9 @@ extension GhosttyApp {
                   !Task.isCancelled else {
                 return
             }
+#if DEBUG
+            let pasteboardLeaseReadyAt = ProcessInfo.processInfo.systemUptime
+#endif
 
             guard let pasteboard = terminalPasteboard.pasteboard(for: location) else {
                 completeClipboardRequest(with: "")
@@ -141,6 +155,9 @@ extension GhosttyApp {
 
             // A read the terminal program started never saves or uploads
             // files or images; it only gets the pasteboard's plain text.
+#if DEBUG
+            let preparationStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
             let preparationOutcome = await TerminalImageTransferPlanner
                 .prepareReportingFailure(
                     pasteboard: pasteboard,
@@ -170,6 +187,25 @@ extension GhosttyApp {
             }
 
 #if DEBUG
+            if let failure = preparationOutcome.failure {
+                let now = ProcessInfo.processInfo.systemUptime
+                let leaseWaitMilliseconds = Int(
+                    ((pasteboardLeaseReadyAt - clipboardReadStartedAt) * 1_000)
+                        .rounded()
+                )
+                let preparationMilliseconds = Int(
+                    ((now - preparationStartedAt) * 1_000).rounded()
+                )
+                cmuxDebugLog(
+                    "terminal.clipboard.prepare.failure " +
+                    "surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
+                    "mode=\(String(describing: readContent)) " +
+                    "failure=\(String(describing: failure)) " +
+                    "types=\(pasteboardTypeDescription) " +
+                    "lease_wait_ms=\(leaseWaitMilliseconds) " +
+                    "prepare_ms=\(preparationMilliseconds)"
+                )
+            }
             cmuxDebugLog(
                 "terminal.clipboard.read surface=\(callbackContext.surfaceId.uuidString.prefix(5)) " +
                 "types=\(pasteboardTypeDescription) " +

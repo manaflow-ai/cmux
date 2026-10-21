@@ -23,7 +23,13 @@ CLIENT="$TEST_DIR/client"
 cat > "$CLIENT" <<'SH'
 #!/bin/sh
 [ "$1" = remote-probe ] && [ "$2" = --json ] || exit 64
-printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+if [ "${FAKE_SSH_MACOS_FROM_CLIENT:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download","ssh-payload-macos-from-client"]}'
+elif [ "${FAKE_SSH_PAYLOAD_DOWNLOAD:-0}" = 1 ]; then
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability","ssh-payload-download"]}'
+else
+  printf '%s\n' '{"app":"cmux-tui","capabilities":["wireguard-hub","test-capability"]}'
+fi
 SH
 chmod +x "$CLIENT"
 
@@ -82,7 +88,7 @@ cat > "$SERVE/manifest.json" <<JSON
 JSON
 cat > "$FAKEBIN/curl" <<SH
 #!/bin/bash
-url=""; out=""
+url=""; out=""; args="\$*"
 while [ \$# -gt 0 ]; do
   case "\$1" in
     -o) out="\$2"; shift ;;
@@ -91,6 +97,32 @@ while [ \$# -gt 0 ]; do
   shift
 done
 printf 'curl %s\n' "\$url" >> "$EVENTS"
+if [[ -n "\${FAKE_CURL_ARGS_LOG:-}" ]]; then printf '%s\n' "\$args" >> "\$FAKE_CURL_ARGS_LOG"; fi
+if [[ "\${FAKE_CURL_FAIL_MANIFEST:-0}" == 1 && "\$url" == */manifest.json ]]; then
+  printf 'incomplete manifest\n' > "\$out"
+  exit 22
+fi
+if [[ "\${FAKE_CURL_RESUME_RESET:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.resume-reset-seen"
+  if [[ ! -e "\$marker" ]]; then
+    printf 'stale partial\n' > "\$out"
+    : > "\$marker"
+    exit 33
+  fi
+  [[ "\$args" == *'--continue-at -'* ]] || { echo 'missing resume flag' >&2; exit 99; }
+  [[ ! -s "\$out" ]] || { echo 'rejected partial was not removed' >&2; exit 99; }
+fi
+if [[ "\${FAKE_CURL_TRANSIENT_503:-0}" == 1 && "\$url" == */cmux-tui-aarch64-apple-darwin ]]; then
+  marker="\$out.transient-503-seen"
+  if [[ ! -e "\$marker" ]]; then
+    head -c 4 "$SERVE/\$(basename "\$url")" > "\$out"
+    : > "\$marker"
+    printf '503'
+    exit 22
+  fi
+  [[ "\$args" == *'--continue-at -'* && -s "\$out" ]] || { echo 'transient HTTP failure did not resume its partial' >&2; exit 99; }
+  printf 'resume-preserved\n' >> "$EVENTS"
+fi
 cp "$SERVE/\$(basename "\$url")" "\$out"
 SH
 cat > "$FAKEBIN/gh" <<SH
@@ -133,11 +165,15 @@ install_remote() { # <app> [installer options]
   mkdir -p "$app/Contents"
   : > "$EVENTS"
   REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }
 
+export FAKE_CURL_ARGS_LOG="$TEST_DIR/curl-args.log"
+DOWNLOAD_BUDGET=600
+: > "$FAKE_CURL_ARGS_LOG"
 ATTESTED_APP="$TEST_DIR/Attested.app"
 install_remote "$ATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
   --require-capability wireguard-hub > "$TEST_DIR/attested.log" 2>&1
@@ -148,6 +184,65 @@ grep -q "^gh attestation verify .*manifest.* --repo manaflow-ai/cmux --signer-wo
 [ "$(sed -n '2p' "$EVENTS" | cut -d' ' -f1-3)" = "gh attestation verify" ]
 [ "$(sed -n '3p' "$EVENTS")" = "curl https://files.example.test/cmux-tui/$COMMIT/cmux-tui-aarch64-apple-darwin" ]
 echo "PASS: attested manifest is verified before slices are downloaded"
+# Manifest downloads are never resumed, while binary slices use range resumes
+# and inherit the total per-download deadline. A fast retry may receive less
+# than the full budget, but never exceeds it.
+awk -v budget="$DOWNLOAD_BUDGET" '
+  BEGIN { valid = 1 }
+  {
+    found = 0
+    for (i = 1; i < NF; i++) {
+      if ($i == "--max-time") {
+        found = 1
+        value = $(i + 1)
+        if (value !~ /^[1-9][0-9]*$/ || (value + 0) > budget) valid = 0
+      }
+    }
+    if (!found) valid = 0
+  }
+  END { exit !(valid && NR > 0) }
+' "$FAKE_CURL_ARGS_LOG"
+grep -q -- '--continue-at -' "$FAKE_CURL_ARGS_LOG"
+manifest_args="$(sed -n '1p' "$FAKE_CURL_ARGS_LOG")"
+[[ "$manifest_args" != *'--continue-at -'* ]]
+echo "PASS: manifest is atomic and slices are resumable within a bounded budget"
+
+# A rejected range must delete the stale partial before the final retry. The
+# fake server checks both the resume flag and that the second attempt starts
+# from an empty temporary file.
+RESUME_APP="$TEST_DIR/ResumeReset.app"
+FAKE_CURL_RESUME_RESET=1 install_remote "$RESUME_APP" --arch arm64 > "$TEST_DIR/resume-reset.log" 2>&1
+cmp "$CLIENT" "$RESUME_APP/Contents/Resources/bin/cmux-tui"
+echo "PASS: rejected ranges clear partial slices before retrying"
+
+# A transient HTTP error must preserve a valid partial so the next attempt can
+# resume it instead of restarting within the same bounded download budget.
+TRANSIENT_APP="$TEST_DIR/Transient503.app"
+FAKE_CURL_TRANSIENT_503=1 install_remote "$TRANSIENT_APP" --arch arm64 > "$TEST_DIR/transient-503.log" 2>&1
+cmp "$CLIENT" "$TRANSIENT_APP/Contents/Resources/bin/cmux-tui"
+grep -q '^resume-preserved$' "$EVENTS"
+echo "PASS: transient HTTP failures preserve resumable partial slices"
+
+# A manifest is published only after a complete successful download. A failed
+# manifest request must leave neither the final cache path nor a reusable temp.
+FAILED_MANIFEST_CACHE="$TEST_DIR/failed-manifest-cache"
+mkdir -p "$FAILED_MANIFEST_CACHE"
+mkdir -p "$TEST_DIR/FailedManifest.app/Contents"
+if FAKE_CURL_FAIL_MANIFEST=1 PATH="$FAKEBIN:$PATH" \
+    CMUX_TUI_CLIENT_CACHE="$FAILED_MANIFEST_CACHE" \
+    CMUX_TUI_CLIENT_DOWNLOAD_MAX_SECONDS="$DOWNLOAD_BUDGET" \
+    /bin/bash "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$TEST_DIR/FailedManifest.app" \
+    --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" --allow-unattested \
+    > "$TEST_DIR/failed-manifest.log" 2>&1; then
+  echo "FAIL: installed after a failed manifest download" >&2
+  exit 1
+fi
+if find "$FAILED_MANIFEST_CACHE" -maxdepth 1 -name 'manifest.*' -print -quit | grep -q .; then
+  echo "FAIL: failed manifest was published" >&2
+  exit 1
+fi
+echo "PASS: failed manifest downloads are never published"
+
 
 UNATTESTED_APP="$TEST_DIR/Unattested.app"
 if FAKE_GH_EXIT=1 install_remote "$UNATTESTED_APP" --expected-commit "$COMMIT" --attest-signer-workflow "$SIGNER" \
@@ -262,6 +357,37 @@ for arch in arm64 x86_64; do
   fi
   grep -q "^lipo .* -verify_arch $arch\$" "$EVENTS"
   echo "PASS: $arch installs its verified client and all verified SSH companion artifacts"
+
+  # A client that downloads unbundled SSH payloads itself gets only the macOS
+  # payloads (signed with the app) plus the manifest that pins every platform.
+  ondemand_app="$TEST_DIR/OnDemand-$arch.app"
+  FAKE_SSH_PAYLOAD_DOWNLOAD=1 install_remote "$ondemand_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/ondemand-$arch.log" 2>&1
+  ondemand_ssh="$ondemand_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    cmp "$SERVE/cmux-tui-$target" "$ondemand_ssh/cmux-tui-$target"
+  done
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
+    if [[ -e "$ondemand_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client downloads it on demand" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$ondemand_ssh/manifest.json"
+  echo "PASS: $arch leaves Linux SSH payloads to a client that downloads them"
+
+  # A client that uploads its own slice to a Mac (and downloads an architecture
+  # it lacks) needs no SSH payload at all, only the manifest's pins.
+  client_app="$TEST_DIR/FromClient-$arch.app"
+  FAKE_SSH_MACOS_FROM_CLIENT=1 install_remote "$client_app" --arch "$arch" --expected-commit "$COMMIT" \
+    --require-capability wireguard-hub > "$TEST_DIR/fromclient-$arch.log" 2>&1
+  client_ssh="$client_app/Contents/Resources/bin/cmux-tui-ssh"
+  for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin; do
+    if [[ -e "$client_ssh/cmux-tui-$target" ]]; then
+      echo "FAIL: $arch bundled cmux-tui-$target although the client serves macOS hosts itself" >&2; exit 1
+    fi
+  done
+  cmp "$SERVE/manifest.json" "$client_ssh/manifest.json"
+  echo "PASS: $arch bundles no SSH payload for a client that serves macOS hosts itself"
 
   if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/NativeDenied-$arch.app" --arch "$arch" > "$TEST_DIR/native-denied.log" 2>&1; then
     echo "FAIL: native install skipped manifest attestation" >&2; exit 1

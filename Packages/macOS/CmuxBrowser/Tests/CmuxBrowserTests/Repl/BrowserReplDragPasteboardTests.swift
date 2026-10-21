@@ -3,14 +3,14 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// An automated HTML5 drag carries the page's drag data from WebKit's
     /// drag start to the drop the driver plays. That data must never sit on
     /// the system's named drag pasteboard, which every process of the user
     /// can read and overwrite while the driver waits for WebKit, and two
     /// drags (two sessions) must never share a pasteboard.
     ///
-    /// Nested in the redirect suite: the drag window uses the same
+    /// Nested in the pasteboard suite: the drag window uses the same
     /// process-wide lookup hook.
     @MainActor
     @Suite("Automated drags", .serialized)
@@ -30,7 +30,7 @@ extension BrowserReplPasteboardRedirectTests {
         @Test func webKitsDragPasteboardIsTheDragsOwnOnlyWhileItsWindowIsOpen() async {
             let capture = BrowserAutomationDragCapture()
             defer { capture.finish() }
-            let redirect = BrowserReplPasteboardRedirect.shared
+            let redirect = BrowserReplDragPasteboardRedirect.shared
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
             #expect(await capture.openPasteboardWindow())
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) === capture.pasteboard)
@@ -43,6 +43,7 @@ extension BrowserReplPasteboardRedirectTests {
             // WebKit writes the drag data, then asks AppKit for the session.
             capture.begin()
             #expect(capture.didBegin)
+            #expect(!capture.lostDragData, "a drag started in its open window lost its data")
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil, "the drag's window outlived the drag's start")
         }
 
@@ -52,10 +53,12 @@ extension BrowserReplPasteboardRedirectTests {
             let first = BrowserAutomationDragCapture()
             let second = BrowserAutomationDragCapture()
             defer {
+                first.closePasteboardWindow()
+                second.closePasteboardWindow()
                 first.finish()
                 second.finish()
             }
-            let redirect = BrowserReplPasteboardRedirect.shared
+            let redirect = BrowserReplDragPasteboardRedirect.shared
             let clock = ManualClock()
             #expect(await redirect.openDragWindow(first.pasteboard, timeout: .seconds(5), clock: clock))
             let waiting = Task { @MainActor in
@@ -75,7 +78,38 @@ extension BrowserReplPasteboardRedirectTests {
             await clock.waitForSleepers(2)
             clock.advance(by: .seconds(5))
             #expect(await refused.value == false, "a drag opened its window while another drag's was open")
-            #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil, "a window outlived its bound")
+            // Past its bound, the first window no longer hands out the
+            // drag's pasteboard, yet WebKit may still be handling the event
+            // that opened it: its lookups get a private discard until the
+            // driver closes the window, never the system's.
+            await Self.untilLookup(isNot: first.pasteboard)
+            Self.expectPrivateDiscard(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true), not: first.pasteboard)
+            first.closePasteboardWindow()
+            #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil, "a closed window kept redirecting")
+        }
+
+        /// Yields until WebKit's lookup of the drag pasteboard no longer
+        /// gets `pasteboard` (the window's bound task ran), for at most 30 s
+        /// of real time: a turn count would shrink on a busy runner.
+        private static func untilLookup(isNot pasteboard: NSPasteboard) async {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+            while ContinuousClock.now < deadline {
+                guard BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: drag, fromWebKit: true) === pasteboard else { return }
+                await Task.yield()
+            }
+        }
+
+        /// `late` is a private pasteboard (not the system's named drag
+        /// pasteboard, not the drag's own) that keeps nothing written to it.
+        private static func expectPrivateDiscard(_ late: NSPasteboard?, not own: NSPasteboard, sourceLocation: SourceLocation = #_sourceLocation) {
+            #expect(late != nil, "a late WebKit lookup got the system's drag pasteboard", sourceLocation: sourceLocation)
+            guard let late else { return }
+            #expect(late !== own, "a late WebKit lookup still got the drag's pasteboard", sourceLocation: sourceLocation)
+            #expect(late.name != .drag, "a late WebKit lookup got the system's drag pasteboard", sourceLocation: sourceLocation)
+            late.clearContents()
+            late.setString("late drag data", forType: .string)
+            let again = BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: drag, fromWebKit: true)
+            #expect(again?.string(forType: .string) == nil, "the discard kept a late write", sourceLocation: sourceLocation)
         }
 
         /// A finished capture's pasteboard is closed off, emptied and
@@ -86,7 +120,8 @@ extension BrowserReplPasteboardRedirectTests {
             capture.pasteboard.clearContents()
             capture.pasteboard.setString("drag data", forType: .string)
             capture.finish()
-            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
+            capture.closePasteboardWindow()
+            #expect(BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
             #expect(capture.pasteboard.types?.isEmpty ?? true)
             #expect(await !capture.openPasteboardWindow())
         }

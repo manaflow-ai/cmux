@@ -8,13 +8,20 @@ import Testing
 @testable import cmux
 #endif
 
-/// Cmd-Y must lead a first-use user to the Cloud Settings toggle before any
-/// machine provisioning operation is admitted.
+/// Cmd-Shift-Y must introduce Cloud to a first-use user, through the welcome
+/// card's Enable or Upgrade step, before any machine provisioning is admitted.
 @MainActor
-@Suite("Cloud Cmd-Y activation routing", .serialized, .exclusiveAppContext)
+@Suite("Cloud Cmd-Shift-Y activation routing", .serialized, .exclusiveAppContext)
 struct CloudCmdYActivationRoutingTests {
-    @Test("Cloud activation-off opens Cloud Settings")
-    func commandYOpensCloudSettingsBeforeProvisioning() {
+    @Test("Cloud activation-off opens the Cloud welcome")
+    func commandShiftYOpensCloudWelcomeBeforeProvisioning() {
+        let seenKey = CloudWelcomeWindowController.seenVersionDefaultsKey
+        let previousSeen = UserDefaults.standard.object(forKey: seenKey)
+        UserDefaults.standard.removeObject(forKey: seenKey)
+        defer {
+            if let previousSeen { UserDefaults.standard.set(previousSeen, forKey: seenKey) }
+            else { UserDefaults.standard.removeObject(forKey: seenKey) }
+        }
         let key = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousMarker = UserDefaults.standard.object(forKey: key)
         let previousDelegate = AppDelegate.shared
@@ -25,9 +32,7 @@ struct CloudCmdYActivationRoutingTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: key)
             }
-            NSApp.windows.first {
-                $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
-            }?.close()
+            appDelegate.cloudWelcomeWindowController.dismiss()
             AppDelegate.shared = previousDelegate
         }
 
@@ -37,7 +42,7 @@ struct CloudCmdYActivationRoutingTests {
 
         #expect(appDelegate.performNewCloudMachineAction(debugSource: "test.cmdY.activationOff"))
         #expect(NSApp.windows.contains {
-            $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier
+            $0.identifier?.rawValue == "cmux.cloud.welcome" && $0.isVisible
         })
     }
 }

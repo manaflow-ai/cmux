@@ -92,7 +92,7 @@ extension SurfaceCatalog {
         let pane: (workspaceID: UUID, panelID: UUID)
         do {
             pane = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
-                try SurfacePaneFactory.makeBrowserPane(url: nil, at: target, focus: true)
+                try SurfacePaneFactory.makeCloudResourceBrowserPane(at: target, focus: true)
             }
         } catch {
             // Opening is best effort for the sidebar: still create the display,
@@ -117,7 +117,7 @@ extension SurfaceCatalog {
         let reservation = CloudDisplayPaneReservation(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID)
         do {
             guard self.provider(for: machine) === provider else { throw CancellationError() }
-            try await CloudDisplayPaneReservation.$current.withValue(reservation) {
+            try await CloudDisplayPaneReservation.withCurrent(reservation) {
                 _ = try await project(resource.id, into: .workspace(id: pane.workspaceID, placement: .tab), focus: true, reuseExisting: false)
             }
         } catch {

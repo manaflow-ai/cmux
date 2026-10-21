@@ -172,7 +172,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: agent-inbox-quick-view-enabled-release, owner: lawrencecchen,
-    //      reviewBy: 2026-10-15, defaultWhenUnavailable: false)
+    //      reviewBy: 2026-11-16, defaultWhenUnavailable: false)
     // Keeps the agent inbox quick view behind an explicit rollout while the
     // placement and cross-agent attention model are evaluated.
     static let agentInboxQuickViewFlag = CmuxFeatureFlagDefinition(
@@ -183,7 +183,7 @@ final class CmuxFeatureFlags {
     )
 
     // FLAG(key: conversation-sidebar-release, owner: teamleaderleo,
-    //      reviewBy: 2026-10-18, defaultWhenUnavailable: false)
+    //      reviewBy: 2026-12-01, defaultWhenUnavailable: false)
     // Controls availability of the opt-in multi-provider conversation sidebar.
     // The user-facing beta setting is evaluated separately by the sidebar
     // integration; this flag is the remote rollout gate and emergency kill
@@ -218,6 +218,21 @@ final class CmuxFeatureFlags {
             defaultValue: "Finds and connects your Macs signed in to the same account even when they selected different teams."
         ),
         defaultWhenUnavailable: true
+    )
+
+    // FLAG(key: window-hints-release, owner: teamleaderleo,
+    //      reviewBy: 2027-01-31, defaultWhenUnavailable: false)
+    // Hint mode (Show Hints, Cmd-J): labels every clickable control in the
+    // window so typing a label clicks it. Off until the labels are styled;
+    // a local debug override turns it on for testing.
+    nonisolated static let windowHintsFlag = CmuxFeatureFlagDefinition(
+        key: "window-hints-release",
+        title: String(localized: "featureFlags.windowHints.title", defaultValue: "Click by Hint"),
+        flagDescription: String(
+            localized: "featureFlags.windowHints.description",
+            defaultValue: "Labels every clickable control in the window so typing a label clicks it."
+        ),
+        defaultWhenUnavailable: false
     )
 
     // FLAG(key: mobile-connect-button-enabled-release, owner: lawrencecchen,
@@ -331,7 +346,8 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.agentInboxQuickViewFlag,
             CmuxFeatureFlags.conversationSidebarFlag,
-            CmuxFeatureFlags.macAccountDirectoryFlag
+            CmuxFeatureFlags.macAccountDirectoryFlag,
+            CmuxFeatureFlags.windowHintsFlag
         ]
     }()
 
@@ -382,6 +398,10 @@ final class CmuxFeatureFlags {
 
     var isAgentInboxQuickViewEnabled: Bool {
         effectiveValue(for: Self.agentInboxQuickViewFlag)
+    }
+
+    var isWindowHintsEnabled: Bool {
+        effectiveValue(for: Self.windowHintsFlag) || ClickByHintPreview.isOptedIn()
     }
 
     var isConversationSidebarAvailable: Bool {

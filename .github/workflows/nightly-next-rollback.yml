@@ -1,0 +1,179 @@
+name: nightly-next rollback
+
+# The undo button for a bad cmux NEXT nightly (docs/ci/nightly-next-canary.md).
+# It takes the bad build, and every newer one, off the cmux NEXT feed
+# (appcast-arm64.xml), so the feed serves the previous build again: new
+# installs and every Mac below the bad build get that build. Sparkle never
+# offers a lower build, so a Mac already on the bad build keeps it until a
+# newer build is published (revert on feat-cmux-next and let promotion
+# publish it), or rolls back to the build it kept (the app's
+# updates.rollback control method).
+#
+# Run it on branch nightly-next; release-next, which holds the feed's R2
+# token, deploys only to that branch:
+#   gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next \
+#     -f reason="what is broken"            # pulls the newest build
+#     -f bad_build=3917159104301            # or: pull this build and everything newer
+#     -f to_build=3917061587901             # or: serve this build again
+#     -f dry_run=true                       # print the plan, write nothing
+# nightly-next-canary.yml dispatches it with bad_build when
+# NIGHTLY_NEXT_CANARY=enforce and the build it launched failed.
+#
+# GitHub registers a dispatch workflow only from the default branch, so this
+# file is on main too; a run there does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: Why the build is pulled (goes into the run summary).
+        required: true
+        type: string
+      bad_build:
+        description: Pull this build and every newer one (digits). Empty pulls the newest build.
+        required: false
+        default: ''
+        type: string
+      to_build:
+        description: Instead of bad_build, serve this build (digits) and pull everything above it.
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: Print the plan and write nothing.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-rollback
+  cancel-in-progress: false
+
+env:
+  # The same values as nightly.yml; nightly-next-guard.py checks every write against them.
+  NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next/next
+  NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
+  NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
+  NIGHTLY_APPCAST: appcast-arm64.xml
+
+jobs:
+  rollback:
+    if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next'
+    # Production secrets: GitHub releases them only to protected refs (the
+    # environment's deployment branch policy: branch nightly-next).
+    environment: release-next
+    permissions:
+      contents: read
+    # A literal ephemeral label: this job holds the feed's write token.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Plan the pull from the live feed
+        id: plan
+        env:
+          BAD_BUILD: ${{ inputs.bad_build }}
+          TO_BUILD: ${{ inputs.to_build }}
+        run: |
+          set -euo pipefail
+          mkdir -p rollback
+          curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
+            -o rollback/live.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?rollback=${GITHUB_RUN_ID}"
+          args=()
+          [ -z "$BAD_BUILD" ] || args+=(--bad "$BAD_BUILD")
+          [ -z "$TO_BUILD" ] || args+=(--to "$TO_BUILD")
+          summary="$(python3 scripts/ci/nightly_next_feed_rollback.py plan --feed rollback/live.xml \
+            --out "rollback/$NIGHTLY_APPCAST" "${args[@]}")"
+          echo "$summary"
+          python3 - "$summary" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          s = json.loads(sys.argv[1])
+          print(f"changed={'true' if s['changed'] else 'false'}")
+          print(f"serving={s['serving']}")
+          print(f"serving_url={s['serving_url']}")
+          print(f"pulled={' '.join(s['pulled'])}")
+          PY
+
+      - name: Check the build it falls back to
+        if: steps.plan.outputs.changed == 'true'
+        env:
+          SERVING_URL: ${{ steps.plan.outputs.serving_url }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/nightly-next-guard.py appcast "rollback/$NIGHTLY_APPCAST"
+          python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}"
+          # The previous build's DMG must still be on the release.
+          curl -fsSL --retry 3 -o /dev/null -r 0-0 "$SERVING_URL"
+          echo "ok: $SERVING_URL is downloadable"
+
+      - name: Write the pulled feed
+        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          # A publication that lands after the plan wins: the write happens
+          # only while the object still holds the bytes planned from, with
+          # If-Match on its ETag, so a concurrent publisher is never overwritten.
+          planned="$(shasum -a 256 rollback/live.xml | awk '{print $1}')"
+          status=0
+          python3 scripts/ci/upload-r2-object.py \
+            --file "rollback/$NIGHTLY_APPCAST" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" \
+            --key "${NIGHTLY_NEXT_R2_PREFIX}${NIGHTLY_APPCAST}" \
+            --content-type "application/xml" \
+            --cache-control "no-cache, no-store, must-revalidate" \
+            --replace-sha256 "$planned" --conflict-exit-code 3 || status=$?
+          if [ "$status" = 3 ]; then
+            echo "::error title=nightly-next rollback::the feed changed after this run read it; nothing written. Run it again."
+          fi
+          exit "$status"
+
+      - name: Read the feed back
+        if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        env:
+          SERVING: ${{ steps.plan.outputs.serving }}
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -A "cmux-nightly-next-rollback/1" -H "Cache-Control: no-cache" \
+            -o rollback/after.xml "${NIGHTLY_NEXT_FEED_BASE}/${NIGHTLY_APPCAST}?after=${GITHUB_RUN_ID}"
+          cmp -s "rollback/$NIGHTLY_APPCAST" rollback/after.xml || { echo "the public feed does not serve the pulled appcast yet" >&2; exit 1; }
+          echo "ok: the feed serves build $SERVING"
+
+      - name: Summary
+        if: always()
+        env:
+          REASON: ${{ inputs.reason }}
+          CHANGED: ${{ steps.plan.outputs.changed }}
+          SERVING: ${{ steps.plan.outputs.serving }}
+          PULLED: ${{ steps.plan.outputs.pulled }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "### cmux NEXT feed rollback"
+            echo ""
+            echo "Reason: $REASON"
+            echo ""
+            if [ -z "$CHANGED" ]; then
+              echo "Failed before a plan: nothing was written."
+            elif [ "$CHANGED" != true ]; then
+              echo "Nothing to pull: the feed serves build ${SERVING:-unknown}."
+            elif [ "$DRY_RUN" = true ] && [ "$JOB_STATUS" = success ]; then
+              echo "Dry run: would pull $PULLED and serve $SERVING."
+            elif [ "$JOB_STATUS" = success ]; then
+              echo "Pulled $PULLED. The feed serves $SERVING."
+              echo ""
+              echo "Macs on a pulled build keep it until a newer build is published, or roll back to the build they kept (updates.rollback)."
+            else
+              echo "Failed before the pull of $PULLED was confirmed; check the feed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

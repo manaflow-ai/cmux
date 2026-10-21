@@ -952,6 +952,78 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(unsupported.stderr.contains("Unexpected method vm.pause"), unsupported.stderr)
     }
 
+    func testVMCleanIsADryRunUnlessApplyIsPassed() throws {
+        let report: (String, String) -> [String: Any] = { mode, action in
+            [
+                "id": "brave-otter", "version": 1, "mode": mode, "home": "/home/cmux",
+                "diskUsedPctBefore": 87, "diskUsedPctAfter": mode == "apply" ? 71 : 87,
+                "reclaimableKb": 2_621_440,
+                "items": [
+                    ["category": "project-artifacts", "path": "/home/cmux/code/app/node_modules", "kb": 2_621_440, "action": action],
+                    ["category": "project-artifacts", "path": "/home/cmux/code/busy/node_modules", "kb": 0, "action": "skipped", "reason": "project-in-use"],
+                ],
+            ]
+        }
+        let (dry, dryLog) = try runVMCommandAgainstMock(
+            "vm-clean-dry",
+            arguments: ["vm", "clean", "brave-otter"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("dry-run", "would-delete") : nil
+        }
+        XCTAssertEqual(dry.status, 0, "stdout=\(dry.stdout) stderr=\(dry.stderr)")
+        XCTAssertEqual(dryLog.methods, ["vm.hygiene"], dryLog.methods.description)
+        XCTAssertEqual(dryLog.params(ofFirst: "vm.hygiene")?["id"] as? String, "brave-otter")
+        // Without --apply the request carries no apply flag at all.
+        XCTAssertNil(dryLog.params(ofFirst: "vm.hygiene")?["apply"], dryLog.methods.description)
+        XCTAssertTrue(dry.stdout.contains("can be freed on brave-otter. Nothing was removed."), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("/home/cmux/code/app/node_modules"), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("Kept 1 item(s)"), dry.stdout)
+        XCTAssertTrue(dry.stdout.contains("cmux vm clean brave-otter --apply"), dry.stdout)
+
+        let (applied, applyLog) = try runVMCommandAgainstMock(
+            "vm-clean-apply",
+            arguments: ["vm", "clean", "brave-otter", "--apply"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("apply", "deleted") : nil
+        }
+        XCTAssertEqual(applied.status, 0, "stdout=\(applied.stdout) stderr=\(applied.stderr)")
+        XCTAssertEqual(applyLog.params(ofFirst: "vm.hygiene")?["apply"] as? Bool, true)
+        XCTAssertTrue(applied.stdout.contains("Removed"), applied.stdout)
+        XCTAssertTrue(applied.stdout.contains("(disk 87% -> 71%)"), applied.stdout)
+        XCTAssertFalse(applied.stdout.contains("--apply"), applied.stdout)
+
+        let (json, _) = try runVMCommandAgainstMock(
+            "vm-clean-json",
+            arguments: ["vm", "clean", "brave-otter", "--json"]
+        ) { method, _ in
+            method == "vm.hygiene" ? report("dry-run", "would-delete") : nil
+        }
+        let payload = jsonObject(json.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertEqual(payload?["mode"] as? String, "dry-run", json.stdout)
+        XCTAssertEqual((payload?["items"] as? [[String: Any]])?.count, 2, json.stdout)
+
+        // A missing machine id is a usage error that never reaches the socket.
+        let (usage, usageLog) = try runVMCommandAgainstMock(
+            "vm-clean-usage",
+            arguments: ["vm", "clean", "--apply"]
+        ) { _, _ in nil }
+        XCTAssertNotEqual(usage.status, 0, usage.stdout)
+        XCTAssertEqual(usageLog.methods, [], usageLog.methods.description)
+    }
+
+    func testVMRestartSendsTheProviderRecoveryMethod() throws {
+        let (restarted, log) = try runVMCommandAgainstMock(
+            "vm-restart",
+            arguments: ["vm", "restart", "frozen-vm"]
+        ) { method, params in
+            method == "vm.restart" ? ["id": params["id"] ?? "?", "status": "running"] : nil
+        }
+        XCTAssertEqual(restarted.status, 0, "stdout=\(restarted.stdout) stderr=\(restarted.stderr)")
+        XCTAssertEqual(log.methods, ["vm.restart"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.restart")?["id"] as? String, "frozen-vm")
+        XCTAssertTrue(restarted.stdout.contains("OK frozen-vm restarted (status=running)"), restarted.stdout)
+    }
+
     func testVMTerminalWaitExitReportsTheOutcomeAndFailsWhilePending() throws {
         let (exited, exitLog) = try runVMCommandAgainstMock(
             "vm-wait-exit",
@@ -1102,6 +1174,175 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(log.methods.isEmpty, "invalid resize arguments must not reach the app: \(log.methods)")
     }
 
+    func testVMResizeChecksPlanCeilingsBeforeSendingMutation() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-gate",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "32", "--memory", "64G", "--disk", "256G"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "pro",
+                    "maxDiskMb": 128 * 1024,
+                    "maxMemoryMb": 16 * 1024,
+                    "maxVcpus": 8,
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("cmux Pro"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("maximum is 8 vCPUs"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
+    }
+
+    func testVMResizeFreePlanSuggestsProForTheFirstLockedSizes() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-free-plan-gate",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "8", "--memory", "16G"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "free",
+                    "maxDiskMb": 128 * 1024,
+                    "maxMemoryMb": 8 * 1024,
+                    "maxVcpus": 4,
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("cmux Pro"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("cmux Max"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], "a plan-rejected resize must not reach vm.resize")
+    }
+
+    func testVMResizeSendsEveryAllowedDimensionAfterPlanPreflight() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-allowed",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "16", "--memory", "32G", "--disk", "128G"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [],
+                    "limits": [
+                        "planId": "max",
+                        "maxDiskMb": 256 * 1024,
+                        "maxMemoryMb": 64 * 1024,
+                        "maxVcpus": 32,
+                    ],
+                ]
+            case "vm.resize":
+                return [
+                    "cpus": 16,
+                    "memory_total_mb": 32 * 1024,
+                    "disk_total_mb": 128 * 1024,
+                ]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        let params = log.params(ofFirst: "vm.resize")
+        XCTAssertEqual(params?["id"] as? String, "brave-otter")
+        XCTAssertEqual(params?["cpu"] as? Int, 16)
+        XCTAssertEqual(params?["memory_mb"] as? Int, 32 * 1024)
+        XCTAssertEqual(params?["storage_mb"] as? Int, 128 * 1024)
+    }
+
+    func testVMResizeResolvesSlugToCanonicalMachineID() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-slug",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "16"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [[
+                        "id": "provider-vm-42",
+                        "slug": "brave-otter",
+                        "status": "running",
+                        "cpus": 8,
+                    ]],
+                    "limits": [
+                        "planId": "max",
+                        "maxDiskMb": 256 * 1024,
+                        "maxMemoryMb": 64 * 1024,
+                        "maxVcpus": 32,
+                    ],
+                ]
+            case "vm.resize":
+                return ["cpus": 16, "memory_total_mb": 8 * 1024, "disk_total_mb": 32 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resize")?["id"] as? String, "provider-vm-42")
+    }
+
+    func testVMResizeUsesPoolClaimSeparatelyFromReservation() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-slug-claim",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "16", "--memory", "32G"]
+        ) { method, _ in
+            switch method {
+            case "vm.list":
+                return [
+                    "vms": [[
+                        "id": "provider-vm-1",
+                        "slug": "brave-otter",
+                        "status": "running",
+                        "resources": ["vcpus": 32, "memoryMb": 64 * 1024],
+                        "resourceReservation": ["vcpus": 2, "memoryMb": 4 * 1024],
+                    ]],
+                    "limits": [
+                        "planId": "max",
+                        "poolVcpus": 40,
+                        "poolMemoryMb": 80 * 1024,
+                        "usedVcpus": 32,
+                        "usedMemoryMb": 64 * 1024,
+                        "maxDiskMb": 256 * 1024,
+                        "maxMemoryMb": 64 * 1024,
+                        "maxVcpus": 32,
+                    ],
+                ]
+            case "vm.resize":
+                return ["cpus": 16, "memory_total_mb": 32 * 1024]
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(log.methods, ["vm.list", "vm.resize"], log.methods.description)
+        XCTAssertEqual(log.params(ofFirst: "vm.resize")?["id"] as? String, "provider-vm-1")
+    }
+
+    func testVMResizeDoesNotInferProCPUsFromLockedMaxRows() throws {
+        let (result, log) = try runVMCommandAgainstMock(
+            "vm-resize-plan-locked-cpu",
+            arguments: ["vm", "resize", "brave-otter", "--cpu", "32"]
+        ) { method, _ in
+            guard method == "vm.list" else { return nil }
+            return [
+                "vms": [],
+                "limits": [
+                    "planId": "pro",
+                    "maxMemoryMb": 16 * 1024,
+                    "maxVcpus": NSNull(),
+                    "vcpusByMemoryMb": ["32768": 16, "65536": 32],
+                ],
+            ]
+        }
+        XCTAssertNotEqual(result.status, 0, result.stdout)
+        XCTAssertTrue(result.stderr.contains("maximum is 8 vCPUs"), result.stderr)
+        XCTAssertEqual(log.methods, ["vm.list"], log.methods.description)
+    }
+
     func testVMVerbHelpPrintsThatVerbsUsageWithoutASocket() throws {
         let cliPath = try bundledCLIPath()
         // Help never resolves a socket: point at a path nothing listens on.
@@ -1110,6 +1351,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "terminal", "--help"], ["cmux vm terminal", "wait-exit <machine> <terminal-id>", "output <machine> <terminal-id>"], ["cmux vm new"]),
             (["cloud", "exec", "-h"], ["cmux vm exec", "[--timeout <seconds>]", "1…900"], ["cmux vm new"]),
             (["vm", "pause", "--help"], ["cmux vm pause", "Park the machine", "cmux vm resume <machine>"], []),
+            (["vm", "clean", "--help"], ["cmux vm clean <id> --apply", "Removes nothing.", "never wakes a paused machine"], ["Usage: cmux vm <"]),
             (["vm", "workspace", "--help"], ["cmux vm workspace", "[--reuse]"], []),
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.

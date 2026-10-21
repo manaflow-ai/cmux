@@ -61,16 +61,18 @@ export type VmImageManifestEntry = {
   readonly cmuxdRemoteCommit: string;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
-  /** The cmux-tui state filesystem contract baked into this image. */
-  readonly cmuxTuiStateProtection?: "reserved-v1";
   readonly builtAt: string;
   readonly builderScriptVersion: string;
   readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
   readonly notes?: string;
+  /**
+   * A test image: never a default, and requestable by id only by a caller
+   * whose Stack user id is in CMUX_VM_RESTRICTED_IMAGE_USER_IDS. Anyone else
+   * gets the same refusal as an id that is not in the manifest.
+   */
+  readonly restricted?: boolean;
 };
-
-export type VmCmuxTuiStateProtection = "reserved-v1" | "legacy" | "unknown";
 
 export type VmImageSelection = {
   readonly provider: ProviderId;
@@ -89,7 +91,20 @@ export type VmImageResolveOptions = {
    * at least this much; omitted means the smallest size the manifest offers.
    */
   readonly memoryMb?: number;
+  /** The Stack user asking for an explicit image; restricted entries need it allowlisted. */
+  readonly callerUserId?: string;
 };
+
+/** The env var listing the Stack user ids allowed to request restricted (test) images. */
+export const VM_RESTRICTED_IMAGE_USERS_ENV = "CMUX_VM_RESTRICTED_IMAGE_USER_IDS";
+
+/** True when `userId` may request a restricted manifest image (comma- or space-separated allowlist; empty allows nobody). */
+export function vmRestrictedImageAllowed(userId: string | undefined, env: VmRuntimeEnv = process.env): boolean {
+  const caller = userId?.trim();
+  if (!caller) return false;
+  const allowed = (env[VM_RESTRICTED_IMAGE_USERS_ENV] ?? "").split(/[\s,]+/).filter((id) => id.length > 0);
+  return allowed.includes(caller);
+}
 
 const typedManifest = manifest as {
   readonly schemaVersion: number;
@@ -129,21 +144,12 @@ export function findVmImageManifestEntry(
   return matches[0] ?? null;
 }
 
-/** Classifies the image contract without probing or modifying a guest. */
-export function cmuxTuiStateProtectionForImage(
-  provider: ProviderId,
-  image: string,
-): VmCmuxTuiStateProtection {
-  const entry = findVmImageManifestEntry(provider, image);
-  if (!entry) return "unknown";
-  return entry.cmuxTuiStateProtection === "reserved-v1" ? "reserved-v1" : "legacy";
-}
-
 /** Every entry flagged `defaultForKind` for `kind`, smallest size first (size-less entries last). */
 export function listVmImageKindDefaults(provider: ProviderId, kind: VmImageKind): VmImageManifestEntry[] {
   return typedManifest.images
     .filter((entry) =>
-      entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true
+      entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind === true &&
+      entry.restricted !== true
     )
     .sort((a, b) => sizeRank(a) - sizeRank(b));
 }
@@ -269,7 +275,7 @@ export function resolveVmImage(
 
   const requested = requestedImage?.trim();
   if (requested) {
-    return resolveRequested(provider, requested, env, kind);
+    return resolveRequested(provider, requested, env, kind, options.callerUserId);
   }
 
   const effectiveKind = kind ?? VM_IMAGE_DEFAULT_KIND;
@@ -294,8 +300,28 @@ function resolveRequested(
   image: string,
   env: VmRuntimeEnv,
   kind: VmImageKind | undefined,
+  callerUserId: string | undefined,
 ): VmImageSelection {
   const entry = findVmImageManifestEntry(provider, image, kind);
+  // Any entry naming this image counts: one image is often listed once per
+  // kind, and an unrestricted twin must not open a restricted one.
+  const restricted = typedManifest.images.some((candidate) =>
+    candidate.provider === provider && candidate.restricted === true &&
+    (candidate.imageId === image || candidate.version === image)
+  );
+  if (restricted && !vmRestrictedImageAllowed(callerUserId, env)) {
+    // The refusal an unknown id gets in a deployed runtime, so a test image's
+    // existence does not leak (local dev, which accepts unknown ids, still
+    // refuses this one).
+    throw new VmImageConfigError({
+      provider,
+      image,
+      kind,
+      source: "request",
+      allowedImages: listVmImageIds(provider),
+      reason: `${image} is not listed in the Cloud VM image manifest`,
+    });
+  }
   if (entry) {
     const selection = selectionFromEntry(entry);
     if (kind !== undefined && selection.kind !== kind) {

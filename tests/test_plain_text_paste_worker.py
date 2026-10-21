@@ -59,13 +59,13 @@ class PlainPasteFixture(unittest.TestCase):
             time.sleep(0.01)
         self.assertTrue(predicate(), "fixture condition did not occur")
 
-    def directory(self, board, stale=False):
+    def directory(self, board, stale=False, mode="paste"):
         path = Path(tempfile.gettempdir()) / ("cmux-paste-preparation-" + str(uuid.uuid4()))
         path.mkdir(mode=0o700)
         self.workdirs.append(path)
         request = dict(pasteboard=dict(pasteboardName=board["name"],
                                       changeCount=-1 if stale else board["generation"]),
-                       mode={"paste": {}}, destination={"terminal": {}})
+                       mode={mode: {}}, destination={"terminal": {}})
         (path / "request.json").write_text(json.dumps(request))
         return path
 
@@ -140,6 +140,12 @@ class PlainTextPasteWorkerTests(PlainPasteFixture):
                 self.result(self.directory(board), expected=73)
                 self.assertFalse(Path(board["requested"]).exists())
                 Path(board["ready"]).unlink()
+
+    def test_terminal_plain_text_mode_ignores_nontext_flavors(self):
+        board = self.board(extra={"public.png": "auxiliary", "public.file-url": "auxiliary"})
+        result = self.result(self.directory(board, mode="plainText"))
+        self.assertEqual(result["textPayload"]["destination"], {"terminal": {}})
+        self.assertEqual((self.workdirs[-1] / "text-payload.txt").read_bytes(), board["text"].encode())
 
     def test_stale_generation_never_requests_provider(self):
         board = self.board(behavior="stall")

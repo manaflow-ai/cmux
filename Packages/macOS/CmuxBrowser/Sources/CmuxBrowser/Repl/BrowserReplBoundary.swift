@@ -10,25 +10,67 @@ import Foundation
 /// passes through the session, which applies them whatever the JavaScript
 /// side did.
 final class BrowserReplBoundary: @unchecked Sendable {
-    let secrets = BrowserReplSecretStore()
+    let secrets: BrowserReplSecretStore
     private let lock = NSLock()
     private var policy = BrowserReplDomainPolicy()
     private let publicSuffixes: BrowserReplPublicSuffixList
+    /// Read only by the egress gate (``egress(_:)``).
+    let typedSecrets: @Sendable () -> BrowserReplSecretStore?
+    /// Whether masking bytes on the session's JavaScript thread is to stop
+    /// (the cell timed out, a late callback ran past its limit, the session
+    /// closed); read by the egress gate between chunks of a long scan.
+    let isCancelled: @Sendable () -> Bool
+    /// The session's working and temporary directories, the only places a
+    /// navigation may load a file from.
+    private var fileRoots: [String] = []
+    /// The domains of each secret the session sent to be typed, and of each
+    /// sign-in sheet it asked for: the policy may not let pages reach past
+    /// any of them from then on (``secretTypingRefusal(name:domains:)``,
+    /// ``credentialDomains(origin:)``).
+    /// Each set is kept once, sorted and without repeats
+    /// (``canonical(_:)``), and takes one of the session's
+    /// ``BrowserReplResource/typedDomainSets`` before it is kept.
+    private var typedSecretDomains: [[BrowserReplDomainPattern]] = []
+    /// The session's ledger.
+    private let ledger: BrowserReplResourceLedger
 
-    /// - Parameter publicSuffixes: The list `site` answers come from.
-    init(publicSuffixes: BrowserReplPublicSuffixList = .system) {
+    /// - Parameters:
+    ///   - publicSuffixes: The list `site` and `publicSuffix` answers come
+    ///     from, and that refuses wildcard patterns over a public suffix.
+    ///   - typedSecrets: The secrets other sessions typed into tabs
+    ///     (``BrowserReplDriver/typedSecretRedaction()``), masked wherever
+    ///     the session's own are.
+    ///   - isCancelled: Whether a long byte scan is to stop
+    ///     (``BrowserReplWatchdog/shouldStopNativeWork``).
+    ///   - ledger: The session's ledger, which bounds the domain sets kept.
+    init(
+        publicSuffixes: BrowserReplPublicSuffixList = .system,
+        typedSecrets: @escaping @Sendable () -> BrowserReplSecretStore? = { nil },
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        ledger: BrowserReplResourceLedger = BrowserReplResourceLedger()
+    ) {
+        self.ledger = ledger
         self.publicSuffixes = publicSuffixes
+        self.secrets = BrowserReplSecretStore(publicSuffixes: publicSuffixes)
+        self.typedSecrets = typedSecrets
+        self.isCancelled = isCancelled
     }
 
     /// Methods whose results are images or documents; their pixels are
     /// masked by the driver instead.
     static let binaryMethods: Set<String> = ["tab.screenshot", "tab.pdf"]
     /// Parameters only the session may set on a driver call.
-    static let reservedParameters = ["secretName", "secretDomains", "secretMasks"]
+    static let reservedParameters = ["secretName", "secretDomains", "secretRevision", "secretMasks", "secretMasksTakenAt"]
 
     var domainPolicy: BrowserReplDomainPolicy { lock.withLock { policy } }
 
     func blockReason(_ url: String) -> String? { domainPolicy.blockReason(url) }
+
+    /// Sets the directories a navigation may load files from (the session's
+    /// working directory, which `cd` changes, and its temporary directory).
+    func setFileRoots(_ roots: [String]) {
+        lock.withLock { fileRoots = roots }
+    }
 
     // MARK: Secrets host (`__cmuxNative.secrets`)
 
@@ -46,7 +88,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 try secrets.set(name: name, value: value, domains: domains, totp: args["totp"] as? Bool ?? false, title: "secrets.set")
                 return .success(secrets.describe([name]).first ?? [:])
             case "load":
-                let names = try secrets.load(args["object"] ?? NSNull())
+                let names = try secrets.load(args["object"] ?? NSNull(), allowWeak: args["allowWeak"] as? Bool == true, isCancelled: isCancelled)
                 return .success(secrets.describe(names))
             case "list":
                 return .success(secrets.describe())
@@ -62,16 +104,25 @@ final class BrowserReplBoundary: @unchecked Sendable {
             }
         } catch let error as BrowserReplDriverError {
             return .failure(error)
+        } catch is CancellationError {
+            return .failure(Self.cancelled("secrets.\(op)"))
         } catch {
             return .failure(BrowserReplDriverError(code: "invalid", message: error.localizedDescription))
         }
+    }
+
+    /// The refusal of a host call whose native work stopped at the cell's
+    /// deadline or the session's end.
+    static func cancelled(_ title: String) -> BrowserReplDriverError {
+        BrowserReplDriverError(code: "cancelled", message: "\(title): cancelled because the cell timed out or the session ended")
     }
 
     // MARK: Policy host (`__cmuxNative.policy`)
 
     /// `get`, `check { url }` (the reason or null), `site { host }` (the
     /// host's registrable domain by the Public Suffix List, or the host when
-    /// it has none, as the driver scopes cookies) or `set { allowed?,
+    /// it has none, as the driver scopes cookies), `publicSuffix { name }`
+    /// (whether the name is a public suffix itself) or `set { allowed?,
     /// prohibited?, blockIPs?, lock?, title }`; a given key replaces its
     /// value, `null` clears it. A locked policy refuses `set`.
     /// - Returns: The result and, for `set`, the new policy to give the driver.
@@ -83,6 +134,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
             return (.success(blockReason(args["url"] as? String ?? "").map { $0 as Any } ?? NSNull()), nil)
         case "site":
             return (.success(publicSuffixes.site(of: args["host"] as? String ?? "")), nil)
+        case "publicSuffix":
+            return (.success(publicSuffixes.isPublicSuffix(args["name"] as? String ?? "")), nil)
         case "set":
             let title = args["title"] as? String ?? "session.domainPolicy"
             do {
@@ -92,11 +145,19 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     }
                     var next = policy
                     if args.keys.contains("allowed") {
-                        let list = try Self.patterns(args["allowed"], title: title)
+                        let list = try patterns(args["allowed"], title: title)
                         next.allowed = (list?.isEmpty ?? true) ? nil : list
+                        // A page that holds a typed secret may send it
+                        // wherever the policy lets it reach.
+                        if let domains = typedSecretDomains.first(where: { !Self.keeps(next.allowed, within: $0) }) {
+                            throw BrowserReplDriverError(
+                                code: "invalid",
+                                message: "\(title): a secret or sign-in credential was typed under the domain policy, so it may only keep pages on its domains (\(domains.map(\.raw).joined(separator: ", "))) for the rest of the session"
+                            )
+                        }
                     }
                     if args.keys.contains("prohibited") {
-                        next.prohibited = try Self.patterns(args["prohibited"], title: title) ?? []
+                        next.prohibited = try patterns(args["prohibited"], title: title) ?? []
                     }
                     if let block = args["blockIPs"] as? Bool { next.blockIPAddresses = block }
                     if args["lock"] as? Bool == true { next.locked = true }
@@ -114,16 +175,22 @@ final class BrowserReplBoundary: @unchecked Sendable {
         }
     }
 
-    private static func patterns(_ raw: Any?, title: String) throws -> [BrowserReplDomainPattern]? {
+    private func patterns(_ raw: Any?, title: String) throws -> [BrowserReplDomainPattern]? {
         if raw == nil || raw is NSNull { return nil }
         guard let list = raw as? [Any] else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected an array of domain patterns or null, got \(JSONSerialization.browserReplString(raw) ?? "?")")
+        }
+        guard list.count <= BrowserReplDomainPolicy.maximumPatternsPerList else {
+            throw BrowserReplDriverError(
+                code: "invalid",
+                message: "\(title): a list holds at most \(BrowserReplDomainPolicy.maximumPatternsPerList) domain patterns; this one has \(list.count)"
+            )
         }
         return try list.map { item in
             guard let text = item as? String else {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(JSONSerialization.browserReplString(item) ?? "?")")
             }
-            return try BrowserReplDomainPattern.parse(text, title: title)
+            return try BrowserReplDomainPattern.parse(text, title: title, publicSuffixes: publicSuffixes)
         }
     }
 
@@ -135,29 +202,51 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// - `input.insertText { secret: name }` gets the value, the secret's
     ///   name and its domains; the driver types it only into a frame whose
     ///   origin matches.
-    /// - Navigations and new tabs to a URL the policy blocks are refused.
+    /// - Navigations and new tabs to a URL the policy blocks, to a file
+    ///   outside the session's directories, or to another local scheme
+    ///   (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``) are refused.
     /// - `session.configure` may not set content rules: they come from the
     ///   policy.
     /// - Captures get the plain secret values to mask in matching frames.
     func prepare(method: String, paramsJSON: String) -> Result<String, BrowserReplDriverError> {
-        let watched = ["input.insertText", "tab.navigate", "tabs.open", "session.configure", "tab.screenshot", "tab.pdf"]
+        let watched = ["input.insertText", "tab.navigate", "tabs.open", "session.configure", "tab.screenshot", "tab.pdf", "auth.request"]
         guard watched.contains(method) || paramsJSON.contains("secret") else { return .success(paramsJSON) }
         var params = JSONSerialization.browserReplObject(paramsJSON)
         for key in Self.reservedParameters { params.removeValue(forKey: key) }
         switch method {
         case "input.insertText":
             if let name = params.removeValue(forKey: "secret") {
-                guard let name = name as? String, let typed = secrets.valueToType(name) else {
+                guard let name = name as? String, let typed = secrets.typing(name) else {
                     let quoted = JSONSerialization.browserReplString(name) ?? "?"
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \(quoted) was deleted"))
                 }
+                if let refusal = secretTypingRefusal(name: name, domains: typed.domains) { return .failure(refusal) }
                 params["text"] = typed.text
                 params["secretName"] = name
                 params["secretDomains"] = typed.domains.map(\.json)
+                // The driver asks again right before typing
+                // (``secretIsCurrent(name:revision:)``).
+                params["secretRevision"] = typed.revision
+            }
+        case "auth.request":
+            // The sign-in sheet's values go into the page like a typed
+            // secret: under a policy that keeps the session's tabs on the
+            // page's site, which the driver gets as their domains (checked
+            // against the frame that receives them, and masked by them).
+            switch credentialDomains(origin: params["origin"]) {
+            case .success(let domains): params["secretDomains"] = domains.map(\.json)
+            case .failure(let refusal): return .failure(refusal)
             }
         case "tab.navigate", "tabs.open":
-            if let url = params["url"] as? String, let reason = blockReason(url) {
-                return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+            if let url = params["url"] as? String {
+                // Local files only inside the session's own directories, and
+                // none of cmux's internal schemes, whatever the policy.
+                if let reason = BrowserReplFileSandbox.navigationRefusal(url, roots: lock.withLock({ fileRoots })) {
+                    return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+                }
+                if let reason = blockReason(url) {
+                    return .failure(BrowserReplDriverError(code: "blocked", message: "\(url) is blocked: \(reason)"))
+                }
             }
         case "session.configure":
             if params.keys.contains("contentRules") {
@@ -167,56 +256,177 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 ))
             }
         case "tab.screenshot", "tab.pdf":
-            let masks = secrets.captureMasks
+            // The time goes with the masks, for the check after the capture
+            // (``checkCaptureMasks(method:paramsJSON:_:)``).
+            let takenAt = Date()
+            let masks = secrets.captureMasks(at: takenAt)
             if !masks.isEmpty {
                 params["secretMasks"] = masks.map { ["value": $0.value, "domains": $0.domains.map(\.json)] as [String: Any] }
             }
+            params["secretMasksTakenAt"] = takenAt.timeIntervalSince1970
         default:
             break
         }
         return .success(JSONSerialization.browserReplString(params) ?? "{}")
     }
 
-    /// A driver result as JavaScript may see it.
-    func redact(method: String, _ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        guard !secrets.isEmpty else { return result }
-        switch result {
-        case .success(let json):
-            return Self.binaryMethods.contains(method) ? result : .success(secrets.redactJSON(json))
-        case .failure(let error):
-            return .failure(redact(error))
-        }
-    }
-
-    func redact(_ error: BrowserReplDriverError) -> BrowserReplDriverError {
-        guard !secrets.isEmpty else { return error }
-        return BrowserReplDriverError(code: error.code, message: secrets.redact(error.message), errorName: error.errorName)
-    }
-
-    /// A fetch result as JavaScript may see it: the URL, the headers and the
-    /// body, text or binary (its bytes go through the secret store's byte redaction),
-    /// are redacted.
-    func redactFetch(_ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
-        guard !secrets.isEmpty else { return result }
-        guard case .success(let json) = result else { return redact(method: "fetch", result) }
-        var response = JSONSerialization.browserReplObject(json)
-        let body = response.removeValue(forKey: "bodyBase64") as? String
-        var redacted = secrets.redactValue(response) as? [String: Any] ?? [:]
-        if let body {
-            guard let data = Data(base64Encoded: body) else {
-                return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
+    /// Why the secret `name` may not be typed now, or nil. The driver types
+    /// it only where the focused frame is on its domains, but the page that
+    /// receives it can send it on; only the domain policy's content rules,
+    /// in the tabs the session opened, stop that (the driver refuses any
+    /// other tab). So the policy must allow nothing outside the secret's
+    /// domains, and it may not widen past them later: the secret's domains
+    /// are kept from here on (``policyOperation(_:_:)``).
+    private func secretTypingRefusal(name: String, domains: [BrowserReplDomainPattern]) -> BrowserReplDriverError? {
+        lock.withLock {
+            let list = domains.map(\.raw).joined(separator: ", ")
+            guard let allowed = policy.allowed else {
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([\(domains.map { "\"\(Self.secureRaw($0))\"" }.joined(separator: ", "))]) first"
+                )
             }
-            let masked = secrets.redact(data)
-            redacted["bodyBase64"] = masked == data ? body : masked.base64EncodedString()
+            guard Self.keeps(allowed, within: domains) else {
+                let outside = allowed.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
+                return BrowserReplDriverError(
+                    code: "invalid",
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)\(Self.httpsHint)"
+                )
+            }
+            if let refusal = keepLocked(domains) { return refusal.driverError("secret \"\(name)\"") }
+            return nil
         }
-        return .success(JSONSerialization.browserReplString(redacted) ?? "null")
     }
 
-    /// File contents the session writes for JavaScript, or reads back for it
-    /// (`fs.readFile`), with secrets redacted, text or binary.
-    func redactFileContents(_ base64: String) -> String {
-        guard !secrets.isEmpty, let data = Data(base64Encoded: base64) else { return base64 }
-        let redacted = secrets.redact(data)
-        return redacted == data ? base64 : redacted.base64EncodedString()
+    /// Keeps `domains` as a set the policy may not reach past, once
+    /// however they are ordered or repeated; a set new to the session takes
+    /// one of its ``BrowserReplResource/typedDomainSets`` first, or is
+    /// refused and nothing is kept. Call with `lock` held.
+    private func keepLocked(_ domains: [BrowserReplDomainPattern]) -> BrowserReplResourceLimitError? {
+        let set = Self.canonical(domains)
+        guard !typedSecretDomains.contains(set) else { return nil }
+        if let refusal = ledger.reserve(1, of: .typedDomainSets) { return refusal }
+        typedSecretDomains.append(set)
+        return nil
+    }
+
+    /// `domains` sorted by how they are written, each once.
+    static func canonical(_ domains: [BrowserReplDomainPattern]) -> [BrowserReplDomainPattern] {
+        var set: [BrowserReplDomainPattern] = []
+        for domain in domains.sorted(by: { $0.raw < $1.raw }) where !set.contains(domain) {
+            set.append(domain)
+        }
+        return set
+    }
+
+    /// The domains of the values the sign-in sheet fills into a page of
+    /// `origin` (`auth.request`): its exact host and port (the scheme's
+    /// default when it names none), on https (on a loopback host, http
+    /// too), never a wildcard over its site, so a sibling host of the same
+    /// site, or another service of the same host on another port, cannot
+    /// receive them. A two-label host takes the
+    /// exact-host form (`=https://example.com`), which leaves out its www
+    /// host in the matcher, the content rules and the frame checks, so the
+    /// policy must name it so too. Refused unless the policy
+    /// keeps the session's tabs on that host, as for a typed secret, and
+    /// kept from then on (``policyOperation(_:_:)``).
+    private func credentialDomains(origin raw: Any?) -> Result<[BrowserReplDomainPattern], BrowserReplDriverError> {
+        guard let origin = raw as? String, let url = URL(string: origin), url.scheme == "https" || url.scheme == "http",
+              let host = BrowserReplHostName.host(of: url) else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: origin: expected the page's http(s) origin"))
+        }
+        // A loopback host is matched on http and https without a scheme
+        // (``BrowserReplDomainPattern/loadsOnlySecurely``); any other only
+        // on https.
+        // The page's effective port too (its scheme's default when the
+        // origin names none), so another service on the same host, on
+        // another port, never receives them.
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        let exact = (host.split(separator: ".").count == 2 ? "=" : "") + (BrowserReplHostName.isLoopback(host) ? host : "https://\(host)") + ":\(port)"
+        guard let domain = try? BrowserReplDomainPattern.parse(exact, title: "auth.request", publicSuffixes: publicSuffixes) else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no host a domain policy can name"))
+        }
+        let domains = [domain]
+        return lock.withLock {
+            guard let allowed = policy.allowed, Self.keeps(allowed, within: domains) else {
+                let also = policy.allowed.map { list in
+                    "; the policy also allows " + list.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
+                } ?? ""
+                let site = publicSuffixes.site(of: host)
+                let wildcard = site == host || BrowserReplHostName.isIPAddress(host) ? "" : " (a wildcard such as *.\(site) is not enough)"
+                return .failure(BrowserReplDriverError(
+                    code: "invalid",
+                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on exactly \(domain.raw), the page's own host\(wildcard)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) first"
+                ))
+            }
+            if let refusal = keepLocked(domains) { return .failure(refusal.driverError("auth.request")) }
+            return .success(domains)
+        }
+    }
+
+    /// `domain` as an allowed pattern that keeps pages where it is typed:
+    /// with https when it names no scheme and is not a loopback host.
+    private static func secureRaw(_ domain: BrowserReplDomainPattern) -> String {
+        guard domain.scheme == nil, !domain.loadsOnlySecurely else { return domain.raw }
+        let written = domain.raw.trimmingCharacters(in: .whitespaces)
+        // The exact-host mark stays in front (`=https://example.com`).
+        return written.hasPrefix("=") ? "=https://" + written.dropFirst() : "https://" + written
+    }
+
+    private static let httpsHint = " (a domain without a scheme also allows http; name it with https://, such as https://example.com)"
+
+    /// Whether a policy's `allowed` list keeps pages on `domains`: it is set,
+    /// and each of its patterns is covered by one of them, on https unless
+    /// a domain names its scheme (``BrowserReplDomainPattern/covers(_:secure:)``).
+    private static func keeps(_ allowed: [BrowserReplDomainPattern]?, within domains: [BrowserReplDomainPattern]) -> Bool {
+        guard let allowed else { return false }
+        return allowed.allSatisfy { pattern in domains.contains { $0.covers(pattern, secure: true) } }
+    }
+
+    /// Whether the secret an `input.insertText` call carries (its
+    /// `secretName` and `secretRevision`) is still the one the session
+    /// holds: the driver asks right before it types the value, so a secret
+    /// deleted, cleared or replaced since the call was made is never typed.
+    func secretIsCurrent(name: String, revision: Int) -> Bool {
+        secrets.isCurrent(name, revision: revision)
+    }
+
+    /// A capture's result, refused (`stale`) when the session could have
+    /// typed a secret value its masks lack while it was taken: the masks
+    /// are the values the session held when the call was made (`prepare`),
+    /// and calls run concurrently, so the session can set a new secret, or
+    /// add a domain to one, and type it meanwhile, or a TOTP secret's code
+    /// can move past the windows the masks hold. Every value, and every
+    /// TOTP code of a window between the masks and now, must be among the
+    /// masks with each of its domains.
+    func checkCaptureMasks(method: String, paramsJSON: String, _ result: Result<String, BrowserReplDriverError>) -> Result<String, BrowserReplDriverError> {
+        guard Self.binaryMethods.contains(method), case .success = result else { return result }
+        let params = JSONSerialization.browserReplObject(paramsJSON)
+        let takenAt = (params["secretMasksTakenAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } ?? .distantPast
+        var masked = Set<String>()
+        for mask in params["secretMasks"] as? [[String: Any]] ?? [] {
+            guard let value = mask["value"] as? String else { continue }
+            for domain in mask["domains"] as? [Any] ?? [] {
+                masked.insert(value + "\u{0}" + Self.canonicalJSON(domain))
+            }
+        }
+        let typeable = secrets.typeableValues(from: takenAt, to: Date())
+        let covered = typeable.allSatisfy { entry in
+            entry.domains.allSatisfy { masked.contains(entry.value + "\u{0}" + Self.canonicalJSON($0.json)) }
+        }
+        guard covered else {
+            return .failure(BrowserReplDriverError(
+                code: "stale",
+                message: "The session set a secret while the capture was taken, so it may show the value unmasked; try again"
+            ))
+        }
+        return result
+    }
+
+    /// `value` as JSON with sorted keys, so a domain pattern compares equal
+    /// after a round trip through a driver call's parameters.
+    private static func canonicalJSON(_ value: Any) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed, .sortedKeys]) else { return "" }
+        return String(decoding: data, as: UTF8.self)
     }
 }

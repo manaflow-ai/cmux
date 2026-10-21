@@ -1,4 +1,5 @@
 import { registerOTel } from "@vercel/otel";
+import { installStackThrottleFetchGuard } from "./services/auth/stackThrottleFetchGuard";
 import { DependencySpanProcessor } from "./services/observability/dependencies";
 import { buildCmuxTraceSampler } from "./services/observability/sampler";
 import {
@@ -44,6 +45,11 @@ function prewarmDevCloudRoutes(): void {
 }
 
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    // A Stack 429 is final for the SDK call that got it; see the guard.
+    const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID?.trim();
+    if (projectId) installStackThrottleFetchGuard(globalThis, projectId);
+  }
   registerOTel({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
     // Keep 100% of Cloud VM traces, sample the rest (CMUX_OTEL_BASE_SAMPLE_RATIO,

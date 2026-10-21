@@ -29,4 +29,4 @@ The PR Changelog lines are drafts. Edit them for tone and merge related lines, b
 
 ## Asset rename
 
-If `cmux-macos.dmg` is ever renamed, update every surface that assumes the `releases/latest/download/cmux-macos.dmg` path (README, website, updater feed, Homebrew formula).
+If `cmux-macos.dmg` is ever renamed, update every surface that assumes the `releases/latest/download/cmux-macos.dmg` path (README, website, updater feed, Homebrew formula). The thin DMGs and the per-arch feeds have their own surfaces: `UpdateFeedResolver` (`appcast-<arch>.xml`), `UpdateManualDownloadRecovery` (`cmux-macos-<arch>.dmg`), `scripts/release_asset_guard.js` and `scripts/ci/compose_stable_appcast.py`.
