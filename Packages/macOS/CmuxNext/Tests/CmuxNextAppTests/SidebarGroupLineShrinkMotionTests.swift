@@ -85,4 +85,45 @@ import Testing
         #expect(springs.end < before - 1, "the joined line did not shrink (\(before) to \(springs.end) pt)")
         #expect(springs.animated, "the joined line took its \(springs.end) pt length in one frame, from \(before) pt")
     }
+
+    /// The joined outline's own writes never animate on their own: Core Animation's implicit
+    /// 0.25 s action on a standalone mask ignores the motion switches and Reduce Motion, and a
+    /// non-animated reload (a scroll reusing the header, a resize) must draw its end at once.
+    @Test func aJoinedOutlineChangesAtOnceWithoutAnimating() throws {
+        let (sidebar, model) = Self.sidebar(joined: true)
+        let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        model.sections = Self.sections(Array(Self.members.dropLast()))
+        sidebar.list.reload(animated: false)
+        header.layoutSubtreeIfNeeded()
+        let outline = try #require(header.barLayer.mask, "the joined bar has no outline")
+        #expect(outline.animationKeys() ?? [] == [], "the outline animates on its own: \(outline.animationKeys() ?? [])")
+        #expect(header.barLayer.animation(forKey: "cornerRadius") == nil, "the bar's corners animate on their own")
+    }
+
+    /// A layout during the rows' spring (a hover, a focus change) keeps the outline on that spring:
+    /// it does not swap it for an implicit animation and snap the outline to its end.
+    @Test(.enabled("a window with no screen applies its changes at once") { await SidebarCalmMotionTests.hasDisplay() })
+    func aLayoutMidSpringKeepsTheJoinedLinesSpring() throws {
+        let (sidebar, model) = Self.sidebar(joined: true)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        defer { window.orderOut(nil) }
+        window.contentView?.addSubview(sidebar)
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        sidebar.layoutSubtreeIfNeeded()
+        let header = try #require(sidebar.list.rowViews[.group(Self.group)] as? GroupHeaderRowView)
+        header.layoutSubtreeIfNeeded()
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        model.sections = Self.sections(Array(Self.members.dropLast()))
+        sidebar.list.reload(animated: true)
+        header.layoutSubtreeIfNeeded()
+        header.needsLayout = true // a hover mid-spring
+        header.layoutSubtreeIfNeeded()
+        let outline = try #require(header.barLayer.mask, "the joined bar has no outline")
+        #expect(outline.animation(forKey: "path") is CASpringAnimation, "a layout mid-spring replaced the outline's spring")
+        #expect(outline.animation(forKey: "bounds") is CASpringAnimation, "a layout mid-spring replaced the outline's spring")
+    }
 }
