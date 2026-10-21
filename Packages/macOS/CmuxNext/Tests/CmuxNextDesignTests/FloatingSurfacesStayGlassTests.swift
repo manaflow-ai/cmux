@@ -35,16 +35,30 @@ import Testing
         return max(CGFloat(veils.max() ?? 0), overlay) + 0.01
     }
 
-    /// Every fill drawn between `surface`'s material and its content: the layer fills and glass
-    /// tints of the views that hold the content (its ancestors up to the surface), so the system
-    /// material's own private views are never read.
+    /// Every fill drawn between `surface`'s material and its content, outermost first: a glass
+    /// panel's tint (its private internals stand for it) and every layer fill on the way down,
+    /// as `CardMaterialLegibilityTests` reads them.
     private static func fills(over surface: OverlaySurfaceView) -> [(String, CGFloat)] {
+        var chain: [NSView] = []
+        var current: NSView? = surface.contentView
+        while let view = current, view !== surface {
+            chain.append(view)
+            current = view.superview
+        }
         var out: [(String, CGFloat)] = []
-        var view = surface.contentView.superview
-        while let current = view, current !== surface {
-            if let color = current.layer?.backgroundColor, color.alpha > 0 { out.append(("\(type(of: current)) fill", color.alpha)) }
-            if let glass = current as? GlassPanelView, let tint = glass.tintColor { out.append(("glass tint", tint.alphaComponent)) }
-            view = current.superview
+        var skipUntil: NSView?
+        for view in chain.reversed() {
+            if let skip = skipUntil {
+                guard view === skip else { continue }
+                skipUntil = nil
+            }
+            if view === surface.contentView { break }
+            if let glass = view as? GlassPanelView {
+                if let tint = glass.tintColor { out.append(("glass tint", tint.alphaComponent)) }
+                skipUntil = glass.contentView
+                continue
+            }
+            if let color = view.layer?.backgroundColor, color.alpha > 0 { out.append(("\(type(of: view)) fill", color.alpha)) }
         }
         return out
     }
