@@ -144,7 +144,8 @@ impl Hub {
             _ => Sender::Other,
         };
         let provenance = crate::prompt_provenance::of(params, sender)?;
-        if sender == Sender::App && provenance.as_ref().is_some_and(|p| !self.app_reply_fits(p, to, shows))
+        if sender == Sender::App
+            && provenance.as_ref().is_some_and(|p| !self.app_reply_fits(p, to, shows))
         {
             return Err(crate::prompt_provenance::origin_refused());
         }
