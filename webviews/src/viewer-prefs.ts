@@ -25,6 +25,8 @@ import type { DiffViewerOptions } from "./pierre-options";
  * dropped without a word. Giving it a row is the new-setting checklist (schema row, agent policy,
  * 21 locales, regenerated settings exports) and lands on its own, once the defaults snapshot is
  * green on base; `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again.
+ * Until then the grouping is off by default (state.ts) and turned on from the toolbar for the
+ * session: a reorder nobody can durably turn off has no business being the default.
  */
 export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed" | "groupByKind">> & {
   collapsedFiles?: string[];

@@ -340,11 +340,16 @@ public final class AgentReplyPullRequests {
         inflight[url] = nil
     }
 
-    /// Drops the stalest link once more than ``maximumKept`` are kept; one being read stays.
+    /// How many links the cache holds, for the test of its bound.
+    var kept: Int { entries.count }
+
+    /// Drops the stalest links until at most ``maximumKept`` are kept; one being read stays. Every
+    /// one over the bound, not one per call: a batched read records up to ``maximumRegistered`` at
+    /// once, so dropping a single link left the cache fifteen longer with every such reply.
     private func trim() {
-        guard entries.count > Self.maximumKept,
-              let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key
-        else { return }
-        entries[stalest] = nil
+        while entries.count > Self.maximumKept,
+              let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
+            entries[stalest] = nil
+        }
     }
 }

@@ -134,7 +134,10 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
       colors: "theme",
       diffIndicators: "bars",
       expandUnchanged: false,
-      groupByKind: true,
+      // The delineated diff is opt-in from the toolbar while it is session-local: a reorder of the
+      // file column that a reader cannot durably turn off is not a default (familiar first). It
+      // becomes the default once `diff.groupByKind` has its schema row and the toggle sticks.
+      groupByKind: false,
       lineNumbers: true,
       showBackgrounds: true,
       wordDiffs: false,

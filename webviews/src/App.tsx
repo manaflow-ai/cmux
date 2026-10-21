@@ -71,6 +71,7 @@ import { FilesSidebar, FilesSidebarBackdrop, filteredFileTreeSource } from "./di
 import { LoadingLayer } from "./diff-viewer/Loading";
 import { DiffPill, Toolbar } from "./diff-viewer/Toolbar";
 import { WorkerRenderOptionsSync } from "./diff-viewer/WorkerRenderOptionsSync";
+import { useKindOrder, type KindOrderHandlers } from "./diff-viewer/useKindOrder";
 import { useSyncedRef } from "./diff-viewer/useSyncedRef";
 import { useViewedFilesBootstrap, useViewerPrefsBootstrap } from "./diff-viewer/bootstrap";
 import {
@@ -231,11 +232,16 @@ export function App({ config, initialStatus }: ConfigProps) {
   // The delineated diff: once every file has arrived, they read in kind order, code first, so
   // the work is at the top and a lockfile never sits between two source files.
   const generatedPathSet = useMemo(() => new Set(state.generatedPaths), [state.generatedPaths]);
-  // The reorder happens once the stream settles, and only through the effect below, which keeps
-  // the file the reader is on under them. Reordering straight off `streamComplete` moved the text
-  // out from under whoever was already reading a long diff.
-  const [kindOrderApplied, setKindOrderApplied] = useState(false);
-  const grouped = state.options.groupByKind && kindOrderApplied;
+  // The reorder happens once the stream settles, and through useKindOrder, which keeps the file
+  // the reader is on under them. Reordering straight off `streamComplete` moved the text out from
+  // under whoever was already reading a long diff. The handlers are filled in below, where the
+  // code view and its measurements exist; they are only ever called from the hook's effects.
+  const kindOrderHandlers = useRef<KindOrderHandlers>({ anchor: () => "", restore: () => {} });
+  const grouped = useKindOrder({
+    enabled: state.options.groupByKind,
+    ready: state.streamComplete,
+    handlers: kindOrderHandlers,
+  });
   const visibleItems = useMemo(() => {
     const filtered = filterDiffItems(state.items, deferredFileFilter, (item) =>
       viewedStateOfItem(item, state.viewedByPath),
@@ -454,25 +460,16 @@ export function App({ config, initialStatus }: ConfigProps) {
       ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "")
     );
   }, [latestState, visibleItemsRef]);
-  // "Group files by kind" reorders the column once, when the last file of the diff has arrived.
-  // If the reader has already scrolled into the diff, the file under them must stay under them:
-  // measure that file, flush the reorder, then put it back at the top. Without this, finishing a
-  // 300-file stream threw the reader onto an unrelated file seconds after they started reading.
-  // A diff that is still streaming, or one the reader has not scrolled, needs no anchor.
+  // What useKindOrder measures and restores around a reorder of the file column: the file under
+  // the viewport, and a scroll that puts it back there. A reader who has not scrolled into the
+  // diff has no anchor, and nothing to keep.
   useEffect(() => {
-    if (!state.streamComplete) {
-      setKindOrderApplied(false);
-      return;
-    }
-    if (kindOrderApplied) return;
-    const anchorItemId = state.options.groupByKind && codeViewScrollTopRef.current > 0 ? currentVisibleItemId() : "";
-    if (!anchorItemId) {
-      setKindOrderApplied(true);
-      return;
-    }
-    flushSync(() => setKindOrderApplied(true));
-    codeViewRef.current?.scrollTo({ type: "item", id: anchorItemId, align: "start", behavior: "instant" });
-  }, [currentVisibleItemId, kindOrderApplied, state.options.groupByKind, state.streamComplete]);
+    kindOrderHandlers.current = {
+      anchor: () => (codeViewScrollTopRef.current > 0 ? currentVisibleItemId() : ""),
+      restore: (itemId) =>
+        codeViewRef.current?.scrollTo({ type: "item", id: itemId, align: "start", behavior: "instant" }),
+    };
+  }, [currentVisibleItemId]);
   const jumpAdjacentFile = useCallback(
     (direction: -1 | 1) => {
       const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);

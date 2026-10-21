@@ -133,6 +133,37 @@ struct AgentReplyPullRequestsTests {
         #expect(read.checks == .init(state: "passing", passed: 1, total: 1))
     }
 
+    /// The batched query asks for every field `gh pr view` would read, so a drift between the two
+    /// is caught here instead of by an empty row on a card: the stub gh above answers its fixture
+    /// whatever the query says, so only this reads the ask itself.
+    @Test func theBatchedQueryAsksForEveryFieldGhReads() throws {
+        let target = try #require(AgentChatPullRequestReader.Target(url: Self.url.absoluteString))
+        let query = AgentChatPullRequestReader.query([target])
+        for field in AgentPanePullRequest.fields.split(separator: ",").map(String.init) {
+            // The one field that is not a field of a pull request in GraphQL: the rollup hangs off
+            // the last commit, and `pullRequests(fromGraphQL:)` reshapes it back.
+            let asked = field == "statusCheckRollup" ? "commits(last: 1)" : field
+            #expect(query.contains(asked), "the batched query no longer asks for \(field)")
+        }
+    }
+
+    /// Replies full of links cannot grow the cache without bound: a batch records up to sixteen
+    /// links at once, so dropping one per read left ``AgentReplyPullRequests/maximumKept`` behind.
+    @Test func manyRepliesLeaveTheCacheAtItsBound() async throws {
+        let gh = try Self.rig()
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        // Twenty replies of sixteen links each: 320 links through a cache that keeps 200.
+        let size = AgentReplyPullRequests.maximumRegistered
+        for reply in 0..<20 {
+            let batch = (0..<size).compactMap { URL(string: "https://github.com/o/r/pull/\(100 + reply * size + $0)") }
+            pullRequests.register(batch)
+            // Awaits that reply's one batched read, which records all of its links at once.
+            _ = await pullRequests.read(batch[0])
+            #expect(pullRequests.kept <= AgentReplyPullRequests.maximumKept)
+        }
+        #expect(pullRequests.kept == AgentReplyPullRequests.maximumKept)
+    }
+
     /// One reply cannot start a hundred reads: ``AgentReplyPullRequests/maximumRegistered`` links
     /// are prefetched, and the rest are read if and when a card opens.
     @Test func aReplyPrefetchesAtMostItsBound() async throws {

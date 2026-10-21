@@ -6,6 +6,7 @@
 // #22951). This test reads the host's own list, so adding a page pref without its schema row
 // fails here instead of in a person's hands.
 import { expect, test } from "bun:test";
+import type { DiffViewerOptions } from "../src/pierre-options";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
 
 const DIFF_PREFS_SWIFT = `${import.meta.dir}/../../Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffPrefs.swift`;
@@ -23,8 +24,12 @@ async function hostKeys(): Promise<Set<string>> {
   return new Set([...quoted(booleans[1]!), ...choiceKeys, collapsed[1]!]);
 }
 
-/** One of every display option the viewer has, with a valid value, for sanitizeViewerPrefs. */
-const EVERY_OPTION = {
+/**
+ * One of every display option the viewer has, with a valid value, for sanitizeViewerPrefs. Typed
+ * so a new `DiffViewerOptions` key has to be listed here, where this guard can see it; untyped,
+ * the next option sanitizeViewerPrefs persists would slip past the test.
+ */
+const EVERY_OPTION: Required<DiffViewerOptions> & { collapsedFiles: string[] } = {
   collapsed: true,
   collapsedFiles: ["/repo\u0000src/app.ts"],
   colors: "theme",

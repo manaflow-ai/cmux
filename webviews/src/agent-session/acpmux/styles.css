@@ -478,7 +478,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__decision{font-weight:500}
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-danger)}
-.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:999px;font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
 .acpmux-pr-card__changes{display:grid;gap:4px}
 .acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted)}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;color:inherit;font:inherit;font-variant-numeric:tabular-nums;cursor:default}
@@ -486,7 +486,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__lines:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:2px;border-radius:3px}
 .acpmux-pr-card__added{color:var(--acpmux-add,var(--agent-success,#3fb950))}
 .acpmux-pr-card__removed{color:var(--acpmux-del,var(--agent-danger))}
-.acpmux-pr-card__warning{padding:0 6px;border-radius:999px;background:color-mix(in srgb,var(--agent-warning,#d29922) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-warning,#d29922) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
 .acpmux-pr-card__kinds{display:grid;grid-template-columns:1fr auto auto;gap:1px 10px;margin:1px 0 0;padding:5px 8px;list-style:none;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__kind{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:baseline}
 .acpmux-pr-card__kindName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
