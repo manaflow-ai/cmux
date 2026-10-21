@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -82,7 +83,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   const show = (page: Page, rows: Row[]) =>
     page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
   const settle = async (page: Page) => {
-    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     await page.waitForTimeout(400);
   };
   const atLatest = (page: Page) =>
@@ -99,7 +100,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
       const box = line.getBoundingClientRect();
       return { top: box.top, x: box.left + 24, y: box.top + box.height / 2 };
     }, selector);
-  /// Clicks the marked line, then follows it every frame for `ms`: how far it ever moved, and
+  /// Clicks the marked line, then follows it every painted frame for `ms`: how far it ever moved, and
   /// whether a fold was playing at some frame.
   const clickAndWatch = async (page: Page, ms = 450) => {
     const point = await page.evaluate(() => {
@@ -112,15 +113,15 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
           const start = performance.now();
           let moved = 0;
           let folded = false;
-          const step = () => {
+          window.cmuxAfterPaint(() => {
             const line = document.querySelector<HTMLElement>("[data-probe]");
             if (line) moved = Math.max(moved, Math.abs(line.getBoundingClientRect().top - from));
             for (const fold of document.querySelectorAll(".cv-fold"))
               if (fold.getAnimations().length > 0) folded = true;
-            if (performance.now() - start < duration) requestAnimationFrame(step);
-            else resolve({ moved, folded });
-          };
-          requestAnimationFrame(step);
+            if (performance.now() - start < duration) return;
+            resolve({ moved, folded });
+            return false;
+          });
         }),
       { duration: ms, from: point.top },
     );
@@ -132,6 +133,7 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
   const open = async (reducedMotion: "reduce" | "no-preference") => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 600 } });
+    await installPaintedFrames(page);
     await page.emulateMedia({ reducedMotion });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRows" in window);

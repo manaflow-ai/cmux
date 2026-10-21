@@ -42,6 +42,8 @@ cmux workspace mute-unmute --target ws_…  # the sidebar row speaker's click
 
 Only a loaded browser tab can be muted. MCP offers the same verbs as tools.
 
+An agent chat tab's notifications (not its sound) mute and unmute with `cmux tab toggle-chat-notifications --target tab_…` (MCP `app_tab_toggle_chat_notifications`). Only an agent chat on this Mac can be muted.
+
 ## Running a command
 
 `pane <sel> run -- <argv…>` opens a tab running the exact argv, with no shell in between. `run shell '<script>'` runs a shell script. `--on-exit close|keep|shell` decides whether the tab stays after the process exits (`shell` drops it into a new shell). To type into an existing shell instead, use `cmux terminal term_… write --text $'npm test\n'`; the text is literal, so include the newline.
