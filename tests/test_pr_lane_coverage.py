@@ -235,9 +235,9 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
 
 
 class ThisTree(unittest.TestCase):
-    def test_every_test_runs_on_a_feat_cmux_next_pull_request_or_is_exempt(self):
-        errors = validator.validate_pr_lanes(ROOT, BRANCH)
-        self.assertEqual(errors, [], "\n".join(errors))
+    # The whole tree is judged by the tooling-tests step that runs the validator with
+    # --base-sha HEAD^1: a test a direct-pushed main sync left unrun warns there instead of
+    # turning every later pull request red, which an assertion here would do.
 
     def test_the_runner_test_runs_on_every_feat_pull_request(self):
         """a2d6b35 broke tests/test_webviews_tests_per_file.py with every pull request green (#23430)."""
