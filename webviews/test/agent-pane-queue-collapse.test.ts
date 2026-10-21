@@ -468,8 +468,28 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.keyboard.press("ArrowUp");
       await page.keyboard.press("Enter");
       await page.waitForFunction(() => document.querySelectorAll(".acpmux-queued").length === 8);
-      // Past any snap or scroll that settles after the first frames.
-      await page.waitForTimeout(400);
+      // Past any snap or scroll that settles after the first frames: no animation left running and
+      // the list's scroll position held over three painted frames.
+      await page.evaluate(async () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const finite = () =>
+          document.getAnimations().filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        for (let tries = 0; tries < 20; tries++) {
+          await Promise.all(finite().map((animation) => animation.finished.catch(() => undefined)));
+          await new Promise<void>((resolve) => {
+            let last = -1;
+            let still = 0;
+            window.cmuxAfterPaint(() => {
+              still = list.scrollTop === last ? still + 1 : 0;
+              last = list.scrollTop;
+              if (still < 2) return true;
+              resolve();
+              return false;
+            });
+          });
+          if (finite().every((animation) => animation.playState !== "running")) return;
+        }
+      });
       const top = await page.evaluate(() => {
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
         const box = list.getBoundingClientRect();
@@ -521,22 +541,42 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       return page;
     }
     /// Where the opened list rests once any snap or scroll settles: at its end or not, and whether
-    /// its last row shows whole.
+    /// its last row shows whole. Settled is ten painted frames running with no scroll event on the
+    /// list and no animation running, so a snap back (a scroll that ends and then moves again)
+    /// starts the count over and is read where it lands.
     const resting = (page: Page) =>
-      page.evaluate(
-        () =>
-          new Promise<{ atEnd: boolean; lastWhole: boolean }>((resolve) =>
-            setTimeout(() => {
-              const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
-              const box = list.getBoundingClientRect();
-              const last = [...list.querySelectorAll(".acpmux-queued")].at(-1)!.getBoundingClientRect();
-              resolve({
-                atEnd: list.scrollTop >= list.scrollHeight - list.clientHeight - 1,
-                lastWhole: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
-              });
-            }, 600),
-          ),
-      );
+      page.evaluate(async () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        let moved = true;
+        const mark = () => (moved = true);
+        list.addEventListener("scroll", mark);
+        list.addEventListener("scrollend", mark);
+        await new Promise<void>((resolve) => {
+          let still = 0;
+          let frames = 0;
+          window.cmuxAfterPaint(() => {
+            const running = document
+              .getAnimations()
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getComputedTiming().endTime !== Infinity,
+              );
+            still = moved || running ? 0 : still + 1;
+            moved = false;
+            if (still < 10 && ++frames < 600) return true;
+            resolve();
+            return false;
+          });
+        });
+        list.removeEventListener("scroll", mark);
+        list.removeEventListener("scrollend", mark);
+        const box = list.getBoundingClientRect();
+        const last = [...list.querySelectorAll(".acpmux-queued")].at(-1)!.getBoundingClientRect();
+        return {
+          atEnd: list.scrollTop >= list.scrollHeight - list.clientHeight - 1,
+          lastWhole: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
+        };
+      });
 
     test("an opened queue scrolled to its end stays there, its last row whole (Leo, 2026-10-20)", async () => {
       // Leo: the queue "scrolls to the bottom then shoots back up", and the last row is cut off.
