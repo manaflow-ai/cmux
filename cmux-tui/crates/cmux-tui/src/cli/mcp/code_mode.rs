@@ -74,7 +74,9 @@ pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs se
     notifications, keybindings and the app's actions) and returns each tool's input schema. \
     cmux_exec runs a JavaScript script that calls those tools: `await cmux.call(\"pane_split\", \
     {...})` or `await cmux.pane_split({...})`. Put related steps in one script and return the \
-    value you need. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
+    value you need. Tools of the chat's other cmux servers (cua_* computer use, secrets_*, \
+    sessions_*) come with their server's rules in `servers` of a cmux_docs answer: read and \
+    follow them before you call those tools. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
     win_…) that the *_list tools report; a unique prefix works, and <session>:<id> reaches \
     another session. A change takes idempotency_key: when a call fails with state \
     in_progress, retry it with the key from the error so it cannot apply twice. Tools never \
@@ -95,7 +97,9 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "description": format!(
                 "Find the cmux tools a cmux_exec script can call, with their input schemas. \
                  Pass query (words such as \"pane split\" or \"browser screenshot\"), or names \
-                 for exact tools, or nothing for every tool name by family. Families: \
+                 for exact tools, or nothing for every tool name by family. A query about a \
+                 task, such as \"show the user\", also returns guides that name its tools. \
+                 Families: \
                  {families}."
             ),
             "inputSchema": {
@@ -238,12 +242,18 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .take(DOCS_MORE_NAMES)
         .filter_map(|(_, tool)| tool["name"].as_str())
         .collect::<Vec<_>>();
-    json!({
+    let mut answer = json!({
         "query": query,
         "matches": scored.len(),
         "tools": scored.iter().take(limit).map(|(_, tool)| (*tool).clone()).collect::<Vec<_>>(),
         "more": more,
-    })
+    });
+    // A task no one tool answers (`cmux docs search` returns the same).
+    let guides = super::super::docs::guides(query);
+    if !guides.is_empty() {
+        answer["guides"] = json!(guides);
+    }
+    answer
 }
 
 /// What a script asks the server for while it runs.
@@ -659,8 +669,28 @@ fn closed() -> Value {
     json!({"ok": false, "message": "the server stopped", "error": {"state": "not_run"}})
 }
 
-/// A tool result as a script sees it.
-pub(super) fn script_answer(result: Result<Value, (i64, String)>) -> Value {
+/// Images a script's calls returned that one `cmux_exec` result carries
+/// (a computer use screenshot), and their total base64 bytes.
+const MAX_IMAGES: usize = 8;
+const MAX_IMAGE_BYTES: usize = 8 << 20;
+
+/// A tool result as a script sees it. A result without structured content
+/// (another server's tool) becomes its JSON text, or `{content}`; its
+/// images move to `images`, for the `cmux_exec` result, and the script
+/// sees `{type: "image", image: <index>}` in their place.
+pub(super) fn script_answer(
+    result: Result<Value, (i64, String)>,
+    images: &mut Vec<Value>,
+) -> Value {
+    let result = result.map(|result| {
+        if result.get("structuredContent").is_some() {
+            return result;
+        }
+        let mut result = result;
+        let failed = result["isError"] == true;
+        result["structuredContent"] = from_content(&result["content"], images, failed);
+        result
+    });
     match result {
         Err((_, message)) => json!({
             "ok": false,
@@ -678,4 +708,41 @@ pub(super) fn script_answer(result: Result<Value, (i64, String)>) -> Value {
         }
         Ok(result) => json!({"ok": true, "value": result["structuredContent"]}),
     }
+}
+
+/// The value of an MCP `content` list: one text block that is JSON is that
+/// JSON; anything else is `{content}` with images moved to `images`. An
+/// error result's text is its `error.message`.
+fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value {
+    let blocks = content.as_array().cloned().unwrap_or_default();
+    if let [block] = blocks.as_slice()
+        && !failed
+        && block["type"] == "text"
+        && let Some(value) = block["text"].as_str().and_then(|t| serde_json::from_str(t).ok())
+    {
+        return value;
+    }
+    let message =
+        blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
+    let used = |images: &Vec<Value>| -> usize {
+        images.iter().map(|image| image["data"].as_str().map_or(0, str::len)).sum()
+    };
+    let blocks = blocks
+        .into_iter()
+        .map(|block| {
+            if block["type"] != "image" {
+                return block;
+            }
+            let size = block["data"].as_str().map_or(0, str::len);
+            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
+                return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
+            }
+            images.push(block.clone());
+            json!({"type": "image", "image": images.len() - 1, "mimeType": block["mimeType"]})
+        })
+        .collect::<Vec<_>>();
+    if failed {
+        return json!({"content": blocks, "error": {"message": message}});
+    }
+    json!({"content": blocks})
 }

@@ -69,10 +69,14 @@ public final class RegistryPaletteProvider: PaletteProvider {
         for entry in registry.entries {
             let descriptor = entry.descriptor
             guard descriptor.isPaletteVisible, !hiddenIDs.contains(descriptor.id), registry.isAvailable(descriptor.id) else { continue }
-            let override = effectOverrides[descriptor.id]?()
+            // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
+            // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
+            // its page. Declining there (nothing to rename) falls back to the action itself.
+            let override = effectOverrides[descriptor.id]
             guard entry.isBound || override != nil || includeUnbound else { continue }
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
-            let effect = override ?? defaultEffect(for: descriptor)
+            let fallback = defaultEffect(for: descriptor)
+            let effect = override.map { decide in PaletteEffect.deferred { decide() ?? fallback } } ?? fallback
             let actionID = descriptor.id
             var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",

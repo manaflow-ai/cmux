@@ -251,18 +251,23 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             // cx-13w3: compact (one line), comfortable (one line, taller) or expanded
             // (T3 Code / Codex style) workspace rows (`sidebar.density`); the sidebar's
-            // Options offers the ones that do not apply now.
+            // Options offers the ones that do not apply now. The app density
+            // (`appearance.density`, DensityActionCatalog) owns the palette's density rows.
             ActionDescriptor(
                 id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
                 keywords: ["sidebar", "density", "compact", "rows", "one line", "dense"], category: .sidebar, symbol: "list.dash",
-                surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)])
+                // Not in the palette: "Density: Compact" (appearance.density.compact) is the one
+                // palette row for "compact" (Lawrence 2026-10-20: two rows, and Enter did nothing).
+                surfaces: [.keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options, label: ObjectMenuLabels.densityCompact)],
+                                  palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.comfortable", title: t("action.sidebar.density.comfortable", "Sidebar Density: Comfortable"),
                 keywords: ["sidebar", "density", "comfortable", "rows", "one line", "taller", "spacious", "medium", "roomy"],
-                category: .sidebar, symbol: "list.bullet", surfaces: [.palette, .keyboard, .contextMenu],
-                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)])
+                category: .sidebar, symbol: "list.bullet", surfaces: [.keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options, label: ObjectMenuLabels.densityComfortable)],
+                                  palette: .exempt(.familyMember))
             ),
             ActionDescriptor(
                 id: "sidebar.density.expanded", title: t("action.sidebar.density.expanded", "Sidebar Density: Expanded"),
@@ -362,8 +367,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
     }
 
     private static func plan(cli: SurfaceDecision = .offered, menus: [ContextMenuPlacement] = [],
-                             exemption: SurfaceExemption? = nil) -> ActionSurfacePlan {
-        ActionSurfacePlan(cli: cli, contextMenus: menus, contextMenuExemption: menus.isEmpty ? exemption : nil)
+                             exemption: SurfaceExemption? = nil, palette: SurfaceDecision = .offered) -> ActionSurfacePlan {
+        ActionSurfacePlan(palette: palette, cli: cli, contextMenus: menus, contextMenuExemption: menus.isEmpty ? exemption : nil)
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {

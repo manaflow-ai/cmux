@@ -46,7 +46,7 @@ describe("Hexclave mirror backfill", () => {
       // After the page was read, the user is renamed and leaves the team; the webhook reconciles it.
       hexclave.users.set(USER_ID, serverUser({ display_name: "fresh" }));
       hexclave.removeMember(TEAM_ID, USER_ID);
-      await syncHexclaveUser(USER_ID, [], { source: hexclave, store: mirror, revokeTeamMemberAccess: async () => {}, revokeTeamAccess: async () => {}, invalidateUser: async () => {} });
+      await syncHexclaveUser(USER_ID, [], { source: hexclave, store: mirror, revokeTeamMemberAccess: async () => {}, revokeTeamAccess: async () => {}, invalidateUser: async () => {}, markTeamSeatsDirty: async () => {} });
       return stale;
     };
     const summary = await backfillHexclaveMirror({ source: hexclave, store: mirror, concurrency: 1, pageSize: 50 });

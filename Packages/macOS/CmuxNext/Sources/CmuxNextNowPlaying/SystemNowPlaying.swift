@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
@@ -71,7 +72,28 @@ public final class SystemNowPlaying: NowPlayingSource {
         return SidebarNowPlaying(
             title: report.title, artist: report.artist, artwork: image, isPlaying: report.isPlaying,
             position: report.elapsed, duration: report.duration, rate: report.rate > 0 ? report.rate : 1,
-            positionDate: report.timestamp ?? Date(), canPrevious: true, canNext: true, labels: labels)
+            positionDate: report.timestamp ?? Date(), canPrevious: true, canNext: true, labels: labels,
+            app: Self.app(report.parentBundleIdentifier ?? report.bundleIdentifier))
+    }
+
+    /// The names of the apps that played, by bundle identifier. An app not found is looked up again
+    /// next time (it may be installed since).
+    private static var appNames: [String: String] = [:]
+
+    /// The app that plays as the New Tab player's Open in names it: a browser's media helper
+    /// names its browser. Looked up once per app (one Launch Services read).
+    static func app(_ bundleIdentifier: String) -> SidebarNowPlaying.App? {
+        if appNames[bundleIdentifier] == nil,
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            appNames[bundleIdentifier] = appName(FileManager.default.displayName(atPath: url.path))
+        }
+        guard let name = appNames[bundleIdentifier], !name.isEmpty else { return nil }
+        return SidebarNowPlaying.App(bundleIdentifier: bundleIdentifier, name: name)
+    }
+
+    /// Finder's name without the `.app` it shows when extensions are on.
+    nonisolated static func appName(_ displayName: String) -> String {
+        displayName.hasSuffix(".app") ? String(displayName.dropLast(4)) : displayName
     }
 
     public func perform(_ command: SidebarNowPlayingCommand) {

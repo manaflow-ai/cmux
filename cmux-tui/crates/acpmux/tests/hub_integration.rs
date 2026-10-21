@@ -31,6 +31,8 @@ mod prompt_context;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/purged_stays_purged.rs"]
+mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]

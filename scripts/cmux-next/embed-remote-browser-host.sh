@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Xcode "Embed remote browser host" phase of the cmux-next target, after
-# "Embed CEF". DEV builds only: puts the pinned remote browser host where
+# "Embed CEF". Every configuration (Release too, since the iPhone host streams
+# the phone's browser tabs from it): puts the pinned remote browser host where
 # LocalRemoteBrowserHostLocator finds it with no CMUX_NEXT_RB_HOST:
 #
 #   Contents/Helpers/cmux-remote-browser-host.app        (remote-browser-host-layout.sh)
@@ -10,10 +11,12 @@
 # The framework is a relative symlink to the app's own CEF (no ~390 MB copy).
 # codesign --verify --deep --strict passes on the app; a strict verify of the
 # host app alone rejects the symlink, so a notarized release needs the host to
-# load CEF from an explicit path first (tracker cx-0y2y). Until then:
-#   - the Release configuration (nightly, RC, stable) embeds nothing and
-#     removes a host left by an earlier build;
-#   - only arm64 (the published host is arm64);
+# load CEF from an explicit path first (tracker cx-0y2y; unproven either way,
+# see cnx-ios/SECURITY.md `browser`). Also:
+#   - a Release build that cannot embed it (no pinned artifact reachable, a CEF
+#     pin mismatch) builds without it and says so, unless
+#     CMUX_NEXT_REQUIRE_RB_HOST=1; a DEV build fails, as below;
+#   - only arm64 (the published host is arm64; an Intel Mac never starts it);
 #   - the host pin's cef_sha256 must equal cef-manifest.json's sha256 (the host
 #     links the same CEF fork build); otherwise the build fails;
 #   - the host binary comes from ensure-remote-browser-host.sh, checked against
@@ -49,13 +52,16 @@ skip() { # <reason>
   exit 0
 }
 fail() { # <message>
+  if [[ "${CONFIGURATION:-}" == "Release" && "${CMUX_NEXT_REQUIRE_RB_HOST:-0}" != "1" ]]; then
+    echo "warning: $1" >&2
+    skip "Release build without the remote browser host (phone browser tabs are off on this build)"
+  fi
   echo "error: $1" >&2
   echo "error: this DEV build would lack the remote browser host (\"Open Remote Browser Tab\" fails). Restore the pinned artifact, or opt out explicitly with CMUX_NEXT_SKIP_RB_HOST=1 (recorded in the log and in About)." >&2
   rm -rf "$dest" "$stamp"
   exit 1
 }
 
-[[ "${CONFIGURATION:-}" == "Release" ]] && skip "Release configuration (DEV builds only)"
 if [[ "${CMUX_NEXT_SKIP_RB_HOST:-0}" == "1" ]]; then
   echo "warning: CMUX_NEXT_SKIP_RB_HOST=1: this DEV build has NO remote browser host; \"Open Remote Browser Tab\" will not work (recorded in Contents/Resources/$OPT_OUT_FILE and About)"
   mkdir -p "$app/Contents/Resources"

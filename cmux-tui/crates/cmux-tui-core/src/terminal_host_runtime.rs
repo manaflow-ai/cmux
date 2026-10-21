@@ -81,8 +81,12 @@ const MAX_SMART_RETAINED_FRAMES: usize = 4096;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
 const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
-const TERMINAL_DIMENSION_MAX: u16 = 10_000;
-const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
+/// The largest terminal side, in cells. `crate::mux::clamp_terminal_size`
+/// applies it (and the area limit) to every request; the host keeps the
+/// check for sizes that come over its socket.
+pub(crate) const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+/// The largest terminal grid, in cells.
+pub(crate) const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
 const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();

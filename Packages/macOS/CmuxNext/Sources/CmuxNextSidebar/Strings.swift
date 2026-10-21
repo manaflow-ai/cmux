@@ -14,6 +14,8 @@ enum Strings {
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }
+    /// The footer's Search button: its VoiceOver label and tooltip.
+    static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .module) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .module) }
     static var pinned: String { String(localized: "sidebar.section.pinned", defaultValue: "Pinned", bundle: .module) }
     static var moveToGroup: String { String(localized: "sidebar.group.moveTo", defaultValue: "Move to Group", bundle: .module) }
@@ -90,8 +92,45 @@ enum Strings {
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
+    /// The Now Playing card's scrubber (its value says the position and the length).
+    static var nowPlayingPosition: String {
+        String(localized: "sidebar.a11y.nowPlaying.position", defaultValue: "Playback Position", bundle: .module)
+    }
     static func profileCurrent(_ name: String) -> String {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
+
+    // MARK: Hover card history (u3320)
+
+    static var timelineHeader: String { String(localized: "sidebar.hoverCard.history", defaultValue: "History", bundle: .module) }
+
+    /// What one history line says: the prompt itself, or what the agent did.
+    static func timelineText(_ entry: SidebarTimelineEntry) -> String {
+        let agent = entry.agent
+        switch entry.kind {
+        case .prompt:
+            return entry.text ?? String(localized: "sidebar.timeline.promptSent", defaultValue: "Prompt sent", bundle: .module)
+        case .started:
+            return agent.map { String(format: String(localized: "sidebar.timeline.startedBy", defaultValue: "%@ started working", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.started", defaultValue: "Started working", bundle: .module)
+        case .waiting:
+            let base = agent.map { String(format: String(localized: "sidebar.timeline.waitingBy", defaultValue: "%@ is waiting for your input", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.waiting", defaultValue: "Waiting for your input", bundle: .module)
+            return entry.text.map { base + ": " + $0 } ?? base
+        case .finished:
+            return agent.map { String(format: String(localized: "sidebar.timeline.finishedBy", defaultValue: "%@ finished", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.finished", defaultValue: "Finished", bundle: .module)
+        case .failed:
+            return agent.map { String(format: String(localized: "sidebar.timeline.failedBy", defaultValue: "%@ stopped with an error", bundle: .module), $0) }
+                ?? String(localized: "sidebar.timeline.failed", defaultValue: "Stopped with an error", bundle: .module)
+        }
+    }
+
+    /// The card's stats line: how many prompts, and how long the agents worked.
+    static func timelineStats(prompts: Int, worked: String?) -> String {
+        let count = String(format: String(localized: "sidebar.hoverCard.statsPrompts", defaultValue: "Prompts: %d", bundle: .module), prompts)
+        guard let worked else { return count }
+        return count + " · " + String(format: String(localized: "sidebar.hoverCard.statsWorked", defaultValue: "Worked %@", bundle: .module), worked)
+    }
 }

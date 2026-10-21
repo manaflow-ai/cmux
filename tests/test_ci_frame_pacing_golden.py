@@ -218,6 +218,19 @@ def test_a_missing_scenario_fails_as_not_measured() -> None:
         assert verdicts(out)["transcript_follow"]["problems"][0].startswith("not measured")
 
 
+def test_browser_resize_is_reported_only() -> None:
+    """The Chromium resize lag is reported, never judged: a run without it still passes."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        (out / "browser_resize.json").unlink(missing_ok=True)
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["browser_resize"]
+        assert found["ok"] and not found["measured"], found
+        assert "| browser_resize | report |" in result.stdout
+
+
 if __name__ == "__main__":
     failures = 0
     for name, test in list(globals().items()):

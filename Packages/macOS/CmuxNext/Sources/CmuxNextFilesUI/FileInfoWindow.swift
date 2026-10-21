@@ -103,6 +103,7 @@ final class FileInfoWindow: NSObject, NSWindowDelegate {
             let text = NSTextField(wrappingLabelWithString: value)
             text.font = Typography.system(size: TypeScale.caption)
             text.isSelectable = true
+            text.focusRingType = .none
             text.preferredMaxLayoutWidth = 200
             grid.addRow(with: [label, text])
         }

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// The one toast component (op-next-theme toasts): a solid theme surface with a small radius,
+/// The one toast component: the shared neutral glass (opaque under Reduce Transparency) with a small radius,
 /// bottom-center of its window above the content edge, held while the pointer is on it.
 @MainActor
 struct CmuxToastSurfaceTests {
@@ -10,27 +10,23 @@ struct CmuxToastSurfaceTests {
         try #require(view.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
     }
 
-    /// Not translucent glass: an opaque fill in the theme's colors, whatever this Mac's material.
-    @Test func theToastIsAnOpaqueThemeSurface() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo()))
+    /// Under Reduce Transparency the toast is an opaque fill in the theme's colors (otherwise it is
+    /// the shared neutral glass, FloatingGlassStyleTests).
+    @Test func reduceTransparencyMakesTheToastAnOpaqueThemeSurface() throws {
+        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Closed “New Tab”", action: .undo()),
+                                 reduceTransparency: ReduceTransparency(system: { true }, changes: NotificationCenter()))
         let surface = try Self.surface(of: view)
         #expect(surface.material == .opaque)
         let fill = try #require(surface.subviews.first?.layer?.backgroundColor)
         #expect(fill.alpha == 1)
-        let theme = surface.themeTokens.opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).cgColor
-        let a = try #require(NSColor(cgColor: fill)?.usingColorSpace(.sRGB))
-        let b = try #require(NSColor(cgColor: theme)?.usingColorSpace(.sRGB))
-        #expect(abs(a.redComponent - b.redComponent) < 0.01)
-        #expect(abs(a.greenComponent - b.greenComponent) < 0.01)
-        #expect(abs(a.blueComponent - b.blueComponent) < 0.01)
     }
 
-    /// A small rounded rect like the popups, never a capsule.
+    /// A rounded rect with the shared glass radius (continuous corners), never a capsule.
     @Test func theToastHasASmallCornerRadius() throws {
         let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"))
         view.layoutSubtreeIfNeeded()
         let surface = try Self.surface(of: view)
-        #expect(surface.cornerRadius <= PopupStyle.standard.cornerRadius)
+        #expect(surface.cornerRadius == FloatingGlassStyle.toast.cornerRadius)
         #expect(surface.cornerRadius < view.fittingSize.height / 2)
     }
 
