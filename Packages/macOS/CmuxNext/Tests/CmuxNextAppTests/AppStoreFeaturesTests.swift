@@ -169,6 +169,36 @@ import Testing
         #expect(!bridge.isOn(newTabPlayer))
     }
 
+    /// Every card on its own key (the live toggle pass, 2026-10-21): pressing the card writes its
+    /// key and nothing else and flips the card, and pressing it again flips it back and leaves the
+    /// file as it found it, a default-on toggle included (its Get clears the `false`, never writes `true`).
+    @Test(arguments: AppFeature.catalog.filter { $0.sidebarItem == nil }.map(\.id))
+    func pressingACardTwiceTogglesItsOwnKeyAndLeavesTheFileAsItWas(_ id: String) async throws {
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        let feature = try Self.feature(id)
+        guard bridge.isAvailable(feature) else {
+            #expect(Self.pendingKeys.contains(feature.setting), "\(feature.setting) is not a setting")
+            return
+        }
+        let wasOn = bridge.isOn(feature)
+        try await bridge.set(feature, on: !wasOn)
+        #expect(bridge.isOn(feature) == !wasOn)
+        #expect(Self.leafKeys(settings.fileRoot) == [feature.setting], "\(id) wrote another key")
+        try await bridge.set(feature, on: wasOn)
+        #expect(bridge.isOn(feature) == wasOn)
+        #expect(Self.leafKeys(settings.fileRoot).isEmpty, "\(id) left \(Self.leafKeys(settings.fileRoot)) in the file")
+    }
+
+    /// The dotted keys the settings file sets (an emptied parent object sets none).
+    static func leafKeys(_ value: JSONValue, prefix: String = "") -> Set<String> {
+        guard let members = value.objectValue else { return [prefix] }
+        return members.reduce(into: Set<String>()) { keys, member in
+            keys.formUnion(leafKeys(member.value, prefix: prefix.isEmpty ? member.key : "\(prefix).\(member.key)"))
+        }
+    }
+
     /// Leo (2026-10-21): view toggles such as Expanded need no palette. Each density is a card
     /// whose Get picks it and whose Remove goes back to Compact, and a workspace row's ⋮ menu
     /// offers the densities that are not in effect.
