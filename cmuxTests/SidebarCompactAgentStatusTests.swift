@@ -724,18 +724,22 @@ struct SidebarCompactAgentStatusTests {
     /// `sidebar.hiddenStatusKeys` hides a key's pill in both layouts and
     /// leaves the workspace's entry, and every other key, alone.
     @Test
-    func factoryLeavesOutHiddenStatusKeys() {
+    func factoryLeavesOutHiddenStatusKeys() throws {
         let workspace = Workspace(
             title: "Project",
             workingDirectory: FileManager.default.currentDirectoryPath,
             portOrdinal: 0
         )
         defer { workspace.teardownAllPanels() }
-        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Needs input")
+        // A value no other tooltip line can contain, so its absence below
+        // means the entry itself is gone, not that a label changed.
+        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "hidden-pill-text")
         workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
         // See `factoryFoldsAgentRowsAndKeepsCustomOnesWhenCompact`: a PID lets
-        // the structured agent key reach the factory at all.
+        // the structured agent key reach the factory at all. The lifecycle
+        // state is what colors the compact glyph, so it is set too.
         workspace.agentPIDs["claude_code"] = 4242
+        workspace.agentLifecycleStatesByPanelId[UUID()] = ["claude_code": .needsInput]
 
         func snapshot(compact: Bool) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
             let defaults = Self.makeDefaults()
@@ -751,12 +755,46 @@ struct SidebarCompactAgentStatusTests {
         let full = snapshot(compact: false)
         #expect(full.metadataEntries.map(\.key) == ["deploy"])
 
-        // Without the hidden entry nothing in this fixture builds a glyph.
+        // Hiding is about the pill, not the agent: the entry's line leaves
+        // the glyph's tooltip, while the glyph keeps the agent's lifecycle.
+        // In compact mode the glyph is the only activity signal (the spinner
+        // is not drawn), so a hidden pane must still show needs input.
         let compact = snapshot(compact: true)
         #expect(compact.metadataEntries.map(\.key) == ["deploy"])
-        #expect(compact.compactStatusGlyph?.tooltip.contains("Needs input") != true)
+        #expect(compact.compactStatusGlyph?.kind == .needsInput)
+        let tooltip = try #require(compact.compactStatusGlyph?.tooltip)
+        #expect(!tooltip.isEmpty)
+        #expect(!tooltip.contains("hidden-pill-text"))
 
         // Display only: the entry is still there for the CLI and socket.
         #expect(workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "claude_code" })
+    }
+
+    /// A hidden key never reaches into the glyph's lifecycle inputs: a
+    /// running agent whose pill is hidden still shows the running dot, and
+    /// still counts toward the full layout's spinner.
+    @Test
+    func factoryKeepsAHiddenRunningAgentInTheCompactGlyph() {
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.statusEntries["claude_code"] = Self.entry("claude_code", "Running")
+        workspace.agentPIDs["claude_code"] = 4242
+        workspace.agentLifecycleStatesByPanelId[UUID()] = ["claude_code": .running]
+
+        let defaults = Self.makeDefaults()
+        defaults.set(true, forKey: "sidebarCompactAgentStatus")
+        defaults.set(["claude_code"], forKey: SidebarCatalogSection().hiddenStatusKeys.userDefaultsKey)
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: true
+        ).makeSnapshot()
+
+        #expect(snapshot.compactStatusGlyph?.kind == .running)
+        #expect(snapshot.activeCodingAgentCount == 1)
     }
 }
