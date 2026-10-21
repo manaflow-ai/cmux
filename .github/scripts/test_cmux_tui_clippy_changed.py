@@ -152,7 +152,18 @@ class ClippyChangedTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.calls(), [])
 
-    def test_a_deleted_package_is_skipped(self) -> None:
+    def test_an_excluded_directory_is_not_linted(self) -> None:
+        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/b"]\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "exclude b")
+        base = self.git("rev-parse", "HEAD").strip()
+        self.change("cmux-tui/crates/b/src/lib.rs")
+        result = self.run_check("--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("cmux-tui/crates/b is not a cmux-tui workspace member", result.stdout)
+
+    def test_deleting_a_package_lints_the_remaining_workspace(self) -> None:
         self.git("rm", "-rq", "cmux-tui/crates/b")
         self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/a"]\n')
         self.git("add", "-A")

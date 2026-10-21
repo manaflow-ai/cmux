@@ -144,7 +144,7 @@ jobs:
       - name: cargo fmt --check on changed cmux-tui packages
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-          CMUX_NEXT_STYLE_GUARDS: ${{ github.base_ref == 'feat-cmux-next' && 'warn' || 'fail' }}
+          CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref || github.ref_name) == 'feat-cmux-next' && 'warn' || 'fail' }}
         run: |
           rc=0
           python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
@@ -207,6 +207,10 @@ jobs:
         run: |
           if [[ "$EVENT_NAME" == pull_request ]]; then
             BASE_SHA=$(git cat-file -p HEAD | awk '/^parent /{print $2; exit}')
+          fi
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::warning::base is not a full commit SHA; linting the whole workspace"
+            BASE_SHA=""
           fi
           if [[ -n "$BASE_SHA" && "$BASE_SHA" != 0000000000000000000000000000000000000000 ]]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA" || echo "::warning::could not fetch $BASE_SHA; linting the whole workspace"

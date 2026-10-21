@@ -14,6 +14,8 @@ or the toolchain pin, or no usable base, lints the whole workspace. Packages
 with a workspace of their own (cmux-rd-ffi, cmux-rd-host, ...) and vendored
 crates are not members and stay with cmux-tui.yml's dispatch run. Which files
 map to which package is cmux-tui-fmt-changed.py's rule, shared from there.
+Packages that only depend on a changed one are not linted here; the
+workspace clippy in cmux-tui.yml is where a break reaching them shows.
 """
 
 from __future__ import annotations
