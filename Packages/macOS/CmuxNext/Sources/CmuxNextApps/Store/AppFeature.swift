@@ -48,9 +48,12 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
     public var summary: String
     /// Search words beyond the name and summary.
     public var keywords: [String]
+    /// The key whose rows Settings shows from the card's Settings… link (the feature's own
+    /// options, as the Chief Pet card opens Settings > Chief Pet); nil: the card has no link.
+    public var settingsLink: String?
 
     public init(id: String, setting: String, on: Switch, category: Category, preview: Preview,
-                name: String, summary: String, keywords: [String] = []) {
+                name: String, summary: String, keywords: [String] = [], settingsLink: String? = nil) {
         self.id = id
         self.setting = setting
         self.on = on
@@ -59,6 +62,7 @@ public nonisolated struct AppFeature: Sendable, Hashable, Identifiable {
         self.name = name
         self.summary = summary
         self.keywords = keywords
+        self.settingsLink = settingsLink
     }
 
     /// The sidebar item a `.sidebarItem` feature shows; nil for a settings key.
@@ -93,4 +97,8 @@ public protocol AppFeatureSettings: AnyObject {
     func isManaged(_ feature: AppFeature) -> Bool
     /// Writes the key with the person's authority (a button press on this page).
     func set(_ feature: AppFeature, on: Bool) async throws
+    /// Whether the card links to Settings: the feature names rows and Settings can show them.
+    func hasSettings(_ feature: AppFeature) -> Bool
+    /// Opens Settings on `feature`'s ``AppFeature/settingsLink`` rows.
+    func openSettings(_ feature: AppFeature)
 }

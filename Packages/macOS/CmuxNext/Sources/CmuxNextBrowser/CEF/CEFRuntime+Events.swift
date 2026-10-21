@@ -285,6 +285,15 @@ extension CEFRuntime {
 
     // MARK: Quit
 
+    /// False once quit began to stop Chromium: CEF aborts making a browser after its shutdown
+    /// began. AppKit still closes the windows after CefShutdown, and a hidden tab's view unhid
+    /// there created one (crash on quit, NIGHTLY 1.0.0-nightly.3953614980201).
+    var acceptsNewBrowsers: Bool { Self.acceptsNewBrowsers(state: state, stopping: shutdownSequence != nil) }
+
+    static func acceptsNewBrowsers(state: State, stopping: Bool) -> Bool {
+        state != .shutDown && !stopping
+    }
+
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, then calls
     /// CefShutdown. The App awaits this from `applicationShouldTerminate`

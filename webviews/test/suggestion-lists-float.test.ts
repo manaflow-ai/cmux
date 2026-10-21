@@ -9,8 +9,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -28,7 +28,7 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
   let browser: Browser | undefined;
 
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   const stage = async (entry: string, variant: string) => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
@@ -63,9 +63,8 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    await (await stage("agent-pane.composer", "idle")).close();
+    await warmGalleryFrame(vite, ["agent-pane.composer", "agent-pane.new-tab"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
