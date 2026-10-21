@@ -6,8 +6,13 @@ import CmuxNextSidebar
 
 extension AgentPriorityChats {
     /// The app's Priority chats: this Mac's acpmux and the Chief home's, archived over their sockets.
-    @MainActor static let app = AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
-                                                   archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
+    @MainActor static let app = makeApp()
+
+    // A function, not the property's initial value: the archive closure is nonisolated, the stores main-actor.
+    private static func makeApp() -> AgentPriorityChats {
+        AgentPriorityChats(marks: .shared, stores: [.shared, .chief],
+                           archive: { try await AcpmuxChatArchive(socketPath: $0).archive(sessionId: $1) })
+    }
 }
 
 /// A Priority row's actions on its chat (an `agent-chat:` target): Mark Chat as Read, Pin or Unpin
