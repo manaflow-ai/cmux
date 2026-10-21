@@ -17,11 +17,9 @@
     "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
-    "CmuxScreenKit": "Packages/Shared/CmuxScreenKit",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
-    "CmuxUpdater": "Packages/macOS/CmuxUpdater",
-    "CmuxVNC": "Packages/Shared/CmuxVNC"
+    "CmuxUpdater": "Packages/macOS/CmuxUpdater"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -209,6 +207,7 @@
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
         "CmuxNextChiefMemory",
+        "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
@@ -222,7 +221,6 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
-        "CmuxNextDevices",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFeed",
@@ -238,7 +236,6 @@
         "CmuxNextIcons",
         "CmuxNextKeepAwake",
         "CmuxNextLayout",
-        "CmuxNextMacScreen",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
         "CmuxNextMobileHost",
@@ -281,8 +278,7 @@
         "CmuxAppAttest",
         "CmuxFeedPushCore",
         "CmuxHomeCore",
-        "CmuxHomeRender",
-        "CmuxVNC"
+        "CmuxHomeRender"
       ]
     },
     "CmuxNextAppPermissions": {
@@ -327,7 +323,6 @@
         "CmuxNextHomeEngine",
         "CmuxNextHostedChief",
         "CmuxNextLayout",
-        "CmuxNextMacScreen",
         "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
@@ -346,8 +341,7 @@
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab",
-        "CmuxUpdater",
-        "CmuxVNC"
+        "CmuxUpdater"
       ],
       "reads": [
         "Resources/cmux-themes/",
@@ -503,6 +497,19 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextChiefPetWiring": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextFloating",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextChromiumRuntime": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime",
@@ -580,7 +587,8 @@
       "targets": [
         "CmuxNextAgentActivity",
         "CmuxNextCompat",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -710,25 +718,6 @@
         "CMUXMobileCore",
         "CmuxTheme"
       ],
-      "reads": []
-    },
-    "CmuxNextDevices": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDevices",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
-    },
-    "CmuxNextDevicesTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDevicesTests",
-      "targets": [
-        "CmuxNextDevices",
-        "CmuxNextWakeups"
-      ],
-      "packages": [],
       "reads": []
     },
     "CmuxNextDictation": {
@@ -937,23 +926,6 @@
         "CmuxNextWakeups"
       ],
       "packages": []
-    },
-    "CmuxNextMacScreen": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextCompat",
-        "CmuxNextControl",
-        "CmuxNextDesign",
-        "CmuxNextDevices",
-        "CmuxNextRemoteView",
-        "CmuxNextSettings",
-        "CmuxNextWakeups"
-      ],
-      "packages": [
-        "CmuxScreenKit"
-      ]
     },
     "CmuxNextMallocZone": {
       "kind": "regular",
@@ -1409,7 +1381,9 @@
     "CmuxNextVSCodeServer": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
-      "targets": [],
+      "targets": [
+        "CmuxNextWakeups"
+      ],
       "packages": []
     },
     "CmuxNextVSCodeServerTests": {

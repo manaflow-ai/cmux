@@ -96,7 +96,12 @@ Every tier runs on:
 
 A test target runs when a target it depends on, directly or transitively,
 changed, when the test target itself changed, or when a file it reads changed.
-`cmux-next generated files` fails when the committed graph is stale.
+The graph is bot-only (#21946): a pull request never commits it, the `generated
+drift` check fails one that does, and the base autofix regenerates it after each
+merge. A manifest change routes every tier, so a pull request needs no graph of
+its own. No check compares it with the manifest, because it is stale between
+such a merge and the base autofix's commit; the base autofix fails when it
+cannot regenerate it.
 
 The live-daemon suites skip without the same-tree cmux-tui binary. The daemon
 tier runs them against it. A UI change does not wait for the tree.

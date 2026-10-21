@@ -106,6 +106,8 @@ public final class DesignSettings {
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
     /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
     public var homeChiefBubblesThemed = false
+    /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
+    public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,

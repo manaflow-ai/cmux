@@ -15,6 +15,9 @@ nonisolated extension WorkspaceActionCatalog {
         // One import opens every saved workspace, longer than a terminal
         // start: a caller that timed out and retried would open them twice.
         importClassic.waitsForResult = true
+        // Palette, CLI, MCP and scripts all wait on the same native preview;
+        // no caller-provided confirmation bypasses it.
+        importClassic.waitsForPerson = true
         return [importClassic]
     }
 }
