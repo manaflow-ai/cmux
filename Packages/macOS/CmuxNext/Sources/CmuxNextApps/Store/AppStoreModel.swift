@@ -22,6 +22,9 @@ public final class AppStoreModel {
         /// cmux's own features, each switched on and off by one setting (``AppFeature``).
         case features
         case installed
+
+        /// `appStore.show`'s `tab` argument, any case; nil for an empty or unknown name (the store opens as it is).
+        public init?(argument: String) { self.init(rawValue: argument.trimmingCharacters(in: .whitespaces).lowercased()) }
     }
 
     /// One entry of the page history: what the page showed, with the
@@ -66,8 +69,9 @@ public final class AppStoreModel {
     /// How long a Remove can be undone before it is committed.
     @ObservationIgnored var removalUndoInterval: Duration = .seconds(6)
 
-    public init(client: AppsClient) {
+    public init(client: AppsClient, features: (any AppFeatureSettings)? = nil) {
         self.client = client
+        self.features = features
     }
 
     public var layout: AppStoreLayout { layoutOverride ?? AppsTunables.storeLayout.value }

@@ -13,6 +13,7 @@ nonisolated enum AppsStrings {
     static var noFeatureMatches: String { t("store.empty.noFeatureMatches", "No features match") }
     static var get: String { t("store.feature.action.get", "Get") }
     static var featureOn: String { t("store.feature.badge.on", "On") }
+    static var featureNotChanged: String { t("store.feature.notChanged", "Not changed") }
     static var featureManaged: String { t("store.feature.managed", "Managed by your organization") }
     static func featureSetting(_ key: String) -> String { String(format: t("store.feature.setting", "Setting: %@"), key) }
 

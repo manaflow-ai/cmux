@@ -13,8 +13,7 @@ enum AppStoreHandlers {
         services.pages.register(services.apps)
         registry.bind("appStore.show", run: { invocation in
             let app = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-            let tab = try Self.storeTab(invocation["tab"]?.stringValue)
-            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: tab, focus: invocation.allowsViewChange)
+            services.apps.showStore(appID: app?.isEmpty == false ? app : nil, tab: invocation["tab"]?.stringValue.flatMap(AppStoreModel.Tab.init(argument:)), focus: invocation.allowsViewChange)
         })
         registry.bind("appStore.showInstalled", run: { invocation in
             services.apps.showStore(tab: .installed, focus: invocation.allowsViewChange)
@@ -78,15 +77,6 @@ enum AppStoreHandlers {
         })
         bindHidden("app.hide", true)
         bindHidden("app.unhide", false)
-    }
-
-    /// `appStore.show`'s `tab` (`discover`, `features`, `installed`); empty or absent opens the store as it is.
-    static func storeTab(_ raw: String?) throws -> AppStoreModel.Tab? {
-        guard let raw = raw?.trimmingCharacters(in: .whitespaces).lowercased(), !raw.isEmpty else { return nil }
-        guard let tab = AppStoreModel.Tab(rawValue: raw) else {
-            throw ActionFailure(message: RefusalStrings.text("refusal.appStore.unknownTab", "No App Store tab with that name. Use discover, features or installed."))
-        }
-        return tab
     }
 
     /// Why an app action cannot run while the supervisor is unreachable.

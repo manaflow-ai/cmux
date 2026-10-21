@@ -1,28 +1,29 @@
-import CmuxNextApps
-import CmuxNextSettings
+public import CmuxNextSettings
 
 /// The App Store Features tab's settings (``AppFeatureSettings``): reads the snapshot in
 /// effect, so a card follows every writer (Settings, `cmux settings set`, an agent), and writes
 /// through the schema-validated path with the person's authority (a button press on the page).
 @MainActor
-final class SettingsAppFeatures: AppFeatureSettings {
+public final class SettingsAppFeatures: AppFeatureSettings {
     private let settings: () -> SettingsController?
 
-    init(settings: @escaping () -> SettingsController?) {
+    public init(settings: @escaping () -> SettingsController?) {
         self.settings = settings
     }
 
-    func isAvailable(_ feature: AppFeature) -> Bool { SettingsSchema.descriptor(for: feature.path) != nil }
+    public func isAvailable(_ feature: AppFeature) -> Bool { SettingsSchema.descriptor(for: feature.path) != nil }
 
-    func isOn(_ feature: AppFeature) -> Bool {
+    public func isOn(_ feature: AppFeature) -> Bool {
         guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else { return false }
         return descriptor.effectiveValue(in: settings.snapshot.root) == Self.onValue(feature)
     }
 
-    func isManaged(_ feature: AppFeature) -> Bool { settings()?.managedKeys[feature.setting] != nil }
+    public func isManaged(_ feature: AppFeature) -> Bool { settings()?.managedKeys[feature.setting] != nil }
 
-    func set(_ feature: AppFeature, on: Bool) async throws {
-        guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else { return }
+    public func set(_ feature: AppFeature, on: Bool) async throws {
+        guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else {
+            throw SettingRefused(key: feature.setting, value: Self.onValue(feature))
+        }
         try await settings.setSetting(descriptor, to: Self.value(feature, on: on, default: descriptor.defaultValue), by: .user)
     }
 

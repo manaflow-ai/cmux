@@ -1,6 +1,5 @@
 import CmuxNextActions
 @testable import CmuxNextApps
-import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
@@ -12,10 +11,10 @@ import Testing
 /// puts it back to off, and a card follows a write made anywhere else.
 @MainActor @Suite(.serialized) struct AppStoreFeaturesTests {
     /// Keys whose PR has not landed: the tab hides their cards until the schema lists them
-    /// (tabs.newTabWidgets.*, #22674; the Priority view's key, lane priority-view).
+    /// (tabs.newTabWidgets.*, #22674 and #22775; the Priority view's key, lane priority-view).
     static let pendingKeys: Set<String> = [
         "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.modeSwitch",
-        "sidebar.priorityView.enabled",
+        "tabs.newTabWidgets.weather", "tabs.newTabWidgets.machines", "sidebar.priorityView.enabled",
     ]
 
     static func make(_ json: String = "{}") async throws -> (SettingsController, URL) {
@@ -127,12 +126,11 @@ import Testing
     }
 
     /// `cmux action run appStore.show --arg tab=features` (the tour, an agent, the palette).
-    @Test func appStoreShowOpensANamedTab() throws {
-        #expect(try AppStoreHandlers.storeTab("features") == .features)
-        #expect(try AppStoreHandlers.storeTab(" Installed ") == .installed)
-        #expect(try AppStoreHandlers.storeTab(nil) == nil)
-        #expect(try AppStoreHandlers.storeTab("") == nil)
-        #expect(throws: ActionFailure.self) { try AppStoreHandlers.storeTab("labs") }
+    @Test func appStoreShowOpensANamedTab() {
+        #expect(AppStoreModel.Tab(argument: "features") == .features)
+        #expect(AppStoreModel.Tab(argument: " Installed ") == .installed)
+        #expect(AppStoreModel.Tab(argument: "") == nil)
+        #expect(AppStoreModel.Tab(argument: "labs") == nil, "an unknown tab opens the store as it is")
 
         let model = AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()))
         model.present(appID: nil, tab: .features)

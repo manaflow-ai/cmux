@@ -89,16 +89,22 @@ struct AppFeatureCard: View {
 }
 
 /// Get or Remove; disabled while a write runs or an organization manages the key. Both share
-/// the store's action height, so the card never shifts.
+/// the store's action height, so the card never shifts. A refused write says so beside the
+/// button, with the reason on hover, until the next press.
 struct AppFeatureButton: View {
     let model: AppStoreModel
     let feature: AppFeature
     let on: Bool
     @State private var busy = false
+    @State private var failure: String?
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
         let managed = model.features?.isManaged(feature) ?? false
+        if let failure {
+            Text(AppsStrings.featureNotChanged).font(Font(Typography.caption)).foregroundStyle(colors.attention).lineLimit(1)
+                .themedHelp(failure)
+        }
         Button { set(!on) } label: {
             Text(on ? AppsStrings.remove : AppsStrings.get)
                 .font(Font(on ? Typography.body : Typography.bodyEmphasized))
@@ -116,9 +122,10 @@ struct AppFeatureButton: View {
 
     private func set(_ on: Bool) {
         busy = true
+        failure = nil
         // task-owner: one settings write from a Get or Remove press; ends when the write does
         Task {
-            try? await model.setFeature(feature, on: on)
+            do { try await model.setFeature(feature, on: on) } catch { failure = String(describing: error) }
             busy = false
         }
     }
