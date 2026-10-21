@@ -100,6 +100,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_answer;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 mod drafts;
@@ -176,6 +177,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// A session above may answer it (`questions::ancestor_answerable`): fixed when it was asked.
+    pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
 }
@@ -1050,12 +1053,10 @@ impl Hub {
         }
     }
 
-    /// Saves the session's record; never a purged session's. A late save
-    /// (a generated title after the turn, a tag) would write its record
-    /// back after the purge deleted it, and the next daemon start loaded it
-    /// as a closed session: the Chief's compactor, which purges each node's
-    /// session when the node is built, left about 450 of them in two hours
-    /// (2026-10-20).
+    /// Saves the session's record; never a purged session's. A late save (a generated title after
+    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
+    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
+    /// when the node is built, left about 450 of them in two hours (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
@@ -1120,10 +1121,9 @@ impl Hub {
     }
 }
 
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// `sessions` newest first. Each session's `updated_at` is read once: other tasks move it at any
+/// time (every logged event), and a key that is read again on each comparison is not a total order,
+/// which makes Rust's sort panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
 /// the list is the same for the same values.
 fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     let mut keyed: Vec<_> = sessions
