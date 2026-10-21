@@ -84,16 +84,22 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             // Neither argument named (the palette or the space menu with nothing collected): ask
             // for the directory, never clear. Clearing takes both named empty (`cwd=` `env=`).
+            // The answer names `cwd` alone, which keeps the space's environment.
             guard RoomDefaultsArguments.names(invocation) else {
                 guard invocation.origin == .user,
-                      context.services.registry.ask("space.setDefaults", RoomDefaultsArguments.keepingEnv(of: room.defaults, invocation),
+                      context.services.registry.ask("space.setDefaults", invocation,
                                                     ActionArgumentAsk(argument: "cwd", initialText: room.defaults?.cwd)) else {
                     throw ActionFailure.invalidTarget(RoomStrings.defaultsArgumentRequired)
                 }
                 return
             }
-            let defaults = try RoomDefaultsArguments.parse(invocation)
+            let defaults = try RoomDefaultsArguments.merged(invocation, into: room.defaults)
             update(room.id, context) { try await $0.updateProfile($1, defaults: defaults.isEmpty ? .clear : .set(defaults)) }
+        }
+        // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
+        bind("space.clearDefaults") { invocation in
+            let room = try context.room(invocation)
+            update(room.id, context) { try await $0.updateProfile($1, defaults: .clear) }
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
