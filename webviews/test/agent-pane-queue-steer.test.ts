@@ -349,18 +349,9 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const scroller = await box(".acpmux-scroll");
       const dock = await box(".acpmux-pr-dock");
       const composer = await box(".acpmux-composer-box");
-      // Every queued prompt shows whole: the list never hides part of one. A list past its cap
-      // scrolls and rests on whole rows (ComposerQueue fitList), so a prompt is in it or wholly
-      // under its edge; a font that wraps the opened prompt further (CI's) takes this one past it.
-      const [content, cap] = await page
-        .locator(".acpmux-composer-queue")
-        .evaluate((el) => [
-          el.scrollHeight,
-          parseFloat(getComputedStyle(el).getPropertyValue("--acpmux-queue-max")) || 132,
-        ]);
+      // Every queued prompt shows whole: the list never hides part of one.
       for (const row of await page.locator(".acpmux-queued").all()) {
         const r = (await row.boundingBox())!;
-        if (content > cap + 1 && r.y >= list.y + list.height - 1) continue;
         expect(r.y).toBeGreaterThanOrEqual(list.y - 1);
         expect(r.y + r.height).toBeLessThanOrEqual(list.y + list.height + 1);
       }
