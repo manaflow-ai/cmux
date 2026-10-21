@@ -81,7 +81,7 @@ pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
 mod peers;
-pub(crate) use peers::PEER_PERMISSION_PENDING;
+pub(crate) use peers::{PEER_LAGGED, PEER_PERMISSION_PENDING};
 mod permission_groups;
 mod permissions;
 pub mod person;

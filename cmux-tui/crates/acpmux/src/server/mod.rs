@@ -821,6 +821,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
