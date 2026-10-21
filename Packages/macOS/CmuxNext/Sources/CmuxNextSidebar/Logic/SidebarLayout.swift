@@ -232,8 +232,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
             if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
-            // A remote group (remote-groups-DESIGN.md slice 4) is a section of its own in one list too.
-            let flat = o.flattensMachines && section.machine != nil && !section.isHostGroup
+            // A remote group (remote-groups-DESIGN.md slice 4) and the Chief's workspaces are a section of
+            // their own in one list too.
+            let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
             // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
@@ -252,7 +253,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = !isDocSection && (section.machine == nil || section.isHostGroup
+            let showsHeader = !isDocSection && (section.machine == nil || Self.keepsHeaderInOneList(section)
                 || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.

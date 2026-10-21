@@ -37,6 +37,7 @@ enum SidebarContextMenus {
             MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: selection ? nil : model.workspace(first)?.title ?? "",
                                        rename: "renameWorkspace")
             if selection { nameSelection(menu, ids, services) }
+            if !selection, model.workspace(first)?.machineID.isLocalChief == true { noteStartedByChief(menu) }
             menu.themeRows(in: scope)
             return menu
         case .group(let id):
@@ -76,6 +77,15 @@ enum SidebarContextMenus {
     /// A multi-selection's menu says what its rows do to every selected row: Pin pins them when
     /// the menu's target (the first selected row) is unpinned, as the pin action decides, and Mute
     /// mutes them while one plays.
+    /// A Chief subagent's workspace says who started it at the end of its menu, as its hover card
+    /// does, since its row no longer does (Leo 2026-10-21).
+    private static func noteStartedByChief(_ menu: NSMenu) {
+        let note = NSMenuItem(title: ChiefWorkspaceName.startedBy, action: nil, keyEquivalent: "")
+        note.isEnabled = false
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        menu.addItem(note)
+    }
+
     private static func nameSelection(_ menu: NSMenu, _ ids: [CmuxNextSidebar.WorkspaceID], _ services: AppServices) {
         let workspaces = ids.compactMap { services.workspace(id: $0.rawValue) }
         let pins = workspaces.first.map { !PinCommands(context: AppActionContext(services: services)).isWorkspacePinned($0) } ?? true
