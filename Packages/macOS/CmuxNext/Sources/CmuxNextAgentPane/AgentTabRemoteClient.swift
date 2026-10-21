@@ -1,5 +1,5 @@
 public import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// ``AgentSessionAttachClient`` as the pane's ``AgentSessionRemoteClient``.
 public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
