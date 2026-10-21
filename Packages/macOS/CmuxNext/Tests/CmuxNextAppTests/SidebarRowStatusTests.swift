@@ -86,6 +86,16 @@ import Testing
         }
     }
 
+    @Test func theStatusMarkFollowsTheLanesByDefault() throws {
+        let fixture = try Fixture()
+        Self.withRowStatus(nil) {
+            let activity = Dictionary(uniqueKeysWithValues: fixture.rows().map { ($0.title, $0.activity) })
+            #expect(activity["waiting"] == .waiting)
+            #expect(activity["failed"] == .error)
+            #expect(activity["working"] == .working)
+        }
+    }
+
     @Test func toggleOffDrawsNoChip() throws {
         let fixture = try Fixture()
         Self.withRowStatus(false) {
