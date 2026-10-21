@@ -46,7 +46,8 @@ public final class UpdaterService {
     public internal(set) var updateSnooze = UpdateSnooze()
     /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
     @ObservationIgnored let snoozeTimer: DemandTimer
-    @ObservationIgnored public private(set) var pulledWatch: PulledBuildWatch! // the pulled-build banner
+    /// The pulled-build banner (made on first use; it needs `self`).
+    @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
     /// The notice whose timeout is pending, and its one-shot deadline on the
     /// injected clock (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
@@ -213,7 +214,6 @@ public final class UpdaterService {
         restoreRollbackSkip()
         tipState = TipState(defaults: defaults)
         updateSnooze = UpdateSnooze(defaults: defaults)
-        pulledWatch = PulledBuildWatch(updater: self)
     }
 
     /// Why Sparkle does not run right now, or nil.

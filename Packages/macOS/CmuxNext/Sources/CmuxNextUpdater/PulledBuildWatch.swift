@@ -86,11 +86,21 @@ public final class PulledBuildWatch {
     }
 
     /// The watch for `updater`'s running build and feed (the test feed while one is in use).
+    /// The closures hold the updater weakly: it owns this watch.
     convenience init(updater: UpdaterService) {
         self.init(build: updater.identity.build, defaults: updater.defaults,
-                  feedURL: { [unowned updater] in updater.testFeedURL ?? updater.identity.feed().url },
-                  rollbackCheck: { [unowned updater] in try? await UpdateDropBack(updater).run(checkOnly: true, stateDirectories: $0) },
-                  rollBack: { [unowned updater] in await UpdateDropBack(updater).failure(to: $0, stateDirectories: $1) })
+                  feedURL: { [weak updater] in
+                      guard let updater else { return "" }
+                      return updater.testFeedURL ?? updater.identity.feed().url
+                  },
+                  rollbackCheck: { [weak updater] directories in
+                      guard let updater else { return nil }
+                      return try? await UpdateDropBack(updater).run(checkOnly: true, stateDirectories: directories)
+                  },
+                  rollBack: { [weak updater] build, directories in
+                      guard let updater else { return nil }
+                      return await UpdateDropBack(updater).failure(to: build, stateDirectories: directories)
+                  })
     }
 
     /// Reads the pulled list at launch and after every update cycle `controller` finishes.
@@ -121,6 +131,7 @@ public final class PulledBuildWatch {
         guard let entry else {
             pulled = nil
             rollbackTarget = nil
+            rollbackFailure = nil
             return
         }
         rollbackTarget = await rollbackCheck(stateDirectories())

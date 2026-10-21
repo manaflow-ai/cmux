@@ -160,8 +160,11 @@ jobs:
 
       # The app reads pulled.json next to the appcast with each update check; a Mac on a listed
       # build offers its kept build ("Roll Back to ...") or waiting for the fix-forward build.
+      # Non-fatal: the feed is already pulled and read back, so the fix-forward must still run,
+      # and a re-run sees changed=false and would never retry this step.
       - name: Record the pulled builds (pulled.json)
         if: steps.plan.outputs.changed == 'true' && !inputs.dry_run
+        continue-on-error: true
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -183,7 +186,7 @@ jobs:
           elif [ "$code" = 404 ]; then
             rm -f rollback/pulled-live.json
           else
-            echo "::error title=nightly-next rollback::pulled.json answered HTTP $code; the feed is pulled but the app banner list was not updated"
+            echo "::warning title=nightly-next rollback::pulled.json answered HTTP $code; the feed is pulled but the app banner list was not updated"
             exit 1
           fi
           python3 scripts/ci/nightly_next_feed_rollback.py pulled --existing rollback/pulled-live.json \
@@ -191,7 +194,11 @@ jobs:
             --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --out rollback/pulled.json
           python3 scripts/ci/upload-r2-object.py --file rollback/pulled.json --endpoint-url "$R2_ENDPOINT" \
             --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/json \
-            --cache-control "no-cache, no-store, must-revalidate" "${mode[@]}" --conflict-exit-code 3
+            --cache-control "no-cache, no-store, must-revalidate" "${mode[@]}" --conflict-exit-code 3 || {
+            status=$?
+            echo "::warning title=nightly-next rollback::pulled.json upload failed (exit $status; 3 is a concurrent write); the feed is pulled but the app banner list was not updated"
+            exit "$status"
+          }
 
       - name: Summary
         if: always()
