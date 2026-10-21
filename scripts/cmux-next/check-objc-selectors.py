@@ -15,7 +15,8 @@ Mac (cmux-next-crash-class.yml). Every Swift `super.<member>` in the scanned
 sources must reach an implementation. The class's ancestors in the scanned
 sources are walked first (a declaration there answers); otherwise the first
 framework class (NSView, WKWebView, ...) must answer the selector on every
-macOS recorded in scripts/cmux-next/objc-selector-table.json. A `super` call
+macOS that recorded it in scripts/cmux-next/objc-selector-table.json (a key
+probed on one macOS only is held to that macOS; probe every macOS you can). A `super` call
 the table does not know fails with "probe needed": run `--probe --write` on a
 Mac (every macOS you can) and commit the table. A selector a framework class
 lacks fails unless the call is guarded: the statement, or one of the three
@@ -25,7 +26,7 @@ lines above it, checks `responds(to:)` / `instancesRespond(to:)`, or reads a
 
 `--probe` (macOS only) asks the Objective-C runtime of this Mac for every key
 the sources need (`--write` merges the answers into the table
-under this macOS version; without it, a key the table says is answered but
+under this macOS version and drops keys no call needs; without it, a key the table says is answered but
 this Mac does not answer fails). `--list` prints every `super` call with its
 key and verdict.
 
@@ -51,7 +52,8 @@ from pathlib import Path
 TABLE = "scripts/cmux-next/objc-selector-table.json"
 DEFAULT_SOURCES = ["Packages/macOS/CmuxNext/Sources"]
 ALLOW = re.compile(r"//\s*selector-allow:\s*\S")
-GUARD = re.compile(r"\b(?:responds|instancesRespond)\s*\(\s*to:")
+# The selector a `responds(to:)` check names: `#selector(T.member(_:))` or an expression up to `)`.
+GUARD_ARG = re.compile(r"\b(?:responds|instancesRespond)\s*\(\s*to:\s*(#selector\((?:[^()]|\([^()]*\))*\)|[^)]*)")
 # Swift generic framework classes have no Objective-C class name to probe;
 # their nearest Objective-C ancestor answers for them (they add methods, never
 # remove them).
@@ -59,7 +61,6 @@ ALIASES = {
     "NSHostingView": "NSView",
     "NSHostingController": "NSViewController",
     "NSHostingMenu": "NSMenu",
-    "NSHostingSizingOptions": None,
 }
 # Members every class has through Swift, never a message to probe.
 SKIP_MEMBERS = {"init", "deinit", "self", "description", "debugDescription", "hash", "isEqual"}
@@ -67,9 +68,55 @@ SKIP_MEMBERS = {"init", "deinit", "self", "description", "debugDescription", "ha
 
 # MARK: - Swift lexing
 
+HASHES = re.compile(r"#*")
+RAW_OPEN = re.compile(r'#+"')
+
+
+def _string_end(text: str, i: int) -> int:
+    """Index after the string literal that starts at `i` (plain, multiline or raw), interpolations included."""
+    n = len(text)
+    hashes = len(HASHES.match(text, i).group(0))
+    start = i + hashes
+    multi = text.startswith('"""', start)
+    close = ('"""' if multi else '"') + "#" * hashes
+    escape = "\\" + "#" * hashes
+    j = start + (3 if multi else 1)
+    while j < n:
+        if text.startswith(close, j):
+            return j + len(close)
+        if text.startswith(escape, j):
+            k = j + len(escape)
+            if text.startswith("(", k):
+                j = _code_end(text, k + 1)
+            else:
+                j = k + 1
+            continue
+        if text[j] == "\n" and not multi:
+            return j  # unterminated: stop before the newline
+        j += 1
+    return n
+
+
+def _code_end(text: str, i: int) -> int:
+    """Index after the `)` that closes an interpolation whose code starts at `i`."""
+    depth, n = 1, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"' or (c == "#" and RAW_OPEN.match(text, i)):
+            i = _string_end(text, i)
+            continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
 
 def blank_comments_and_strings(text: str) -> str:
-    """The source with comments and string contents replaced by spaces (newlines kept)."""
+    """The source with comments and string literals (interpolations included) blanked; newlines kept."""
     out = []
     i, n = 0, len(text)
     while i < n:
@@ -90,20 +137,8 @@ def blank_comments_and_strings(text: str) -> str:
                     j += 1
             out.append(re.sub(r"[^\n]", " ", text[i:j]))
             i = j
-        elif c == '"' or (c == "#" and re.match(r'#+"', text[i:])):
-            hashes = len(re.match(r"#*", text[i:]).group(0))
-            start = i + hashes
-            multi = text.startswith('"""', start)
-            close = ('"""' if multi else '"') + "#" * hashes
-            j = start + (3 if multi else 1)
-            while j < n and not text.startswith(close, j):
-                if text[j] == "\\" and not hashes:
-                    j += 2
-                    continue
-                if text[j] == "\n" and not multi:
-                    break
-                j += 1
-            j = min(n, j + len(close))
+        elif c == '"' or (c == "#" and RAW_OPEN.match(text, i)):
+            j = _string_end(text, i)
             out.append(text[i] + re.sub(r"[^\n]", " ", text[i + 1:j]))
             i = j
         else:
@@ -119,6 +154,7 @@ DECL = re.compile(
 )
 TYPEALIAS = re.compile(r"\btypealias\s+(\w+)\s*=\s*([\w.]+)")
 MEMBER = re.compile(r"\b(?:func|var|let)\s+`?([A-Za-z_]\w*)`?")
+STATIC_BEFORE = re.compile(r"\b(?:static|class)\s+(?:\w+\s+)*$")
 
 
 @dataclass
@@ -139,8 +175,10 @@ class SuperCall:
     member: str
     kind: str  # call, get, set
     args: int
+    labels: list[str]  # argument labels 2..n (`_` when unlabeled)
     statement: str
     context: list[str]
+    clean: list[str]  # the same lines, comments and strings blanked
 
 
 TYPE_ALIASES: dict[str, str] = {}
@@ -151,29 +189,42 @@ def module_of(path: Path, root: Path) -> str:
     return parts[parts.index("Sources") + 1] if "Sources" in parts else parts[0]
 
 
-def parse_args(clean: str, open_index: int) -> tuple[int, int]:
-    """(argument count, index after the closing paren) for a call starting at `(`."""
-    depth, i, count, saw = 0, open_index, 0, False
+def parse_args(clean: str, open_index: int) -> tuple[int, list[str]]:
+    """(argument count, labels of arguments 2..n) for a call whose `(` is at `open_index`."""
+    depth, i, args, current = 0, open_index, [], []
     while i < len(clean):
         c = clean[i]
         if c in "([{":
             depth += 1
+            if depth == 1:
+                i += 1
+                continue
         elif c in ")]}":
             depth -= 1
             if depth == 0:
-                return (count + 1 if saw else 0), i + 1
+                args.append("".join(current))
+                break
         elif c == "," and depth == 1:
-            count += 1
-        elif depth >= 1 and not c.isspace():
-            saw = True
+            args.append("".join(current))
+            current = []
+            i += 1
+            continue
+        if depth >= 1:
+            current.append(c)
         i += 1
-    return count, i
+    args = [a for a in args if a.strip()]
+    labels = []
+    for a in args[1:]:
+        m = re.match(r"\s*([A-Za-z_]\w*)\s*:(?!:)", a)
+        labels.append(m.group(1) if m else "_")
+    return len(args), labels
 
 
 def scan_file(path: Path, root: Path, types: dict[str, list[TypeInfo]], calls: list[SuperCall]) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     clean = blank_comments_and_strings(text)
     raw_lines = text.split("\n")
+    clean_lines = clean.split("\n")
     module = module_of(path, root)
     decl_at = {m.end() - 1: m for m in DECL.finditer(clean)}
     for m in TYPEALIAS.finditer(clean):
@@ -192,7 +243,7 @@ def scan_file(path: Path, root: Path, types: dict[str, list[TypeInfo]], calls: l
                 kind, name = m.group(1), m.group(2).split(".")[-1]
                 info = TypeInfo(name, kind, module)
                 if m.group(4):
-                    info.supers = [re.sub(r"<.*", "", s).strip().split(".")[-1]
+                    info.supers = [re.sub(r"@\w+(\([^)]*\))?|<.*", "", s).strip().split(".")[-1]
                                    for s in m.group(4)[1:].split(",") if s.strip()]
                 types[name].append(info)
                 stack.append(info)
@@ -210,21 +261,25 @@ def scan_file(path: Path, root: Path, types: dict[str, list[TypeInfo]], calls: l
                     j = m.end()
                     while j < len(clean) and clean[j] in " \t":
                         j += 1
+                    labels: list[str] = []
                     if j < len(clean) and clean[j] == "(":
-                        kind, (args, _) = "call", parse_args(clean, j)
-                    elif clean.startswith("=", j) and not clean.startswith("==", j):
-                        kind, args = "set", 1
+                        kind, (args, labels) = "call", parse_args(clean, j)
+                    elif re.match(r"(?:[-+*/%|&^]|<<|>>)?=(?!=)", clean[j:j + 4]):
+                        kind, args = "set", 1  # `super.x = y` and `super.x += y` both call the setter
                     else:
                         kind, args = "get", 0
+                    at = line + clean.count("\n", i, m.start(1))
                     calls.append(SuperCall(
-                        str(path.relative_to(root)), line, owner.name, module, member, kind, args,
-                        raw_lines[line - 1], raw_lines[max(0, line - 4):line - 1]))
+                        str(path.relative_to(root)), at, owner.name, module, member, kind, args, labels,
+                        raw_lines[at - 1], raw_lines[max(0, at - 4):at - 1],
+                        clean_lines[max(0, at - 4):at]))
+                line += clean.count("\n", i, m.end())
                 i = m.end()
                 continue
         # members of the innermost type (top level of its body only)
         if stack and stack[-1] is not None and c in "fvl" and (i == 0 or not (clean[i - 1].isalnum() or clean[i - 1] == "_")):
             mm = MEMBER.match(clean, i)
-            if mm:
+            if mm and not STATIC_BEFORE.search(clean[clean.rfind("\n", 0, i) + 1:i]):
                 stack[-1].members.add(mm.group(1))
         i += 1
 
@@ -272,18 +327,22 @@ def resolve(call: SuperCall, types: dict[str, list[TypeInfo]]) -> tuple[str | No
 
 
 def key_for(cls: str, call: SuperCall) -> str:
-    return f"{cls} {call.kind}:{call.member}/{call.args}"
+    labels = ":" + ",".join(call.labels) if call.labels else ""
+    return f"{cls} {call.kind}:{call.member}/{call.args}{labels}"
 
 
-def guarded(call: SuperCall, file_text: str) -> bool:
-    window = call.context + [call.statement]
-    if any(ALLOW.search(line) for line in window):
+def guarded(call: SuperCall, file_clean: str) -> bool:
+    """A reviewed allow comment, or a `responds(to:)` check of this member in the code nearby."""
+    if any(ALLOW.search(line) for line in call.context + [call.statement]):
         return True
-    if any(GUARD.search(line) for line in window):
+    member = re.compile(r"\b%s\b" % re.escape(call.member))
+    if any(member.search(arg) for line in call.clean for arg in GUARD_ARG.findall(line)):
         return True
-    # `Flags.name ? super.x(...) : ...` where `static let name = ...instancesRespond(to:`
-    statics = set(re.findall(r"static\s+let\s+(\w+)\s*=\s*[^\n]*\b(?:responds|instancesRespond)\s*\(\s*to:", file_text))
-    return any(re.search(r"\b\w+\.(%s)\b" % re.escape(s), line) for s in statics for line in window)
+    # `Flags.name ? super.x(...) : ...` where `static let name = ...instancesRespond(to: #selector(...x...))`
+    statics = {name for name, rest in re.findall(
+        r"static\s+let\s+(\w+)\s*=\s*([^\n]*\b(?:responds|instancesRespond)\s*\(\s*to:[^\n]*)", file_clean)
+        if member.search(rest)}
+    return any(re.search(r"\b\w+\.(%s)\b" % re.escape(n), line) for n in statics for line in call.clean)
 
 
 # MARK: - Runtime probe (macOS)
@@ -353,10 +412,9 @@ class Runtime:
         if not cls:
             return None
         kind, rest = spec.split(":", 1)
-        if kind == "sel":
-            return bool(self.objc.class_respondsToSelector(cls, self.objc.sel_registerName(rest.encode())))
-        member, args = rest.rsplit("/", 1)
-        args = int(args)
+        member, tail = rest.split("/", 1)
+        count, _, label_text = tail.partition(":")
+        args, labels = int(count), (label_text.split(",") if label_text else [])
         sels = self.selectors(cls)
         if kind == "get":
             return member in sels
@@ -369,7 +427,12 @@ class Runtime:
         for s in sels:
             if s.count(":") != args:
                 continue
-            head = s.split(":", 1)[0]
+            pieces = s.split(":")[:-1]
+            # Labels 2..n are selector pieces 2..n (Swift may drop a trailing type word: `with` is `withEvent`).
+            if not all(label == "_" or piece == label or (piece.startswith(label) and piece[len(label):len(label) + 1].isupper())
+                       for label, piece in zip(labels, pieces[1:])):
+                continue
+            head = pieces[0]
             # Swift also drops a type word inside the name (`scrollRectToVisible:` is
             # `scrollToVisible(_:)`), so the head may miss one CamelCase word.
             words = re.findall(r"^[a-z0-9_]+|[A-Z][a-z0-9]*", head)
@@ -428,7 +491,8 @@ def main() -> int:
                 table["macos"] = sorted(table["macos"] + [version], key=lambda v: [int(x) for x in v.split(".") if x.isdigit()])
             for key, value in answers.items():
                 table["keys"].setdefault(key, {})[version] = value
-            table["keys"] = dict(sorted(table["keys"].items()))
+            # Keys no super call needs any more go.
+            table["keys"] = dict(sorted((k, v) for k, v in table["keys"].items() if k in needed))
             table_path.write_text(json.dumps(table, indent=1, sort_keys=False) + "\n")
             print(f"check-objc-selectors: wrote {len(answers)} keys for macOS {version} to {TABLE}")
         else:
@@ -439,27 +503,33 @@ def main() -> int:
 
     table_keys: dict[str, dict[str, bool | None]] = table["keys"]
 
-    def answered(key: str) -> bool | None:
-        """False when a recorded macOS does not answer, None when unprobed, else True.
-
-        A null answer is a class with no Objective-C name on that macOS (a Swift class): not probeable.
-        """
+    def answered(key: str) -> str:
+        """`no` when a macOS that recorded the key does not answer it, `unprobed`, `unprobeable`
+        (no Objective-C class of that name on any macOS: a Swift class or a parse miss), or `yes`."""
         rec = table_keys.get(key)
         if not rec:
-            return None
-        return not any(v is False for v in rec.values())
+            return "unprobed"
+        if any(v is False for v in rec.values()):
+            return "no"
+        return "yes" if any(v is True for v in rec.values()) else "unprobeable"
 
     texts: dict[str, str] = {}
     for call, key, how in resolved:
         verdict = "ok"
         if key:
             state = answered(key)
-            if state is None:
+            if state == "unprobed":
                 verdict = "probe needed"
                 failures.append(f"{call.path}:{call.line}: super.{call.member} ({key}): probe needed; "
                                 f"run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit {TABLE}")
-            elif state is False:
-                text = texts.setdefault(call.path, (root / call.path).read_text(encoding="utf-8", errors="replace"))
+            elif state == "unprobeable" and not any(ALLOW.search(line) for line in call.context + [call.statement]):
+                verdict = "unprobeable"
+                failures.append(f"{call.path}:{call.line}: super.{call.member} ({key}): no macOS has an Objective-C "
+                                f"class {key.split(' ')[0]}; add its Objective-C ancestor to ALIASES or a reviewed "
+                                f"// selector-allow: <reason>")
+            elif state == "no":
+                text = texts.setdefault(call.path, blank_comments_and_strings(
+                    (root / call.path).read_text(encoding="utf-8", errors="replace")))
                 if guarded(call, text):
                     verdict = "guarded"
                 else:
