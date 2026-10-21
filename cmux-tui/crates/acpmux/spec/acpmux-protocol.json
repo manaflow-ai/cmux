@@ -3168,6 +3168,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "restricted": {
+          "description": "A restricted chat: no folder settings, hooks or MCP servers, and every tool asks.\nAbsent for any other chat.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "rules": {
           "description": "The session has its own permission rules.",
           "type": "boolean"

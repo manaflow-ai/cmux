@@ -51,8 +51,13 @@ pub(crate) struct FloorState {
 
 impl Hub {
     /// Whether `session`'s current turn was started or steered by a remote
-    /// device. A turn adopted after a restart keeps its recorded control.
+    /// device. A turn adopted after a restart keeps its recorded control. A
+    /// restricted chat's turns are held to the floor too: nothing in them
+    /// approves itself (`restricted.rs`).
     pub(super) fn web_turn(session: &Session) -> bool {
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).restricted {
+            return true;
+        }
         match session.turn() {
             Some(t) => t.control == Control::Web,
             None => session.floor.last_turn_web.load(Ordering::SeqCst),

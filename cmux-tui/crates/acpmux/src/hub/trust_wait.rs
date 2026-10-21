@@ -215,6 +215,18 @@ impl Hub {
         let asked = cwd.to_string_lossy().into_owned();
         let key = match self.trust_level_of(&paths, &asked, &family).await {
             Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            // A restricted chat's Claude Code sub-session in a folder the person did not trust
+            // starts restricted too (`restricted.rs`), as its chat does: no card, no decision.
+            Ok(read)
+                if read.level == Level::Untrusted
+                    && parent.meta().restricted
+                    && self.restricted_harness(harness).await
+                    && tokio::task::spawn_blocking(super::restricted::enabled)
+                        .await
+                        .unwrap_or(false) =>
+            {
+                return Ok(false);
+            }
             Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
                 return Err(RpcError::invalid_params(message));

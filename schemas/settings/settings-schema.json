@@ -802,6 +802,7 @@
             "key" : "settings.group.folderTrust",
             "rows" : [
               "agents.trust.autoTrust",
+              "agents.trust.restrictedChats",
               "agents.trust.projectRoots",
               "agents.trust.ownOrgs"
             ],
@@ -5118,6 +5119,57 @@
       "title" : {
         "key" : "settings.agents.trust.autoTrust",
         "text" : "Trust My Own Folders Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.restrictedChats.help",
+        "text" : "After Not now, Claude Code still runs in the folder without its project settings, hooks or MCP servers, and asks before every tool. Off: the chat waits until you trust the folder."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.restrictedChats",
+      "keywords" : [
+        "trust",
+        "untrusted",
+        "restricted",
+        "folder",
+        "hooks",
+        "mcp",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "restrictedChats"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.restrictedChats",
+        "text" : "Restricted Chats in Untrusted Folders"
       },
       "validation" : "portable"
     },
