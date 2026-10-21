@@ -3989,9 +3989,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "cards",
+      "default" : "minimal",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "minimal",
         "cards",
         "default",
         "composer",
@@ -4002,6 +4003,36 @@
       ],
       "title" : "New Tab Template",
       "type" : "string"
+    },
+    "tabs.newTabWidgets.actions" : {
+      "default" : false,
+      "description" : "Chats that need you, and New Terminal, New Browser Tab and New Chat.",
+      "title" : "Show Quick Actions on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.chats" : {
+      "default" : false,
+      "description" : "Your recent chats under the composer. The palette finds any chat.",
+      "title" : "Show Recent Chats on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.greeting" : {
+      "default" : true,
+      "description" : "A short greeting over the composer.",
+      "title" : "Show Greeting on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.projects" : {
+      "default" : false,
+      "description" : "A card of this Mac and its recent projects over the composer.",
+      "title" : "Show Projects on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.styleDots" : {
+      "default" : false,
+      "description" : "Dots under the page that switch its template.",
+      "title" : "Show Template Dots on New Tab",
+      "type" : "boolean"
     },
     "tabs.overflow" : {
       "default" : "shrink",
