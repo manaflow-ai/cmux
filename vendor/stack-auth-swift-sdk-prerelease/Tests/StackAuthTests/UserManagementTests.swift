@@ -7,7 +7,7 @@ struct ClientUserTests {
     
     // MARK: - User Profile Tests
     
-    @Test("Should get user properties after sign up", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get user properties after sign up")
     func getUserProperties() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -27,7 +27,7 @@ struct ClientUserTests {
         #expect(displayName == nil) // Not set yet
     }
     
-    @Test("Should update display name", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update display name")
     func updateDisplayName() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -44,7 +44,7 @@ struct ClientUserTests {
         #expect(displayName == newName)
     }
     
-    @Test("Should update display name multiple times", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update display name multiple times")
     func updateDisplayNameMultipleTimes() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -64,7 +64,7 @@ struct ClientUserTests {
         #expect(displayName == "Second Name")
     }
     
-    @Test("Should update client metadata", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update client metadata")
     func updateClientMetadata() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -89,7 +89,7 @@ struct ClientUserTests {
         #expect(clientMetadata?["count"] as? Int == 42)
     }
     
-    @Test("Should get partial user from token", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get partial user from token")
     func getPartialUser() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -102,7 +102,7 @@ struct ClientUserTests {
         #expect(partialUser?.id != nil)
     }
     
-    @Test("Should get access token after authentication", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get access token after authentication")
     func getAccessToken() async throws {
         let app = TestConfig.createClientApp()
         
@@ -119,7 +119,7 @@ struct ClientUserTests {
         #expect(!tokenAfter!.isEmpty)
     }
     
-    @Test("Should get auth headers for API calls", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get auth headers for API calls")
     func getAuthHeaders() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -137,7 +137,7 @@ struct ServerUserTests {
     
     // MARK: - User Creation Tests
     
-    @Test("Should create user with email only", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create user with email only")
     func createUserWithEmailOnly() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -151,7 +151,7 @@ struct ServerUserTests {
         try await user.delete()
     }
     
-    @Test("Should create user with all options", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create user with all options")
     func createUserWithAllOptions() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -180,7 +180,7 @@ struct ServerUserTests {
         try await user.delete()
     }
     
-    @Test("Should create user without email", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create user without email")
     func createUserWithoutEmail() async throws {
         let app = TestConfig.createServerApp()
         
@@ -198,7 +198,7 @@ struct ServerUserTests {
     
     // MARK: - User Retrieval Tests
     
-    @Test("Should list users with pagination", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list users with pagination")
     func listUsersWithPagination() async throws {
         let app = TestConfig.createServerApp()
         
@@ -220,7 +220,7 @@ struct ServerUserTests {
         }
     }
     
-    @Test("Should get user by ID", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get user by ID")
     func getUserById() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -239,7 +239,7 @@ struct ServerUserTests {
         try await createdUser.delete()
     }
     
-    @Test("Should return nil for non-existent user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return nil for non-existent user")
     func getNonExistentUser() async throws {
         let app = TestConfig.createServerApp()
         
@@ -251,7 +251,7 @@ struct ServerUserTests {
     
     // MARK: - User Update Tests
     
-    @Test("Should update user display name", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update user display name")
     func updateUserDisplayName() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -268,7 +268,7 @@ struct ServerUserTests {
         try await user.delete()
     }
     
-    @Test("Should update server metadata", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update server metadata")
     func updateServerMetadata() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -291,7 +291,7 @@ struct ServerUserTests {
         try await user.delete()
     }
     
-    @Test("Should update client metadata via server", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update client metadata via server")
     func updateClientMetadataViaServer() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -307,7 +307,7 @@ struct ServerUserTests {
         try await user.delete()
     }
     
-    @Test("Should update multiple fields at once", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update multiple fields at once")
     func updateMultipleFields() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -334,7 +334,7 @@ struct ServerUserTests {
     
     // MARK: - Password Management
     
-    @Test("Should create user with password and sign in", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create user with password and sign in")
     func createUserWithPasswordAndSignIn() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -359,7 +359,7 @@ struct ServerUserTests {
     
     // MARK: - User Deletion Tests
     
-    @Test("Should delete user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should delete user")
     func deleteUser() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -381,7 +381,7 @@ struct ServerUserTests {
     
     // MARK: - Session/Impersonation Tests
     
-    @Test("Should create session for impersonation", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create session for impersonation")
     func createSession() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()

@@ -7,7 +7,7 @@ struct AuthenticationTests {
     
     // MARK: - Sign Up Tests
     
-    @Test("Should sign up with valid credentials", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should sign up with valid credentials")
     func signUpWithValidCredentials() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -21,7 +21,7 @@ struct AuthenticationTests {
         #expect(primaryEmail == email)
     }
     
-    @Test("Should fail sign up with duplicate email", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign up with duplicate email")
     func signUpWithDuplicateEmail() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -41,7 +41,7 @@ struct AuthenticationTests {
         }
     }
     
-    @Test("Should fail sign up with weak password", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign up with weak password")
     func signUpWithWeakPassword() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -56,7 +56,7 @@ struct AuthenticationTests {
         }
     }
     
-    @Test("Should fail sign up with invalid email format", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign up with invalid email format")
     func signUpWithInvalidEmail() async throws {
         let app = TestConfig.createClientApp()
         
@@ -70,7 +70,7 @@ struct AuthenticationTests {
     
     // MARK: - Sign In Tests
     
-    @Test("Should sign in with valid credentials", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should sign in with valid credentials")
     func signInWithValidCredentials() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -89,7 +89,7 @@ struct AuthenticationTests {
         #expect(userEmail == email)
     }
     
-    @Test("Should fail sign in with wrong password", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign in with wrong password")
     func signInWithWrongPassword() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -107,7 +107,7 @@ struct AuthenticationTests {
         }
     }
     
-    @Test("Should fail sign in with non-existent user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign in with non-existent user")
     func signInWithNonExistentUser() async throws {
         let app = TestConfig.createClientApp()
         
@@ -119,7 +119,7 @@ struct AuthenticationTests {
         }
     }
     
-    @Test("Should fail sign in with empty password", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail sign in with empty password")
     func signInWithEmptyPassword() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -137,7 +137,7 @@ struct AuthenticationTests {
     
     // MARK: - Sign Out Tests
     
-    @Test("Should sign out successfully", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should sign out successfully")
     func signOutSuccessfully() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -153,7 +153,7 @@ struct AuthenticationTests {
         #expect(userAfter == nil)
     }
     
-    @Test("Should be able to sign out when not signed in", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should be able to sign out when not signed in")
     func signOutWhenNotSignedIn() async throws {
         let app = TestConfig.createClientApp()
         
@@ -164,7 +164,7 @@ struct AuthenticationTests {
         #expect(user == nil)
     }
     
-    @Test("Should clear tokens after sign out", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should clear tokens after sign out")
     func clearTokensAfterSignOut() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -182,7 +182,7 @@ struct AuthenticationTests {
     
     // MARK: - Multiple Auth Cycles
     
-    @Test("Should handle multiple sign in/out cycles", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should handle multiple sign in/out cycles")
     func multipleAuthCycles() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -206,7 +206,7 @@ struct AuthenticationTests {
     
     // MARK: - Password Management
     
-    @Test("Should update password for authenticated user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update password for authenticated user")
     func updatePassword() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -230,7 +230,7 @@ struct AuthenticationTests {
         #expect(userAfter != nil)
     }
     
-    @Test("Should fail password update with wrong old password", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should fail password update with wrong old password")
     func updatePasswordWithWrongOldPassword() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -255,7 +255,7 @@ struct AuthenticationTests {
     
     // MARK: - Unauthenticated User Tests
     
-    @Test("Should return nil for unauthenticated user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return nil for unauthenticated user")
     func unauthenticatedUserReturnsNil() async throws {
         let app = TestConfig.createClientApp()
         
@@ -264,7 +264,7 @@ struct AuthenticationTests {
         #expect(user == nil)
     }
     
-    @Test("Should throw for unauthenticated user with or: throw", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should throw for unauthenticated user with or: throw")
     func unauthenticatedUserThrows() async throws {
         let app = TestConfig.createClientApp()
         

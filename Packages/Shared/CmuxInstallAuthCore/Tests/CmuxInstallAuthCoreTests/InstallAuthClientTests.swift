@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 import Testing
 @testable import CmuxInstallAuthCore

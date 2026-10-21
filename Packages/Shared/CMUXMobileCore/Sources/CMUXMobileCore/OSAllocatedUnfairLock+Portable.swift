@@ -4,7 +4,7 @@ import Foundation
 /// The `OSAllocatedUnfairLock` surface this package and its dependents use, for
 /// platforms without the `os` module.
 // lint:allow lock - stands in for os.OSAllocatedUnfairLock where it is unavailable.
-public final class OSAllocatedUnfairLock<State>: @unchecked Sendable {
+public final class OSAllocatedUnfairLock<State>: @unchecked Sendable { // crash-allow: `state` is read and written only inside withLock, under `mutex`
     private let mutex = NSLock()
     private var state: State
 

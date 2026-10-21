@@ -7,7 +7,7 @@ struct ClientTeamTests {
     
     // MARK: - Team Creation Tests
     
-    @Test("Should create team with display name", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create team with display name")
     func createTeamWithDisplayName() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -26,7 +26,7 @@ struct ClientTeamTests {
         #expect(displayName == teamName)
     }
     
-    @Test("Should create team with metadata", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create team with metadata")
     func createTeamWithMetadata() async throws {
         // Use server app for full control over team creation
         let serverApp = TestConfig.createServerApp()
@@ -45,7 +45,7 @@ struct ClientTeamTests {
         try await team.delete()
     }
     
-    @Test("Should add creator to team on creation", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should add creator to team on creation")
     func creatorAddedToTeam() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -65,7 +65,7 @@ struct ClientTeamTests {
     
     // MARK: - Team Listing Tests
     
-    @Test("Should list user's teams", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list user's teams")
     func listUserTeams() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -85,7 +85,7 @@ struct ClientTeamTests {
         #expect(teams.contains { $0.id == team2?.id })
     }
     
-    @Test("Should get team by ID", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get team by ID")
     func getTeamById() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -107,7 +107,7 @@ struct ClientTeamTests {
         #expect(fetchedName == teamName)
     }
     
-    @Test("Should return nil for non-member team", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return nil for non-member team")
     func getNonMemberTeam() async throws {
         let serverApp = TestConfig.createServerApp()
         
@@ -131,7 +131,7 @@ struct ClientTeamTests {
     
     // MARK: - Team Update Tests
     
-    @Test("Should update team display name", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update team display name")
     func updateTeamDisplayName() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -148,7 +148,7 @@ struct ClientTeamTests {
         #expect(displayName == newName)
     }
     
-    @Test("Should update team profile image", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update team profile image")
     func updateTeamProfileImage() async throws {
         // Use server app for updating team properties to avoid permission issues
         let serverApp = TestConfig.createServerApp()
@@ -165,7 +165,7 @@ struct ClientTeamTests {
         try await team.delete()
     }
     
-    @Test("Should update team client metadata", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update team client metadata")
     func updateTeamClientMetadata() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -190,7 +190,7 @@ struct ClientTeamTests {
     
     // MARK: - Team Members Tests
     
-    @Test("Should list team members", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list team members")
     func listTeamMembers() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -212,7 +212,7 @@ struct ServerTeamTests {
     
     // MARK: - Team Creation Tests
     
-    @Test("Should create team with server app", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create team with server app")
     func createTeamWithServer() async throws {
         let app = TestConfig.createServerApp()
         let teamName = TestConfig.uniqueTeamName()
@@ -226,7 +226,7 @@ struct ServerTeamTests {
         try await team.delete()
     }
     
-    @Test("Should create team with creator user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create team with creator user")
     func createTeamWithCreator() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -249,7 +249,7 @@ struct ServerTeamTests {
         try await user.delete()
     }
     
-    @Test("Should create team with all options", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should create team with all options")
     func createTeamWithAllOptions() async throws {
         let app = TestConfig.createServerApp()
         
@@ -274,7 +274,7 @@ struct ServerTeamTests {
     
     // MARK: - Team Listing Tests
     
-    @Test("Should list all teams", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list all teams")
     func listAllTeams() async throws {
         let app = TestConfig.createServerApp()
         
@@ -289,7 +289,7 @@ struct ServerTeamTests {
         try await team.delete()
     }
     
-    @Test("Should list teams for specific user", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list teams for specific user")
     func listTeamsForUser() async throws {
         let app = TestConfig.createServerApp()
         let email = TestConfig.uniqueEmail()
@@ -314,7 +314,7 @@ struct ServerTeamTests {
         try await user.delete()
     }
     
-    @Test("Should get team by ID", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get team by ID")
     func getTeamById() async throws {
         let app = TestConfig.createServerApp()
         let teamName = TestConfig.uniqueTeamName()
@@ -333,7 +333,7 @@ struct ServerTeamTests {
         try await createdTeam.delete()
     }
     
-    @Test("Should return nil for non-existent team", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return nil for non-existent team")
     func getNonExistentTeam() async throws {
         let app = TestConfig.createServerApp()
         
@@ -345,7 +345,7 @@ struct ServerTeamTests {
     
     // MARK: - Team Update Tests
     
-    @Test("Should update team via server", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should update team via server")
     func updateTeamViaServer() async throws {
         let app = TestConfig.createServerApp()
         
@@ -368,7 +368,7 @@ struct ServerTeamTests {
     
     // MARK: - Team Membership Tests
     
-    @Test("Should add user to team", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should add user to team")
     func addUserToTeam() async throws {
         let app = TestConfig.createServerApp()
         
@@ -388,7 +388,7 @@ struct ServerTeamTests {
         try await user.delete()
     }
     
-    @Test("Should remove user from team", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should remove user from team")
     func removeUserFromTeam() async throws {
         let app = TestConfig.createServerApp()
         
@@ -416,7 +416,7 @@ struct ServerTeamTests {
         try await user.delete()
     }
     
-    @Test("Should list team users", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should list team users")
     func listTeamUsers() async throws {
         let app = TestConfig.createServerApp()
         
@@ -442,7 +442,7 @@ struct ServerTeamTests {
     
     // MARK: - Team Deletion Tests
     
-    @Test("Should delete team via server", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should delete team via server")
     func deleteTeamViaServer() async throws {
         let app = TestConfig.createServerApp()
         

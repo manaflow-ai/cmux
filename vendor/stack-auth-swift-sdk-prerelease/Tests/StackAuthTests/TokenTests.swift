@@ -7,7 +7,7 @@ struct TokenStorageTests {
     
     // MARK: - Memory Token Store Tests
     
-    @Test("Should store and retrieve tokens", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should store and retrieve tokens")
     func tokenStorage() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -23,7 +23,7 @@ struct TokenStorageTests {
         #expect(!refreshToken!.isEmpty)
     }
     
-    @Test("Should clear tokens on sign out", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should clear tokens on sign out")
     func tokensClearedOnSignOut() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -41,7 +41,7 @@ struct TokenStorageTests {
     
     // MARK: - Explicit Token Store Tests
     
-    @Test("Should use explicitly provided tokens", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should use explicitly provided tokens")
     func explicitTokenStore() async throws {
         // First, get real tokens
         let app1 = TestConfig.createClientApp()
@@ -71,7 +71,7 @@ struct TokenStorageTests {
         #expect(userEmail == email)
     }
     
-    @Test("Should work with both tokens provided", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should work with both tokens provided")
     func explicitBothTokens() async throws {
         // Get real tokens
         let app1 = TestConfig.createClientApp()
@@ -100,7 +100,7 @@ struct TokenStorageTests {
     
     // MARK: - Token Format Tests
     
-    @Test("Should return JWT format access token", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return JWT format access token")
     func accessTokenIsJwt() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -115,7 +115,7 @@ struct TokenStorageTests {
         #expect(parts.count == 3)
     }
     
-    @Test("Should return refresh token in correct format", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should return refresh token in correct format")
     func refreshTokenFormat() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -131,7 +131,7 @@ struct TokenStorageTests {
     
     // MARK: - Auth Headers Tests
     
-    @Test("Should generate auth headers with token", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should generate auth headers with token")
     func authHeadersWithToken() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -144,7 +144,7 @@ struct TokenStorageTests {
         #expect(!headers["x-stack-auth"]!.isEmpty)
     }
     
-    @Test("Should generate consistent auth headers format", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should generate consistent auth headers format")
     func authHeadersFormat() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -161,7 +161,7 @@ struct TokenStorageTests {
     
     // MARK: - Partial User from Token Tests
     
-    @Test("Should get partial user from token without API call", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should get partial user from token without API call")
     func partialUserFromToken() async throws {
         let app = TestConfig.createClientApp()
         let email = TestConfig.uniqueEmail()
@@ -186,7 +186,7 @@ struct TokenStorageTests {
     
     // MARK: - Token Persistence Between Apps
     
-    @Test("Should share tokens between app instances with explicit store", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should share tokens between app instances with explicit store")
     func shareTokensBetweenApps() async throws {
         // Get tokens from first app
         let app1 = TestConfig.createClientApp()
@@ -216,7 +216,7 @@ struct TokenStorageTests {
         #expect(id1 == id2)
     }
     
-    @Test("Should share memory store between app instances via registry", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should share memory store between app instances via registry")
     func memoryStoreRegistrySingleton() async throws {
         // Reset registry to ensure clean state for this test
         TokenStoreRegistry.shared.reset()
@@ -252,7 +252,7 @@ struct TokenStorageTests {
     
     // MARK: - Null Token Store Tests
     
-    @Test("Should work with null token store for anonymous requests", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should work with null token store for anonymous requests")
     func nullTokenStore() async throws {
         let app = StackClientApp(
             projectId: testProjectId,
@@ -273,7 +273,7 @@ struct TokenStorageTests {
     // when constructor tokenStore is .none will cause a fatalError (panic).
     // This is a programmer error and cannot be tested via normal test assertions.
     
-    @Test("Should use tokenStore override when provided", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should use tokenStore override when provided")
     func tokenStoreOverride() async throws {
         // Create an app with tokens
         let app1 = TestConfig.createClientApp()
@@ -314,7 +314,7 @@ struct TokenStorageTests {
         #expect(partialUser?.primaryEmail == email)
     }
     
-    @Test("Should allow tokenStore override even when constructor has token store", .enabled(if: TestConfig.runsBackendTests))
+    @Test("Should allow tokenStore override even when constructor has token store")
     func tokenStoreOverrideWithDefaultStore() async throws {
         // Create two users with explicit token stores to keep them separate
         

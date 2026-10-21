@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 
 /// The owner's challenge for one lowering (`user.text_confirm.lower.challenge`).
