@@ -108,6 +108,7 @@ class App:
         self.pid = None
         self.socket = None
         self.rpc = None
+        self.hosts_seen: set[int] = set()  # terminal hosts outlive a daemon; a relaunch adopts them
         self.launched_at = None
         binary_dir = os.path.join(self.bundle, "Contents/MacOS")
         self.binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
@@ -307,6 +308,11 @@ class App:
                 out[pid] = "terminal-host"
                 hosts.add(pid)
         commands = {pid: cmd for pid, _ppid, cmd in table}
+        for pid in self.hosts_seen:
+            if pid not in out and "__terminal-host" in commands.get(pid, ""):
+                out[pid] = "terminal-host"
+                hosts.add(pid)
+        self.hosts_seen |= hosts
         for pid in procstat.descendants(hosts, table) - hosts:
             if pid not in out:
                 cmd = commands.get(pid, "")

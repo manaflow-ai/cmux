@@ -86,6 +86,7 @@ class TuiDaemon:
         self.home = os.path.join(root, "home")
         self.session = f"perf100-{os.getpid()}"
         self.proc = None
+        self.hosts_seen: set[int] = set()  # hosts outlive their daemon; a restarted daemon adopts them
         for path in (self.state, self.home):
             os.makedirs(path, exist_ok=True)
         self.env = dict(os.environ, HOME=self.home, XDG_CONFIG_HOME=os.path.join(self.home, ".config"),
@@ -148,12 +149,15 @@ class TuiDaemon:
         """The daemon, its terminal hosts (also those that left its process tree) and their children."""
         table = procstat.process_table()
         roots = {self.proc.pid} if self.proc and self.proc.poll() is None else set()
+        commands = {pid: cmd for pid, _ppid, cmd in table}
         for pid, _ppid, cmd in table:
             if "__terminal-host" in cmd and (self.root in cmd or re.search(rf"\b{re.escape(self.session)}\b", cmd)):
                 roots.add(pid)
+        # A host seen once stays this run's while it lives (pid reuse: still a terminal host).
+        roots |= {pid for pid in self.hosts_seen if "__terminal-host" in commands.get(pid, "")}
         found = procstat.descendants(roots, table)
-        commands = {pid: cmd for pid, _ppid, cmd in table}
         hosts = {pid for pid in found if "__terminal-host" in commands.get(pid, "")}
+        self.hosts_seen |= hosts
         out = {}
         for pid in found:
             cmd = commands.get(pid, "")

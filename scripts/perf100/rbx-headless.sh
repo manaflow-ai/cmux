@@ -24,8 +24,10 @@ root="$(pwd)"
 (cd cmux-tui && cargo build --locked --release -p cmux-tui -p acpmux --bin cmux-tui --bin acpmux)
 target="$(cd cmux-tui && cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 echo "PERF100-RBX target=$target"
-out="$(mktemp -d "${TMPDIR:-/tmp}/p100out.XXXXXX")"
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/p100.XXXXXX")"
+# State on the root ext4 disk, not rbx's tmpfs TMPDIR (/t): tmpfs writes never reach storage, so
+# /proc/pid/io write_bytes would read 0.
+out="$(mktemp -d /tmp/p100out.XXXXXX)"
+scratch="$(mktemp -d /tmp/p100.XXXXXX)"
 trap 'rm -rf "$scratch" "$out"' EXIT
 common=(--seed "$seed" --out "$out" --tag "rbx-release" --sha "$sha" --host-class "rbx" --root-dir "$scratch" $quick)
 status=0
