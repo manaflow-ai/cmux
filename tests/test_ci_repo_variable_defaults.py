@@ -141,7 +141,7 @@ def default_chain_reaches_literal(text: str, end: int) -> bool:
         rest = rest[chained.end():]
 
 
-JOB_KEY = re.compile(r"^  [A-Za-z0-9_-]+:\s*$")
+JOB_KEY = re.compile(r"^  [A-Za-z0-9_-]+:\s*(?:#.*)?$")
 
 
 def job_if(lines: list[str], index: int) -> str:
@@ -166,10 +166,14 @@ def job_if(lines: list[str], index: int) -> str:
 def top_level_conjuncts(condition: str) -> list[str]:
     """`a && (b || c) && d` -> ['a', '(b || c)', 'd'], ignoring quoted text."""
     condition = condition.strip()
-    if condition.startswith(">-") or condition.startswith(">"):
-        condition = condition.lstrip(">-").strip()
+    if condition.startswith(">-"):
+        condition = condition[2:].strip()
+    elif condition[:1] in (">", "|"):
+        return []  # a kept trailing newline makes the whole value a non-empty string
     if condition.startswith("${{") and condition.endswith("}}"):
         condition = condition[3:-2]
+    if "${{" in condition or "}}" in condition:
+        return []  # text around a template: GitHub reads a string, always true
     parts, depth, quoted, current = [], 0, False, ""
     index = 0
     while index < len(condition):
@@ -348,6 +352,10 @@ def self_test_runs_on_gate(errors: list[str]) -> None:
         (job("vars.A_RUNNER != ''", "${{ vars.A_RUNNER || vars.B_RUNNER }}"), 1, "one of two reads gated"),
         ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two:\n    runs-on: ${{ vars.A_RUNNER }}\n",
          1, "another job's gate"),
+        ("jobs:\n  one:\n    if: vars.A_RUNNER != ''\n    steps: []\n  two: # note\n    runs-on: ${{ vars.A_RUNNER }}\n",
+         1, "another job's gate above a commented job header"),
+        (job("${{ github.ref == 'x' }} && vars.A_RUNNER != ''"), 1, "text outside the template"),
+        (job(">\n      ${{ github.ref == 'x' &&\n          vars.A_RUNNER != '' }}"), 1, "a folded `>` if, which keeps its newline"),
     )
     with tempfile.TemporaryDirectory() as directory:
         for body, expected, description in probes:

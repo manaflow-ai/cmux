@@ -157,7 +157,7 @@ check_ios_runner_routing() {
     exit 1
   fi
   if ! grep -Fq 'RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}' "$IOS_FILE" ||
-     ! grep -Fq 'REQUESTED_RUNNER: ${{ inputs.runner || ' "$IOS_FILE"; then
+     ! grep -Fq "REQUESTED_RUNNER: \${{ inputs.runner || ((github.event_name == 'push' || (github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository)) && 'owned' || '') }}" "$IOS_FILE"; then
     echo "FAIL: test-ios.yml's runner job must read the runner input, MACOS_RUNNER_TESTS and MACOS_RUNNER_IOS"
     exit 1
   fi
@@ -1565,7 +1565,8 @@ pr_concurrency_cancels_superseded_runs() {
         if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
         # `event == X || more` is true for every X event whatever `more` says:
         # `||` binds loosest, so extra disjuncts only add cancellation.
-        if (index(value, "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 || ") == 1) ok=1
+        if (index(value, "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 || ") == 1 &&
+            gsub(/\$\{\{/, "&", value) == 1 && value ~ /\}\}$/) ok=1
         # Recognize only the CI workflow label exception: synchronize still
         # cancels the old head. Extra clauses could suppress that cancellation.
         if (ENVIRON["EVENT"] == "pull_request" &&
@@ -1650,6 +1651,10 @@ on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name == 'push' }}~rej
 on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name != 'pull_request' }}~reject
 on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request_target' }}~reject
 on:\n  pull_request:\n  pull_request_target:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' || inputs.x == 'y' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'push' || github.event_name == 'pull_request' && false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' || x }} && ${{ false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request_target' || x }}~reject
 CASES
   rm -f "$probe"
 
