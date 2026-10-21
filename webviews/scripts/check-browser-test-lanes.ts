@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { fileURLToPath } from "node:url";
+import { checkFrameReadsSource, FRAME_READS_PENDING } from "./check-frame-reads";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helper = path.join(root, "test/support/requireBrowserLane");
@@ -142,6 +143,7 @@ if (import.meta.main) {
           ...checkBrowserLaneSource(file, text),
           ...checkDevServerWarmSource(file, text),
           ...checkGalleryFrameSource(file, text),
+          ...checkFrameReadsSource(file, text),
         );
       }
     }
@@ -150,6 +152,8 @@ if (import.meta.main) {
   scan(path.join(root, "src"));
   for (const name of EVERY_ENTRY_PENDING.keys())
     if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from EVERY_ENTRY_PENDING`);
+  for (const name of FRAME_READS_PENDING.keys())
+    if (!existsSync(path.join(root, name))) errors.push(`${name}: is gone; remove it from FRAME_READS_PENDING`);
   for (const error of errors) console.error(error);
   if (errors.length) process.exitCode = 1;
   else console.log("Browser test lane imports checked.");

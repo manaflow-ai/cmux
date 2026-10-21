@@ -159,7 +159,7 @@ fn claude_steps(record: &Value, at: Option<u64>) -> Vec<Step> {
                 blocks.iter().any(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
             }) =>
         {
-            crate::adopt_tools::claude_tool_results(content)
+            crate::adopt_tools::claude_tool_results(content, record.get("toolUseResult"))
                 .into_iter()
                 .map(Step::ToolResult)
                 .collect()
