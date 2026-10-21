@@ -26,7 +26,10 @@ run() {
   export STUB_OUTPUT="$TMP/$1.out" STUB_STATUS="$2" GITHUB_STEP_SUMMARY="$TMP/$1.summary"
   : > "$GITHUB_STEP_SUMMARY"
   status=0
-  out=$(PATH="$TMP/bin:$PATH" CMUX_NEXT_TEST_HANG_SECONDS=60 \
+  # The sampler's log lives in this test's own TMPDIR: on CI the check runs beside
+  # many others, and its /tmp/swift-test-log.* was once gone before it was read.
+  mkdir -p "$TMP/tmp"
+  out=$(PATH="$TMP/bin:$PATH" TMPDIR="$TMP/tmp" CMUX_NEXT_TEST_HANG_SECONDS=60 \
     bash "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" --skip-build 2>&1) || status=$?
   summary=$(cat "$GITHUB_STEP_SUMMARY")
 }
