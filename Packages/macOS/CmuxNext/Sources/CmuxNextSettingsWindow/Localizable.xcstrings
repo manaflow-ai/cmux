@@ -54609,6 +54609,268 @@
           }
         }
       }
+    },
+    "settingsWindow.chief.voiceInput.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice input"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإدخال الصوتي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glasovni unos"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stemmeinput"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spracheingabe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisie vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Input vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声入力"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបញ្ចូលសំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 입력"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taleinndata"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wprowadzanie głosowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrada de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосовой ввод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การป้อนข้อมูลด้วยเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesli giriş"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Голосове введення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập bằng giọng nói"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音输入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音輸入"
+          }
+        }
+      }
+    },
+    "settingsWindow.chief.voiceInput.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The mic in the message box dictates into it, on this Mac. Off shows the waveform instead."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُملي الميكروفون في مربع الرسالة النص فيه على هذا الـ Mac. عند إيقافه يظهر شكل الموجة بدلًا منه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofon u polju za poruku diktira u njega, na ovom Macu. Kada je isključeno, prikazuje se talasni oblik."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofonen i beskedfeltet dikterer ind i det, på denne Mac. Fra viser bølgeformen i stedet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Mikrofon im Nachrichtenfeld diktiert hinein, auf diesem Mac. Aus zeigt stattdessen die Wellenform."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El micrófono del cuadro de mensaje dicta en él, en este Mac. Desactivado muestra la forma de onda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le micro du champ de message y dicte le texte, sur ce Mac. Désactivé, la forme d’onde s’affiche à la place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il microfono nel campo del messaggio vi detta il testo, su questo Mac. Disattivato mostra la forma d’onda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ欄のマイクで、この Mac 上で音声入力します。オフにすると代わりに波形が表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មីក្រូហ្វូននៅក្នុងប្រអប់សារសរសេរតាមសំឡេងចូលទៅក្នុងវា នៅលើ Mac នេះ។ បិទ បង្ហាញរលកសំឡេងជំនួសវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 상자의 마이크로 이 Mac에서 받아쓰기합니다. 끄면 대신 파형이 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofonen i meldingsfeltet dikterer inn i det, på denne Macen. Av viser bølgeformen i stedet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mikrofon w polu wiadomości dyktuje do niego na tym Macu. Wyłączone pokazuje zamiast tego falę dźwiękową."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O microfone na caixa de mensagem dita nela, neste Mac. Desativado mostra a forma de onda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Микрофон в поле сообщения диктует в него на этом Mac. Если выключено, вместо него показана звуковая волна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไมโครโฟนในช่องข้อความจะป้อนข้อความด้วยเสียงบน Mac เครื่องนี้ ปิดจะแสดงรูปคลื่นเสียงแทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj kutusundaki mikrofon, bu Mac'te kutuya dikte eder. Kapalıyken yerine dalga biçimi görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мікрофон у полі повідомлення диктує в нього на цьому Mac. Якщо вимкнено, замість нього показано звукову хвилю."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Micrô trong ô tin nhắn đọc chính tả vào ô, trên máy Mac này. Tắt sẽ hiện dạng sóng thay thế."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息框中的麦克风可在这台 Mac 上听写输入。关闭后改为显示波形。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息框中的麥克風可在這台 Mac 上聽寫輸入。關閉後改為顯示波形。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

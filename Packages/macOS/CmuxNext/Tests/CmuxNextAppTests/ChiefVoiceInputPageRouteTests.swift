@@ -2,6 +2,7 @@
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextPages
+import CmuxNextSettings
 import Testing
 
 /// Settings > Chief > Voice input (Leo's list): the message box's mic, the Debug toggle

@@ -212,6 +212,10 @@ export class MockSettingsProvider {
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
+      "cmux.settings.voice_input.set": (params) => {
+        if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
+        return {};
+      },
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -592,6 +596,8 @@ export class MockSettingsProvider {
       { id: "work", title: "Work", subtitle: null, active: false },
     ],
     machines: [{ id: "ssh:build", title: "build-mac", subtitle: "cmux@build-mac", active: true }],
+    // A DEV build: the home.voiceInput tunable exists, on as Leo set it.
+    voice_input: { on: true },
     browser_profiles: [
       { id: "p-default", name: "Default", color: null, icon: null, is_default: true, source: null },
       { id: "p-work", name: "Work", color: "green", icon: null, is_default: false, source: "Google Chrome · Work" },
