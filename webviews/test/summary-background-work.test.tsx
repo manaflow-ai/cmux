@@ -1,10 +1,11 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// Background work is visible (Leo: "where is the background showing?"): the summary card lists the
-// chat's background commands live, the process registry's merged with the transcript's (the
-// registry wins, a task is never listed twice), running ones first with their time and Stop, the
-// finished folded into one row; the chats the agent started sit under Subagents with their state;
-// an empty card draws one quiet line instead of "None" under every title; the running turn's line
-// counts started chats; and between turns one compact row says what still runs.
+// Background work is visible (Leo: "where is the background showing?"). With the Inspector off
+// (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
+// (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
+// running ones first with their time and Stop, the finished folded into one row; the chats the
+// agent started sit under Subagents with their state; an empty card draws one quiet line instead
+// of "None" under every title. The running turn's line counts started chats; and between turns one
+// compact row says what still runs.
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -20,14 +21,11 @@ import { isLastFooter, type AcpmuxRow } from "../src/agent-session/acpmux/model"
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
 import {
   BACKGROUND_WORK,
-  backgroundCommands,
   backgroundRowShown,
   NO_BACKGROUND,
-  orderedSessions,
-  splitCommands,
-} from "../src/agent-session/acpmux/summary/backgroundWork";
-import type { InspectorProcess } from "../src/agent-session/acpmux/inspector/processes";
-import { processesOf } from "../src/agent-session/acpmux/inspector/processes";
+} from "../src/agent-session/acpmux/conversation/backgroundWork";
+import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
+import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
@@ -105,57 +103,6 @@ const emptySummary = (fields: Partial<SessionSummary> = {}): SessionSummary => (
   sources: [],
   backgroundTasks: [],
   ...fields,
-});
-
-test("the registry's records carry the call that started them", () => {
-  const [process] = processesOf({ processes: [wire("a", "bun run dev", "running", 1_000)] }, "s1");
-  expect(process!.toolCallId).toBe("call-a");
-});
-
-test("a transcript task the registry lists is listed once, as the registry says it stands", () => {
-  const processes: InspectorProcess[] = processesOf(
-    { processes: [wire("a", "bun run dev", "killed", 1_000, 5_000), wire("b", "tsc --watch", "running", 2_000)] },
-    "s1",
-  );
-  const transcript = [task("call-a", "bun run dev", "running", 1_000), task("call-c", "pytest -x", "completed")];
-  const commands = backgroundCommands(processes, transcript, true);
-  expect(commands.map((command) => [command.id, command.state, command.processId, command.toolCallId])).toEqual([
-    ["s1/a", "stopped", "s1/a", "call-a"],
-    ["s1/b", "running", "s1/b", "call-b"],
-    // Known only to the transcript: no Stop, but its terminal still opens.
-    ["call-c", "completed", undefined, "call-c"],
-  ]);
-});
-
-test("once the registry has listed the chat, a transcript task it does not know is not left running", () => {
-  const transcript = [task("call-x", "npm run dev", "running", 1_000)];
-  expect(backgroundCommands([], transcript, true)).toEqual([]);
-  // Without a listing (an older acpmux, a peer's chat), the transcript is all there is.
-  expect(backgroundCommands([], transcript, false).map((command) => command.state)).toEqual(["running"]);
-});
-
-test("running commands come first, newest first; the finished follow, newest first", () => {
-  const commands = backgroundCommands(
-    processesOf(
-      {
-        processes: [
-          wire("old", "tsc --watch", "running", 1_000),
-          wire("done", "cargo build", "exited", 2_000, 3_000),
-          wire("new", "bun run dev", "running", 5_000),
-          wire("lost", "tail -f log", "lost", 4_000, 6_000),
-        ],
-      },
-      "s1",
-    ),
-    [],
-    true,
-  );
-  const { running, finished } = splitCommands(commands);
-  expect(running.map((command) => command.command)).toEqual(["bun run dev", "tsc --watch"]);
-  expect(finished.map((command) => [command.command, command.state])).toEqual([
-    ["tail -f log", "stopped"],
-    ["cargo build", "completed"],
-  ]);
 });
 
 test("the card lists running commands with their time and Stop, and folds the finished into one row", async () => {

@@ -13,7 +13,7 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./summary/backgroundWork";
+import { BACKGROUND_WORK } from "./conversation/backgroundWork";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };

@@ -1335,6 +1335,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
+                "CmuxNextDesign",
                 "CmuxNextDiff",
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",
