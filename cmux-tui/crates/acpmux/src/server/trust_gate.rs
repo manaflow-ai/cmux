@@ -118,10 +118,12 @@ pub(super) async fn check(
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }
 }
 
-/// Whether the chat already works in its folder: a turn of it ran or runs. A chat only made
-/// (its agent started, no prompt yet) is not one: the pane's first prompt still waits.
+/// Whether the chat already works in its folder: a turn of it ran or runs here. A chat only
+/// made (its agent started, no prompt yet) is not one, nor are the turns of a conversation it
+/// adopted (never run here, so they get no `last_turn`) or a fork's copy of its parent's: the
+/// pane's first prompt still waits.
 fn running(session: &crate::hub::Session) -> bool {
-    session.meta().turn_count > 0 || session.turn().is_some()
+    session.meta().last_turn.is_some() || session.turn().is_some()
 }
 
 /// A chat whose agent already runs is never held up by an open trust question (a lane a
