@@ -215,6 +215,7 @@ class ClassifyTests(unittest.TestCase):
             pane + "AgentPanePendingAsks.swift",
             pane + "AgentPaneTransport+Frames.swift",
             pane + "AgentPaneGestureIntent.swift",
+            pane + "AgentPaneUserGestures.swift",
             pane + "AgentPaneModel+Actions.swift",
             "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
             "cmux-tui/crates/cmux-agent-pane-policy/src/params.rs",
