@@ -123,6 +123,7 @@ extension SidebarListViewComponents {
         defer { updateHover() }
         let old = displayed
         displayed = layout
+        onApply?(layout)
         groupEditing.adoptReidentified(from: old, to: layout)
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()

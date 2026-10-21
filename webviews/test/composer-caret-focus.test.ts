@@ -18,8 +18,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -45,7 +45,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=760&theme=Catppuccin+Mocha`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width: 760, theme: "Catppuccin Mocha" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -54,23 +54,11 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL("agent-pane.new-tab", "reasoning-chip"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    // The first load can run Vite's dependency optimizer and reload mid-compile.
+    const browser = browsers.get("chromium") ?? browsers.get("webkit");
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "reasoning-chip" } });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -119,7 +107,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       foot: ".nt-box .nt-pickers",
     },
   ];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
   const open = async (engine: string, stage: Stage, { rest = true } = {}) => {
@@ -216,11 +204,14 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
-            const effort = bar.querySelector<HTMLElement>(".acpmux-effort .acpmux-picker-button");
+            // The model button names its effort after the model (Leo 2026-10-20): the name is as
+            // muted as that effort label.
+            const name = model.querySelector<HTMLElement>(".acpmux-model-name") ?? model;
+            const effort = model.querySelector<HTMLElement>(".acpmux-model-detail");
             return {
               look: bar.dataset.footerLook ?? "",
               mark: mark ? getComputedStyle(mark).display : "none",
-              muted: !effort || getComputedStyle(model).color === getComputedStyle(effort).color,
+              muted: !effort || getComputedStyle(name).color === getComputedStyle(effort).color,
             };
           },
           { foot: stage.foot },

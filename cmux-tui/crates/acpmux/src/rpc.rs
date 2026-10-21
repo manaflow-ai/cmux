@@ -287,6 +287,8 @@ pub mod method {
     /// cheap model, sent the question; answers with its session id at once.
     pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
+    /// The protocol IR this daemon was built with (`protocol::ir()`).
+    pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
@@ -373,6 +375,11 @@ pub mod method {
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
+    /// post a rule by key, read the current rules, ack one.
+    pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
+    pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
