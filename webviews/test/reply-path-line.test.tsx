@@ -485,6 +485,6 @@ test("a name the host places outside the folders follows the outside policy like
 
 test("prices and shell variables never start a prose path", () => {
   expect(textLinks("Prices: $5/$10/$20.")).toEqual([]);
-  expect(textLinks("Run $HOME/notes.md or ${HOME}/x/ first.")).toEqual([]);
+  expect(textLinks("Run $HOME/notes.md or $PROJECT/src/ first.")).toEqual([]);
   expect(textLinks("Edit docs/ and src/app.ts.").map((link) => link.path)).toEqual(["docs/", "src/app.ts"]);
 });
