@@ -118,6 +118,12 @@ impl Translator {
                             *self.loop_model.lock().await = m.to_owned();
                         }
                     }
+                    // A tool call is named as its block starts (early_calls.rs).
+                    Some("content_block_start") => {
+                        if let Some(call) = self.announce_tool(&ev, &sid, parent).await {
+                            out.push(upd(call));
+                        }
+                    }
                     Some("content_block_delta") => {
                         let d = ev.get("delta").cloned().unwrap_or(Value::Null);
                         match d.get("type").and_then(Value::as_str) {
@@ -221,6 +227,12 @@ impl Translator {
                         {
                             self.edits.lock().await.insert(id.to_owned(), diffs.clone());
                         }
+                        // Named early (early_calls.rs): the whole call is that call's update.
+                        if let Some(id) = c.get("id").and_then(Value::as_str)
+                            && self.take_announced(id).await
+                        {
+                            call["sessionUpdate"] = json!("tool_call_update");
+                        }
                         out.push(upd(call));
                     }
                 }
@@ -295,6 +307,24 @@ impl Translator {
                                 .is_some_and(|s| is_err || (!s.background && s.task.is_none()))
                             {
                                 shells.remove(tool);
+                            }
+                            // The launch's result names the output file while
+                            // the shell runs; the task notification names it
+                            // only at its end. A shell announced already is
+                            // announced again with it, once.
+                            if let Some(shell) = shells.get_mut(tool).filter(|s| s.output.is_none())
+                                && let Some(file) = launch_output_file(&text)
+                            {
+                                shell.output = Some(file);
+                                if shell.announced && shell.background {
+                                    let mut update = background_task_update(tool, shell, "running");
+                                    update["origin"] = json!(if shell.launched {
+                                        "background"
+                                    } else {
+                                        "auto_backgrounded"
+                                    });
+                                    out.push(shell_update(shell, update));
+                                }
                             }
                         }
                         // ACP content replaces the call's content: a finished edit
@@ -482,6 +512,8 @@ impl Translator {
                 if startup_noise {
                     return out;
                 }
+                // A call named early whose whole call never came ends with its turn.
+                out.extend(self.end_announced().await);
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {
@@ -611,8 +643,11 @@ impl Translator {
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
                 }
-                if let Some(ended) = self.subagent_task(sub, line).await {
-                    out.push(upd(ended));
+                if let Some((update, ended)) = self.subagent_task(sub, line).await {
+                    if let Some(tool) = ended {
+                        out.extend(self.end_announced_of(&tool).await);
+                    }
+                    out.push(upd(update));
                 }
             }
             _ => {}
@@ -713,29 +748,30 @@ impl Translator {
     /// The background shells still running when Claude's stdout closed: they
     /// ended with its process, so each is reported `stopped`, marked
     /// `_meta.acpmux.endedBy: "harness_exit"` for the hub (`hub/processes.rs`
-    /// lists it `lost`); the update itself is what clients show.
+    /// lists it `lost`); the update itself is what clients show. A call named
+    /// early whose input was still streaming ends `failed` with them.
     pub async fn end_background_shells(&self) -> Vec<Message> {
         let mut shells: Vec<_> =
             self.background_shells.lock().await.drain().filter(|(_, s)| s.background).collect();
         shells.sort_by(|a, b| a.0.cmp(&b.0));
-        shells
-            .into_iter()
-            .map(|(tool, shell)| {
-                let update = background_task_update(&tool, &shell, "stopped");
-                Message::notification(
-                    method::SESSION_UPDATE,
-                    json!({"sessionId": shell.sid, "update": update,
+        let mut out = self.end_all_announced().await;
+        out.extend(shells.into_iter().map(|(tool, shell)| {
+            let update = background_task_update(&tool, &shell, "stopped");
+            Message::notification(
+                method::SESSION_UPDATE,
+                json!({"sessionId": shell.sid, "update": update,
                            "_meta": {"acpmux": {"endedBy": "harness_exit"}}}),
-                )
-            })
-            .collect()
+            )
+        }));
+        out
     }
 
     /// Claude's task events for a subagent: `task_started` or `task_updated`
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
-    /// `subagent_state_update` when it ended.
-    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<Value> {
+    /// `subagent_progress` marking it background when it moved there, and its
+    /// `subagent_state_update` with its tool id when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
             Some(tool) => tool.to_owned(),
@@ -753,8 +789,18 @@ impl Translator {
             _ => None,
         };
         if backgrounded == Some(&Value::Bool(true)) {
-            self.background_subagents.lock().await.insert(tool);
-            return None;
+            let child = self.subagents.lock().await.get(&tool)?.clone();
+            if !self.background_subagents.lock().await.insert(tool) {
+                return None;
+            }
+            return Some((
+                json!({
+                    "sessionUpdate": "subagent_progress",
+                    "subagentSessionId": child,
+                    "background": true,
+                }),
+                None,
+            ));
         }
         if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
             return None;
@@ -767,11 +813,14 @@ impl Translator {
             Some("stopped") => "cancelled",
             _ => "completed",
         };
-        Some(json!({
-            "sessionUpdate": "subagent_state_update",
-            "subagentSessionId": child,
-            "state": state,
-        }))
+        Some((
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child,
+                "state": state,
+            }),
+            Some(tool),
+        ))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
@@ -785,14 +834,15 @@ impl Translator {
         if workflow {
             self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
         }
-        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
+        if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
-        json!({
+        let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
             "name": s("name").unwrap_or(task),
@@ -800,7 +850,12 @@ impl Translator {
             "prompt": input.get("prompt"),
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
-        })
+        });
+        // It outlives a stopped turn: a client keeps it running past one.
+        if background {
+            update["background"] = json!(true);
+        }
+        update
     }
 }
 
@@ -876,6 +931,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
         _ => return None,
     };
     (!text.trim().is_empty()).then_some(text)
+}
+
+/// The output file a background Bash launch's result names ("… Output is
+/// being written to: PATH"), as Claude Code words it; None for any other text.
+fn launch_output_file(text: &str) -> Option<String> {
+    const MARK: &str = "Output is being written to: ";
+    let rest = &text[text.find(MARK)? + MARK.len()..];
+    let path = rest.lines().next()?.trim();
+    (path.starts_with('/') && path.ends_with(".output")).then(|| path.to_owned())
 }
 
 /// A `background_task_update` for one shell.

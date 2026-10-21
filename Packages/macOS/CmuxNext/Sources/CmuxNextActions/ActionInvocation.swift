@@ -66,6 +66,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// No column is right of the chat: the target is the chat, and the new
     /// tab moves into a new column right of it.
     public var newColumnBeside = false
+    /// `action.run` `background: true`: a tab this run opens stays unselected in
+    /// its pane, so the pane keeps showing what the person chose
+    /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+    public var opensInBackground = false
     /// `caller.agent_session`: the agent chat whose CLI or cmux MCP server sent the run, nil for any
     /// other run. Its claim, like ``origin``: an action an agent may only ask a person for (Move to
     /// Cloud) asks in that chat instead of running.

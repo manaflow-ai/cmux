@@ -67,7 +67,7 @@ describe("cmux-tui daemon source", () => {
     });
     // The hook helper comes from the same commit as the daemon: a machine
     // never pairs a daemon with a helper of another generation.
-    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA });
+    expect(source).toEqual({ url: URL, sha256: SHA, commit: COMMIT, builtAt: "2026-08-19T07:05:35Z", hookUrl: HOOK_URL, hookSha256: HOOK_SHA, acpmuxUrl: null, acpmuxSha256: null });
   });
 
   test("pins binaries from the manifest commit when the manifest uses latest", () => {

@@ -207,6 +207,17 @@ impl SessionJournalReader {
         resource_store::query_resource_events_after(&self.connection, generation, revision)
     }
 
+    /// [`WorkspaceRegistry::session_journal_without_output_after`] on this
+    /// reader's own read-only connection (no registry lock).
+    pub(crate) fn without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<SessionJournalRecord>, u64)> {
+        query_session_journal_without_output_after(&self.connection, sequence, through, limit)
+    }
+
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,
@@ -1578,7 +1589,10 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
             |row| row.get(0),
         )
         .optional()?;
-    if complete.as_deref() == Some("1") {
+    // A read-only reader (the history feed's, off the registry lock) cannot
+    // write the backfill; segments without kind rows take the validating
+    // legacy decoder instead, and the registry connection backfills later.
+    if complete.as_deref() == Some("1") || connection.is_readonly(rusqlite::MAIN_DB)? {
         return Ok(());
     }
     connection.execute(

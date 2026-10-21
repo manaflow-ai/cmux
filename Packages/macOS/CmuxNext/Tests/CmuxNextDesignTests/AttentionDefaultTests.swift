@@ -1,12 +1,12 @@
 @testable import CmuxNextDesign
 import Testing
 
-/// A pane that needs attention draws no ring by default; the sidebar status glyph and the tab
-/// mark carry it (Lawrence via Leo, 2026-10-14: we may not want attention rings by default).
-/// The ring stays an opt-in setting: `steady` (clearly visible, one soft swell) or `blink`.
+/// The attention ring keeps its default (Lawrence 2026-10-19, u2414: it reads on focus and click
+/// and draws the notification blue); the sidebar status glyph and the tab mark carry attention
+/// too. `steady` (clearly visible, one soft swell) is an opt-in style.
 @Suite struct AttentionDefaultTests {
-    @Test func noRingByDefault() {
-        #expect(AttentionSettings().style == .none)
+    @Test func theRingBlinksByDefault() {
+        #expect(AttentionSettings().style == .blink)
     }
 
     @Test func theSidebarAndTheTabCarryAttention() {

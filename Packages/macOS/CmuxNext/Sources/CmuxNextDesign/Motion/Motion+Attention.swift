@@ -28,18 +28,20 @@ extension Motion {
     /// one small, fast swell (motion.md), never a blink.
     static let steadyPulseRise: Float = 0.2
     static let steadyPulseDuration: TimeInterval = 0.3
+}
 
+extension MotionGate {
     /// The opacity animation for a new attention mark, or nil for none. `showing`: the ring
     /// already shows (a further notification), so the steady ring swells from its rest instead
     /// of dropping to nothing first.
-    public static func attentionAnimation(_ settings: AttentionSettings,
-                                          look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
-                                          showing: Bool = false) -> CAAnimation? {
+    public func attentionAnimation(_ settings: AttentionSettings,
+                                   look: AttentionHighlightLook = AttentionHighlightLook.tunable.value,
+                                   showing: Bool = false) -> CAAnimation? {
         guard animatesFades, settings.style != .none else { return nil }
         // Static status indicators (cx-sya4n): the steady ring, no blink or pulse.
         var settings = settings
-        settings.style = attentionStyle(settings)
-        let rest = attentionRestingOpacity(settings, look: look)
+        settings.style = Motion.attentionStyle(settings)
+        let rest = Motion.attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
         guard animatesLoops else {
             // Reduce Motion: fade in to rest, or a single flash that fades.
@@ -59,10 +61,10 @@ extension Motion {
                 swell.duration = duration(.fadeIn)
                 return swell
             }
-            swell.values = [showing ? rest : 0, min(1, rest + steadyPulseRise), rest]
+            swell.values = [showing ? rest : 0, min(1, rest + Motion.steadyPulseRise), rest]
             swell.keyTimes = [0, 0.4, 1]
             swell.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut)]
-            swell.duration = steadyPulseDuration * speed.timeScale
+            swell.duration = Motion.steadyPulseDuration * speed.timeScale
             return swell
         case .blink:
             let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)

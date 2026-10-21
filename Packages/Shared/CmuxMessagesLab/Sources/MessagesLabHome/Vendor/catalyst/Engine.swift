@@ -111,6 +111,9 @@ enum Action {
     /// Delete… in the menu: the message leaves this device's transcript (no row stays).
     case delete(ID)
     case attach(Attachment)
+    /// cmux: an attachment enters the field's text at a UTF-16 offset (the caret), as in
+    /// Messages and Notes (Draft+InlineMarks.swift); `.attach` puts it at the end.
+    case attachAt(Attachment, Int?)
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
@@ -140,6 +143,9 @@ enum Action {
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
+    /// cmux: my send's parts as the owner stored them (Reply to Selection's quote run), the
+    /// same number of parts; replaced in place, no motion.
+    case cmuxSetParts(ID, [Part])
     /// cmux: the host's notice changed (nil clears it); the rows are derived again.
     case cmuxNotice(String?)
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
@@ -173,7 +179,7 @@ enum Reducer {
     /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
     /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
     static func canSend(_ d: Draft) -> Bool {
-        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !d.attachments.isEmpty || !d.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty  // cmux: marks are not text
     }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
@@ -184,7 +190,7 @@ enum Reducer {
         case .send:
             let d = s.ui.draft
             guard canSend(d) else { return nil }
-            let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = d.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // cmux: without the attachment marks
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
             var m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
@@ -262,9 +268,11 @@ enum Reducer {
             // Tree mode: a deleted branch closes back to its parent's branch.
             if let k = s.ui.threadPath.firstIndex(where: { $0.messageId == id }) { s.ui.threadPath = Array(s.ui.threadPath.prefix(k)) }
         case let .attach(a):
-            s.ui.draft.attachments.append(a)
+            s.ui.draft.insert(a, at: nil)  // cmux: the attachment's mark goes in the text (Draft+InlineMarks.swift)
+        case let .attachAt(a, offset):
+            s.ui.draft.insert(a, at: offset)
         case let .removeDraftAttachment(id):
-            s.ui.draft.attachments.removeAll { $0.id == id }
+            s.ui.draft.remove(id)  // cmux: with its mark
         case let .typing(who, on):
             s.ui.typing.removeAll { $0 == who }
             if on { s.ui.typing.append(who) }
@@ -321,6 +329,10 @@ enum Reducer {
                   let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break } // cmux: checked
             s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+        case let .cmuxSetParts(id, parts):  // cmux
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
+                  s.conversation.messages[checked: i]?.parts.count == parts.count else { break } // cmux: checked
+            s.conversation.messages.update(at: i) { $0.parts = parts }
         case let .cmuxNotice(text):  // cmux
             s.ui.cmuxNotice = text
         case let .streamBegin(id, sender, format):
@@ -447,8 +459,8 @@ extension Reducer {
     }
 }
 
-/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
-/// LinkPresentation). `done` runs on the main thread once per request.
+/// Link-preview metadata for a URL (`LinkPreviews.swift` implements it with the guarded HTML and
+/// image fetcher). `done` runs on the main thread once per request.
 struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
 protocol LinkPreviewFetching: AnyObject {
     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.

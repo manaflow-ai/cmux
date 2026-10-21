@@ -2185,7 +2185,7 @@
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "A pane closing: the neighbours that take its space grow over it with their dividers, one spring, critically damped (Lawrence 2026-10-18)"
+    "use": "A window closing: the whole window fades out on it before its state closes, critically damped (plans/cmux-next/close-animation/DESIGN.md). A pane close takes the split spring since 2026-10-19 (a close is a split run backwards)."
    },
    "tabOpen": {
     "value": {
@@ -2195,6 +2195,15 @@
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
     "use": "A new tab growing in at its final slot and the tabs right of it making room, on one spring (ui.animations.newTab, on by default; Lawrence 2026-10-14: the tab-open motion of 10-11, about 7 frames / 115 ms). Visible end 118 ms."
+   },
+   "split": {
+    "value": {
+     "response": 0.28,
+     "dampingFraction": 0.95
+    },
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
+    "unit": "s",
+    "use": "Cmd-D and Cmd-Shift-D (plans/cmux-next/split-spring-animation/DESIGN.md): the new pane grows in from the split edge while every pane of its chain makes room, one spring from the key's frame to rest (Lawrence 2026-10-19). Half the travel at ~73 ms, a 700 pt split visibly at rest by ~375 ms, overshoot under 0.1 pt. Not structural. macOS only until cmux-motion's MotionSpring gets it (build.rs reads only its own list)."
    }
   },
   "tweens": {
@@ -2600,7 +2609,7 @@
   },
   "notifications.attention.*": {
    "value": {
-    "style": "none|steady|pulse|blink (none)",
+    "style": "none|steady|pulse|blink (blink)",
     "width": 2,
     "blinkCount": 2,
     "duration": 3,
@@ -2609,7 +2618,7 @@
     "showOnSidebar": true
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/AttentionSettings.swift:17-35 (AttentionSettings); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (Motion.attentionAnimation)",
-   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: one swell over 0.3 s, then rests at the steady opacity (0.75 subtle). Reduce Motion: one fadeIn."
+   "timing": "blink: blinkCount blinks over flash/2 x blinkCount (1.0 s for 2 at speed fast), then rests at 1 when persist. pulse: opacity 1 -> 0.3 (easeInEaseOut, period loop.pulse 1.8 s) for duration (3 s). steady: fadeIn. Reduce Motion: one fadeIn."
   },
   "layout.paneBorder/paneBorderColor/paneBorderWidth/paneCornerRadius/panePadding": {
    "value": "pane chrome overrides",

@@ -28,7 +28,7 @@ import Testing
     @Test func steadyRingArrivesWithOneSmallFastPulse() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        let animation = try #require(Motion.attentionAnimation(steady, look: .subtle))
+        let animation = try #require(Motion.indicators.attentionAnimation(steady, look: .subtle))
         let values = opacities(animation)
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
         #expect(values.first == 0)
@@ -44,7 +44,7 @@ import Testing
     @Test func reduceMotionFadesInWithoutAPulse() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
-        let values = opacities(Motion.attentionAnimation(steady, look: .subtle))
+        let values = opacities(Motion.indicators.attentionAnimation(steady, look: .subtle))
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
         #expect(values == [0, rest])
     }
@@ -53,7 +53,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let rest = Motion.attentionRestingOpacity(steady, look: .subtle)
-        let values = opacities(Motion.attentionAnimation(steady, look: .subtle, showing: true))
+        let values = opacities(Motion.indicators.attentionAnimation(steady, look: .subtle, showing: true))
         #expect(values.first == rest)
         #expect((values.min() ?? 0) >= rest, "the ring dropped out: \(values)")
         #expect((values.max() ?? 0) > rest)
@@ -76,7 +76,7 @@ import Testing
             settings.style = style
             let rest = Motion.attentionRestingOpacity(settings, look: .subtle)
             #expect(rest == AttentionHighlightLook.subtle.steadyOpacity, "\(style) rests at \(rest)")
-            let values = opacities(Motion.attentionAnimation(settings, look: .subtle))
+            let values = opacities(Motion.indicators.attentionAnimation(settings, look: .subtle))
             #expect(values.last == rest, "\(style) swell ends at \(String(describing: values.last)), rests at \(rest)")
         }
     }
