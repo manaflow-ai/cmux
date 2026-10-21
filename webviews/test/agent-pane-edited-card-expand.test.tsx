@@ -9,7 +9,10 @@
 // edit call whose content carried no `diff` item also lost its change, though its input has it.
 //
 // The three cases: a new file (Write, nothing before it), a file outside the repository, and an
-// edited file (Edit with old and new strings). Each opens inline and through View changes.
+// edited file (Edit with old and new strings, and MultiEdit). Each opens inline and through View
+// changes. A Write over an existing file has no old text, so it lists its path without counts rather
+// than reading as a new file; and a chat folder that is not a repository opens the turn's own diff,
+// since the folder's git diff beside the chat has nothing to show.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
@@ -85,6 +88,7 @@ afterAll(() => {
 const FOLDER = "/Users/you/src/uploader";
 const SETUP = "/tmp/l-setup.txt";
 const setupText = Array.from({ length: 9 }, (_, index) => `step ${index + 1}`).join("\n") + "\n";
+const result = (text: string) => [{ type: "content", content: { type: "text", text } }];
 
 /// One tool call as the pane folds it from its ACP events (direct.ts `mergeToolItem`).
 async function toolCall(id: string, events: Record<string, unknown>[]): Promise<AcpmuxActivity> {
@@ -104,8 +108,8 @@ const activity = (id: string, items: AcpmuxActivity[]): AcpmuxRow => ({
 });
 
 /// Claude Code's Write of a new file, as in the report: its ACP content is a `diff` with no old
-/// text. `fromInput`: the content carries no `diff` item (the call's result is plain text), and only
-/// its input names the file and the whole text.
+/// text. `fromInput`: the content carries no `diff` item, only Claude Code's result saying it created
+/// the file, and the input names the file and the whole text.
 const writeNewFile = (fromInput = false) =>
   toolCall("write-1", [
     {
@@ -117,9 +121,18 @@ const writeNewFile = (fromInput = false) =>
     {
       status: "completed",
       content: fromInput
-        ? [{ type: "content", content: { type: "text", text: "File created" } }]
+        ? result(`File created successfully at: ${SETUP}`)
         : [{ type: "diff", path: SETUP, oldText: null, newText: setupText }],
     },
+  ]);
+
+/// Claude Code's Write over a file that was there: its result says it updated the file, and the call
+/// holds no old text.
+const NOTES = `${FOLDER}/notes.txt`;
+const writeOverFile = () =>
+  toolCall("write-2", [
+    { title: "Write notes.txt", kind: "edit", status: "pending", rawInput: { file_path: NOTES, content: "new\n" } },
+    { status: "completed", content: result(`The file ${NOTES} has been updated. Here's the result:`) },
   ]);
 
 /// Claude Code's Edit inside the chat folder, with only `old_string` and `new_string` in its input.
@@ -131,7 +144,31 @@ const editInFolder = () =>
       status: "pending",
       rawInput: { file_path: `${FOLDER}/upload.sh`, old_string: "attempt=0\n", new_string: "attempt=1\n" },
     },
-    { status: "completed", content: [{ type: "content", content: { type: "text", text: "Updated" } }] },
+    { status: "completed", content: result("Updated") },
+  ]);
+
+/// Claude Code's MultiEdit: named as its block starts with part of its input, then the whole input,
+/// which replaces what the first one gave.
+const CONFIG = `${FOLDER}/config.sh`;
+const multiEdit = () =>
+  toolCall("multi-1", [
+    {
+      title: "MultiEdit config.sh",
+      kind: "edit",
+      status: "pending",
+      rawInput: { file_path: CONFIG, edits: [{ old_string: "a=1\n", new_string: "a=9\n" }] },
+    },
+    {
+      status: "in_progress",
+      rawInput: {
+        file_path: CONFIG,
+        edits: [
+          { old_string: "a=1\n", new_string: "a=2\n" },
+          { old_string: "b=1\n", new_string: "b=2\nc=3\n" },
+        ],
+      },
+    },
+    { status: "completed", content: result("Applied 2 edits") },
   ]);
 
 /// An edit to a file outside any repository, with the ACP `diff` content Claude Code sends.
@@ -150,6 +187,12 @@ const emptyCheckpoint: TurnCheckpointLoad = {
   state: "loaded",
   checkpointId: "checkpoint-1",
   changeSet: { scope: "lastTurn", root: FOLDER, files: [] },
+};
+
+/// The host's `git.status` for a folder in the repository at `root`, and for a folder in none.
+const inRepository = (root: string) => async () => ({ root, ahead: 0, behind: 0, detached: false });
+const notARepository = async (): Promise<unknown> => {
+  throw new Error("not a git repository");
 };
 
 async function renderCard(row: AcpmuxRow, load?: TurnCheckpointLoad) {
@@ -197,15 +240,23 @@ async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
   const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
   return turnDisplay(translatorFor("en"), turnFiles(rows), load, false).files.map((file) => ({
     path: file.path,
+    created: file.created,
     additions: file.additions,
     deletions: file.deletions,
     lines: file.edits.flatMap((edit) => edit.hunks.flatMap((hunk) => hunk.lines.map((line) => line.type))),
   }));
 }
 
-async function opensIn(rows: AcpmuxRow[], rowId: string, folder: string | undefined) {
-  const { viewChangesBeside } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
-  return viewChangesBeside(rows, rowId, folder) ? "beside" : "in place";
+/// Where View changes opens for the chat folder `folder`, whose `git.status` `readStatus` answers.
+async function opensIn(
+  rows: AcpmuxRow[],
+  rowId: string,
+  folder: string | undefined,
+  readStatus: (cwd: string) => Promise<unknown> = inRepository(FOLDER),
+) {
+  const { repositoryRoot, viewChangesBeside } = await import("../src/agent-session/acpmux/turnChanges/viewChanges");
+  const root = folder ? await repositoryRoot(folder, readStatus) : undefined;
+  return viewChangesBeside(rows, rowId, root) ? "beside" : "in place";
 }
 
 test.each([
@@ -216,6 +267,8 @@ test.each([
   await renderCard(row);
   expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
   expect(text(".acpmux-edited-sub")).toBe("+9-0");
+  // Built from the input, the page never saw the file on disk: Undo is not offered from it.
+  if (fromInput) expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
   const chevron = host.querySelector(".acpmux-edited-toggle");
   expect(chevron?.getAttribute("aria-expanded")).toBe("false");
   expect(inlineDiff()).toBeUndefined();
@@ -234,9 +287,22 @@ test("a new file's View changes opens the turn's own diff, all nine lines added"
   expect(opened).toEqual([{ rowId: "turn-1", path: SETUP }]);
   // The chat folder's git diff beside the chat has no /tmp file: the turn's diff opens in place.
   expect(await opensIn([row], "turn-1", FOLDER)).toBe("in place");
+  // Read from the input, it is a fragment: never marked as a new file, though every line is added.
   expect(await viewedFiles([row], emptyCheckpoint)).toEqual([
-    { path: SETUP, additions: 9, deletions: 0, lines: Array(9).fill("add") },
+    { path: SETUP, created: false, additions: 9, deletions: 0, lines: Array(9).fill("add") },
   ]);
+});
+
+test("a Write over an existing file lists its path without counts, not as a new file", async () => {
+  const row = activity("turn-4", [await writeOverFile()]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
+  // Nothing to diff: no View changes and no inline diff.
+  expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-toggle")).toBeNull();
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
 });
 
 test("a file outside the repository keeps its counts and opens inline once the checkpoint loads", async () => {
@@ -255,7 +321,41 @@ test("a file outside the repository opens through View changes with its tool-cal
   expect(opened).toEqual([{ rowId: "turn-2", path: "/etc/hosts.local" }]);
   expect(await opensIn([row], "turn-2", FOLDER)).toBe("in place");
   expect(await viewedFiles([row], emptyCheckpoint)).toEqual([
-    { path: "/etc/hosts.local", additions: 1, deletions: 0, lines: ["context", "context", "add"] },
+    {
+      path: "/etc/hosts.local",
+      created: false,
+      additions: 1,
+      deletions: 0,
+      lines: ["context", "context", "add"],
+    },
+  ]);
+});
+
+test("a file the checkpoint holds under another path for the same folder lists once", async () => {
+  // The repository is /private/tmp/proj; the agent wrote /tmp/proj/notes.txt, the same file.
+  const row = activity("turn-5", [
+    await toolCall("edit-3", [
+      {
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "completed",
+        content: [{ type: "diff", path: "/tmp/proj/notes.txt", oldText: "a\nb\n", newText: "a\nb\nc\n" }],
+      },
+    ]),
+  ]);
+  const checkpoint: TurnCheckpointLoad = {
+    state: "loaded",
+    checkpointId: "checkpoint-2",
+    changeSet: {
+      scope: "lastTurn",
+      root: "/private/tmp/proj",
+      files: [
+        { path: "notes.txt", status: "modified", additions: 1, deletions: 0, patch: "@@ -1,2 +1,3 @@\n a\n b\n+c\n" },
+      ],
+    },
+  };
+  expect((await viewedFiles([row], checkpoint)).map((file) => [file.path, file.additions])).toEqual([
+    ["/private/tmp/proj/notes.txt", 1],
   ]);
 });
 
@@ -278,8 +378,35 @@ test("an edited file in the chat folder opens through View changes beside the ch
   // The folder's git diff holds it, as before; with no local folder the turn's diff opens in place.
   expect(await opensIn([row], "turn-3", FOLDER)).toBe("beside");
   expect(await opensIn([row], "turn-3", undefined)).toBe("in place");
+  // A chat in a subfolder of the repository still has its files in the repository's diff.
+  expect(await opensIn([row], "turn-3", `${FOLDER}/scripts`, inRepository(FOLDER))).toBe("beside");
   // Without a checkpoint, the in-place view is the tool call's change.
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
-    { path: `${FOLDER}/upload.sh`, additions: 1, deletions: 1, lines: ["del", "add"] },
+    { path: `${FOLDER}/upload.sh`, created: false, additions: 1, deletions: 1, lines: ["del", "add"] },
+  ]);
+});
+
+test("a chat folder that is not a repository opens the turn's own diff, even for a file inside it", async () => {
+  const row = activity("turn-6", [await editInFolder()]);
+  const opened = await renderCard(row);
+  await click(host.querySelector(".acpmux-review-changes"));
+  expect(opened).toEqual([{ rowId: "turn-6", path: `${FOLDER}/upload.sh` }]);
+  // git.status fails for the folder: the viewer beside the chat would only ask for a repository.
+  expect(await opensIn([row], "turn-6", FOLDER, notARepository)).toBe("in place");
+  // A reply without a repository root reads the same way.
+  expect(await opensIn([row], "turn-6", FOLDER, async () => ({}))).toBe("in place");
+});
+
+test("a MultiEdit opens inline with every edit from its latest input", async () => {
+  const row = activity("turn-7", [await multiEdit()]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited config.sh");
+  // The whole input replaced the partial one ("a=9" is gone): +3 -2.
+  expect(text(".acpmux-edited-sub")).toBe("+3-2");
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+  await click(host.querySelector(".acpmux-edited-toggle"));
+  expect(inlineDiff()).toEqual({ name: "config.sh", added: "+3", removed: "-2" });
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
+    { path: CONFIG, created: false, additions: 3, deletions: 2, lines: ["del", "add", "del", "add", "add"] },
   ]);
 });
