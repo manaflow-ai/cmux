@@ -64,7 +64,7 @@ class FakeAPI:
     """Jobs come from a function of elapsed seconds; every call is recorded."""
 
     def __init__(self, clock, jobs, *, marker=False, head=HEAD, state="open", settles_after=10,
-                 attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None):
+                 attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None, conclusion=None):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
         # Jobs of attempt 2 onwards, as a function of seconds since that attempt began.
         self.rerun_jobs = rerun_jobs or (lambda seconds: [job("macos / tests", status="completed",
@@ -73,6 +73,8 @@ class FakeAPI:
         self.head, self.state = head, state
         self.settles_after, self.attempt_after_cancel = settles_after, attempt_after_cancel
         self.finished = finished
+        # The finished attempt-1 run's conclusion; None leaves it out, as the older fakes did.
+        self.conclusion = conclusion
         self.calls: list[str] = []
         self.cancelled_at: float | None = None
         self.cancel_attempt = 0
@@ -88,7 +90,9 @@ class FakeAPI:
             jobs = self.rerun_jobs(self.clock.seconds - self.rerun_at)
             done = bool(jobs) and all(found.get("status") == "completed" for found in jobs)
             return {"status": "completed" if done else "in_progress", "run_attempt": self.attempt}
-        return {"status": "completed" if self.finished(self.clock.seconds) else "in_progress", "run_attempt": 1}
+        if self.finished(self.clock.seconds):
+            return {"status": "completed", "run_attempt": 1, "conclusion": self.conclusion}
+        return {"status": "in_progress", "run_attempt": 1}
 
     def jobs(self, run_id, attempt):
         self.calls.append("jobs" if attempt == 1 else f"jobs:{attempt}")
@@ -174,6 +178,13 @@ def refused_job(name="macos / macOS compile admission", *, seconds=8, steps=None
     found = job(name, status="completed", labels=labels, created=40, runner="mini-1")
     found.update(conclusion="failure", started_at=stamp(41), completed_at=stamp(41 + seconds),
                  steps=[{"name": "Set up job", "conclusion": "failure"}] if steps is None else steps)
+    return found
+
+
+def unacquired_job(name="ios-simulator-build", *, labels=(MINI, "glaeda-ios-sim")):
+    """A job GitHub cancelled after no runner of its pool acquired it: no runner, no step."""
+    found = job(name, status="completed", labels=labels, created=40)
+    found.update(conclusion="cancelled", started_at=stamp(40), completed_at=stamp(270), steps=[])
     return found
 
 
@@ -299,6 +310,32 @@ class Refusal(unittest.TestCase):
         rescue.follow(api, target, seconds=90, queue_rounds="0",
                       now=clock.now, sleep=clock.sleep, log=lambda text: None)
         self.assertEqual(api.calls.count("rerun-failed"), 1)
+
+    def test_a_job_no_runner_acquired_is_rerun_once_the_run_finishes_red(self):
+        # Run 39607661629 (2026-10-21): GitHub cancelled ios-simulator-build after 4 minutes on
+        # glaeda-ios-sim ("not acquired by Runner of type self-hosted"), and the run ended in failure.
+        lost = unacquired_job()
+        self.assertTrue(rescue.unacquired(lost))
+        self.assertFalse(rescue.refused(lost))
+        self.assertFalse(rescue.unacquired(unacquired_job(labels=(BLACKSMITH,))))
+        self.assertFalse(rescue.unacquired({**lost, "runner_name": "mini-1"}))
+        self.assertFalse(rescue.unacquired({**lost, "steps": [{"name": "Set up job", "conclusion": "success"}]}))
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [changes()(seconds), unacquired_job()], marker=True,
+                      finished=lambda seconds: True, conclusion="failure")
+        _, summary = run_main(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        self.assertIn(f"cancelled by GitHub: no {MINI} runner acquired it", summary)
+
+    def test_a_run_cancelled_as_a_whole_is_not_rerun(self):
+        # A newer push or a person cancelled it: its queued jobs look unacquired, and stay cancelled.
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [changes()(seconds), unacquired_job()], marker=True,
+                      finished=lambda seconds: True, conclusion="cancelled")
+        run_main(api, clock)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
 
     def test_a_refused_job_reruns_the_failed_jobs_after_cancelling(self):
         clock = Clock()
