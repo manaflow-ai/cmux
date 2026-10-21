@@ -19,6 +19,40 @@ pub struct Elapsed {
     state: Arc<Mutex<State>>,
 }
 
+/// An expiry on a captured elapsed clock. Renewals replace the expiry while
+/// retaining its clock and irreversible failure latch.
+#[derive(Clone)]
+pub struct Deadline {
+    source: Elapsed,
+    at: Duration,
+}
+
+impl PartialEq for Deadline {
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at
+            && self.source.started == other.source.started
+            && Arc::ptr_eq(&self.source.state, &other.source.state)
+    }
+}
+impl Eq for Deadline {}
+
+impl Deadline {
+    pub fn remaining(&self) -> Option<Duration> {
+        self.at.checked_sub(self.source.elapsed()?).filter(|left| !left.is_zero())
+    }
+
+    pub(crate) fn bounded_by(mut self, other: Self) -> Option<Self> {
+        if self.source.started != other.source.started
+            || !Arc::ptr_eq(&self.source.state, &other.source.state)
+        {
+            return None;
+        }
+        self.at = self.at.min(other.at);
+        self.remaining()?;
+        Some(self)
+    }
+}
+
 impl Elapsed {
     pub fn system() -> Option<Self> {
         Self::capture(system_time)
@@ -56,6 +90,14 @@ impl Elapsed {
             started: self.started.checked_sub(debit)?,
             state: self.state.clone(),
         })
+    }
+
+    /// `at` is elapsed since this observation, never wall time. Constructing an
+    /// already expired deadline or losing its clock cannot produce authority.
+    pub fn deadline_at(&self, at: Duration) -> Option<Deadline> {
+        let deadline = Deadline { source: self.clone(), at };
+        deadline.remaining()?;
+        Some(deadline)
     }
 
     fn sample(&self) -> Option<Duration> {

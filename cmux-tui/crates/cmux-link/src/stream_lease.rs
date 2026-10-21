@@ -2,6 +2,7 @@
 //! The verifier owns the weak control handle; the transport owns the lease.
 //! No timer, runtime, I/O or token replay happens here.
 
+use crate::elapsed::Deadline;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
@@ -10,8 +11,18 @@ use std::time::Instant;
 
 struct State {
     deadline: Option<Instant>,
+    elapsed: Option<Deadline>,
     revision: u64,
     observers: Vec<Weak<Mutex<Observer>>>,
+}
+
+impl State {
+    fn live_deadline(&self) -> Option<Instant> {
+        if self.elapsed.as_ref().is_some_and(|budget| budget.remaining().is_none()) {
+            return None;
+        }
+        self.deadline
+    }
 }
 
 struct Observer {
@@ -60,9 +71,17 @@ impl StreamLease {
     }
 
     pub(crate) fn controlled(deadline: Instant) -> (Self, LeaseControl) {
+        Self::with_budget(deadline, None)
+    }
+
+    pub(crate) fn with_budget(
+        deadline: Instant,
+        elapsed: Option<Deadline>,
+    ) -> (Self, LeaseControl) {
         let observer = Arc::new(Mutex::new(Observer { observed: 0, waiter: None }));
         let state = Arc::new(Mutex::new(State {
             deadline: Some(deadline),
+            elapsed,
             revision: 0,
             observers: vec![Arc::downgrade(&observer)],
         }));
@@ -72,7 +91,11 @@ impl StreamLease {
 
     pub fn deadline(&self) -> Option<Instant> {
         drop(self.observer.lock().ok()?);
-        self.state.lock().ok()?.deadline
+        self.state.lock().ok()?.live_deadline()
+    }
+
+    pub fn elapsed_deadline(&self) -> Option<Deadline> {
+        self.state.lock().ok()?.elapsed.clone()
     }
 
     /// Registers before checking the revision under the same lock, so a revoke
@@ -92,7 +115,7 @@ impl Future for Changed<'_> {
         let lease = &mut self.get_mut().lease;
         let Ok(state) = lease.state.lock() else { return Poll::Ready(()) };
         let Ok(mut observer) = lease.observer.lock() else { return Poll::Ready(()) };
-        if state.deadline.is_none() || state.revision != observer.observed {
+        if state.live_deadline().is_none() || state.revision != observer.observed {
             observer.observed = state.revision;
             return Poll::Ready(());
         }
@@ -113,18 +136,23 @@ impl Drop for Changed<'_> {
 
 impl LeaseControl {
     pub(crate) fn deadline(&self) -> Option<Instant> {
-        self.0.upgrade()?.lock().ok()?.deadline
+        self.0.upgrade()?.lock().ok()?.live_deadline()
+    }
+
+    pub(crate) fn elapsed_deadline(&self) -> Option<Deadline> {
+        self.0.upgrade()?.lock().ok()?.elapsed.clone()
     }
 
     /// Return the waker rather than executing arbitrary transport code under
     /// the verifier's state lock. Callers wake only after dropping that lock.
-    pub(crate) fn set(&self, deadline: Option<Instant>) -> Vec<Waker> {
+    pub(crate) fn set(&self, deadline: Option<Instant>, elapsed: Option<Deadline>) -> Vec<Waker> {
         let Some(state) = self.0.upgrade() else { return Vec::new() };
         let Ok(mut state) = state.lock() else { return Vec::new() };
-        if state.deadline == deadline {
+        if state.deadline == deadline && state.elapsed == elapsed {
             return Vec::new();
         }
         state.deadline = deadline;
+        state.elapsed = elapsed;
         state.revision = state.revision.wrapping_add(1);
         let mut wake = Vec::new();
         state.observers.retain(|observer| {

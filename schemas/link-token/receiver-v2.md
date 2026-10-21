@@ -71,8 +71,16 @@ verification, authentication and keyset lookup. Time spent suspended counts
 toward both the request budget and the policy lifetime. Public issuer time and
 remaining lifetime use the same observation; receiving a reply never restarts
 that budget. Clock failure or regression permanently invalidates that captured
-read. The child's own policy reads and established-stream wakeups still require
-the same treatment before suspension safety can be claimed.
+read. The child's prepared socket read captures the same kind of observation
+before executor queuing. Public remaining-time caps shorten both local clocks.
+
+The authority owner advances issuer time using the larger of active uptime and
+suspend-inclusive elapsed time. Each stream retains an elapsed deadline on that
+same clock. An expired stream cannot be revived by a fresh policy; a partial
+hello keeps its original deadline even when an authenticated stream can renew.
+Transport guards recheck elapsed expiry whenever they are polled. Idle-stream
+and outstanding-read wakeups still need suspend-inclusive timers before complete
+suspension safety can be claimed.
 
 The frame and public policy contain no original VM grant ID, install private key
 or account credential. The original keys remain unchanged across attempts.

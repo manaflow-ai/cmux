@@ -25,7 +25,10 @@ mod policy;
 
 #[path = "native_streams.rs"]
 mod streams;
-use streams::{StreamAuthority, StreamProof, reconcile_streams, stream_deadline, wake_streams};
+use streams::{
+    StreamAuthority, StreamProof, elapsed_deadline, reconcile_streams, stream_deadline,
+    wake_streams,
+};
 
 #[path = "native_handshake.rs"]
 mod handshake;
@@ -396,7 +399,8 @@ impl TokenVerifier for NativeTokenVerifier {
             return Err(TokenRefused::ServiceNotAllowed);
         }
         let deadline = stream_deadline(policy, now).ok_or(TokenRefused::Expired)?;
-        let (lease, control) = StreamLease::controlled(deadline);
+        let elapsed = elapsed_deadline(&state, policy).ok_or(TokenRefused::Expired)?;
+        let (lease, control) = StreamLease::with_budget(deadline, elapsed);
         let authority = StreamAuthority {
             issuer: policy.issuer.clone(),
             host: policy.host.clone(),

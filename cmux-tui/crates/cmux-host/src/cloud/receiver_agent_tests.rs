@@ -197,7 +197,7 @@ fn receiver_owner_queued_read_debits_suspend_before_connecting_to_the_agent() {
     );
     assert_eq!(
         listener.accept().unwrap_err().kind(),
-        std::io::ErrorKind::WouldBlock,
+        io::ErrorKind::WouldBlock,
         "expired queued work reached the authenticated source"
     );
 }
