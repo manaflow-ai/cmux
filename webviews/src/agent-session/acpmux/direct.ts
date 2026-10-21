@@ -3532,36 +3532,27 @@ export class AcpmuxDirectClient {
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
   /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
-  /// `cmux agent message --reply-to` sends one: a session/prompt to that chat with an
-  /// `agent_message` provenance from and to the chats' `acp:<id>` addresses, `threadId` the
-  /// message's thread and `replyTo` the message. acpmux checks the reply answers a message this
-  /// chat got (hub/withdraw.rs `app_reply_fits`) and hands it to the cmux session daemon as this
-  /// chat's message (server/app_reply.rs), which stores it under its own id and delivers it,
-  /// rendered with its `Reply with` line, signed with this chat's own name; so `--reply-to`,
-  /// unsend and the inbox know it. The prompt id keys it, so a resend is stored once. Resolves
-  /// once the daemon stored it; rejects with the refusal.
+  /// `cmux agent message --reply-to` sends one. `_acpmux/app_reply` names this chat, the sending
+  /// chat (its bare id), the message and its thread; acpmux checks that this chat got that message
+  /// from that chat (server/app_reply.rs) and signs it with this chat's own name, and the app sends
+  /// it as this chat on its own daemon connection (CmuxNextAgentPane AgentPaneAgentReply.swift).
+  /// The daemon stores it under its own id and delivers it with its `Reply with` line, so
+  /// `--reply-to`, unsend and the inbox know it. `replyId` keys it, so a resend is stored once.
+  /// Resolves once the daemon stored it; rejects with the refusal.
   async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
     const from = this.selectedSessionId;
     // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.
     const to = message.sessionId?.replace(/^acp:/, "");
     const body = text.trim();
     if (!from || !to || to === from || !message.msgId || !body) throw new Error(translate("message.replyFailed"));
-    const promptId = `m-${crypto.randomUUID()}`;
-    const provenance = {
-      kind: "agent_message",
-      from: `acp:${from}`,
-      to: `acp:${to}`,
-      msgId: promptId,
-      threadId: message.threadId ?? message.msgId,
+    await this.request("_acpmux/app_reply", {
+      sessionId: from,
+      to,
       replyTo: message.msgId,
-    };
-    await this.offerChildren.prompting(to, () =>
-      this.request("session/prompt", {
-        sessionId: to,
-        prompt: promptBlocks(body, []),
-        _meta: { acpmux: { promptId, provenance } },
-      }),
-    );
+      threadId: message.threadId ?? message.msgId,
+      text: body,
+      replyId: `m-${crypto.randomUUID()}`,
+    });
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {

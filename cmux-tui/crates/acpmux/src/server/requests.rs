@@ -507,9 +507,7 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
-            let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
-            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
@@ -518,10 +516,6 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
-            // The app pane's reply in place goes out as a cmux agent message (`app_reply.rs`).
-            if let Some(reply) = provenance.as_ref().filter(|_| conn.origin == Origin::LocalApp) {
-                return super::app_reply::send(reply, &blocks, prompt_id.as_deref()).await;
-            }
             let opts = crate::hub::PromptOptions {
                 prompt_id,
                 on_accepted: Some(composer::on_accepted(hub, conn, &s, &params)?),
@@ -967,6 +961,7 @@ async fn dispatch_request(
         }
         method::MUX_VIEW => view::view(hub, conn, &params),
         method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
+        method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);

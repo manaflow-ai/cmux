@@ -164,9 +164,10 @@ test("numeric entities decode", () => {
 });
 
 test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
-  // Chat `parent` answers m-1 from `child-3` in place (direct.ts `reply`); acpmux sends it on as
-  // parent's cmux agent message (server/app_reply.rs), so cmux stores it as msg_2, signs it with
-  // the chat's own name and delivers it as any agent message, with its `Reply with` line.
+  // Chat `parent` answers m-1 from `child-3` in place (direct.ts `reply`); the app sends it as
+  // parent's cmux agent message (acpmux server/app_reply.rs signs it), so cmux stores it as msg_2,
+  // signs it with the chat's own name and delivers it as any agent message, with its `Reply with`
+  // line.
   const text = rendered("Merged; thanks.\nShip it.", {
     id: "msg_2",
     from: "Fix the grid (acp:parent)",
