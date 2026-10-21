@@ -206,6 +206,14 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished long thought folds to one line that opens to its text. New agent tabs.",
         default: true, code: "AgentPaneTunables.foldLongThoughts")
 
+    /// A streaming reply grows a whole word at a time, each word fading in (webviews
+    /// conversation/RevealedMarkdown.tsx). On by default; off, it grows a character at a time as
+    /// before. New agent tabs read it.
+    public static let streamWords = Tunable<Bool>.toggle(
+        "agentPane.debug.streamWords", PageTunables.section, "Stream replies a word at a time",
+        help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
+        default: true, code: "AgentPaneTunables.streamWords")
+
     /// How tall a thought must be to fold (``foldLongThoughts``) while ``liveThoughtViewport`` is
     /// off. With the live viewport on, a thought it clipped always folds once done (140px), so
     /// nothing grows after it streams. New agent tabs read it.
@@ -259,27 +267,31 @@ public nonisolated struct AgentPaneTunables {
         help: "The composer's model, effort and mode chips draw as plain text until hovered, focused or open.",
         default: true, code: "AgentPaneTunables.composerPlainFooter")
 
-    /// Tool runs fold as the Codex desktop app folds them while a turn runs (webviews
-    /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
-    /// newest call, and a run any later row follows settles into its summary line. Off keeps every
-    /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
-    /// each change. Off by default: a running turn lists each call as it lands, as the Codex and
-    /// Claude Code desktop apps do (Leo 2026-10-20: "we're swallowing up a few too many of these").
-    /// The toggle stays for comparing the folded presentation.
+    /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
+    /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
+    /// ("Read files, ran commands", "Ran 3 commands") that opens on a click, in a running turn and
+    /// in an open "Worked for" alike, and the call in flight is the turn's live line, which each
+    /// step replaces in place. Off keeps every call's row. The page gets it with the theme
+    /// (`AgentPaneTheme`, `codexToolRuns`), again on each change. On by default (Leo and Lawrence
+    /// 2026-10-21: the turn should look and behave like the ChatGPT/Codex app). The earlier "we're
+    /// swallowing up a few too many of these" (Leo 2026-10-20) was the run in flight shrinking to
+    /// its newest call; finished work now stays one click away and nothing live is hidden.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
-        help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: false, code: "AgentPaneTunables.codexToolRuns")
+        help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
+        default: true, code: "AgentPaneTunables.codexToolRuns")
 
-    /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
-    /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
-    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
+    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
+    /// does for ``chatWidth``). The first theme push starts it
+    /// (``AgentPaneTheme/values(_:motion:surface:)``).
     @MainActor static func followCodexToolRuns() {
         guard codexToolRunsFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
         codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value) }) where on != last {
+            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
+            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
+            where on != last {
                 last = on
                 ThemeStore.shared.repaintAll()
             }
@@ -292,14 +304,16 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value,
+                   streamWords: streamWords.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
-                           turnPreviewCards: Bool = false) -> [String: String] {
+                           turnPreviewCards: Bool = false,
+                           streamWords: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
@@ -307,6 +321,7 @@ public nonisolated struct AgentPaneTunables {
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
+        if !streamWords { attributes["stream-words"] = "off" }
         return attributes
     }
 
@@ -381,18 +396,22 @@ public nonisolated struct AgentPaneTunables {
             escapeStopDoublePress.descriptor,
             foldLongThoughts.descriptor,
             harnessSwitchInStartedChat.descriptor,
+            liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
+            openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
+            streamWords.descriptor,
             suggestedTasks.descriptor,
+            systemDictation.descriptor,
             terminalButtonAdds.descriptor,
             browserOpensPreview.descriptor,
             thoughtFoldThreshold.descriptor,

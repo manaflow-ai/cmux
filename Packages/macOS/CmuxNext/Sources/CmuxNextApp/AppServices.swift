@@ -60,6 +60,8 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
+    let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -129,6 +131,8 @@ final class AppServices {
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
     var rightSidebarDefaults: UserDefaults = .standard
+    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    private(set) lazy var fileExplorers = FileExplorerService(services: self)
     /// The right sidebar's sections by mode (the file explorer adds Files and Find).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
         let sections = RightSidebarSections()
@@ -391,7 +395,10 @@ final class AppServices {
         cache.profileBadgeMenu = { [weak self] key in
             guard let self, let tab = cache.tabModel(key) else { return nil }
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            return self.registry.makeContextMenu(for: .browserProfile, target: target)
+            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
+            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
+            return self.registry.makeContextMenu(for: .browserProfile, target: target,
+                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
         }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
@@ -460,7 +467,7 @@ final class AppServices {
         terminalDelegate.services = self
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self)
+        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {

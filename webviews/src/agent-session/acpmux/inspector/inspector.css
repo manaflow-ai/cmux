@@ -441,9 +441,40 @@
   min-height: 26px;
   padding: 2px 4px 2px 8px;
 }
-.acpmux-chat-inspector-task > svg {
+.acpmux-chat-inspector-task > svg,
+.acpmux-chat-inspector-task__open > svg {
   flex: none;
   color: var(--agent-muted);
+}
+/* A command's row is a button that opens its terminal; Stop sits beside it. */
+.acpmux-chat-inspector-task--command {
+  gap: 2px;
+  padding: 0 4px 0 0;
+}
+.acpmux-chat-inspector-task__open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px 2px 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+}
+.acpmux-chat-inspector-task__open:hover:not(:disabled) {
+  background: var(--acpmux-menu-hover);
+}
+.acpmux-chat-inspector-task__open:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
 }
 .acpmux-chat-inspector-server {
   align-items: flex-start;

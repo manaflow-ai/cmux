@@ -286,10 +286,9 @@ impl Hub {
                 return None;
             }
             let store = archive_store().ok()?;
-            let manifest = store
-                .list()
-                .into_iter()
-                .find(|m| m.restored_ms.is_none() && cwd.starts_with(&m.path))?;
+            let manifest = store.list().into_iter().find(|m| {
+                m.restored_ms.is_none() && cmux_worktree_care::store::inside_folder(&cwd, &m.path)
+            })?;
             let id = manifest.id.clone();
             Some((
                 id,

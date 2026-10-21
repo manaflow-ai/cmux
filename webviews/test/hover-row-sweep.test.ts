@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("hover-row-sweep.test.ts", async () => {
@@ -26,6 +27,7 @@ await requireBrowserLane("hover-row-sweep.test.ts", async () => {
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { width: 600, height: 600 } });
+    await installPaintedFrames(page);
   });
   afterAll(async () => {
     await browser?.close();
@@ -47,16 +49,15 @@ await requireBrowserLane("hover-row-sweep.test.ts", async () => {
       state.stop = false;
       const rows = [...document.querySelectorAll<HTMLElement>(rowSelector)];
       // The settled hover fill of each row: what a resting pointer shows.
-      const frame = () => {
+      window.cmuxAfterPaint(() => {
         for (const row of rows) {
           if (!row.matches(":hover")) continue;
           const fill = getComputedStyle(row).backgroundColor;
           const target = row.dataset.fill;
           if (target && fill !== target) state.partial.push(`${row.id}: ${fill} (settles at ${target})`);
         }
-        if (!state.stop) requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+        return !state.stop;
+      });
     }, selector);
     // Each row's settled fill, measured with the pointer resting on it.
     const ids = await page.$$eval(selector, (rows) => rows.map((row) => row.id));

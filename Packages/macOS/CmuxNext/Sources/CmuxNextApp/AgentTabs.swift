@@ -33,6 +33,12 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
+    /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
+    /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
+    /// the caller places the tab itself.
+    var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
+                                    _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -127,6 +133,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
+    var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
     /// `(cwd, beside)`: `beside` is the tab whose machine the page opens on (nil: this Mac).
     var firstPageNewTab: ((String?, String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
@@ -177,6 +185,9 @@ final class AgentTabStore {
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
+    /// Whether a chat tab's (or its New Tab page's) dropped or pasted files go as their paths on this
+    /// Mac (``AgentPaneModel/onLocalPaths``); nil: never.
+    var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
@@ -236,9 +247,7 @@ final class AgentTabStore {
 
     /// True when a pane of `daemon` can get a new agent chat tab: this build has the page, this
     /// Mac has an install id, and the daemon holds agent session tabs.
-    func canHost(on daemon: DaemonService) -> Bool {
-        canHostChat && localHost != nil && holdsTabs(daemon)
-    }
+    func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
     func tab(showing session: String, host: String? = nil) -> String? {
@@ -381,6 +390,7 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
@@ -412,6 +422,7 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onWatchChat = { [weak self] key in self?.pageChats.watch?(key) }
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.
@@ -436,6 +447,10 @@ final class AgentTabStore {
         model.onUpload = { [weak self] in
             guard let self else { return nil }
             return uploader?(resolve(provisional))
+        }
+        model.onLocalPaths = { [weak self] in
+            guard let self else { return false }
+            return localPaths?(resolve(provisional)) ?? false
         }
     }
 
@@ -492,7 +507,5 @@ final class AgentTabStore {
         if next != registry.context { registry.context = next }
     }
 
-    func stopCustomizationWhenUnused() {
-        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
+    func stopCustomizationWhenUnused() { if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() } }
 }

@@ -316,6 +316,12 @@ jobs:
       - name: The backdrop art catalog and brightness range
         run: python3 tests/test_backdrop_art_generator.py
 
+      - name: The fast gates workflow and its merge and gate script
+        run: python3 tests/test_cmux_next_fast_gates.py
+
+      - name: The crash-class rules fast gate fails only on findings the pull request adds
+        run: python3 tests/test_crash_class_fast_gate.py
+
   # Every web bundle build runs gen-strings.mjs strict, but only pull requests
   # that touch webviews/ run its tests. 2c661dec960b renamed a setting in Swift
   # and the catalogs, the committed settings schema kept the old keys, and the

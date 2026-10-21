@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -136,6 +137,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   /// Opens the chat and records its `pane.tabRowTools` calls in `window.__tabRowCalls`.
   async function openChat(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await page.getByText(REPLY).waitFor();
     await page.waitForFunction(
@@ -160,7 +162,8 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   /// The header's height and mode, and how far its tools end from the page's right edge.
   const header = (page: Page) =>
     page.evaluate(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
       const header = document.querySelector<HTMLElement>(".acpmux-header")!;
       const tools = header.querySelector(".acpmux-handoff-header-tools")!.getBoundingClientRect();
       return {
