@@ -187,6 +187,13 @@ impl Hub {
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
                 }
+                // It went in with an earlier agent message's turn (`digest.rs`): that turn's.
+                ("dequeued", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
+                {
+                    turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                }
                 _ => {}
             }
             true
