@@ -632,6 +632,9 @@ impl HybridUnderlay {
             Control::Turn(turn) => {
                 tracing::debug!(relayed = %turn.relayed, transport = ?turn.transport, "WireGuard takes a TURN allocation");
                 self.retire_turn();
+                // The server may hand the old relayed address out again: a
+                // `reach` naming it is then about this allocation.
+                self.retired_relayed.retain(|addr| *addr != turn.relayed);
                 self.turn = Some(turn);
                 self.wake_receiver();
                 self.retarget_turn();
@@ -815,8 +818,11 @@ impl HybridUnderlay {
         self.recent.push_back((now, Bytes::copy_from_slice(datagram), class));
     }
 
-    /// Send what went out lately again, on the current route. Replays for
-    /// a route change (not `forced`) happen at most every [`REPLAY_GAP`].
+    /// Send what went out lately again, on the current route, newest first:
+    /// what went into a dead route is the newest, and a burst that
+    /// overflows a buffer on the path (a TURN server's relay socket, which
+    /// this side does not size) drops what arrives last. Replays for a
+    /// route change (not `forced`) happen at most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
         if self.direct.is_none() {
             self.replay_pending = true;
@@ -833,6 +839,7 @@ impl HybridUnderlay {
         let recent: Vec<(Bytes, SendClass)> = self
             .recent
             .iter()
+            .rev()
             .filter(|(at, _, _)| now.duration_since(*at) <= REPLAY_AGE)
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
