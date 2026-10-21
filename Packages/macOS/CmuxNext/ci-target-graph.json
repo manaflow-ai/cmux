@@ -689,16 +689,13 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextApps",
-        "CmuxNextBridge",
         "CmuxNextCompat",
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
-      "packages": [
-        "CmuxUpdater"
-      ]
+      "packages": []
     },
     "CmuxNextDaemonTests": {
       "kind": "test",
