@@ -73,7 +73,7 @@ export function Editor(props: EditorProps): ReactNode {
     case "number_list":
       return <NumberListEditor {...props} />;
     case "string_map":
-      // Only cmux-browser and page-hidden keys have this kind, and the page never lists them (schema.ts).
+      // The page lists no row of this kind (SectionView and search.ts leave them out).
       return null;
   }
 }
