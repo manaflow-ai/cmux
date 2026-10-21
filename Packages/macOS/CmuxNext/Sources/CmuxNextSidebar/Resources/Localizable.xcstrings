@@ -525,68 +525,68 @@
         }
       }
     },
-    "sidebar.priority.needYouCount": {
-      "comment": "Sidebar: muted workspace mark tooltip and the Priority bell's attention count.",
+    "sidebar.priority.attentionCount": {
+      "comment": "Sidebar: after the Priority bell's label while its dot shows; counts chats waiting on the person, finished unseen, failed or lost.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بحاجة إليك: %lld"
+            "value": "بحاجة إلى انتباه: %lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Treba vas: %lld"
+            "value": "Traži pažnju: %lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kræver dig: %lld"
+            "value": "Kræver opmærksomhed: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Braucht dich: %lld"
+            "value": "Braucht Aufmerksamkeit: %lld"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs you: %lld"
+            "value": "Needs attention: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Te necesitan: %lld"
+            "value": "Requieren atención: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vous attendent : %lld"
+            "value": "À examiner : %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ti aspettano: %lld"
+            "value": "Da controllare: %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応待ち %lld 件"
+            "value": "要確認 %lld 件"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ត្រូវការអ្នក៖ %lld"
+            "value": "ត្រូវការការយកចិត្តទុកដាក់៖ %lld"
           }
         },
         "ko": {
@@ -598,61 +598,61 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trenger deg: %lld"
+            "value": "Trenger oppmerksomhet: %lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka na ciebie: %lld"
+            "value": "Wymaga uwagi: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Precisam de você: %lld"
+            "value": "Precisam de atenção: %lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ждут вас: %lld"
+            "value": "Требуют внимания: %lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รอคุณ %lld"
+            "value": "ต้องดู %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sizi bekliyor: %lld"
+            "value": "İlgi bekliyor: %lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Чекають на вас: %lld"
+            "value": "Потребують уваги: %lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cần bạn: %lld"
+            "value": "Cần chú ý: %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等你处理：%lld"
+            "value": "需要关注：%lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等你處理：%lld"
+            "value": "需要關注：%lld"
           }
         }
       }
@@ -10217,137 +10217,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "移到新視窗"
-          }
-        }
-      }
-    },
-    "sidebar.groupEditor.close": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Group"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "グループを閉じる"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق المجموعة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori grupu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk gruppe"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruppe schließen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar grupo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer le groupe"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi gruppo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទក្រុម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹 닫기"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk gruppen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij grupę"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar grupo"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть группу"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดกลุ่ม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Grubu kapat"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити групу"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng nhóm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭组"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉群組"
           }
         }
       }
@@ -20960,6 +20829,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "優先檢視已關閉；請在 App Store 或設定中開啟"
+          }
+        }
+      }
+    },
+    "sidebar.groupEditor.closeAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close All in Group"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle in der Gruppe schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout fermer dans le groupe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق الكل في المجموعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar todo en el grupo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉群組中的全部"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭组中的全部"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹에서 모두 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ内をすべて閉じる"
           }
         }
       }

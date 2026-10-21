@@ -645,7 +645,7 @@ class GuardLegBalanceTests(unittest.TestCase):
         steps = self.steps_by_name()
         for name in ("Validate hung test watchdog", "Validate xcodebuild noninteractive crash prompt guard"):
             with self.subTest(step=name):
-                self.assertEqual(steps[name].get("if"), "${{ matrix.group == 'app-host-watchdog' }}")
+                self.assertEqual(steps[name].get("if"), "${{ !cancelled() && matrix.group == 'app-host-watchdog' }}")
         # The crash prompt test reads this helper; no step names it in a run.
         for path in ("scripts/ci/xcodebuild_noninteractive.py", "scripts/ci/hung_test_watchdog.py",
                      "scripts/ci/run_with_timeout.py", "scripts/ci/ci_process_tree.py"):
@@ -654,7 +654,7 @@ class GuardLegBalanceTests(unittest.TestCase):
 
     def test_ios_conventions_run_in_the_ios_leg(self):
         step = self.steps_by_name()["Validate iOS package conventions for this change"]
-        self.assertEqual(step.get("if"), "${{ matrix.group == 'release-ios' }}")
+        self.assertEqual(step.get("if"), "${{ !cancelled() && matrix.group == 'release-ios' }}")
 
 
 if __name__ == "__main__":
