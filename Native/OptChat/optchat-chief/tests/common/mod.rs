@@ -987,6 +987,15 @@ impl AgentPort for FakeAgents {
         Ok(true)
     }
 
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
+    }
+
     fn cancel(&self, session: &str) -> Result<(), String> {
         let mut inner = self.inner.lock().unwrap();
         inner.cancels.push(session.to_owned());

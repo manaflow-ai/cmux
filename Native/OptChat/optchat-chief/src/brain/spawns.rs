@@ -1555,7 +1555,8 @@ impl Brain {
     }
 
     /// chief.stop: every subagent at work stops (`session/cancel`; its
-    /// report comes quiet) and every queued one is dropped. Their ids.
+    /// report comes quiet), with the background processes its runs left
+    /// running, and every queued one is dropped. Their ids.
     pub(super) fn stop_subagents(&mut self) -> Vec<String> {
         self.stop_subagents_where(|_| true)
     }
@@ -1592,6 +1593,17 @@ impl Brain {
                     if let Err(e) = self.agents.cancel(&session) {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
                         continue;
+                    }
+                    // A background shell (Claude Code's run_in_background)
+                    // outlives the turn: the owner's stop ends it too.
+                    match self.agents.kill_processes(&session) {
+                        Ok(0) => {}
+                        Ok(n) => {
+                            (self.log)(&format!("subagent {id}: ended {n} background process(es)"))
+                        }
+                        Err(e) => (self.log)(&format!(
+                            "subagent {id}: ending its background processes: {e}"
+                        )),
                     }
                 }
                 // Its session is not made yet: nothing to stop.
