@@ -6,7 +6,17 @@ run-name: fleet compile-check ${{ inputs.sha }}
 # verdict as the commit status fleet/compile-check on that commit.
 # What a pass proves, and what the status text says: the app executable's Swift
 # sources (86 of CmuxNext's 88 production targets) compile against the macOS
-# SDK and link, in Debug, with the swift.org toolchain. It is not the Xcode
+# SDK and link, in Debug, with the swift.org toolchain; and, at the same time
+# on a fleet Mac, the test targets the change can break compile in Debug
+# (`package-test-lane.sh compile-tests MERGE_BASE`: the CmuxNext test targets
+# that depend on a changed target in the SwiftPM target graph, and the macOS
+# package lane's packages whose sources or path dependencies changed,
+# scripts/ci/compile_test_plan.py). The app executable links no test target,
+# so #23360 (a throwing call in #expect without try) and #23163 (a fake that
+# missed a protocol requirement) passed the app check and broke the base's
+# test build. The test targets compile on a Mac because the Linux pool's SDK
+# has no Testing module. The merge base is feat-cmux-next's, read from
+# GitHub's compare API. Neither is the Xcode
 # Release compile: that build uses Apple's compiler and the optimizer, and can
 # fail where this passes. So a red Release compile always wins here, and the
 # Release compile still runs on the base after the merge.
@@ -42,12 +52,14 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       statuses: write
+      contents: read  # the compare API: the head's merge base with feat-cmux-next
     timeout-minutes: 50  # the client waits up to 600 + 1200 s plus its own slack; the posts up to 2 x 30 s and 6 x 30 s, plus backoff (155 s, or up to 5 x 120 s when GitHub sends Retry-After)
     steps:
       # The gateway checks nothing out: the fleet fetches the commit itself.
-      # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
-      # a pass posts success, and the run fails whenever it is not a pass.
-      - name: Compile-check the app on the build fleet and post fleet/compile-check
+      # Each check exits 0 for a pass, 1 for a compile failure, anything else
+      # for no verdict; only two passes post success, and the run fails
+      # whenever it is not a pass.
+      - name: Compile-check the app and its test targets on the build fleet and post fleet/compile-check
         env:
           SHA: ${{ inputs.sha }}
           CONTEXT: fleet/compile-check
@@ -106,12 +118,57 @@ jobs:
             exit 2
           fi
           # pending is informational: two tries, and a failed post never stops the compile.
-          post pending "Compiling the app executable (Debug, swift.org toolchain) on the build fleet" 2 || true
-          status=0
+          post pending "Compiling the app executable and the test targets the change reaches on the build fleet" 2 || true
+          # The test targets a change can break are those it reaches from its merge base with feat-cmux-next.
+          merge_base=""
+          if compare="$(curl -fsS --retry 3 --connect-timeout 10 --max-time 60 \
+              -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$API/compare/feat-cmux-next...$SHA?per_page=1")"; then
+            merge_base="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["merge_base_commit"]["sha"])' <<< "$compare" 2>/dev/null || true)"
+          fi
+          app_log="$RUNNER_TEMP/app-compile.log" tests_log="$RUNNER_TEMP/test-compile.log"
+          # The app on the Linux pool and the test targets on a Mac, at the same time.
+          app_status=0
           "$client" compile-check --ref "$SHA" --app \
-            --timeout 1200 --queue-timeout 600 || status=$?
-          case "$status" in
-            0) verdict success "App executable compiled (Debug, swift.org toolchain, build fleet); not the Xcode Release compile" || exit 1 ;;
-            1) verdict failure "The app executable did not compile (Debug, swift.org toolchain, build fleet)"; exit 1 ;;
-            *) verdict error "No build-fleet verdict (exit $status)"; exit "$status" ;;
+            --timeout 1200 --queue-timeout 600 > "$app_log" 2>&1 &
+          app_pid=$!
+          tests_status=0
+          if [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Merge base with feat-cmux-next: $merge_base"
+            "$client" run --class light --script scripts/ci/package-test-lane.sh --ref "$SHA" \
+              --arg=compile-tests --arg="$merge_base" \
+              --timeout 1500 --queue-timeout 600 > "$tests_log" 2>&1 || tests_status=$?
+          else
+            echo "No merge base with feat-cmux-next for $SHA" > "$tests_log"
+            tests_status=69
+          fi
+          wait "$app_pid" || app_status=$?
+          echo "::group::app executable (exit $app_status)"; cat "$app_log"; echo "::endgroup::"
+          echo "::group::test targets (exit $tests_status)"; cat "$tests_log"; echo "::endgroup::"
+          # Exit 1 is a compile failure only after the lane says so; a head whose
+          # package-test-lane.sh predates compile-tests refuses the phase (exit 2).
+          case "$tests_status" in
+            0) tests=pass ;;
+            1) grep -q '^compile-tests: a test target did not compile' "$tests_log" && tests=fail || tests=none ;;
+            *) grep -q 'unknown argument compile-tests' "$tests_log" && tests=old || tests=none ;;
           esac
+          case "$app_status" in
+            0) app=pass ;;
+            1) app=fail ;;
+            *) app=none ;;
+          esac
+          echo "app executable: $app (exit $app_status); test targets: $tests (exit $tests_status)"
+          if [[ "$app" == fail && "$tests" == fail ]]; then
+            verdict failure "Neither the app executable nor a test target the change reaches compiled (Debug, build fleet)"; exit 1
+          elif [[ "$app" == fail ]]; then
+            verdict failure "The app executable did not compile (Debug, swift.org toolchain, build fleet)"; exit 1
+          elif [[ "$tests" == fail ]]; then
+            verdict failure "A test target the change reaches did not compile (Debug, build fleet Mac)"; exit 1
+          elif [[ "$app" == none ]]; then
+            verdict error "No build-fleet verdict on the app executable (exit $app_status)"; exit 2
+          elif [[ "$tests" == old ]]; then
+            verdict error "No test-target verdict: this head predates compile-tests; merge feat-cmux-next and dispatch again"; exit 2
+          elif [[ "$tests" == none ]]; then
+            verdict error "No build-fleet verdict on the test targets (exit $tests_status)"; exit 2
+          fi
+          verdict success "App executable and the test targets the change reaches compiled (Debug, build fleet); not the Xcode Release compile" || exit 1
