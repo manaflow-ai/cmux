@@ -47,6 +47,7 @@ export function beginSnapshotRequest(input: BeginSnapshotRequestInput): Effect.E
     const db = cloudDb();
     const table = cloudVmSnapshotRequests;
     const limit = Math.max(1, Math.trunc(input.maxSnapshots));
+    const staleBefore = input.staleBefore.toISOString();
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vm-snapshots:${input.vmId}`}, 0))`);
       const match = and(eq(table.vmId, input.vmId), eq(table.idempotencyKey, input.idempotencyKey));
@@ -88,7 +89,7 @@ export function beginSnapshotRequest(input: BeginSnapshotRequestInput): Effect.E
           from ${table} as request
           where request.vm_id = ${input.vmId}::uuid
             and (
-              (request.status = 'pending' and request.updated_at >= ${input.staleBefore})
+              (request.status = 'pending' and request.updated_at >= ${staleBefore})
               or (
                 request.status = 'succeeded'
                 and request.provider_snapshot_id is not null

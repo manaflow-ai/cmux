@@ -29,7 +29,7 @@ extension HomeChiefRoster {
         guard case .contact(let contact) = recipient, contact.source == .agent else { return HomeRecipientLook() }
         let id = contact.id.rawValue
         let row = rows.first { $0.kind == .chief && $0.summary.participants.contains { $0.id == contact.id } }
-        let tag = row.flatMap { tag(for: $0.id, engine: ChiefBackend.badge(for: harnesses[id])) }
+        let tag = row.flatMap { self.tag(for: $0.id, engine: ChiefBackend.badge(for: harnesses[id])) }
         return HomeRecipientLook(avatar: avatars[id] ?? fallback, tag: tag)
     }
 }

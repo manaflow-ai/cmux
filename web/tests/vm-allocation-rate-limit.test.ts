@@ -59,14 +59,12 @@ describe("Cloud VM allocation rate limit", () => {
         return { rateLimited: true };
       },
     });
-    expect(calls).toEqual([[
-      "rule-allocation",
-      {
-        request: expect.any(Request),
-        rateLimitKey: "vm-allocation:team-1",
-        signal: expect.any(AbortSignal),
-      },
-    ]]);
+    expect(calls).toHaveLength(1);
+    const [ruleId, options] = calls[0] as [string, { request: Request; rateLimitKey: string; signal: AbortSignal }];
+    expect(ruleId).toBe("rule-allocation");
+    expect(options.request).toBeInstanceOf(Request);
+    expect(options.rateLimitKey).toBe("vm-allocation:team-1");
+    expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(response?.status).toBe(429);
     expect(response?.headers.get("retry-after")).toBe("60");
     expect(await response?.json()).toMatchObject({
