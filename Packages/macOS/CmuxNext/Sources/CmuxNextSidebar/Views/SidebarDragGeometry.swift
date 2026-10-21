@@ -177,6 +177,14 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
     }
 
+    /// The base y a dragged list card's drop is hit-tested at, from the card's
+    /// `top` and `bottom` (display coordinates, the gap open at `gapY`); nil
+    /// keeps `current`.
+    public func edgeY(top: CGFloat, bottom: CGFloat, x: CGFloat, movingUp: Bool, gapY: CGFloat?, gapHeight: CGFloat,
+                      current: SidebarDocTarget?, reversing: Bool) -> CGFloat? {
+        Self.baseY(displayY: (top + bottom) / 2, gapY: gapY, gapHeight: gapHeight)
+    }
+
     /// The display y of `y` in a layout drawn without the open gap
     /// (`gapY`, `gapHeight`): rows below the gap were pushed down by it.
     public static func baseY(displayY y: CGFloat, gapY: CGFloat?, gapHeight: CGFloat) -> CGFloat {
