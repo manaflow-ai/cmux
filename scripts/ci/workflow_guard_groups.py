@@ -64,6 +64,9 @@ PATH_OWNERS = {
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+    # test_runner_routing_table.py imports the routing check and reads every
+    # workflow's runs-on against .github/runners.json.
+    "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
@@ -419,6 +422,11 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
 
     if path == ".github/workflows/ios-testflight.yml":
         owners.update(("preflight", "ci"))
+    # The ci group's routing-table check (tests/test_runner_routing_table.py)
+    # reads every workflow's runs-on, so it observes every workflow edit. An
+    # unowned workflow already runs every group (None below).
+    if owners and path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
+        owners.add("ci")
 
     if not owners:
         return None
