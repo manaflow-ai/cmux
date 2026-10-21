@@ -5,7 +5,7 @@
   --tournament-ink: var(--page-text, CanvasText);
   min-height: 100%;
   color: var(--tournament-ink);
-  background: var(--cmux-surface-background, Canvas);
+  background: var(--cmux-surface-background, transparent);
   font-family: var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
 }
 
@@ -34,7 +34,7 @@
 .tournament-placement dt { color: var(--tournament-muted); }
 .tournament-placement dd { margin: 0; color: var(--tournament-ink); font-weight: 550; text-align: right; }
 .tournament-panes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-.tournament-pane { min-width: 0; overflow: hidden; border: 1px solid var(--tournament-line); border-radius: 10px; background: var(--cmux-surface-background, Canvas); }
+.tournament-pane { min-width: 0; overflow: hidden; border: 1px solid var(--tournament-line); border-radius: 10px; background: var(--cmux-surface-solid, Canvas); }
 .tournament-pane-heading { display: flex; align-items: end; justify-content: space-between; gap: 14px; min-height: 67px; padding: 14px 17px 12px; border-bottom: 1px solid var(--tournament-line); }
 .tournament-pane-heading h2 { margin: 5px 0 0; font-size: var(--text-title); font-weight: 570; letter-spacing: -.03em; }
 .tournament-pane-heading h2 small { margin-left: 5px; color: var(--tournament-muted); font-size: var(--text-caption); font-weight: 550; letter-spacing: 0; }

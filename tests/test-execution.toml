@@ -213,6 +213,10 @@ path = "tests/test_ci_runner_capability_resolver.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runner_routing_table.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -1093,6 +1097,10 @@ path = "tests/test_pr_red_checks_comment.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_crash_class_fast_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
 
@@ -1634,5 +1642,13 @@ path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_crash_class_fast_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_gallery_select.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
