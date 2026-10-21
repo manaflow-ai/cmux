@@ -103,6 +103,8 @@ final class SidebarBlockRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        // The list resizes this row on a sidebar resize without configuring it again.
+        region.fit(width: layoutBounds.width)
         region.frame = NSRect(x: 0, y: 0, width: layoutBounds.width, height: region.layoutResult.height)
     }
 }
@@ -200,7 +202,7 @@ extension SidebarListViewComponents {
             abandonSettle()
             guard let doc = model.docDrag, !model.locksReorder, let view = region.itemView(id) else { return false }
             let origin = convert(start, from: nil), point = convert(event.locationInWindow, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
+            guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             endLanding()
             hoverCards.dismiss(.click)
             let frame = convert(view.bounds, from: view)

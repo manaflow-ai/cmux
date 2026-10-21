@@ -108,6 +108,11 @@ public final class MockBrowserTab: BrowserTab {
     public var showsExtensionToolbar = false
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
     @ObservationIgnored public let extensionBackend = MockExtensionBackend()
+    // Extension omnibox keywords (`BrowserOmniboxKeywordProviding`, MockBrowserTab+Omnibox).
+    /// The keywords the page's extensions offer; none by default.
+    @ObservationIgnored public var omniboxKeywordsFake: [OmnibarKeyword] = []
+    /// Each keyword session's Enter (`omniboxKeywordEntered`), in order.
+    @ObservationIgnored public internal(set) var enteredOmniboxKeywords: [(extensionID: String, text: String)] = []
     @ObservationIgnored public private(set) lazy var extensionStore = BrowserExtensionStore(
         profile: profileID, backend: extensionBackend
     )

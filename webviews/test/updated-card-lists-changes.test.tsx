@@ -72,17 +72,34 @@ async function renderCard(d: typeof data) {
   );
 }
 
-test("the Updated card lists every top change as its own item, then the count of the rest", async () => {
+test("the Updated card leads with the top change, then lists the next ones, then the count of the rest", async () => {
   await renderCard(data);
+  // 2026-10-20, Lawrence on "Updated to nightly 3939068 / What's new in this build": "not descriptive
+  // enough at all". The card names what changed: a headline, then bullets.
+  expect(host.querySelector(".wn-card-headline")?.textContent).toBe(data.items[0]!.title);
   const items = [...host.querySelectorAll(".wn-card-changes li")].map((li) => li.textContent);
-  expect(items).toEqual(data.items.map((i) => i.title));
+  expect(items).toEqual(data.items.slice(1).map((i) => i.title));
   expect(host.querySelector(".wn-card-more")?.textContent).toBe("+35 more");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
   expect(buttons).toEqual(["Close", "See What's New"]);
 });
 
+test("the Updated card says the version and date in words, not a raw build number", async () => {
+  await renderCard(data);
+  const eyebrow = host.querySelector(".wn-card-eyebrow")?.textContent ?? "";
+  expect(eyebrow).toBe("Updated to Nightly · Oct 19");
+  expect(eyebrow).not.toContain("3934171");
+  // The full build stays one hover away, for bug reports.
+  expect(host.querySelector(".wn-card-eyebrow")?.getAttribute("title")).toBe(data.version);
+});
+
+test("a release version reads as itself, with its date", async () => {
+  await renderCard({ ...data, version: "1.2.0" });
+  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to 1.2.0 · Oct 19");
+});
+
 test("the Updated card with every change listed shows no count", async () => {
   await renderCard({ ...data, moreCount: 0 });
-  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(3);
+  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(2);
   expect(host.querySelector(".wn-card-more")).toBeNull();
 });

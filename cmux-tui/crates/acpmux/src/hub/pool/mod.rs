@@ -594,13 +594,17 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
+        self.forget_adopted_caller(&session.id);
         let tap = self.session_tap(session);
-        self.append(
-            session,
-            "mux",
-            "host_started",
-            json!({"incarnation": p.record.incarnation, "hostPid": p.record.host_pid, "hostBuild": p.record.host_build}),
-        );
+        let mut started = json!({
+            "incarnation": p.record.incarnation.clone(),
+            "hostPid": p.record.host_pid,
+            "hostBuild": p.record.host_build.clone()
+        });
+        if session.meta().remote_origin {
+            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+        }
+        self.append(session, "mux", "host_started", started);
         {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {
@@ -629,6 +633,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();

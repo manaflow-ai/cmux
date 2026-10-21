@@ -34,6 +34,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setExtensionDeveloperMode: @convention(c) (Int32) -> Void
     /// Chromium's default search provider in every profile (`CEFDefaultSearch`).
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
+    let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
     let setBackgroundColor: @convention(c) (UInt32) -> Void
     let browserSetBackgroundColor: @convention(c) (Int32, UInt32) -> Int32
     let initialize: @convention(c) (
@@ -64,6 +66,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
+    /// A person's close: 1 closes now, 0 runs beforeunload first (`CEFTab+UserClose`).
+    let tryClose: @convention(c) (Int32) -> Int32
+    /// Answers BEFORE_UNLOAD_DIALOG (token, 1 = Leave).
+    let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32
     let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Raw DevTools protocol (`CEFDevToolsRawMessage`): watch a browser's
     /// events, send a message with an id from 2^30 (1 sent, 0 gone, -1 refused).
@@ -84,6 +90,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let devToolsCommand: @convention(c) (Int32, Int32, Int32, Int32) -> Int32
     let devToolsBrowser: @convention(c) (Int32) -> Int32
     let devToolsSetFocus: @convention(c) (Int32, Int32) -> Void
+    /// Opens DevTools on one frontend panel (`network`, `timeline`); 0 when gone or invalid.
+    let devToolsShowPanel: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     let extActions: @convention(c) (Int32, Int32) -> UnsafeMutablePointer<CChar>?
     let extActionRun: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
@@ -255,6 +263,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         prepareApplication = try r("cmux_shim_prepare_application")
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
+        setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
         initialize = try r("cmux_shim_initialize")
@@ -277,6 +286,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
+        tryClose = try r("cmux_shim_try_close")
+        beforeUnloadReply = try r("cmux_shim_before_unload_reply")
         devToolsCall = try r("cmux_shim_devtools_call")
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")
@@ -285,6 +296,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         devToolsCommand = try r("cmux_shim_devtools_command")
         devToolsBrowser = try r("cmux_shim_devtools_browser")
         devToolsSetFocus = try r("cmux_shim_devtools_set_focus")
+        devToolsShowPanel = try r("cmux_shim_devtools_show_panel")
         extActions = try r("cmux_shim_ext_actions")
         extActionRun = try r("cmux_shim_ext_action_run")
         extActionHidePopup = try r("cmux_shim_ext_action_hide_popup")

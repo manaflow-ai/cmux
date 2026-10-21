@@ -1,15 +1,15 @@
 // A focused text field never draws a ring of its own (cx-ncc.57). A text field is :focus-visible on
 // every focus, mouse included, and its box is a plain rectangle inside the rounded control that
 // owns it, so a ring drew a square inside the composer, the New Tab box and the model picker's
-// search. The caret and the owning control's own rounded state show focus instead.
+// search. The caret shows focus instead: the composer and the New Tab box draw no focus ring
+// either (Leo 2026-10-19: the focus ring flashed).
 //
 // The gallery plays the named surfaces and the pages with text fields on the real dev server (the
 // same frames the matrix renders) in WebKit, the engine the app's pages run in, in a light and a
 // dark theme. On each stage every visible text field (inputs, textareas, contenteditable prompts,
 // also inside open shadow roots) takes focus; its computed outline must be none. On the surfaces
-// Lawrence named, focus must still show: some ancestor of the field (its rounded box, or the row
-// the field sits in) must change look when the field takes focus, so keyboard users still see
-// where focus is.
+// Lawrence named, focus must still show: the focused field draws its caret, so keyboard users
+// still see where focus is.
 //
 // The engine comes from `playwright install webkit`; where it is not installed, the cases are
 // skipped and say so.
@@ -116,7 +116,7 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
 
   type FieldReport = { field: string; ring: string; shown: boolean };
 
-  /** Focuses every visible text field on the stage; reports its outline and whether an ancestor changed. */
+  /** Focuses every visible text field on the stage; reports its outline and whether it draws its caret. */
   async function focusEveryField(page: Page, only?: string): Promise<FieldReport[]> {
     return page.evaluate((only) => {
       const TEXT =
@@ -136,20 +136,6 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && !(field as HTMLInputElement).disabled
           );
         });
-      // A card under the composer's location strip draws its rim on ::before (composerLocation.css),
-      // so the rim's focus step is read there too.
-      const look = (element: Element) => {
-        const style = getComputedStyle(element);
-        const rim = getComputedStyle(element, "::before").boxShadow;
-        return [style.boxShadow, rim, style.borderColor, style.backgroundColor, style.color, style.outlineStyle].join(
-          "|",
-        );
-      };
-      const ancestors = (field: HTMLElement) => {
-        const chain: Element[] = [];
-        for (let node = field.parentElement; node && chain.length < 6; node = node.parentElement) chain.push(node);
-        return chain;
-      };
       const describe = (field: HTMLElement) =>
         `${field.tagName.toLowerCase()}${field.className && typeof field.className === "string" ? `.${field.className.trim().split(/\s+/).join(".")}` : ""}[${field.getAttribute("aria-label") ?? field.getAttribute("placeholder") ?? ""}]`;
       const reports: FieldReport[] = [];
@@ -166,12 +152,11 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
           style.outlineStyle !== "none" && parseFloat(style.outlineWidth) > 0
             ? `${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`
             : "";
-        const chain = ancestors(field);
-        const focused = chain.map(look);
+        // Focus shows as the caret: the composer and the New Tab box look the same focused or not.
+        const caret = style.caretColor !== "transparent" && style.caretColor !== "rgba(0, 0, 0, 0)";
         field.blur();
         // A popover that closes when its field loses focus shows focus by being open.
-        const shown =
-          !field.isConnected || chain.some((node, index) => !node.isConnected || look(node) !== focused[index]);
+        const shown = !field.isConnected || caret;
         reports.push({ field: describe(field), ring, shown });
       }
       return reports;

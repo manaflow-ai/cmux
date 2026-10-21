@@ -15,6 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/agent_pairs.rs"]
+mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
@@ -31,6 +33,8 @@ mod prompt_context;
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/purged_stays_purged.rs"]
+mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
 #[path = "hub_integration/restart.rs"]

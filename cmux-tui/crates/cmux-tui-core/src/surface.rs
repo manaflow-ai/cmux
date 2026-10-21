@@ -706,7 +706,7 @@ impl Surface {
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
-        let title = term.title().unwrap_or_default();
+        let title = crate::terminal_title::read(&term);
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
         mouse_encoders.sync_from_terminal(&term);
