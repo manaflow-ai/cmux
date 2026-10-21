@@ -1197,7 +1197,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                 job = self.jobs()[name]
                 self.assertIn("--receipt", self.tier_run(job))
                 upload = next(step for step in job["steps"] if "actions/upload-artifact@" in str(step.get("uses", "")))
-                self.assertEqual(upload.get("if"), "always()")
+                # Always, unless the job reused a pass (FastTierReusesAPassOnTheSameInputs) and wrote none.
+                self.assertEqual(upload.get("if"), f"${{{{ (always()) && {REUSE_GUARD} }}}}")
                 self.assertIn("github.run_attempt", upload["with"]["name"])
                 names.add(upload["with"]["name"])
         self.assertEqual(len(names), 2, "each job uploads its own receipt artifact")
@@ -1248,6 +1249,75 @@ def index_of(steps: list[dict], predicate) -> int:
     return next(i for i, step in enumerate(steps) if predicate(step))
 
 
+JOB_PASS_DIR = ".ci-job-pass"
+REUSE_GUARD = "steps.reuse.outputs.cache-hit != 'true'"
+
+
+class FastTierReusesAPassOnTheSameInputs(unittest.TestCase):
+    """With vars.CI_NEXT_JOB_REUSE, a fast-tier job whose inputs (scripts/ci/job_input_fingerprint.py)
+    match a recorded pass skips its build and tests and names that run; a pass records itself."""
+
+    JOBS = ("fast-tier", "fast-tier-cargo")
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][job]["steps"]
+
+    def test_the_lookup_is_behind_the_toggle_and_never_on_a_fork(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                key = steps[index_of(steps, lambda s: s.get("id") == "reuse-key")]
+                self.assertIn("vars.CI_NEXT_JOB_REUSE == '1'", key["if"])
+                self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", key["if"])
+                self.assertIn(f"scripts/ci/job_input_fingerprint.py {job}", key["run"])
+                self.assertIs(key.get("continue-on-error"), True)
+                lookup = steps[index_of(steps, lambda s: s.get("id") == "reuse")]
+                self.assertTrue(lookup["uses"].startswith("actions/cache/restore@"), lookup["uses"])
+                self.assertEqual(lookup["with"], {"path": JOB_PASS_DIR, "key": "${{ steps.reuse-key.outputs.key }}"})
+                self.assertIs(lookup.get("continue-on-error"), True)
+
+    def test_a_hit_skips_every_step_that_builds_or_tests(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                start = index_of(steps, lambda s: s.get("name") == "Reuse that pass")
+                tier = index_of(steps, lambda s: "scripts/cmux-next/fast-tier.py" in s.get("run", ""))
+                self.assertLess(start, tier)
+                for step in steps[start + 1:]:
+                    with self.subTest(step=step.get("name") or step.get("uses")):
+                        self.assertIn(REUSE_GUARD, str(step.get("if", "")))
+                # Nothing that builds or reads a build cache comes before the lookup.
+                for step in steps[:start]:
+                    self.assertNotIn("fast-tier.py", step.get("run", ""))
+                    self.assertNotIn("rust-cache", str(step.get("uses", "")))
+
+    def test_the_reused_run_is_named(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                reuse = steps[index_of(steps, lambda s: s.get("name") == "Reuse that pass")]
+                self.assertEqual(reuse["if"], "${{ steps.reuse.outputs.cache-hit == 'true' }}")
+                self.assertIn("::notice", reuse["run"])
+                self.assertIn("GITHUB_STEP_SUMMARY", reuse["run"])
+                self.assertIn(f"{JOB_PASS_DIR}/pass.txt", reuse["run"])
+
+    def test_only_a_pass_that_ran_records_itself_under_the_same_key(self):
+        for job in self.JOBS:
+            with self.subTest(job=job):
+                steps = self.steps(job)
+                record = steps[index_of(steps, lambda s: s.get("name") == "Record this pass for the same inputs")]
+                save = steps[index_of(steps, is_cache_save)]
+                self.assertEqual(steps.index(save), steps.index(record) + 1)
+                self.assertEqual(steps.index(save), len(steps) - 1, "the save is the job's last step")
+                for step in (record, save):
+                    self.assertIn("success()", step["if"])
+                    self.assertIn("steps.reuse-key.outputs.key != ''", step["if"])
+                    self.assertIn(REUSE_GUARD, step["if"])
+                self.assertIn("actions/runs/$GITHUB_RUN_ID", record["run"])
+                self.assertEqual(save["with"], {"path": JOB_PASS_DIR, "key": "${{ steps.reuse-key.outputs.key }}"})
+                self.assertIs(save.get("continue-on-error"), True)
+
+
 class FastTierStartsWarm(unittest.TestCase):
     """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
 
@@ -1267,7 +1337,7 @@ class FastTierStartsWarm(unittest.TestCase):
     def test_fast_tier_reads_next_bucket_publicly_and_never_saves(self):
         job = self.fast_tier()
         steps = job["steps"]
-        restores = [s for s in steps if is_cache_restore(s)]
+        restores = [s for s in steps if is_cache_restore(s) and s["with"]["path"] != JOB_PASS_DIR]
         self.assertEqual(sorted(cache["with"]["path"] for cache in restores), sorted(FAST_CACHE_DIRS.values()))
         key_step = steps[index_of(steps, lambda s: "scripts/cmux-next/fast-tier-cache-key.sh" in s.get("run", ""))]
         for restore in restores:
@@ -1276,7 +1346,8 @@ class FastTierStartsWarm(unittest.TestCase):
                 self.assertEqual(restore.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"), NEXT_PUBLIC_URL)
                 self.assertIs(restore.get("continue-on-error"), True)
         self.assertIn("!contains(runner.name, '-glaeda')", key_step.get("if", ""))
-        self.assertEqual([s.get("name") for s in steps if is_cache_save(s)], [])
+        # Only the pass record (FastTierReusesAPassOnTheSameInputs) is saved, never a build.
+        self.assertEqual([s.get("name") for s in steps if is_cache_save(s) and s["with"]["path"] != JOB_PASS_DIR], [])
         self.assertNotIn("secrets.", yaml.safe_dump(job))
         self.assertNotIn("ci-cache-writer", str(job.get("environment", "")).replace("github.ref == 'refs/heads/main' && 'ci-cache-writer'", ""))
 
