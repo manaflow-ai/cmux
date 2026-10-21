@@ -9,6 +9,23 @@ use super::*;
 use crate::{route_account, routes};
 
 impl Hub {
+    /// A new chat's named route exists and serves its harness family.
+    pub(super) async fn check_new_route(
+        &self,
+        route_id: &str,
+        family: &str,
+    ) -> Result<(), RpcError> {
+        let (dir, _) = crate::routes::places(&*self.config.read().await);
+        let found = crate::routes::find(dir.as_deref(), route_id)
+            .map_err(|e| RpcError::invalid_params(format!("route {route_id}: {}", e.message())))?;
+        if !found.serves(family) {
+            return Err(RpcError::invalid_params(format!(
+                "route {route_id} does not serve the {family} harness"
+            )));
+        }
+        Ok(())
+    }
+
     /// The route env of a spawn, applied over `env`: the session's chat
     /// binding, else its workspace's, family's or the global one. No
     /// binding: `env` is unchanged. A binding to a route that is gone or
