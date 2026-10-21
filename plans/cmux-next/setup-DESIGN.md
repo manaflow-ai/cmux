@@ -14,7 +14,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Folder trust | GUI (TrustAsk line, sub-session card) | none: raw `acp.trust.set` over the acpmux socket | - | - |
 | Add an ssh machine | GUI (Connect to Machine...) | `cmux acp host setup SSH --json`; `cmux remote connect` | yes (acp) | yes |
 | acpmux peers, host updates | none in the app | `cmux acp host ls/update --json` | yes | yes |
-| Cloud machine | GUI (New Cloud Machine sheet) | `cmux cloud new-machine` opens the sheet; `cmux-vm create` (operator) | sheet no; cmux-vm yes | cmux-vm yes (idempotency keys) |
+| Cloud machine | GUI (New Cloud Machine sheet) | `cmux setup cloud-machine`; from an agent the person allows it on a card in cmux | yes | yes (setup keeps its machine) |
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
 | MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
 | Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
@@ -213,3 +213,73 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    and left. Capture consent is not reported by the app yet. Off macOS,
    with no app socket named, it is `not_applicable`. `cmux setup status`
    adds a `computer_use` check.
+6. `cloud-machine [--forget]`: makes sure the person has a cmux Cloud
+   machine for agents. All of it goes through the app socket: `auth.status`
+   (signed in, `cloud_unavailable`), `cloud.machines` (`machines`, the
+   `creations` in flight, `last_error`, and `loaded` once cloud-team-ready
+   adds it) and `action.run newCloudMachine`. Signed out is `needs_user`
+   (`kind` `sign_in`, `cmux cloud sign-in`).
+
+   Setup keeps what it asked for in `<state root>/setup/cloud-machine.json`
+   (beside the daemon's `sessions`, written whole by rename): the run's
+   idempotency key, and the machines and creations cmux showed, saved
+   before the create is sent; then the `creation_id` or the machine it
+   became. One run at a time decides, under an `flock` on
+   `cloud-machine.lock` beside it, held from reading the list through the
+   create.
+
+   The list decides first. A `last_error`, `loaded: false`, or an empty
+   `machines` (without `loaded: true`) while setup has a machine or a
+   request on file is `kind` `wait`: nothing is cleared or created. A kept
+   machine cmux shows is `ok`; missing from a list that is not empty (or
+   says `loaded: true`), it is gone and setup makes a new one. Until cmux
+   sends `loaded`, a `wait` on an empty list ends when cmux shows its
+   machines, or with `cmux setup cloud-machine --forget` once the person
+   says none is on its way. A kept creation (the `creation_id` the app
+   answered) is followed: its row's `machine_id` is setup's machine, else
+   the one new machine once the row leaves (`inferred: true`). A kept key
+   with no answer (the connection dropped, the wait ran out, the app
+   answered no result): with more than one new machine (named by new
+   creations or new rows) setup claims none (`kind` `many_machines`);
+   otherwise a new creation still on its way is waited for; the one new
+   machine is claimed as `inferred: true` with an `undo_note` (no creation
+   setup recorded names it, so the person may have made it); only when
+   nothing new appeared is the create sent again with the same key. A state
+   from before `known_creations` was kept counts every listed creation as
+   known. The app's answer to a key lives in memory (256 keys),
+   so after cmux restarts only the list keeps a second card and a second
+   paid machine from happening. Any other machine cmux shows is `ok` and
+   left alone; a creation in flight that setup did not ask for is `wait`.
+
+   Otherwise setup runs `newCloudMachine`, which from an agent always asks
+   the person on a card in cmux; the app answers within 30 s, the person's
+   answer included. Made is `changed` with `undo` `cmux cloud kill-machine
+   --target machine:ID --confirm && cmux setup cloud-machine --forget` (a
+   state file it cannot write adds a `warning`, never a lost `changed`);
+   `machine` is `{id, title, status, target}` on `ok` and `changed` alike.
+   Still on its way is `needs_user` (`kind` `wait`). Only the app's decline
+   reason is `kind` `declined` (the person declined, or cmux had no window),
+   and the agent asks before trying again. The key is dropped only then, or
+   when nothing ran (`busy`, `data.not_run`, or a request that never left);
+   on any other refusal (a plan with no room, `idempotency_conflict`) it
+   stays, the result is `kind` `app` with the app's text, and reruns decide
+   from the list; `--forget` lets setup ask again once the cause is fixed.
+   Plan limits are not read beforehand (the app has no read of them on its
+   socket; `cloud.plan.get` is an app op behind the daemon); a plan with no
+   room comes back as `daemon_error` ("new Cloud machine: ..."). Known
+   limit: the decline is matched on the app's English reason
+   (`CloudStrings.createDeclined` is localized), so in another language a
+   decline reads as `kind` `app` with the app's text, and the key stays.
+
+   A paused machine is `ok` with a `note` naming `cmux cloud
+   resume-machine`; a failed one is `needs_user` naming the undo.
+   `--dry-run` asks nothing and writes nothing, not even the lock:
+   `planned` with `cost` (a machine costs money every hour it runs and does
+   not pause by itself), `planned` with the undo when the run would claim a
+   machine, or `ok` when there is a machine. `--forget` drops the state file and
+   changes nothing in cmux; run it after the machine is killed, or once the
+   person says no machine is on its way. `cmux setup status` adds a
+   `cloud_machine` check by the same rules (`needs_setup` when the run
+   would send a create, also one sent again with its key). When cloud-team-ready's `cloud
+   list-machines` lands (owner personal|team), setup reads it instead of
+   `cloud.machines`.
