@@ -219,7 +219,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let profile = services.browserProfiles.profileID(ofTab: tab)
         controller.newBrowserTab(url: url, engine: BrowserEngineTag.webkit.rawValue, profile: profile,
                                  notice: BrowserProtectedMedia.reopenedNotice, opener: tab.surface) { [weak services] _ in
-            services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key)))
+            services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .script)) // replaced: never asks
         }
     }
 
