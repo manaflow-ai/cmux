@@ -167,8 +167,7 @@ function SentImage({ image }: { image: PromptImage }) {
   if (state === "missing") return null;
   if (state === "failed")
     return (
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon and its words, not an image file.
-      <span className="cv-user__image-failed" role="img" aria-label={t("image.failed")}>
+      <span className="cv-user__image-failed">
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
