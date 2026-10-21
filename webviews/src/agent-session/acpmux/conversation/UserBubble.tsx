@@ -1,6 +1,6 @@
 // A prompt's bubble, with its action row under it as Claude Code desktop draws one: the prompt's age
-// ("1 hour ago", its time on hover), two ticks once the agent has it, then Copy, Edit, Fork and
-// Bookmark (cx-ncc.60, Claude parity). The latest prompt shows the row always, older ones on hover
+// ("1 hour ago", its time on hover), a check that reads Read once the agent has it, Unread before,
+// then Copy, Edit, Fork and Bookmark (cx-ncc.60, Claude parity). A steer's read state ends the row. The latest prompt shows the row always, older ones on hover
 // (VirtualTranscript marks the latest `data-last-prompt`). Edit opens the prompt in
 // place; Send forks the chat through the turn before it and sends the edited text there (the App's
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork

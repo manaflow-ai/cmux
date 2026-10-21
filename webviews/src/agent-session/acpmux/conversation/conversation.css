@@ -408,7 +408,7 @@
   margin: 0 0 0 4px;
   padding-right: 2px;
 }
-/* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
+/* The prompt's age and its Read/Unread check lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {
   margin-inline-end: 4px;
   color: var(--cv-text-dim);
