@@ -23,7 +23,7 @@ enum WhatsNewPage {
         return ChangelogPageTab.open(services, focus: true, from: from?.description, to: center.current?.description)
     }
 
-    /// A click on a client-only sidebar item: the lanes item (Labs, cx-v9k2f) opens Agent Activity;
+    /// A click on a client-only sidebar item: the lanes item (cx-v9k2f) opens Agent Activity;
     /// the Channels entry switches Home to Channels.
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
         if id == SidebarTransientItem.lanesID { return services.agentActivityPage.open() }
