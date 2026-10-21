@@ -1555,6 +1555,74 @@ import Testing
         }
     }
 
+    @Test func testRestoreDoesNotRetargetResumableSurfaceWhenRequestedSessionIsStale() throws {
+        let cliPath = try bundledCLIPath()
+        let surfaceID = UUID().uuidString.lowercased()
+        let workspaceID = UUID().uuidString.lowercased()
+        let currentSessionID = UUID().uuidString.lowercased()
+        let staleRequestedSessionID = UUID().uuidString.lowercased()
+        let response = try restoreResponse(
+            result: [
+                "restore_record": [
+                    "mode": "resumeAgent",
+                    "kind": "codex",
+                    "checkpoint_id": currentSessionID,
+                    "source": "session-snapshot",
+                    "environment": [:],
+                    "prepared_arguments": ["codex", "resume", currentSessionID],
+                ],
+                "resume_binding": [
+                    "kind": "codex",
+                    "checkpoint_id": currentSessionID,
+                    "source": "agent-hook",
+                    "resume_evidence_provenance": "tui",
+                    "auto_resume": true,
+                    "updated_at": 42.0,
+                ],
+                "agent_restore_admission_supported": true,
+            ],
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        let socketPath = "/tmp/cmux-restore-stale-session-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["restore", "--surface", surfaceID, "codex", staleRequestedSessionID],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains("current cmux surface") ||
+                result.stderr.contains("no longer matches the session"),
+            result.diagnostics
+        )
+
+        let requests = try responder.receivedRequests.map { request in
+            let data = try XCTUnwrap(request.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let methods = requests.compactMap { $0["method"] as? String }
+        XCTAssertTrue(methods.contains("surface.resume.get"), methods.description)
+        XCTAssertFalse(methods.contains("agent.restore.admit"), methods.description)
+        XCTAssertFalse(methods.contains("surface.resume.clear"), methods.description)
+        XCTAssertFalse(methods.contains("agent.restore.release"), methods.description)
+    }
+
     @Test func testRestoreExplicitSocketFailureReportsTheSocketError() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-restore-offline-\(UUID().uuidString.prefix(8)).sock"
