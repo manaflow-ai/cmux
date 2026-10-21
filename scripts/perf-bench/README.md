@@ -59,8 +59,9 @@ About 10 minutes per round after the Release build. The log prints one `PERF-BUD
 budget and BENCH.md gets a "Resource budget" table. A budget with `"enforce": false` is advisory
 (reported, never fails); `xbench.py report` exits 1 when an enforced one is broken or not measured.
 Budgets start advisory where the base breaks them; tighten the limit and enforce it once the base
-holds it. The scenario's sizes and windows are in `budgets.json` too. The nightly runs it with the
-other browsers.
+holds it. The scenario's sizes and settle times are in `budgets.json`; the idle windows follow
+`--arg=idle=` (60 s). `xbench.py gate` skips the `budget-*` rows: budgets.json gates them. The
+nightly runs it with the other browsers (about 11 minutes a round on cmux20).
 
 ## Tab switch in a real window
 

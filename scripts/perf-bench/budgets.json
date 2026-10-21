@@ -6,8 +6,7 @@
     "chromium_tabs": 5,
     "webkit_tabs": 5,
     "home_settle_s": 30,
-    "phase_settle_s": 40,
-    "idle_s": 60
+    "phase_settle_s": 40
   },
   "budgets": [
     {"row": "budget-idle-cpu", "limit": 1.0, "enforce": false},

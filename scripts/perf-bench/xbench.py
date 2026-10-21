@@ -905,7 +905,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     palette_found, palette_lines = palette_rows(palette)
     rows.update(palette_found)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
-    budget_result, budget_lines = budget.evaluate(rows, budgets)
+    budget_result, budget_lines = budget.evaluate(rows, budget.NAME in meta.get("browsers", {}), budgets)
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
               "errors": [{k: s.get(k) for k in ("browser", "round", "row", "note")} for s in errors],
@@ -976,6 +976,8 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     for row, per in baseline.items():
         if row not in ROW_INFO and not row.startswith(("tab-switch-", "palette-open-")):
             continue
+        if row in budget.ROW_INFO:
+            continue  # budgets.json gates these (advisory or enforced), not the baseline's 15 %
         unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
         for browser in (*CMUX, TAB_SWITCH_BROWSER):
             base = per.get(browser, {}).get("median")

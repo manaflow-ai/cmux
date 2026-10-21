@@ -67,13 +67,13 @@ def _sleep(seconds: float):
 
 def session(run, browser, round_no: int, log, budgets_path: str | None = None):
     """One budget session on `browser` (an xbench CmuxBrowser); rows go through run.record."""
-    scenario = load(budgets_path).get("scenario", {})
+    scenario = load(budgets_path).get("scenario", {})  # report checks the file too; a bad one fails both
     terminals = int(scenario.get("terminals", 5))
     kinds = (("chromium", "openBrowser.chromium", int(scenario.get("chromium_tabs", 5))),
              ("webkit", "openBrowser.webkit", int(scenario.get("webkit_tabs", 5))))
     home_settle = float(scenario.get("home_settle_s", 30))
     phase_settle = float(scenario.get("phase_settle_s", 40))
-    idle = float(scenario.get("idle_s", run.args.idle))
+    idle = float(run.args.idle)
     name = browser.name
     load_avg = run.quiet()
     profile = run.profile(browser, f"session{round_no}")
@@ -160,13 +160,14 @@ def _fmt(value, unit: str) -> str:
     return f"{value:,.1f} MB"
 
 
-def evaluate(rows: dict, budgets_path: str | None = None) -> tuple[dict, list[str]]:
+def evaluate(rows: dict, requested: bool, budgets_path: str | None = None) -> tuple[dict, list[str]]:
     """Budget verdicts for the cmux-budget medians in `rows` and the BENCH.md section.
 
-    Prints one `PERF-BUDGET` line per budget and a summary line; `failed` counts enforced budgets
-    that were broken or not measured (a run that stopped measuring must not pass)."""
+    `requested`: the run had a cmux-budget session (its bundle was found). Prints one `PERF-BUDGET`
+    line per budget and a summary line; `failed` counts enforced budgets that were broken or not
+    measured, so a session that crashed or stopped measuring does not pass."""
     data = load(budgets_path)
-    measured = any(NAME in per for per in rows.values())
+    measured = requested
     verdicts = []
     failed = 0
     lines = ["## Resource budget (cmux NEXT)", "",
@@ -180,11 +181,11 @@ def evaluate(rows: dict, budgets_path: str | None = None) -> tuple[dict, list[st
         cell = rows.get(row, {}).get(NAME, {})
         value = cell.get("median")
         if value is None:
-            verdict = "missing" if measured else "not run"
+            verdict = "missing"
         else:
             verdict = "ok" if value <= entry["limit"] else "OVER"
         mode = "enforced" if entry.get("enforce") else "advisory"
-        if entry.get("enforce") and measured and verdict in ("OVER", "missing"):
+        if entry.get("enforce") and verdict in ("OVER", "missing"):
             failed += 1
         verdicts.append({"row": row, "value": value, "limit": entry["limit"], "unit": unit, "verdict": verdict,
                          "mode": mode, "n": cell.get("n")})
