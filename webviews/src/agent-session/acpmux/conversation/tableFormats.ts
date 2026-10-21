@@ -1,7 +1,7 @@
 // A reply's Markdown table as the clipboard carries it (TableBlock.tsx Copy): the Markdown for a
 // chat or an editor, TSV and an HTML table so Sheets, Numbers, Notes and Docs paste real cells.
 import type { Align } from "./Markdown";
-import { plainText } from "./messageMenu";
+import { inlinePlainText } from "./messageMenu";
 
 export type Table = { align: Align[]; header: string[]; rows: string[][] };
 
@@ -10,13 +10,22 @@ function columnCount(table: Table): number {
   return Math.max(table.header.length, ...table.rows.map((row) => row.length));
 }
 
+/// Whether the header has words; an all-blank one draws as no header row and pastes as none.
+export function hasHeader(table: Table): boolean {
+  return table.header.some((cell) => cell.trim());
+}
+
+function pastedRows(table: Table): string[][] {
+  return hasHeader(table) ? [table.header, ...table.rows] : table.rows;
+}
+
 function padded(cells: string[], count: number): string[] {
   return Array.from({ length: count }, (_, i) => cells[i] ?? "");
 }
 
 /// A cell's words without its inline syntax, on one line.
 function cellText(cell: string): string {
-  return plainText(cell).replace(/\s+/g, " ").trim();
+  return inlinePlainText(cell).replace(/\s+/g, " ").trim();
 }
 
 export function tableMarkdown(table: Table): string {
@@ -31,7 +40,7 @@ export function tableMarkdown(table: Table): string {
 
 export function tableTsv(table: Table): string {
   const count = columnCount(table);
-  return [table.header, ...table.rows].map((cells) => padded(cells, count).map(cellText).join("\t")).join("\n");
+  return pastedRows(table).map((cells) => padded(cells, count).map(cellText).join("\t")).join("\n");
 }
 
 const ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
@@ -47,7 +56,8 @@ export function tableHtml(table: Table): string {
       })
       .join("");
   const body = table.rows.map((row) => `<tr>${cells(row, "td")}</tr>`).join("");
-  return `<table><thead><tr>${cells(table.header, "th")}</tr></thead><tbody>${body}</tbody></table>`;
+  const head = hasHeader(table) ? `<thead><tr>${cells(table.header, "th")}</tr></thead>` : "";
+  return `<table>${head}<tbody>${body}</tbody></table>`;
 }
 
 /// The clipboard's entry for a table: Markdown as its text, the HTML table, and TSV where the

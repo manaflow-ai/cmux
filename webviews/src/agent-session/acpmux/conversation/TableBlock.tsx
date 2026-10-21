@@ -7,7 +7,7 @@ import { ArtifactContext } from "./artifactPreview";
 import { copyTextResult } from "./clipboard";
 import { CopyButton } from "./CopyButton";
 import { Expand } from "./icons";
-import { copyTable, tableMarkdown, type Table } from "./tableFormats";
+import { copyTable, hasHeader, tableMarkdown, type Table } from "./tableFormats";
 
 /// Columns with a cell over this many characters are 256px at least (a table cell's width is its
 /// minimum), so their text wraps there instead of in a sliver; every other column fits its text.
@@ -29,7 +29,7 @@ export function TableBlock({
   const wide = table.header.map((_, i) => table.rows.some((row) => plain(row[i] ?? "").length > LONG_CELL));
   // No empty header row: a table whose header is all blank draws its rows only. One with an empty
   // top-left corner labels its rows with its first column.
-  const header = table.header.some((text) => text.trim());
+  const header = hasHeader(table);
   const labeled = header && !table.header[0]?.trim();
   const markdown = tableMarkdown(table);
   return (

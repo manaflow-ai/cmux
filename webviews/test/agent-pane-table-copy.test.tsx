@@ -60,6 +60,18 @@ test("a short row is padded to the table's columns", () => {
   expect(tableMarkdown(ragged)).toBe("| a | b |\n| --- | --- |\n| 1 |  |");
 });
 
+test("a blank header pastes as no header row; the Markdown keeps it", () => {
+  const blank: Table = { align: [null, null], header: ["", " "], rows: [["a", "1"]] };
+  expect(tableTsv(blank)).toBe("a\t1");
+  expect(tableHtml(blank)).toBe("<table><tbody><tr><td>a</td><td>1</td></tr></tbody></table>");
+  expect(tableMarkdown(blank)).toBe("|  |   |\n| --- | --- |\n| a | 1 |");
+});
+
+test("a cell that reads as block Markdown pastes as its text", () => {
+  const cells: Table = { align: [null, null, null], header: ["a", "b", "c"], rows: [["---", "# x", "> y"]] };
+  expect(tableTsv(cells)).toBe("a\tb\tc\n---\t# x\t> y");
+});
+
 const scope = globalThis as Record<string, unknown>;
 const saved = { navigator: scope.navigator, ClipboardItem: scope.ClipboardItem };
 afterEach(() => {

@@ -34,7 +34,7 @@ export default agentPaneEntry({
   id: "agent-pane.table-block",
   title: "Reply tables",
   area: "Agent pane",
-  height: 520,
+  height: 640,
   covers: ["agent-session/acpmux/conversation/TableBlock.tsx"],
   variants: {
     rest: {
@@ -43,7 +43,11 @@ export default agentPaneEntry({
     },
     hover: {
       note: "Hovering a table shows Open and Copy over its top right corner.",
-      snapshot,
+      snapshot: chat([
+        user("How many tooltips are left?", 5),
+        assistant(audit, 4.9),
+        summary(4.9, { status: "completed", durationMs: 12_000 }),
+      ]),
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-table-block" });
       },
