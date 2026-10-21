@@ -39,7 +39,78 @@ pub struct TurnBinding {
     /// listens on one of them, outside any acpmux agent, is the owner path
     /// ([`TurnBinding::is_owner_daemon`]): the only caller that loosens an
     /// approval gate. Empty: no caller does.
-    pub owner_daemons: Vec<PathBuf>,
+    pub owner_daemons: Vec<OwnerDaemon>,
+}
+
+/// One owner daemon socket, as the host found it when it started (and as
+/// its daemon link last connected to it, [`pin_owner_socket`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnerDaemon {
+    pub socket: PathBuf,
+    /// The socket file's device and inode when the host started; None when
+    /// nothing was there then (that socket is no owner path). A listener
+    /// that unlinked the path and bound its own there has another inode.
+    pub identity: Option<(u64, u64)>,
+}
+
+impl OwnerDaemon {
+    /// `socket` with its identity read now.
+    pub fn recorded(socket: PathBuf) -> OwnerDaemon {
+        let identity = socket_identity(&socket);
+        OwnerDaemon { socket, identity }
+    }
+
+    /// Whether `pid` listens on this socket, the same socket file as at
+    /// the host's start or at the host's own latest connect to it
+    /// ([`pin_owner_socket`]: a daemon that restarted, which the host's
+    /// link reconnected to).
+    fn listened_by(&self, pid: i32) -> bool {
+        let pinned = PINNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&self.socket)
+            .copied();
+        let Some(identity) = pinned.or(self.identity) else {
+            return false;
+        };
+        if listener_pid(&self.socket) != Some(pid) {
+            return false;
+        }
+        if socket_identity(&self.socket) != Some(identity) {
+            crate::log::log(format!(
+                "{}: not the socket file the host started with or its daemon link is on; not the owner path",
+                self.socket.display()
+            ));
+            return false;
+        }
+        true
+    }
+}
+
+/// Socket files the host's own daemon link connected to, by path: the
+/// latest identity of each ([`pin_owner_socket`]).
+static PINNED: std::sync::Mutex<std::collections::BTreeMap<PathBuf, (u64, u64)>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// Records the socket file at `path` as the daemon the host's link just
+/// connected to (daemon.rs `spawn_link`). A daemon that restarted gets a new
+/// socket file; the host's reconnect trusts it again. A listener that
+/// unlinked the path while the daemon runs does not: the host's link stays
+/// on the daemon and does not reconnect.
+pub fn pin_owner_socket(path: &Path) {
+    if let Some(identity) = socket_identity(path) {
+        PINNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(path.to_path_buf(), identity);
+    }
+}
+
+/// The device and inode of the file at `path` (not following a symlink).
+fn socket_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    Some((meta.dev(), meta.ino()))
 }
 
 /// The session role a caller runs under.
@@ -67,20 +138,22 @@ impl TurnBinding {
         }
     }
 
-    /// This binding, with `daemons` as the owner path's daemon sockets.
+    /// This binding, with `daemons` as the owner path's daemon sockets,
+    /// each with its identity read now ([`OwnerDaemon::recorded`]).
     pub fn with_owner_daemons(mut self, daemons: Vec<PathBuf>) -> TurnBinding {
-        self.owner_daemons = daemons;
+        self.owner_daemons = daemons.into_iter().map(OwnerDaemon::recorded).collect();
         self
     }
 
     /// Whether the process `pid` (a socket peer) is the owner path: the
-    /// cmux daemon listening on one of `owner_daemons`, which forwards
-    /// `chief.settings.set` only for the owner's trusted connection
-    /// (cmux-tui `chief_control::require_owner`), and not under an acpmux
-    /// agent. The listener is read from the socket itself (the server peer
-    /// of a fresh connection), never from what a caller says; a request's
-    /// fields cannot make a turn, a subagent, another agent or a terminal
-    /// the daemon.
+    /// cmux daemon listening on one of `owner_daemons` (the same socket
+    /// file the host found at its start), which forwards a loosening
+    /// `chief.settings.set` only from the verified cmux app connection
+    /// (cmux-tui `chief_control::require_app_owner`), and not under an
+    /// acpmux agent. The listener is read from the socket itself (the server
+    /// peer of a fresh connection), never from what a caller says; a
+    /// request's fields cannot make a turn, a subagent, another agent or a
+    /// terminal the daemon.
     pub fn is_owner_daemon(&self, pid: i32) -> bool {
         if pid <= 0 || self.owner_daemons.is_empty() {
             return false;
@@ -92,7 +165,7 @@ impl TurnBinding {
         }
         self.owner_daemons
             .iter()
-            .any(|socket| listener_pid(socket) == Some(pid))
+            .any(|daemon| daemon.listened_by(pid))
     }
 
     /// The role of the process `pid` (a socket peer).

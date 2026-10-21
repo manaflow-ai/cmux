@@ -888,6 +888,80 @@ fn turning_auto_approve_all_off_stops_a_teammates_turn_it_let_run_and_the_next_a
     assert_eq!(policy(&h, 1), "ask");
 }
 
+/// A subagent the Chief spawns while `approvals.autoApproveAll` is on.
+fn spawn_subagent(h: &mut Harness, task: &str) -> String {
+    use optchat_chief::tools::Orchestrator;
+    let spawner = optchat_chief::subagents::Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        optchat_chief::subagents::SubagentSettings {
+            harness: "claude".into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    );
+    let task = task.to_owned();
+    let worker = std::thread::spawn(move || spawner.spawn(vec![task], None));
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    let answer = worker.join().unwrap().unwrap();
+    assert!(answer.contains("Started a1"), "{answer}");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(session) = h
+            .brain
+            .state()
+            .sub("a1")
+            .and_then(|(_, s)| s.session_id.clone())
+        {
+            return session;
+        }
+        assert!(Instant::now() < deadline, "a1 never got a session");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+}
+
+/// Review of 2fe73a9a (New 2): a subagent the stopped turn spawned while
+/// auto-approve-all was on ran with no ask floor, so the tightening stops
+/// it too, as chief.stop does.
+#[test]
+fn turning_auto_approve_all_off_stops_the_subagents_the_turn_let_run() {
+    let settings = json!({"approvals": {"autoApproveAll": true}});
+    let mut h = harness_with(Some(settings), false, shared(), started());
+    teammate_running(&mut h, "@Chief clean the build directory");
+    let turn = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.clone())
+        .unwrap();
+    assert_eq!(h.brain.spawn_policy(), None, "no ask floor while it is on");
+    let sub = spawn_subagent(&mut h, "delete the caches");
+    assert_eq!(cancels(&h), 0);
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    h.agents.wait_cancels(2);
+    let cancelled = h.agents.inner.lock().unwrap().cancels.clone();
+    assert!(cancelled.contains(&turn), "{cancelled:?}");
+    assert!(cancelled.contains(&sub), "{cancelled:?}");
+    finish(&mut h);
+}
+
 #[test]
 fn turning_auto_approve_all_off_stops_a_device_turn_the_device_gate_covers() {
     let settings = json!({"approvals": {"autoApproveAll": true}, "remote": {"ask": true}});

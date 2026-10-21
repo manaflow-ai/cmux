@@ -1469,8 +1469,20 @@ impl Brain {
             (self.log)(&format!(
                 "refused: {key} = {on} during remote-origin or another participant's work"
             ));
+            // Say why: a running turn, or work that still waits for one.
+            let why = if self.turn_ask || self.turn_remote || self.turn_participant {
+                "the running turn asks, a paired device started it or another person wrote in"
+            } else if self.participant_taint {
+                "a message from another participant is still waiting for a turn that asks"
+            } else if self.remote_taint {
+                "a request from a paired device is still waiting for a turn that asks"
+            } else if foreign_queued {
+                "a message from another participant or a paired device is waiting for a turn"
+            } else {
+                "a subagent that asks before acting is still at work"
+            };
             return Err(format!(
-                "refused: {key} can be set to {on} only by the owner on the Mac, outside a turn that asks, a paired device started or another person wrote in"
+                "refused: {key} can be set to {on} only by the owner on the Mac, and not now: {why}"
             ));
         }
         let mut next = self.chief;
@@ -1513,8 +1525,17 @@ impl Brain {
         self.deny_pending("an approval setting was turned on");
         self.owner_stopped = true;
         self.interrupt.request_hard();
+        // Its subagents were spawned under the looser gate too (no ask
+        // floor while autoApproveAll was on): they stop as chief.stop
+        // stops them.
+        let subagents = self.stop_subagents();
         (self.log)(&format!(
-            "{key} tightened: stopped the running turn, which would ask now"
+            "{key} tightened: stopped the running turn, which would ask now{}",
+            if subagents.is_empty() {
+                String::new()
+            } else {
+                format!(", and subagents {}", subagents.join(", "))
+            }
         ));
     }
 

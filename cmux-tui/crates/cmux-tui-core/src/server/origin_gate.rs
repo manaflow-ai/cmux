@@ -148,8 +148,18 @@ pub(super) fn is_page(mux: &Mux, client: u64) -> bool {
     derived_origin(mux, client) == RequestOrigin::Page
 }
 
+/// The pid of `client`'s socket peer, from the `peer_key` read at its
+/// hello (`token:<pid>.<pid version>`); None without a hello or a key.
+pub(super) fn peer_pid(mux: &Mux, client: u64) -> Option<i32> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let key = state.clients.get(&client)?.origin.peer_key.clone()?;
+    drop(state);
+    let (pid, _version) = key.strip_prefix("token:")?.split_once('.')?;
+    pid.parse().ok().filter(|pid| *pid > 0)
+}
+
 /// The origin `client` derives; a client with no record is an agent.
-fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+pub(super) fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
     let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }

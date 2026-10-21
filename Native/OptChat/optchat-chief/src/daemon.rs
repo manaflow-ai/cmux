@@ -1011,6 +1011,9 @@ pub fn spawn_link(
                             "daemon connected; conversation {}",
                             conversation.id
                         ));
+                        // The owner path trusts this socket file now (a
+                        // restarted daemon has a new one).
+                        crate::turn_caller::pin_owner_socket(&config.socket);
                         let closer = stream.closer();
                         sink(DaemonEvent::Up {
                             port: Box::new(SdkConversations {

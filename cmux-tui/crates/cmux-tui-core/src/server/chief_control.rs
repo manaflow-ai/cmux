@@ -8,7 +8,9 @@
 //! the link's owner_session splice). An agent-bound connection (the Chief's
 //! own turns, its subagents), a relayed, WebSocket or page connection is
 //! refused before anything is forwarded, so no agent can change the Chief's
-//! engine or stop its turn.
+//! engine or stop its turn. A `chief.settings.set` that loosens an approval
+//! gate needs more: the verified cmux app connection, its process under no
+//! acpmux agent ([`require_app_owner`]); a plain local client only tightens.
 //!
 //! chief-brains-v1 (cx-ebm.60.11): the optional `chief` field names the
 //! Chief. Absent, null or the default Chief's id: the default Chief's brain
@@ -73,6 +75,12 @@ pub(super) fn handle_with(
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if let Err(error) = require_owner(mux, client) {
+        return send_resource_response(writer, id, operation, Err(error));
+    }
+    if operation == ResourceOperation::ChiefSettingsSet
+        && loosens_gate(&request.fields)
+        && let Err(error) = require_app_owner(mux, client, request.envelope.origin.as_ref())
+    {
         return send_resource_response(writer, id, operation, Err(error));
     }
     let route = match target(mux, operation, &request.fields, socket) {
@@ -283,6 +291,53 @@ pub(super) fn require_owner(mux: &Mux, client: u64) -> Result<(), ResourceError>
     ))
 }
 
+/// Whether a `chief.settings.set` loosens an approval gate: optchat-chief's
+/// `chief_settings::loosens_gate` (`approvals.autoApproveAll` or
+/// `remote.autoApprove` set to `true`, `remote.ask` or `home.ask` set to
+/// `false`; the brain matches the key exactly and trims the value). A value
+/// that is not one of those strings loosens nothing (the brain refuses it).
+pub(super) fn loosens_gate(fields: &serde_json::Map<String, Value>) -> bool {
+    let key = fields.get("key").and_then(Value::as_str).unwrap_or_default();
+    let value = fields.get("value").and_then(Value::as_str).map(str::trim);
+    match key {
+        "approvals.autoApproveAll" | "remote.autoApprove" => value == Some("true"),
+        "remote.ask" | "home.ask" => value == Some("false"),
+        _ => false,
+    }
+}
+
+/// Loosening an approval gate (review of 2fe73a9a): beyond the owner rule,
+/// only the verified cmux app connection (`client-hello` role main with its
+/// proof, origin `user`, server/app_trust.rs) whose process runs under no
+/// acpmux agent, and whose request does not narrow its origin. Every Chief
+/// turn's environment names this daemon, and any unbound local client is
+/// the owner to [`require_owner`], so a turn could otherwise open a raw
+/// socket and have the daemon forward the loosening from its own pid, the
+/// brain's owner path. Tightening and reads stay the owner's.
+pub(super) fn require_app_owner(
+    mux: &Mux,
+    client: u64,
+    claim: Option<&crate::request_origin::OriginClaim>,
+) -> Result<(), ResourceError> {
+    use crate::request_origin::RequestOrigin;
+    let refused = |derived: RequestOrigin, reason: &str| {
+        Err(crate::request_origin::forbidden(
+            "only the cmux app loosens a Chief approval gate",
+            json!({"derived": derived.wire_name(), "required": "user", "reason": reason}),
+        ))
+    };
+    let derived = super::origin_gate::derived_origin(mux, client);
+    let narrowed = claim.map_or(derived, |c| c.claim.min(derived));
+    if narrowed != RequestOrigin::User {
+        return refused(narrowed, "chief_loosen_needs_app");
+    }
+    match super::origin_gate::peer_pid(mux, client) {
+        Some(pid) if !peer::under_acpmux_agent(pid) => Ok(()),
+        Some(_) => refused(RequestOrigin::Agent, "chief_loosen_under_agent"),
+        None => refused(RequestOrigin::User, "chief_loosen_unknown_peer"),
+    }
+}
+
 /// The tools-socket line of `operation` (optchat-chief's `engine`, `stop`
 /// and `settings` tools).
 pub(super) fn tool_line(
@@ -429,6 +484,9 @@ pub(super) fn ask(
         json!({"message": "no Chief tools socket on this platform"}),
     ))
 }
+
+#[path = "chief_control_peer.rs"]
+mod peer;
 
 #[cfg(all(test, unix))]
 #[path = "chief_control_tests.rs"]

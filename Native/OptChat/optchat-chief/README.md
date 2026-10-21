@@ -1227,21 +1227,32 @@ which refuses to loosen a gate (`remote.ask` or `home.ask` off,
 another participant's work runs, settles or waits in the queue, or while an
 `ask` child is live, whoever asks (a command an approved remote turn runs
 reaches the host the same way). No chat message
-changes them. The tools socket also checks who asks: a loosening reaches
-`Brain::set_setting` only from the owner path, the cmux daemon listening on
-the host's `--daemon-socket` (or the app's daemon), which forwards
-`chief.settings.set` for the owner's trusted connection alone. The socket
-reads that from its peer (the daemon socket's listener pid, outside any
-acpmux agent), never from the request, so the Chief's own turns, its
+changes them. The boundary is the running host and the daemon in front of
+it. The daemon forwards a loosening `chief.settings.set` only from the
+verified cmux app connection (`client-hello` role main with its proof, not
+bound to an agent and not a process under an acpmux agent); a plain local
+client, an agent and any other program may only tighten or read. The host's
+tools socket then passes a loosening to `Brain::set_setting` only from that
+daemon: the process listening on the host's `--daemon-socket` (or the app's
+daemon), on the same socket file (device and inode) the host found when it
+started or its link last connected to, outside any acpmux agent. The socket reads
+that from its peer, never from the request, so the Chief's own turns, its
 subagents, other agents and any other program, a hand-run `optchat-chief
-settings set` included, may only tighten a gate while the host runs. With the
-host stopped, the CLI edits the file directly (no turn can run then), and
-refuses to loosen a gate when it runs for an agent (`ACPMUX_SESSION_ID`,
-`ACPMUX_SESSION_NAME`, a turn seal or an acpmux agent among its parents).
+settings set` included, may only tighten a gate while the host runs. A
+daemon that restarted is trusted again once the host's link reconnects to
+it; a listener that took over the path while the daemon runs is not.
+
+With the host stopped, the CLI edits the file directly (no turn can run
+then) and, best effort, refuses to loosen a gate when it looks like it runs
+for an agent (`ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME`, a turn seal or an
+acpmux agent among its parents). That check is advisory, not a boundary: a
+process can clear its environment, leave its acpmux parents behind or write
+`settings.json` itself.
+
 Tightening a gate is always allowed. Tightening one while a turn it would
 have gated runs (`approvals.autoApproveAll` off during another participant's
-or a paired device's turn, for example) stops that turn as `chief.stop`
-does, so the next turn runs under `ask`.
+or a paired device's turn, for example) stops that turn and every subagent
+at work as `chief.stop` does, so the next turn runs under `ask`.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 

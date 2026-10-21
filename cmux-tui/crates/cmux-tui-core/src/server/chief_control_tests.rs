@@ -243,9 +243,11 @@ fn the_settings_ops_reach_the_brains_settings_tool() {
     let owner = mux.control_clients.register(ClientTransport::Unix, writer());
     let settings = json!({"approvals":{"autoApproveAll":true},"remote":{"ask":false}});
     let (_dir, sock, seen) = brain(json!({"text": format!("{settings:#}")}));
+    // A loosening: the verified app's (only_the_verified_app_loosens_...).
+    let app = verified_app(&mux, std::process::id());
     let set = call_with(
         &mux,
-        owner,
+        app,
         "chief.settings.set",
         json!({"key":"approvals.autoApproveAll","value":"true"}),
         &sock,
@@ -269,4 +271,173 @@ fn the_settings_ops_reach_the_brains_settings_tool() {
         "{:?}",
         error.details
     );
+}
+
+const LOOSEN: [(&str, &str); 4] = [
+    ("approvals.autoApproveAll", "true"),
+    ("remote.autoApprove", "true"),
+    ("remote.ask", "false"),
+    ("home.ask", "false"),
+];
+const TIGHTEN: [(&str, &str); 4] = [
+    ("approvals.autoApproveAll", "false"),
+    ("remote.autoApprove", "false"),
+    ("remote.ask", "true"),
+    ("home.ask", "true"),
+];
+
+fn settings_set(mux: &Arc<Mux>, client: u64, (key, value): (&str, &str), sock: &Path) -> Value {
+    call_with(mux, client, "chief.settings.set", json!({"key": key, "value": value}), sock)
+}
+
+/// A registered Unix client that is the verified cmux app (role main and
+/// its proof), its socket peer the process `pid`.
+fn verified_app(mux: &Arc<Mux>, pid: u32) -> u64 {
+    use super::super::origin_gate::{
+        set_peer_key_for_test, set_role_for_test, set_verified_app_for_test,
+    };
+    let app = mux.control_clients.register(ClientTransport::Unix, writer());
+    set_role_for_test(mux, app, "main");
+    set_verified_app_for_test(mux, app, true);
+    set_peer_key_for_test(mux, app, &format!("token:{pid}.1"));
+    app
+}
+
+/// Review of 2fe73a9a (New 1): every Chief turn's environment names this
+/// daemon and an unbound local client is the owner, so a loosening
+/// `chief.settings.set` reaches the brain only from the verified cmux app
+/// connection; a tightening stays the owner's, a plain client included.
+#[test]
+fn only_the_verified_app_loosens_a_gate_and_the_owner_tightens_one() {
+    let mux = Mux::new_for_test("chief-control-loosen", crate::SurfaceOptions::default());
+    let settings = json!({"approvals":{"autoApproveAll":false}});
+    let (_dir, sock, seen) = brain(json!({"text": format!("{settings:#}")}));
+    // A plain local client (a turn's raw socket, the CLI): the owner, but
+    // not the app.
+    let plain = mux.control_clients.register(ClientTransport::Unix, writer());
+    for line in LOOSEN {
+        let refused = settings_set(&mux, plain, line, &sock);
+        assert_eq!(refused["error"]["code"], "origin.forbidden", "{line:?}: {refused}");
+        assert_eq!(refused["error"]["details"]["reason"], "chief_loosen_needs_app", "{refused}");
+    }
+    // Role main without its proof is no app either.
+    let unproved = mux.control_clients.register(ClientTransport::Unix, writer());
+    origin_gate::set_role_for_test(&mux, unproved, "main");
+    let refused = settings_set(&mux, unproved, LOOSEN[0], &sock);
+    assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+    assert!(seen.lock().unwrap().is_empty(), "no loosening reached the brain");
+    // Tightening passes.
+    for line in TIGHTEN {
+        let set = settings_set(&mux, plain, line, &sock);
+        assert_eq!(set["result"]["value"]["settings"], settings, "{line:?}: {set}");
+    }
+    assert_eq!(seen.lock().unwrap().len(), 2 * TIGHTEN.len());
+    seen.lock().unwrap().clear();
+    // The verified app loosens every gate.
+    let app = verified_app(&mux, std::process::id());
+    for line in LOOSEN {
+        let set = settings_set(&mux, app, line, &sock);
+        assert_eq!(set["result"]["value"]["settings"], settings, "{line:?}: {set}");
+    }
+    let forwarded: Vec<Value> = seen.lock().unwrap().iter().step_by(2).cloned().collect();
+    assert_eq!(
+        forwarded,
+        LOOSEN.map(|(key, value)| json!({"tool":"settings","key":key,"value":value})).to_vec()
+    );
+}
+
+/// The verified app's connection bound to an agent, or a peer process that
+/// runs under an acpmux agent, or one whose request narrows its origin, does
+/// not loosen a gate.
+#[test]
+fn an_agent_bound_or_agent_run_peer_never_loosens_a_gate() {
+    let mux = Mux::new_for_test("chief-control-loosen-agent", crate::SurfaceOptions::default());
+    let (_dir, sock, seen) = brain(json!({"text": "{}"}));
+    // Bound to an agent's conversation: refused by the owner rule already.
+    let owner = mux.control_clients.register(ClientTransport::Unix, writer());
+    let token = handle_command(
+        &mux,
+        owner,
+        serde_json::from_value(json!({"cmd":"conversation-agent-token","participant":"agent_mux"}))
+            .unwrap(),
+        &writer(),
+    )
+    .unwrap()["token"]
+        .clone();
+    let bound = verified_app(&mux, std::process::id());
+    handle_command(
+        &mux,
+        bound,
+        serde_json::from_value(
+            json!({"cmd":"conversation-bind","participant":"agent_mux","token":token}),
+        )
+        .unwrap(),
+        &writer(),
+    )
+    .unwrap();
+    let refused = settings_set(&mux, bound, LOOSEN[0], &sock);
+    assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+    assert_eq!(refused["error"]["details"]["reason"], "chief_owner_only", "{refused}");
+    // A process under an acpmux agent: the agent itself (the session name
+    // acpmux sets is in its environment), and on Linux its child that
+    // cleared it (found through the parent).
+    let mut agent = std::process::Command::new("/bin/sh")
+        .args(["-c", "env -u ACPMUX_SESSION_NAME sleep 30; :"])
+        .env("ACPMUX_SESSION_NAME", "optchat-home-2079")
+        .spawn()
+        .unwrap();
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut peers = vec![agent.id()];
+    #[cfg(target_os = "linux")]
+    {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let children =
+                std::fs::read_to_string(format!("/proc/{0}/task/{0}/children", agent.id()))
+                    .unwrap_or_default();
+            if let Some(pid) = children.split_whitespace().next().and_then(|p| p.parse().ok()) {
+                peers.push(pid);
+                break;
+            }
+            assert!(Instant::now() < deadline, "the agent's child never started");
+            std::thread::yield_now();
+        }
+    }
+    let answers: Vec<Value> = peers
+        .iter()
+        .map(|pid| settings_set(&mux, verified_app(&mux, *pid), LOOSEN[0], &sock))
+        .collect();
+    let _ = agent.kill();
+    let _ = agent.wait();
+    for refused in answers {
+        assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
+        assert_eq!(refused["error"]["details"]["reason"], "chief_loosen_under_agent", "{refused}");
+    }
+    // No peer key: nothing says which process asks.
+    let unknown = mux.control_clients.register(ClientTransport::Unix, writer());
+    origin_gate::set_role_for_test(&mux, unknown, "main");
+    origin_gate::set_verified_app_for_test(&mux, unknown, true);
+    let refused = settings_set(&mux, unknown, LOOSEN[0], &sock);
+    assert_eq!(refused["error"]["details"]["reason"], "chief_loosen_unknown_peer", "{refused}");
+    assert!(seen.lock().unwrap().is_empty(), "no loosening reached the brain");
+}
+
+#[test]
+fn which_settings_lines_loosen_a_gate() {
+    for (key, value) in LOOSEN {
+        assert!(super::loosens_gate(&fields(json!({"key":key,"value":value}))), "{key}");
+        let padded = format!(" {value}\n");
+        assert!(super::loosens_gate(&fields(json!({"key":key,"value":padded}))), "{key}");
+    }
+    for (key, value) in TIGHTEN {
+        assert!(!super::loosens_gate(&fields(json!({"key":key,"value":value}))), "{key}");
+    }
+    for extra in [
+        json!({"key":"cache.ttl","value":"1h"}),
+        json!({"key":"approvals.autoApproveAll","value":true}),
+        json!({"key":"approvals.autoApproveAll","value":"yes"}),
+        json!({}),
+    ] {
+        assert!(!super::loosens_gate(&fields(extra.clone())), "{extra}");
+    }
 }

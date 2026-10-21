@@ -23,6 +23,7 @@ use common::open_chat;
 use optchat_chief::chief_profile::{ChiefTools, TURN_KEY_ENV};
 use optchat_chief::paths::Paths;
 use optchat_chief::tools::ControlRequest;
+use optchat_chief::turn_caller::OwnerDaemon;
 
 const LOOSEN: (&str, &str) = ("approvals.autoApproveAll", "true");
 const TIGHTEN: (&str, &str) = ("approvals.autoApproveAll", "false");
@@ -207,7 +208,7 @@ fn a_caller_that_is_not_the_daemons_listener_is_not_the_owner_path() {
         turn_prefix: "optchat-home-".to_owned(),
         subagent_prefix: "optchat-sub-home-".to_owned(),
         agent_parent: std::fs::canonicalize("/bin/bash").ok(),
-        owner_daemons: vec![host.daemon.clone()],
+        owner_daemons: vec![OwnerDaemon::recorded(host.daemon.clone())],
     };
     assert!(binding.is_owner_daemon(std::process::id() as i32));
     let child = Command::new("sleep").arg("5").spawn().unwrap();
@@ -218,10 +219,38 @@ fn a_caller_that_is_not_the_daemons_listener_is_not_the_owner_path() {
     let _ = child.wait();
     // No owner daemon configured, or one nothing listens on: no owner path.
     let none = optchat_chief::turn_caller::TurnBinding {
-        owner_daemons: vec![host.home.join("no-such.sock")],
+        owner_daemons: vec![OwnerDaemon::recorded(host.home.join("no-such.sock"))],
         ..binding
     };
     assert!(!none.is_owner_daemon(std::process::id() as i32));
+}
+
+/// A caller that unlinks the daemon socket's path and binds its own
+/// listener there (review of 2fe73a9a, 1b) listens on another socket file
+/// than the host started with: it is not the owner path, so its loosening
+/// line is refused (and a tightening still passes) until the host's own
+/// daemon link connects to that socket file.
+#[test]
+fn a_listener_rebound_on_the_daemon_path_is_not_the_owner_path() {
+    let host = serve();
+    assert_eq!(as_daemon(&host, LOOSEN)["text"], "written");
+    host.seen.lock().unwrap().clear();
+    std::fs::remove_file(&host.daemon).unwrap();
+    let _impostor = UnixListener::bind(&host.daemon).unwrap();
+    let answer = as_daemon(&host, LOOSEN);
+    assert!(
+        answer["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("refused")),
+        "{answer}"
+    );
+    assert!(sets(&host).is_empty(), "nothing loosening reached the host");
+    assert_eq!(as_daemon(&host, TIGHTEN)["text"], "written");
+    // A daemon that restarted on the path: the host's daemon link
+    // reconnects to it (daemon.rs pins the socket file), and it is the owner
+    // path again.
+    optchat_chief::turn_caller::pin_owner_socket(&host.daemon);
+    assert_eq!(as_daemon(&host, LOOSEN)["text"], "written");
 }
 
 #[test]

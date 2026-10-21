@@ -223,9 +223,12 @@ fn main() -> std::process::ExitCode {
             };
             let result = set.and_then(|set| {
                 match optchat_chief::tools::ask_settings(&paths.tools_socket, set) {
-                    // No host: no turn runs, so the Mac's own CLI edits the file;
-                    // an agent's (a turn's, a subagent's, another harness's) may
-                    // only tighten a gate (the running host's rule, tools.rs).
+                    // No host: no turn runs, so the Mac's own CLI edits the file.
+                    // Best effort, not a boundary (env -u, a double fork or a
+                    // direct write of settings.json gets past it): what looks
+                    // like an agent's CLI may only tighten a gate. The boundary
+                    // is the running host and the daemon (tools.rs,
+                    // cmux-tui chief_control.rs).
                     Err(e) if e.contains("not running") => {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
@@ -419,7 +422,8 @@ fn home(flags: &Flags) -> PathBuf {
         .unwrap_or_else(mux_home)
 }
 
-/// Whether this CLI runs for an agent rather than the person: an acpmux
+/// Whether this CLI looks like it runs for an agent rather than the person
+/// (advisory: the no-host refusal's best effort, see `settings set`): an acpmux
 /// session's env (`ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME`), a Chief turn's
 /// seal or a subagent's marker, or an acpmux agent among its parents.
 fn run_by_agent() -> bool {
