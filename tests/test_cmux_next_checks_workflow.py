@@ -30,6 +30,8 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 ARTIFACTS_WORKFLOW = WORKFLOW.parent / "cmux-tui-artifacts.yml"
 TREE_JOBS = ("daemon-test", "cmux-scheme-compile")
+# Run on a pull request only with full-ci (HeavyMacCompilesBehindFullCi).
+HEAVY_COMPILES = ("release-compile", "cmux-scheme-compile")
 GODFILES = ROOT / "scripts/cmux-next/check-no-godfiles.sh"
 JOB = "checks"
 
@@ -540,9 +542,14 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
         # A same-repository PR runs its routed tiers; full-ci is what a fork PR needs
         # (SameRepositoryPullRequestsRunTheirTiers evaluates the conditions).
-        for job_id in ("swift-canary", "swift-test", "generated-files", "daemon-test", "release-compile", "cmux-scheme-compile"):
+        for job_id in ("swift-canary", "swift-test", "generated-files", "daemon-test"):
             self.assertIn("github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || "
                           "contains(github.event.pull_request.labels.*.name, 'full-ci')", jobs[job_id]["if"], job_id)
+        # The two heavy app compiles are back behind full-ci on every PR (HeavyMacCompilesBehindFullCi).
+        for job_id in HEAVY_COMPILES:
+            self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                          jobs[job_id]["if"], job_id)
+            self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository || ", jobs[job_id]["if"], job_id)
         # macos-placement places owned runners: same-repository pull requests only.
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", jobs["macos-placement"]["if"])
 
@@ -1822,13 +1829,19 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
                 other["needs.push-head-preflight.outputs.current"] = "false"
                 self.assertFalse(self.runs(other))
 
-    def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
-        context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
-        self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
-        self.assertTrue(self.runs(context))
+    def test_a_cmuxnext_swift_pr_runs_the_release_compile_from_a_fork_or_with_full_ci(self):
+        changed = ["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
+        fork = self.context(changed, head_repo="someone/cmux")
+        self.assertEqual(fork["needs.path_route.outputs.cmuxnext_swift"], "true")
+        self.assertTrue(self.runs(fork))
+        self.assertEqual(evaluate(self.job()["runs-on"], fork), "blacksmith-6vcpu-macos-26")
+        # A same-repository PR compiles Release only with full-ci (the base push compiles every merge).
+        self.assertFalse(self.runs(self.context(changed)))
+        labeled = self.context(changed, labels=("full-ci",))
+        self.assertTrue(self.runs(labeled))
         # Never the reserved promotion runner on a PR, with macos-placement skipped.
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
-        self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), "shared-side-route")
+        self.assertEqual(evaluate(self.job()["runs-on"], labeled), "shared-side-route")
+        self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], labeled), "shared-side-route")
 
     def test_the_cx_ebm_59_5_file_mix_runs_the_release_compile(self):
         # 67ab9281307a: two CmuxNext Sources files and a proof script. The script made
@@ -1844,11 +1857,11 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
              "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/WorkspaceSpawnFirstTabTests.swift"],
         ):
             with self.subTest(changed=changed):
-                context = self.context(changed)
+                context = self.context(changed, head_repo="someone/cmux")
                 self.assertEqual(context["needs.path_route.outputs.swift_canary"], "false")
                 self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "true")
                 self.assertTrue(self.runs(context))
-                self.assertEqual(evaluate(self.job()["runs-on"], context), "shared-side-route")
+                self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-6vcpu-macos-26")
 
     def test_a_web_only_pr_skips_the_release_compile(self):
         for changed in (["web/app/page.tsx"], ["webviews/src/app/Thing.tsx"]):
@@ -1857,13 +1870,14 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
                 self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
                 self.assertFalse(self.runs(context))
 
-    def test_a_native_pr_without_cmuxnext_swift_runs_it_from_this_repository(self):
-        # The native tier runs on a same-repository PR with no label (#22303); a fork PR
-        # keeps the full-ci cadence for it.
+    def test_a_native_pr_without_cmuxnext_swift_runs_it_only_with_full_ci(self):
+        # The native tier no longer runs on an unlabeled same-repository PR (#22303 undone for the
+        # heavy compiles, 2026-10-21: the Mac queue was ~350 jobs deep); full-ci runs it from either repository.
         context = self.context(["App/Info.plist"])
         self.assertEqual(context["needs.path_route.outputs.native"], "true")
         self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
-        self.assertTrue(self.runs(context))
+        self.assertFalse(self.runs(context))
+        self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
@@ -1918,7 +1932,11 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         return {name for name in self.TIER_JOBS + ("macos-placement", "checks") if evaluate(jobs[name]["if"], context)}
 
     def test_a_same_repository_pr_runs_every_routed_tier_without_a_label(self):
-        self.assertEqual(self.running(self.context()), set(self.TIER_JOBS) | {"macos-placement", "checks"})
+        # Except the two heavy app compiles, which need full-ci (HeavyMacCompilesBehindFullCi).
+        self.assertEqual(self.running(self.context()),
+                         set(self.TIER_JOBS) - set(HEAVY_COMPILES) | {"macos-placement", "checks"})
+        self.assertEqual(self.running(self.context(labels=("full-ci",))),
+                         set(self.TIER_JOBS) | {"macos-placement", "checks"})
 
     def test_a_fork_pr_still_needs_full_ci_and_never_places_an_owned_runner(self):
         fork = self.context(head_repo="someone/cmux")
@@ -1975,11 +1993,15 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         push = self.context("push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], push))
 
-    def test_the_cascade_counts_a_same_repository_prs_canary_and_scheme(self):
+    def test_the_cascade_counts_only_the_compiles_that_run(self):
         place = next(step for step in self.jobs()["macos-placement"]["steps"] if step.get("id") == "place")
         expression = place["env"]["CASCADE_RUNS"]
-        self.assertEqual(set(evaluate(expression, self.context()).split()),
-                         {"fast-tier", "swift-canary", "cmux-scheme-compile"})
+        self.assertEqual(set(evaluate(expression, self.context()).split()), {"fast-tier", "swift-canary"})
+        self.assertEqual(set(evaluate(expression, self.context(labels=("full-ci",))).split()),
+                         {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"})
+        push = self.context("push", ref="refs/heads/feat-cmux-next")
+        self.assertEqual(set(evaluate(expression, push).split()),
+                         {"fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile"})
 
     def test_a_newer_dispatch_on_the_same_branch_replaces_the_older(self):
         concurrency = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]
@@ -2068,6 +2090,74 @@ class AppSizeCapOnPush(unittest.TestCase):
         result = self.run_step("0" * 40)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertIn("CmuxNextApp is capped at 2 lines", result.stderr)
+
+
+class HeavyMacCompilesBehindFullCi(unittest.TestCase):
+    """The Release compile and the app scheme compile need full-ci on a pull request again.
+
+    #22325 ran every routed Mac tier on a same-repository PR with no label. On 2026-10-21 (~20:10Z)
+    the Mac queue was ~350 jobs deep, 76 of them "cmux-next Release compile (Xcode 26)" and 22
+    "cmux app scheme compile (Debug)". Both still run on every feat-cmux-next push (the Release
+    compile gates nightly-next), every next-batch/* push, every dispatch and a full-ci PR; a
+    MEMBER/OWNER dev-build PR keeps its scheme compile (its dogfood app). A fork PR is unchanged.
+    """
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def context(self, event: str = "pull_request", *, head_repo: str = "manaflow-ai/cmux",
+                labels: tuple[str, ...] = (), ref: str = "refs/pull/1/merge", association: str = "CONTRIBUTOR",
+                cmuxnext_swift: str = "true") -> dict:
+        context = {
+            "github.event_name": event, "github.ref": ref,
+            "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
+            "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
+            "github.run_attempt": 1, "github.run_id": "99", "vars.CI_PR_POOL_OWNED": "1",
+            "needs.push-head-preflight.outputs.current": "true",
+            "needs.path_route.outputs.tree_state": "ready",
+            "needs.path_route.outputs.cmuxnext_swift": cmuxnext_swift,
+            "inputs.same_tree_sha": "",
+        }
+        for tier in ("macos", "native", "scheme"):
+            context[f"needs.path_route.outputs.{tier}"] = "true"
+        if event == "pull_request":
+            context.update({"github.event.pull_request.head.repo.full_name": head_repo,
+                            "github.event.pull_request.labels.*.name": list(labels),
+                            "github.event.pull_request.author_association": association})
+        return context
+
+    def compiling(self, context: dict) -> set[str]:
+        jobs = self.jobs()
+        return {name for name in HEAVY_COMPILES if evaluate(jobs[name]["if"], context)}
+
+    def test_a_same_repository_pr_without_full_ci_skips_both(self):
+        self.assertEqual(self.compiling(self.context()), set())
+        # With or without a CmuxNext Swift change: the base push compiles Release after the merge.
+        self.assertEqual(self.compiling(self.context(cmuxnext_swift="false")), set())
+
+    def test_a_same_repository_pr_with_full_ci_runs_both(self):
+        self.assertEqual(self.compiling(self.context(labels=("full-ci",))), set(HEAVY_COMPILES))
+
+    def test_a_member_dev_build_pr_keeps_its_scheme_compile(self):
+        member = self.context(labels=("dev-build",), association="MEMBER")
+        self.assertEqual(self.compiling(member), {"cmux-scheme-compile"})
+        self.assertEqual(self.compiling(self.context(labels=("dev-build",))), set())
+
+    def test_feat_and_batch_pushes_and_dispatches_run_both(self):
+        for event, ref in (("push", "refs/heads/feat-cmux-next"), ("push", "refs/heads/next-batch/abc"),
+                           ("workflow_dispatch", "refs/heads/feat-cmux-next"),
+                           ("workflow_dispatch", "refs/heads/topic")):
+            with self.subTest(event=event, ref=ref):
+                self.assertEqual(self.compiling(self.context(event, ref=ref)), set(HEAVY_COMPILES))
+
+    def test_a_fork_pr_is_unchanged(self):
+        fork = "someone/cmux"
+        # A CmuxNext Swift change still compiles Release on its hosted route; nothing else runs unlabeled.
+        self.assertEqual(self.compiling(self.context(head_repo=fork)), {"release-compile"})
+        self.assertEqual(self.compiling(self.context(head_repo=fork, cmuxnext_swift="false")), set())
+        self.assertEqual(self.compiling(self.context(head_repo=fork, labels=("full-ci",))), set(HEAVY_COMPILES))
+        self.assertEqual(self.compiling(self.context(head_repo=fork, labels=("dev-build",), association="MEMBER",
+                                                     cmuxnext_swift="false")), set())
 
 
 if __name__ == "__main__":
