@@ -66,15 +66,6 @@ export type HexclaveMirrorStore = {
     read: () => Promise<HexclaveUserState>,
     options?: { readonly revokeCandidateTeamIds?: readonly string[] },
   ) => Promise<UserReconcileResult>;
-  /**
-   * While holding the user's mirror lock, run external revoke/seat side
-   * effects for one still-pending membership and clear it only on success.
-   * A concurrent re-add therefore waits instead of racing past the check.
-   */
-  readonly settlePendingRevocation: (
-    input: { readonly teamId: string; readonly userId: string },
-    operation: () => Promise<void>,
-  ) => Promise<boolean>;
   /** Whether the revocation is still pending (a re-add since the reconcile clears it). */
   readonly isRevocationPending: (input: { readonly teamId: string; readonly userId: string }) => Promise<boolean>;
   /** Delete a pending revocation after its revoke succeeded. */
@@ -322,6 +313,15 @@ async function isTombstoned(tx: Tx, entity: "user" | "team", id: string): Promis
   return rows.length > 0;
 }
 
+async function hasPendingRevocation(tx: Tx, userId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ teamId: hexclavePendingRevocations.teamId })
+    .from(hexclavePendingRevocations)
+    .where(eq(hexclavePendingRevocations.userId, userId))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /**
  * Upsert a team unless it is tombstoned. Tombstones are permanent (ids are
  * never reused), so a later "present" answer from a lagging replica cannot
@@ -363,27 +363,6 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
         candidates: options.revokeCandidateTeamIds ?? [],
       });
       return { state, previousTeamIds, currentTeamIds, pendingRevocationTeamIds };
-    }),
-
-    settlePendingRevocation: (input, operation) => db().transaction(async (tx) => {
-      await boundLockWait(tx);
-      await lock(tx, hexclaveUserLockKey(input.userId));
-      await lock(tx, hexclaveTeamLockKey(input.teamId));
-      const [pending] = await tx
-        .select({ teamId: hexclavePendingRevocations.teamId })
-        .from(hexclavePendingRevocations)
-        .where(and(
-          eq(hexclavePendingRevocations.teamId, input.teamId),
-          eq(hexclavePendingRevocations.userId, input.userId),
-        ))
-        .limit(1);
-      if (!pending) return false;
-      await operation();
-      await tx.delete(hexclavePendingRevocations).where(and(
-        eq(hexclavePendingRevocations.teamId, input.teamId),
-        eq(hexclavePendingRevocations.userId, input.userId),
-      ));
-      return true;
     }),
 
     isRevocationPending: async ({ teamId, userId }) => {
@@ -439,6 +418,9 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
     applySnapshotUser: (state, snapshotStartedAt) => db().transaction(async (tx) => {
       await boundLockWait(tx);
       const previousTeamIds = await lockUserAndTeams(tx, state.user.id, state.teams.map((team) => team.id));
+      // A bulk snapshot is not an ordering signal and must never cancel a
+      // webhook revocation that is already running outside this transaction.
+      if (await hasPendingRevocation(tx, state.user.id)) return false;
       if (await writtenSince(tx, "user", state.user.id, snapshotStartedAt)) return false;
       if (await isTombstoned(tx, "user", state.user.id)) return false;
       const currentTeamIds = await writePresentUser(tx, state, now());
