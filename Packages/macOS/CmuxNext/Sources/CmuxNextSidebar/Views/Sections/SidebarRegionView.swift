@@ -364,6 +364,7 @@ final class SidebarRegionView: NSView {
         guard !id.isTransient else { return view }
         view.onDragged = { [weak self] start, event in self?.dragMoved(.item(id), from: start, event) ?? false }
         view.onDragEnded = { [weak self] in self?.finishDrag() }
+        view.onPressBegan = { [weak self] in self?.endStaleDrag() }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)
