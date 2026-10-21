@@ -335,8 +335,10 @@ pub fn successor(
     // Aligned by column id: a pane that moved to another column is not in
     // its old column any more (close-focus.md; LayoutRows.tla).
     let now = new.columns_by_id();
-    let after: Vec<Vec<String>> =
-        columns.iter().map(|c| now.get(&c.id).cloned().unwrap_or_default()).collect();
+    let after: Vec<Vec<String>> = columns
+        .iter()
+        .map(|c| now.get(&c.id).cloned().unwrap_or_else(|| renamed_column(c, new)))
+        .collect();
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
@@ -350,6 +352,22 @@ pub fn successor(
         .find(|p| new.contains_pane(p))
         .cloned()
         .or_else(|| new.panes.first().map(|p| p.id.clone()))
+}
+
+/// The panes of old column `column` that survive in one column of `new`
+/// under another id. A screen of two columns that loses one becomes a plain
+/// split screen, whose one column takes the screen's id; without this the
+/// surviving column looked gone and the focus left for another screen.
+fn renamed_column(column: &Column, new: &Topology) -> Vec<String> {
+    let Some(now) = new
+        .screens
+        .iter()
+        .flatten()
+        .find(|candidate| candidate.panes.iter().any(|pane| column.panes.contains(pane)))
+    else {
+        return Vec::new();
+    };
+    column.panes.iter().filter(|pane| now.panes.contains(pane)).cloned().collect()
 }
 
 // MARK: Helpers
