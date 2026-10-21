@@ -379,9 +379,9 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (fork_api().set_keychain_item) {
     NSString* bundle_path = main_bundle_path && *main_bundle_path ? @(main_bundle_path) : nil;
     NSBundle* bundle = bundle_path ? [NSBundle bundleWithPath:bundle_path] : [NSBundle mainBundle];
-    NSString* name = [bundle objectForInfoDictionaryKey:@"CFBundleName"];
-    const cmux_shim::SafeStorageItem item = cmux_shim::SafeStorageItemFor(
-        [name isKindOfClass:[NSString class]] ? name.UTF8String : "", switches);
+    NSString* identifier = bundle.bundleIdentifier;
+    const cmux_shim::SafeStorageItem item =
+        cmux_shim::SafeStorageItemFor(identifier.length ? identifier.UTF8String : "", switches);
     if (!item.service.empty()) {
       fork_api().set_keychain_item(item.service.c_str(), item.account.c_str());
     }

@@ -42,18 +42,16 @@ int main() {
 
   // Each channel owns its keychain item; a shared one prompted on every
   // launch of every channel but the one that created it.
-  auto nightly = SafeStorageItemFor("cmux NIGHTLY", {"disable-notifications"});
-  Check(nightly.service == "cmux NIGHTLY Safe Storage" && nightly.account == "cmux NIGHTLY",
+  auto nightly = SafeStorageItemFor("com.cmuxterm.app.nightly", {"disable-notifications"});
+  Check(nightly.service == "cmux Safe Storage" && nightly.account == "com.cmuxterm.app.nightly",
         "nightly owns its item");
-  auto stable = SafeStorageItemFor("cmux", {});
-  Check(stable.service == "cmux Safe Storage" && stable.account == "cmux",
-        "stable is cmux Safe Storage");
-  Check(SafeStorageItemFor("cmux NEXT", {}).service != nightly.service,
+  auto next = SafeStorageItemFor("com.cmuxterm.app.nightly.cmux-next", {});
+  Check(next.service == nightly.service && next.account != nightly.account,
         "two channels never share an item");
-  Check(SafeStorageItemFor("cmux NIGHTLY", {"use-mock-keychain"}).service.empty(),
+  Check(SafeStorageItemFor("com.cmuxterm.app.nightly", {"use-mock-keychain"}).service.empty(),
         "mock keychain reads no item");
-  Check(SafeStorageItemFor("  ", {}).service.empty(), "no bundle name keeps Chromium's item");
-  Check(SafeStorageItemFor(" cmux RC ", {}).service == "cmux RC Safe Storage",
+  Check(SafeStorageItemFor("  ", {}).service.empty(), "no identifier keeps Chromium's item");
+  Check(SafeStorageItemFor(" com.cmuxterm.app ", {}).account == "com.cmuxterm.app",
         "surrounding spaces dropped");
 
   std::printf("%d/%d command line switch cases passed\n", cases - failures, cases);
