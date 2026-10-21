@@ -96,9 +96,9 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 }
 
 /// Receive and send buffer of a tunnel's UDP socket. A roam resends up to
-/// [`REPLAY_MAX`] datagrams at once, as does the peer, on top of a stream
-/// at full rate: the OS default (about 200 KB on Linux) drops part of
-/// such a burst, and TCP inside the tunnel then waits out its 1 s
+/// [`REPLAY_BYTES`] at once, several times (one per event of the roam), as
+/// does the peer, on top of a stream at full rate: the OS default (about
+/// 200 KB on Linux) drops part of such bursts, and TCP inside the tunnel then waits out its 1 s
 /// retransmission timeout. The OS caps it (Linux `net.core.rmem_max`).
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
@@ -381,7 +381,8 @@ const ROAM_SPRAY: Duration = Duration::from_secs(3);
 /// Spacing of those extra datagrams inside the window.
 const ROAM_SPRAY_GAP: Duration = Duration::from_millis(100);
 /// Data messages sent in this long before a roam, a route change or a new
-/// TURN allocation are sent again on the new route: those that went into
+/// TURN allocation are sent again on the new route (the newest that fit
+/// [`REPLAY_BYTES`]): those that went into
 /// the dead route would otherwise cost TCP inside the tunnel its 1 s
 /// minimum retransmission timeout, or after a long outage (airplane mode)
 /// its backed-off one. WireGuard's replay window drops the copies that did
@@ -827,8 +828,8 @@ impl HybridUnderlay {
 
     /// Send what went out lately again, on the current route: the newest
     /// that fit [`REPLAY_BYTES`] (what went into a dead route is the
-    /// newest), oldest first (in order, TCP inside the tunnel sees no
-    /// duplicate ACKs). Replays for a route change (not `forced`) happen at
+    /// newest), oldest first (out of order, what was lost would also make
+    /// TCP inside the tunnel see duplicate ACKs and resend its window). Replays for a route change (not `forced`) happen at
     /// most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
         if self.direct.is_none() {
