@@ -260,6 +260,9 @@ import {
   revealTurnWhenShown,
   setLinkScheme,
 } from "./links";
+import { NeedsYouButton } from "./needsYou/NeedsYou";
+import { NeedsYouPill, type TranscriptNeedsYou } from "./needsYou/JumpPill";
+import { useNeedsYou } from "./needsYou/useNeedsYou";
 import { copyText, copyTextResult } from "./conversation/clipboard";
 import { lastCodeBlock } from "./conversation/lastCodeBlock";
 import { hasTranscriptCopyText, transcriptRangeText } from "./conversation/transcriptCopy";
@@ -1586,15 +1589,19 @@ function JumpToLatest({
   working,
   onJump,
   lift,
+  needsYou,
 }: {
   shown: boolean;
   working: boolean;
+  /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
+  needsYou?: TranscriptNeedsYou;
   /// The bottom stack's height over the transcript's foot: the button sits above it.
   lift: number;
   /// `focused`: the button had keyboard focus, which it loses when it hides at the latest message.
   onJump: (focused: boolean) => void;
 }) {
   const t = useT();
+  if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
   const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   return (
     <button
@@ -1657,6 +1664,7 @@ export function VirtualTranscript({
   reveal,
   working = false,
   jumpButton = false,
+  needsYou,
   dock,
   queueWithdrawn,
   focusComposer,
@@ -1678,6 +1686,8 @@ export function VirtualTranscript({
   working?: boolean;
   /// Draw Jump to latest: the chat's own stage only, which positions it above the composer.
   jumpButton?: boolean;
+  /// Open asks: Jump to latest becomes the Needs your input pill (needsYou/JumpPill.tsx).
+  needsYou?: TranscriptNeedsYou;
   /// The chat's bottom stack, laid over the transcript's foot (bottomStack.css): the view runs under
   /// it, the scrollbar's track to the pane's bottom as in the Claude and Codex apps, and its end sits
   /// above it. Its height is room under the last row, followed as it changes before the frame paints.
@@ -1731,6 +1741,9 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /// Where Jump to latest's glide is headed while it is in flight: its steps are the view following,
+  /// not the reader's scroll, and nothing snaps it to the end before it arrives.
+  const jumpTarget = useRef<number | undefined>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
@@ -2024,6 +2037,14 @@ export function VirtualTranscript({
   const previousViewport = useRef({ height, width, dockSpace });
   /// The room kept under the last row (`room` below) as of the last placement pass.
   const heldRoom = useRef(dockSpace);
+  const [, roomTaken] = useReducer((count: number) => count + 1, 0);
+  /// Gives the room under the last row the stack's height again, at once, before Jump to latest
+  /// follows again (`room` below).
+  const takeRoom = useCallback(() => {
+    if (Math.abs(heldRoom.current - dockSpaceRef.current) <= 0.5) return;
+    heldRoom.current = dockSpaceRef.current;
+    flushSync(roomTaken);
+  }, []);
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -2380,6 +2401,7 @@ export function VirtualTranscript({
       seenAnchor.current = undefined;
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
       setScroll({ top: 0, delta: 0 });
       follow(true);
     }
@@ -2442,7 +2464,13 @@ export function VirtualTranscript({
         const latest = Math.max(0, layout.totalHeight - node.clientHeight);
         // A clamp moved the offset already (content that shrank under the view): from where it was.
         const before = top;
-        const settled = settleFollowBottom(node, latest) || clamped;
+        // Jump to latest's glide in flight heads for the new end instead of snapping there.
+        const jumping = jumpTarget.current !== undefined;
+        if (jumping && Math.abs(latest - jumpTarget.current!) > 0.5) {
+          jumpTarget.current = latest;
+          node.scrollTo({ top: latest, behavior: "smooth" });
+        }
+        const settled = jumping ? clamped : settleFollowBottom(node, latest) || clamped;
         // The glide holds the latest row the reader saw where it was painted, then slides it to its
         // place. Gliding by the offset's step alone also moved it by what grew above it (a working
         // line opening over a turn's first tool call), and by layouts of the same frame that never
@@ -2615,6 +2643,10 @@ export function VirtualTranscript({
   const findTotalHeight = useRef(layout.totalHeight);
   findTotalHeight.current = layout.totalHeight;
   const findMoved = useCallback((node: HTMLDivElement) => {
+    // A Find match moved the view: a Jump to latest in flight ends here, not at the latest row.
+    jumpTarget.current = undefined;
+    clearTimeout(settle.current);
+    settle.current = undefined;
     scrolledTo.current = scrollPosition(node, findTotalHeight.current);
     followingRef.current = scrolledTo.current.atLatest;
     setFollowing(scrolledTo.current.atLatest);
@@ -2654,6 +2686,9 @@ export function VirtualTranscript({
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
+    jumpTarget.current = undefined;
+    clearTimeout(settle.current);
+    settle.current = undefined;
     scrolledTo.current = { top: next, atLatest: false };
     follow(false);
     node.scrollTop = next;
@@ -2781,6 +2816,26 @@ export function VirtualTranscript({
     checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
+    // A step of Jump to latest's glide: the view is following on its way to the end, not snapped
+    // there (a first step inside the deadband read as layout work), and not stopped (a longer one
+    // read as the reader's scroll up).
+    if (jumpTarget.current !== undefined) {
+      // WebKit keeps the offset to whole pixels: within one of the end is there.
+      if (next >= jumpTarget.current - 1) jumpTarget.current = undefined;
+      scrolledTo.current = { top: next, atLatest: true };
+      seenAnchor.current = null;
+      followTrace.set(next);
+      acpmuxPerf.timed("flush.scroll", () =>
+        flushSync(() => setScroll((current) => ({ top: next, delta: next - current.top }))),
+      );
+      // The kept place is the latest message again (a reopened chat opens there, not where the
+      // reader was before the jump).
+      if (onAnchor) {
+        clearTimeout(anchorTimer.current);
+        anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
+      }
+      return;
+    }
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
     // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
     // changes. While the reader is following, keep the viewport at the new end and do not let
@@ -2845,16 +2900,22 @@ export function VirtualTranscript({
     // view back to the match and stops following again.
     revealing.current = undefined;
     revealWindow.current = 0;
+    // The room the stack grew while scrolled up comes first, out of view, so following again moves
+    // nothing and the glide runs to the end above the card instead of snapping there.
+    takeRoom();
     follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const target = Math.max(0, layout.totalHeight - node.clientHeight);
+    // The layout the room just taken committed (flushSync above), not the one this render closed over.
+    const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
+    jumpTarget.current = reduce || target - node.scrollTop <= 0.5 ? undefined : target;
     node.scrollTo({ top: target, behavior: reduce ? "auto" : "smooth" });
     // The landing: whether the smooth scroll arrived, was cut short as rows above settled, or the
     // reply grew past it. Only the reader's own scroll meanwhile cancels it.
     clearTimeout(settle.current);
     settle.current = setTimeout(() => {
       settle.current = undefined;
+      jumpTarget.current = undefined;
       const scroller = ref.current;
       if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
     }, JUMP_LATEST_SETTLE_MS);
@@ -2866,6 +2927,7 @@ export function VirtualTranscript({
       followTrace.input();
       clearTimeout(settle.current);
       settle.current = undefined;
+      jumpTarget.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
@@ -3074,7 +3136,25 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
+      {jumpButton && (
+        <JumpToLatest
+          // The pill also shows at the latest message while asks wait in other chats: it cycles to them.
+          shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+          working={working}
+          onJump={(focused) => {
+            // One press, one move: to the latest message when this chat's ask waits there (or no
+            // ask is open), else straight to the next chat's ask.
+            // With no ask open it is Jump to latest, whatever the last render read for `behind`.
+            const asks = needsYou?.count ?? 0;
+            const here = asks - (needsYou?.elsewhere ?? 0);
+            const scroll = asks === 0 || (behind && here > 0);
+            if (scroll) jumpToLatest(focused);
+            if (needsYou && asks > 0) needsYou.next(scroll);
+          }}
+          lift={dockSpace}
+          needsYou={needsYou}
+        />
+      )}
     </>
   );
 }
@@ -4329,6 +4409,11 @@ function AcpmuxPane() {
     else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
+  // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
+  const readQueuedImage = useCallback(
+    (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+    [],
+  );
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -5506,11 +5591,13 @@ function AcpmuxPane() {
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
           "chat.secret": ({ secretId, value }) =>
             client.secret(String(secretId), typeof value === "string" ? value : undefined),
-          "chat.permission": ({ permissionId, optionId, answers }) =>
+          "chat.permission": ({ permissionId, optionId, answers, sessionId }) =>
             client.permission(
               String(permissionId),
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
+              // The Needs you list answers asks of other chats too.
+              typeof sessionId === "string" && sessionId ? sessionId : undefined,
             ),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
@@ -6106,6 +6193,16 @@ function AcpmuxPane() {
         .then(setFloatingState)
         .catch(() => undefined);
   }, [quick]);
+  // Needs you (needsYou/): the header's badge and list, and the transcript's Needs your input pill.
+  const needsYou = useNeedsYou({
+    snapshot,
+    callNative,
+    sideSession: async (sessionId, question) => {
+      const client = directClient.current;
+      if (!client) throw new Error(translate("needsYou.askFailed"));
+      await postNative("chat.sideChat", { sessionId: await client.btw(question, sessionId) });
+    },
+  });
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
     // Quick Chat's panel is not a tab: there is no split to open beside it.
@@ -6541,6 +6638,7 @@ function AcpmuxPane() {
                                                 working={snapshot.isWorking}
                                                 // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
                                                 jumpButton={!quick}
+                                                needsYou={needsYou.pill}
                                                 focusComposer={() => composerHandle.current?.focus()}
                                                 // Quick Chat's panel stacks its composer below the transcript.
                                                 dock={quick ? undefined : dock}
@@ -6553,9 +6651,7 @@ function AcpmuxPane() {
                                                 }
                                                 canLoadOlder={!childRows && snapshot.canLoadOlder}
                                                 historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                                onLoadOlder={() =>
-                                                  directClient.current?.loadOlder() ?? Promise.resolve()
-                                                }
+                                                onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
                                                 openAt={
                                                   !childRows &&
                                                   shownSessionId &&
@@ -7041,6 +7137,7 @@ function AcpmuxPane() {
             onQueueChange={editQueued}
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
@@ -7438,6 +7535,7 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
+                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
