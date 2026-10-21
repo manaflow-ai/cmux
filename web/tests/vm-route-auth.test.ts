@@ -642,7 +642,9 @@ describe("VM REST auth", () => {
       idempotencyKey: "idem-1",
       memoryMb: 8192,
     }));
-    expect(listTeams).not.toHaveBeenCalled();
+    // VM mutations always enumerate current memberships so a deleted shared
+    // snapshot cannot fall back to an instance-local team list.
+    expect(listTeams).toHaveBeenCalledTimes(1);
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -818,7 +820,7 @@ describe("VM REST auth", () => {
     expect(readInput.teamIdsComplete).toBe(true);
   });
 
-  test("tunnel POST marks the team list incomplete when the fresh membership listing fails", async () => {
+  test("tunnel POST fails closed when the fresh membership listing fails", async () => {
     let listCalls = 0;
     getUser.mockResolvedValue({
       ...authedStackUser(),
@@ -838,11 +840,9 @@ describe("VM REST auth", () => {
       method: "POST", headers,
       body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
     }));
-    expect(posted.status).toBe(200);
+    expect(posted.status).toBe(503);
     expect(listCalls).toBeGreaterThan(0);
-    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
-    expect(enrollInput.teamIds).toEqual(["team-1"]);
-    expect(enrollInput.teamIdsComplete).toBe(false);
+    expect(enrollVmTunnel).not.toHaveBeenCalled();
   });
 
   test("tunnel POST and GET forward authenticated team membership", async () => {
@@ -1919,8 +1919,9 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    // initial auth + team-mismatch re-verify + pro-plan reconcile user fetch
-    expect(getUser).toHaveBeenCalledTimes(3);
+    // Fresh complete membership auth resolves the body team in one pass; the
+    // plan reconciliation performs the second user fetch.
+    expect(getUser).toHaveBeenCalledTimes(2);
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingCustomerType: "team",
