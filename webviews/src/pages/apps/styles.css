@@ -682,6 +682,10 @@ code {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
+    /* 2px left of the first chip for its focus ring (pulled back so it stays on the edge), and room
+       past the last one to scroll it clear of the fade. */
+    margin-left: -2px;
+    padding-inline: 2px 24px;
     mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
 }
