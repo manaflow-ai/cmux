@@ -30,7 +30,6 @@ export function EditDiff({ file }: { file: TurnFile }) {
           type="button"
           className="cv-codeblock__action cv-edit-diff__copy"
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
-          title={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyText(patches.join("")).then(
               () => setCopied(true),

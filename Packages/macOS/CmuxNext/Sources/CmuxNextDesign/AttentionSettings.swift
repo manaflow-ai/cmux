@@ -29,8 +29,9 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var showsOnSidebar = true
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
-    /// `app.reorderOnNotification`).
-    public var movesToTop = true
+    /// `app.reorderOnNotification`). Off by default: the sidebar keeps the
+    /// order the user made and shows attention as a badge (Leo 2026-10-20).
+    public var movesToTop = false
 
     public init() {}
 

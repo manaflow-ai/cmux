@@ -1,6 +1,6 @@
 // A queued prompt's row shows its actions (Leo, 2026-10-20: "where the hell is the edit button?"):
 // Edit, Remove and Send now, each a button named by its tooltip, and each does what it says through
-// `_acpmux/queue_edit` or the withdraw.
+// `_acpmux/queue_edit` or the withdraw. Send now is a click only: no key sends it.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -113,7 +113,7 @@ test("Edit opens the prompt's text in its row", async () => {
   expect(field?.value).toBe("first");
 });
 
-test("a held ⌘↩ on a row sends that row once and keeps focus on it", async () => {
+test("⌘↩ on a row, held or not, sends nothing and keeps focus on it", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await render(
     async (id, edit) => {
@@ -131,6 +131,6 @@ test("a held ⌘↩ on a row sends that row once and keeps focus on it", async (
     press(true);
     press(true);
   });
-  expect(edits).toEqual([["p-1", { op: "send_now" }]]);
+  expect(edits).toEqual([]);
   expect(dom!.window.document.activeElement).toBe(row);
 });
