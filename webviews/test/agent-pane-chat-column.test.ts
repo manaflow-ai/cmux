@@ -183,8 +183,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
     await installPaintedFrames(page);
-    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on <html>.
-    const set = { ...(foldThoughts && { "data-fold-long-thoughts": "on" }), ...attributes };
+    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on
+    // <html>: the fold is on unless the app sets it off.
+    const set = { ...(!foldThoughts && { "data-fold-long-thoughts": "off" }), ...attributes };
     if (Object.keys(set).length)
       await page.addInitScript((names: Record<string, string>) => {
         const apply = () => {

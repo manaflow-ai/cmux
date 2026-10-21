@@ -34,9 +34,10 @@ enum AgentChatKeyHandlers {
             }
             registry.track(work)
         })
-        registry.bind("agentPane.archiveChat", run: { invocation in
+        // A Priority row's chat (`agent-chat:`) archives from the row; else the focused chat's Archive.
+        SidebarPriorityRowActions(chats: .app).bindArchive(into: registry) { invocation in
             chatView(context, invocation, refusal: MiscHandlerStrings.archiveChatNeedsAgentChat)?.archiveChat()
-        })
+        }
     }
 
     private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation, refusal: String) -> AgentPaneView? {

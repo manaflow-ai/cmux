@@ -62,12 +62,17 @@ one.
 - Harness install and sign-in: `cmux setup harness [ID ...]` (default:
   every configured or found harness) says per harness whether it is
   installed, signed in and outdated. A signed-out one is `needs_user` with
-  `cmux harness login ID`: run it in a terminal beside your chat and the
-  user finishes the sign-in in the browser. A missing CLI is `needs_user`
-  with the install docs as `url`. An outdated one names its `update`
-  command; run it only when the user wants the update. Run
-  `cmux setup harness ID` again after the user acts. `signed_in: null`
-  means cmux cannot see the sign-in; it is still `ok`.
+  `cmux harness login ID` (a harness not configured yet: its own login
+  command, such as `codex login`): run `user_action.command` in a terminal
+  beside your chat and the user finishes the sign-in in the browser. A
+  missing CLI is `needs_user` with the install docs as `url`. An outdated
+  one names its `update` command; run it only when the user wants the
+  update. Run `cmux setup harness ID` again after the user acts.
+  `signed_in: null` means cmux cannot see the sign-in; it is still `ok`,
+  and `auth_detail` says why when cmux knows. Setup never reads the login
+  keychain itself and does not start a harness whose sign-in may be there
+  (a Keychain item in its profile env, Codex keeping its login in the
+  keychain, a Claude Code adapter).
   `cmux harness doctor ID --json` runs a real prompt turn when a harness
   that looks ready still fails.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is

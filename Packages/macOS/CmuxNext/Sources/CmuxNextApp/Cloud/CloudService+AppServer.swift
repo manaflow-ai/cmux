@@ -93,7 +93,7 @@ extension CloudPresenter {
         case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
         case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
         }
-        let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)]
+        let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel) : false }
         return await withCheckedContinuation { continuation in
             confirm(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"), button: CloudStrings.createConfirmButton,

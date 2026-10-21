@@ -174,14 +174,7 @@ final class SidebarPullRequestStore {
         if pruned.count != answers.count { answers = pruned } // a set always notifies the tree's observation
         asked = asked.filter { kept.contains($0.key) }
         failures = failures.filter { kept.contains($0.key) }
-        if freshness > .zero, asks.contains(where: inFlight) {
-            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
-                guard let self else { return }
-                refresh(shown, onlyInFlight: true)
-            }
-        } else {
-            recheck.cancel()
-        }
+        scheduleRecheck()
         let stale = asks.filter { key in
             !asking.contains(key) && !isSettled(key) && (!onlyInFlight || inFlight(key)) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
@@ -200,6 +193,7 @@ final class SidebarPullRequestStore {
             guard let self else { return }
             asking.remove(folder)
             if answers[folder] != answer { answers[folder] = answer }
+            scheduleRecheck()
         }
     }
 
@@ -222,6 +216,21 @@ final class SidebarPullRequestStore {
                 failures[url] = nil
                 if answers[url] != answer { answers[url] = answer }
             }
+            scheduleRecheck()
+        }
+    }
+
+    /// Keeps the recheck pending while the tree shows an open or draft pull request, else stops it.
+    /// It runs on every refresh and again when an answer lands: the first answer is what makes a
+    /// shown pull request open, and the store reads it again then without waiting for the tree.
+    private func scheduleRecheck() {
+        if freshness > .zero, shown.contains(where: inFlight) {
+            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+                guard let self else { return }
+                refresh(shown, onlyInFlight: true)
+            }
+        } else {
+            recheck.cancel()
         }
     }
 

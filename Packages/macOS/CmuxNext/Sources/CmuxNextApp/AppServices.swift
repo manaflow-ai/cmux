@@ -22,6 +22,7 @@ import CmuxNextPopups
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
+import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -71,6 +72,9 @@ final class AppServices {
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
+    /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
+    private(set) lazy var addMachine = AddMachineCard(services: .app(self))
+    let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -196,6 +200,8 @@ final class AppServices {
         overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
+    /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
+    let browserNativeInputs = BrowserNativeInputs()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).

@@ -528,8 +528,10 @@ async function run({
   });
   await done;
   // The reveal drains what is left (StreamReveal.finishMs) before the stream counts as drawn.
+  // fixed-wait: the drain's frames are sampled; its length is StreamReveal.finishMs of wall time
   await new Promise((resolve) => setTimeout(resolve, StreamReveal.finishMs + 50));
   live = false;
+  // fixed-wait: the settle window is sampled for any jump after the stream; the window is the test
   await new Promise((resolve) => setTimeout(resolve, settleMs));
   sampling = false;
   observer?.disconnect();

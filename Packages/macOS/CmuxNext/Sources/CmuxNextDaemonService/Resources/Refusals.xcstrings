@@ -29742,6 +29742,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.group.noFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This group has no folder yet. Its settings are found by the folder of its first workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このグループにはまだフォルダがありません。グループの設定は最初のワークスペースのフォルダで決まります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد مجلد لهذه المجموعة بعد. تُحدَّد إعداداتها بمجلد أول مساحة عمل فيها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova grupa još nema mapu. Njene postavke se pronalaze po mapi njenog prvog radnog prostora."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne gruppe har endnu ingen mappe. Dens indstillinger findes ud fra mappen for dens første arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Gruppe hat noch keinen Ordner. Ihre Einstellungen werden über den Ordner ihres ersten Arbeitsbereichs gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este grupo aún no tiene carpeta. Su configuración se busca por la carpeta de su primer espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce groupe n’a pas encore de dossier. Ses réglages sont trouvés par le dossier de son premier espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo gruppo non ha ancora una cartella. Le sue impostazioni si trovano tramite la cartella della sua prima area di lavoro."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ក្រុមនេះមិនទាន់មានថតនៅឡើយទេ។ ការកំណត់របស់វាត្រូវបានរកតាមថតនៃកន្លែងធ្វើការដំបូងរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 그룹에는 아직 폴더가 없습니다. 그룹 설정은 첫 작업 공간의 폴더로 찾습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne gruppen har ingen mappe ennå. Innstillingene finnes ut fra mappen til det første arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta grupa nie ma jeszcze folderu. Jej ustawienia są wyszukiwane według folderu jej pierwszego obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este grupo ainda não tem pasta. As configurações dele são encontradas pela pasta do primeiro espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У этой группы ещё нет папки. Её настройки находятся по папке её первой рабочей области."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กลุ่มนี้ยังไม่มีโฟลเดอร์ การตั้งค่าของกลุ่มหาจากโฟลเดอร์ของพื้นที่ทำงานแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu grubun henüz bir klasörü yok. Ayarları ilk çalışma alanının klasörüne göre bulunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця група ще не має теки. Її налаштування знаходяться за текою її першого робочого простору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhóm này chưa có thư mục. Cài đặt của nhóm được tìm theo thư mục của không gian làm việc đầu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此组还没有文件夹。组的设置按其第一个工作区的文件夹查找。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此群組尚無資料夾。群組的設定依其第一個工作區的資料夾尋找。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

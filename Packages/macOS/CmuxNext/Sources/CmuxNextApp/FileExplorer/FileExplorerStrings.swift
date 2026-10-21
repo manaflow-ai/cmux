@@ -42,6 +42,8 @@ nonisolated enum FileExplorerStrings {
     static var newFile: String { text("fileExplorer.menu.newFile", "New File") }
     static var newFolder: String { text("fileExplorer.menu.newFolder", "New Folder") }
     static var rename: String { text("fileExplorer.menu.rename", "Rename") }
+    /// The undo step's name (Edit > Undo Move to Trash).
+    static var undoMoveToTrash: String { text("fileExplorer.undo.moveToTrash", "Move to Trash") }
     static var moveToTrash: String { text("fileExplorer.menu.moveToTrash", "Move to Trash") }
     /// The accessibility description of a row's git badge.
     static func gitState(_ state: FileGitState) -> String {
