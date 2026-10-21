@@ -93,7 +93,7 @@ export const SubagentTray = memo(function SubagentTray({
           </span>
           <span className="acpmux-summary-text acpmux-running-tray__title">{title}</span>
           {starts.length > 0 && (
-            <span className="acpmux-summary-meta acpmux-agent-line__time">
+            <span className="acpmux-summary-meta acpmux-running-tray__time">
               {formatDuration(Math.max(0, now - Math.min(...starts)))}
             </span>
           )}

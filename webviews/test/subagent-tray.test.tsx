@@ -259,6 +259,9 @@ describe("the tray", () => {
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      // The header's time is its own, not a fourth line's.
+      expect(shown.root.querySelectorAll(".acpmux-agent-line__time").length).toBe(3);
+      expect(head.querySelector(".acpmux-running-tray__time")?.textContent).toMatch(/^[56]s$/);
       await act(async () => head.click());
       expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
     } finally {

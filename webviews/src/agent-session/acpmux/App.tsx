@@ -3901,14 +3901,14 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
   });
   // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
-  // the registry's, read while the summary card shows, a turn runs, a command is known to run (the
-  // hook stays on while one it knows runs, so its end arrives) or the running tray is on: the tray
-  // shows a registry command between turns too, one a past turn started included.
+  // the registry's, read while the summary card shows, a turn runs or a command is known to run (the
+  // hook stays on while one it knows runs, so its end arrives). The tray shows a registry command
+  // between turns while the hook knows it runs; a quiet chat sends no `_acpmux/process/list`.
   const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
-    summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0 || subagentTray,
+    summaryCard.shown || snapshot.isWorking || transcriptRunning.length > 0,
   );
   const runningCommandList = useMemo(
     () =>
