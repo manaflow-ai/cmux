@@ -9,6 +9,8 @@ final class FileExplorerService {
     private weak var services: AppServices?
     private let sections = NSMapTable<WindowController, FileExplorerSectionView>(keyOptions: .weakMemory, valueOptions: .weakMemory)
     let effects: any FileExplorerEffects
+    /// Find tabs (Open Find as Pane).
+    private(set) lazy var findPanes = FindPaneService(services: services)
 
     init(services: AppServices) {
         self.services = services
@@ -25,6 +27,13 @@ final class FileExplorerService {
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) })
         sections.setObject(view, forKey: controller)
         return view
+    }
+
+    /// The Find section of `controller`: ripgrep over the folder the explorer would show.
+    func makeFindSection(for controller: WindowController) -> FindSectionView {
+        FindSectionView(model: FindSectionModel(), rootFolder: { [weak self, weak controller] in
+            controller.flatMap { self?.folder(focusedIn: $0) } ?? FileManager.default.homeDirectoryForCurrentUser
+        }, effects: effects)
     }
 
     /// The active window's explorer, once its Files section was shown.

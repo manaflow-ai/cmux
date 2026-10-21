@@ -5,15 +5,12 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 
-// Swap, close, rename, flash, workspace font size, and pane kinds this
-// build does not have (simulator, sidebar-as-pane), which are bound
-// with a typed reason instead of left unbound.
+// Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
     static func bindPaneVerbs(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindSwaps(registry, ctx)
         bindLifecycle(registry, ctx)
         bindFontSize(registry, ctx)
-        bindUnported(registry)
     }
 
     private static func bindSwaps(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -142,9 +139,5 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
-    }
-
-    private static func bindUnported(_ registry: ActionRegistry) {
-        registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
     }
 }

@@ -176,7 +176,6 @@ public nonisolated enum RefusalStrings {
     }
     /// A canvas zoom that is already at its limit (or at actual size).
     public static var canvasZoomLimit: String { text("handlers.refusal.canvasZoomLimit", "the canvas is already at that zoom") }
-    public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
     public static var controlListenerNotRunning: String {
         text("handlers.refusal.controlListenerNotRunning", "The CLI listener is not running in this app.")
     }
