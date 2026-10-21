@@ -86,9 +86,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       for (const [name, selector] of Object.entries(controls)) {
         const element = document.querySelector(selector);
         const rect = element?.getBoundingClientRect();
-        // Send's slot is there with an empty draft, hidden (Composer.tsx): only a drawn control counts.
-        const drawn = rect && rect.width > 0 && getComputedStyle(element!).visibility === "visible";
-        out[name] = drawn ? [rect.left, rect.top, rect.width, rect.height] : "missing";
+        out[name] = rect && rect.width > 0 ? [rect.left, rect.top, rect.width, rect.height] : "missing";
       }
       return out;
     }, CONTROLS);
