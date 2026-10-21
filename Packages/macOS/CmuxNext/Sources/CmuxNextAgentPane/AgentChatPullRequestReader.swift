@@ -72,7 +72,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     }
 
     /// The process, for the deadline.
-    private final class Held: @unchecked Sendable {
+    private final class Held: @unchecked Sendable { // crash-allow: one immutable let; the deadline only reads isRunning and calls terminate, which Process allows from any thread
         let process = Process()
     }
 
