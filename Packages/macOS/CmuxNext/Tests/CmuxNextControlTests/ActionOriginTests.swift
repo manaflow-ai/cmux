@@ -151,16 +151,17 @@ import Testing
         #expect(ran, "an in-app palette, menu, or keyboard run still reaches the handler")
     }
 
-    /// Raw app screenshots can include a browser page. Automation must use
+    /// Raw window screenshots can include a browser page. Automation must use
     /// the browser host's guarded capture, which masks secrets in every frame,
     /// instead of bypassing it through the generic action socket. Design mode
     /// also snapshots selected page regions into a composer, so only a person
-    /// may enable that capture path.
+    /// may enable that capture path. Pane and tab screenshots reach their
+    /// handler (#23026), which refuses browser pixels to automation itself.
     @Test func appScreenshotsAreRefusedOverTheSocket() async {
         let registry = ActionRegistry.standard()
         registry.context = [.browserFocused, .webViewFocused]
         let ids: [ActionID] = [
-            "window.screenshot", "pane.screenshot", "tab.screenshot",
+            "window.screenshot",
             "browserScreenshotPage", "browserScreenshotSection",
             "devtools.captureScreenshot", "devtools.captureFullPageScreenshot", "devtools.captureNodeScreenshot",
             "toggleBrowserDesignMode",
@@ -181,6 +182,25 @@ import Testing
         }
         #expect(ran.isEmpty)
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
+    }
+
+    /// An agent captures a pane or a tab over the socket (#23026): the run reaches the
+    /// screenshot handler, which decides per target (browser pixels stay refused there).
+    @Test func paneAndTabScreenshotsReachTheirHandlerOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        let ids: [ActionID] = ["pane.screenshot", "tab.screenshot"]
+        var ran: [ActionID] = []
+        for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        for id in ids {
+            #expect(registry.descriptor(for: id)?.isPersonOnly == false)
+            _ = await router.handle(ControlRequest(method: "action.run", params: [
+                "action": .string(id.rawValue), "origin": "cli",
+            ]))
+        }
+        #expect(ran == ids)
     }
 
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {

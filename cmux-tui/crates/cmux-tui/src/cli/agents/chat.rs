@@ -17,6 +17,9 @@
 //!
 //! Waiting for a reply is `agents_wait` (`until: idle`, the chat as
 //! target, `agents/wait.rs`); then read on from the last `next_after`.
+//!
+//! `new`, `state`, `interrupt` and `continue` (#23026) live in
+//! `chat_control.rs`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -42,12 +45,32 @@ const MAX_EVENT_PAGES: usize = 20;
 pub(in crate::cli) enum ChatCommand {
     Send { target: String, text: String },
     Read { target: String, after: u64, limit: usize },
+    /// Start a GUI agent chat (chat_control.rs).
+    New(super::chat_control::NewChat),
+    /// What a chat is doing.
+    State { target: String },
+    /// Cancel a chat's running turn.
+    Interrupt { target: String },
 }
 
-/// `chat send <chat> [--] <text>` and `chat read <chat> [--after N]
-/// [--limit N]` (the words after `agents`).
+/// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
+/// [--limit N]`, `chat new ...`, `chat state <chat>`, `chat interrupt
+/// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
+        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
+        ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
+        // A nudge: a send whose text defaults to "Continue.".
+        ["continue", target] => Ok(ChatCommand::Send {
+            target: chat_word(target)?,
+            text: super::chat_control::CONTINUE_TEXT.to_owned(),
+        }),
+        ["continue", target, rest @ ..] => {
+            let mut words = vec!["send", *target];
+            words.extend_from_slice(rest);
+            parse(&words)
+        }
         ["send", target, rest @ ..] => {
             let target = chat_word(target)?;
             // One argument: cmux reads its own flags (`--session`, `--json`)
@@ -118,7 +141,9 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             Ok(ChatCommand::Read { target, after, limit })
         }
         _ => Err(UsageError::new(
-            "agents chat: use `chat send <chat> <text>` or `chat read <chat> [--after N] [--limit N]`",
+            "agents chat: use `chat new [flags] [<prompt>]`, `chat send <chat> <text>`, \
+             `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
+             `chat interrupt <chat>` or `chat continue <chat> [<text>]`",
         )),
     }
 }
@@ -141,6 +166,9 @@ pub(in crate::cli) fn run(
     match command {
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
+        ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
+        ChatCommand::State { target } => super::chat_control::state(global, target),
+        ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
     }
 }
 
@@ -155,7 +183,7 @@ fn not_run(code: &str, message: impl Into<String>, details: Value) -> CallFailur
 
 /// The chat `target` names (an id, a name or a unique prefix), when it is a
 /// chat of this cmux session.
-fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<String, CallFailure> {
+pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<String, CallFailure> {
     let (chat, info) = acp::lookup(target).map_err(|error| {
         not_run(
             "selector.not_found",
@@ -179,7 +207,7 @@ fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<String, CallFailure>
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
-fn workspace_key(value: &str) -> String {
+pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
@@ -204,6 +232,21 @@ fn own_chat() -> Option<String> {
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
 }
 
+/// Refuses `chat` when it is the caller's own: a chat never prompts or
+/// interrupts itself.
+pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
+    if let Some(own) = own_chat()
+        && (own == chat || acp::lookup(&own).is_ok_and(|(id, _)| id == chat))
+    {
+        return Err(not_run(
+            "chat.own_chat",
+            "a chat cannot prompt or interrupt itself; name another chat",
+            json!({"scope": "chat", "selector": target, "chat": chat}),
+        ));
+    }
+    Ok(())
+}
+
 fn send(
     global: &GlobalArgs,
     target: &str,
@@ -212,15 +255,7 @@ fn send(
     origin: &str,
 ) -> Result<Value, CallFailure> {
     let chat = scoped_chat(global, target)?;
-    if let Some(own) = own_chat()
-        && (own == chat || acp::lookup(&own).is_ok_and(|(id, _)| id == chat))
-    {
-        return Err(not_run(
-            "chat.own_chat",
-            "a chat cannot prompt itself; name another chat",
-            json!({"scope": "chat", "selector": target, "chat": chat}),
-        ));
-    }
+    refuse_own_chat(&chat, target)?;
     let key = match idempotency_key {
         Some(key) => key.to_owned(),
         None => wire::random_idempotency_key()
@@ -289,7 +324,8 @@ fn send(
 /// Whether a `chat.send` receipt reports a message that was stored but
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
-    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
+    (receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed")
+        || (receipt["action"] == "chat.new" && receipt["result"]["prompt"]["state"] == "failed")
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
@@ -567,7 +603,7 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-mod acp {
+pub(super) mod acp {
     //! The acpmux linked into this binary, at the home `cmux acp` uses
     //! (`ACPMUX_SOCKET` first). A chat verb never starts the acpmux daemon.
 
@@ -584,13 +620,49 @@ mod acp {
     }
 
     /// The id and `_acpmux/info` of the session `key` names.
-    pub(super) fn lookup(key: &str) -> Result<(String, Value), String> {
+    pub(in crate::cli) fn lookup(key: &str) -> Result<(String, Value), String> {
         block_on(async {
             let client = acpmux::deliver::connect().await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
             let info =
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
             Ok((id, info))
+        })
+    }
+
+    /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
+    /// `session/new` reply.
+    pub(in crate::cli) fn new_session(cwd: &str, meta: Value) -> Result<Value, String> {
+        block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            client
+                .request(
+                    acpmux::rpc::method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+                )
+                .await
+        })
+    }
+
+    /// Ends the session and deletes its record (`_acpmux/kill` with purge).
+    pub(in crate::cli) fn kill(session: &str) -> Result<(), String> {
+        block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            client
+                .request(acpmux::rpc::method::MUX_KILL, json!({"sessionId": session, "purge": true}))
+                .await?;
+            Ok(())
+        })
+    }
+
+    /// Cancels the session's running turn (`session/cancel`).
+    pub(in crate::cli) fn cancel(session: &str) -> Result<(), String> {
+        block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            client
+                .request(acpmux::rpc::method::SESSION_CANCEL, json!({"sessionId": session}))
+                .await?;
+            Ok(())
         })
     }
 

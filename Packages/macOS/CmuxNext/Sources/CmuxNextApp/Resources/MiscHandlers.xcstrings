@@ -12379,6 +12379,268 @@
         }
       }
     },
+    "handlers.screenshot.browserNeedsGuardedCapture": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser page is captured only through `cmux browser page screenshot`, which hides secrets from other sessions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُلتقط صفحة المتصفح فقط عبر `cmux browser page screenshot`، الذي يخفي الأسرار عن الجلسات الأخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranica preglednika snima se samo putem `cmux browser page screenshot`, koji skriva tajne od drugih sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En browserside optages kun via `cmux browser page screenshot`, som skjuler hemmeligheder for andre sessioner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Browserseite wird nur über `cmux browser page screenshot` aufgenommen, das Geheimnisse vor anderen Sitzungen verbirgt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una página del navegador solo se captura con `cmux browser page screenshot`, que oculta los secretos a otras sesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une page de navigateur ne se capture qu’avec `cmux browser page screenshot`, qui masque les secrets aux autres sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pagina del browser si cattura solo con `cmux browser page screenshot`, che nasconde i segreti alle altre sessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザページは `cmux browser page screenshot` でのみキャプチャされます。他のセッションには秘密が隠されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំព័រកម្មវិធីរុករកត្រូវបានថតតែតាម `cmux browser page screenshot` ប៉ុណ្ណោះ ដែលលាក់អាថ៌កំបាំងពីវគ្គផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 페이지는 다른 세션에 비밀을 숨기는 `cmux browser page screenshot`로만 캡처됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En nettleserside tas bare opp via `cmux browser page screenshot`, som skjuler hemmeligheter for andre økter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stronę przeglądarki można przechwycić tylko przez `cmux browser page screenshot`, które ukrywa sekrety przed innymi sesjami"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma página do navegador só é capturada com `cmux browser page screenshot`, que oculta segredos de outras sessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Страницу браузера можно снять только через `cmux browser page screenshot`, который скрывает секреты от других сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าเบราว์เซอร์จะจับภาพได้ผ่าน `cmux browser page screenshot` เท่านั้น ซึ่งซ่อนความลับจากเซสชันอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir tarayıcı sayfası yalnızca `cmux browser page screenshot` ile yakalanır; bu, sırları diğer oturumlardan gizler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сторінку браузера можна зняти лише через `cmux browser page screenshot`, який приховує секрети від інших сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trang trình duyệt chỉ được chụp qua `cmux browser page screenshot`, công cụ này ẩn bí mật khỏi các phiên khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器页面只能通过 `cmux browser page screenshot` 截取，它会对其他会话隐藏机密"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器頁面只能透過 `cmux browser page screenshot` 擷取，它會對其他工作階段隱藏機密"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.chatNeedsMaskedRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent chat is read through `cmux agents chat read`, which hides secrets, not captured"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُقرأ دردشة الوكيل عبر `cmux agents chat read`، الذي يخفي الأسرار، ولا تُلتقط صورتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat agenta čita se putem `cmux agents chat read`, koji skriva tajne, a ne snima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agentchat læses via `cmux agents chat read`, som skjuler hemmeligheder, og optages ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent-Chat wird über `cmux agents chat read` gelesen, das Geheimnisse verbirgt, nicht aufgenommen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat de agente se lee con `cmux agents chat read`, que oculta los secretos; no se captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat d’agent se lit avec `cmux agents chat read`, qui masque les secrets ; il ne se capture pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una chat dell’agente si legge con `cmux agents chat read`, che nasconde i segreti, non si cattura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットはキャプチャせず、秘密を隠す `cmux agents chat read` で読み取ります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែករបស់ភ្នាក់ងារត្រូវបានអានតាម `cmux agents chat read` ដែលលាក់អាថ៌កំបាំង មិនមែនថតទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅은 캡처하지 않고 비밀을 숨기는 `cmux agents chat read`로 읽습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agentchat leses via `cmux agents chat read`, som skjuler hemmeligheter, og tas ikke opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat agenta odczytuje się przez `cmux agents chat read`, które ukrywa sekrety, a nie przechwytuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um chat de agente é lido com `cmux agents chat read`, que oculta segredos, e não capturado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента читается через `cmux agents chat read`, который скрывает секреты, а не снимается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทของเอเจนต์อ่านผ่าน `cmux agents chat read` ซึ่งซ่อนความลับ ไม่ใช่จับภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan sohbeti yakalanmaz, sırları gizleyen `cmux agents chat read` ile okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента читається через `cmux agents chat read`, який приховує секрети, а не знімається"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện của tác nhân được đọc qua `cmux agents chat read`, công cụ ẩn bí mật, không chụp ảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天通过会隐藏机密的 `cmux agents chat read` 读取，而不是截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天透過會隱藏機密的 `cmux agents chat read` 讀取，而不是截圖"
+          }
+        }
+      }
+    },
     "handlers.screenshot.tabNotShown": {
       "extractionState": "manual",
       "localizations": {
