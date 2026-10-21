@@ -13,7 +13,6 @@ use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, Sess
 
 pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
-const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 const CHECKPOINT_REPLAY_RETRY_BUDGETS: [usize; 3] = [
     crate::surface::VT_REPLAY_MAX_BYTES,
     crate::surface::VT_REPLAY_MAX_BYTES * 2,
@@ -89,13 +88,12 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
-    mux.flush_terminal_journal()?;
-    if recovered {
-        // CAN advances the journal. Start a complete new attempt so terminal
-        // IDs and extension manifests come from the new consistency cut too.
-        return Ok(None);
-    }
+    // Terminal screens stay out of the journal (output_store.rs): a
+    // checkpoint names its terminals but keeps no replay blob. The output
+    // store writes its snapshots now instead, so a respawn after a reboot
+    // gets the screen of this checkpoint (none in memory mode).
+    mux.output_store.write_now(mux);
+    let blobs = Vec::new();
 
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
@@ -118,29 +116,6 @@ fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
         }),
         blobs,
     }))
-}
-
-fn capture_terminal_blobs(
-    mux: &Mux,
-    terminal_ids: &[TerminalPublicId],
-) -> anyhow::Result<(Vec<JournalContentBlob>, bool)> {
-    let mut total_bytes = 0_u64;
-    let mut recovered = false;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(terminal_id) else { continue };
-        let (blob, terminal_recovered) = terminal_replay_blob_with_recovery(&surface, terminal_id)?;
-        recovered |= terminal_recovered;
-        total_bytes = total_bytes
-            .checked_add(blob.reference.uncompressed_bytes)
-            .context("checkpoint content byte count overflow")?;
-        anyhow::ensure!(
-            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
-            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
-        );
-        blobs.push(blob);
-    }
-    Ok((blobs, recovered))
 }
 
 pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {

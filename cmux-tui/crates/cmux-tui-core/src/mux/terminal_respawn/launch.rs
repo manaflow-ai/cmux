@@ -42,8 +42,9 @@ pub(in crate::mux) struct RespawnLaunch {
 }
 
 impl Mux {
-    /// The lost incarnation's screen: its exit replay, else the latest
-    /// journal checkpoint of the terminal.
+    /// The lost incarnation's screen: its exit replay, else the output
+    /// store's snapshot, else the latest journal checkpoint of the terminal
+    /// (registries written before the output store).
     pub(in crate::mux) fn previous_screen(
         &self,
         registry: &WorkspaceRegistry,
@@ -63,6 +64,9 @@ impl Mux {
                 "cmux-tui: terminal {} exit replay is unreadable: {error:#}",
                 plan.terminal_id
             ),
+        }
+        if let Some(screen) = self.output_store.previous_screen(&plan.public_id) {
+            return Some(screen);
         }
         registry.latest_checkpoint_terminal_replay(public_id).unwrap_or_else(|error| {
             eprintln!(
