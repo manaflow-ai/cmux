@@ -13,6 +13,7 @@ import { NumberListEditor } from "./NumberListEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
+import { StringMapEditor } from "./StringMapEditor";
 import { TextEditor } from "./TextEditor";
 import { ThemeRowEditor } from "./ThemeRowEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
@@ -73,7 +74,7 @@ export function Editor(props: EditorProps): ReactNode {
     case "number_list":
       return <NumberListEditor {...props} />;
     case "string_map":
-      // The page lists no row of this kind (SectionView and search.ts leave them out).
-      return null;
+      // A site per line with its engine (browser.siteEngines); appearance.themeEdits never shows as a row.
+      return <StringMapEditor {...props} />;
   }
 }
