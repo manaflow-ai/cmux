@@ -1,7 +1,7 @@
 // The delineated diff (Leo 2026-10-20): the viewer reads code first and collapses what nobody
 // wrote by hand, both from the one file-kind classifier (src/fileKinds.ts).
 import { describe, expect, test } from "bun:test";
-import { diffKindSummaries, orderItemsByKind } from "../src/diff-kind-groups";
+import { orderItemsByKind } from "../src/diff-kind-groups";
 import { deferredDiffReason, isGeneratedDiffPath } from "../src/deferred-diffs";
 
 const NONE: ReadonlySet<string> = new Set<string>();
@@ -51,17 +51,6 @@ describe("orderItemsByKind", () => {
   });
 });
 
-describe("diffKindSummaries", () => {
-  test("counts files and lines per kind, in the order the surfaces list them", () => {
-    expect(
-      diffKindSummaries([item("src/a.ts", 10, 2), item("src/b.ts", 5, 0), item("test/a.test.ts", 40, 1)], NONE),
-    ).toEqual([
-      { kind: "code", files: 2, additions: 15, deletions: 2 },
-      { kind: "tests", files: 1, additions: 40, deletions: 1 },
-    ]);
-  });
-});
-
 describe("generated files collapse", () => {
   test("the classifier decides, so tool output beyond the old lockfile list collapses too", () => {
     expect(isGeneratedDiffPath("bun.lock", NONE)).toBe(true);
@@ -69,6 +58,12 @@ describe("generated files collapse", () => {
     expect(isGeneratedDiffPath("cmux.xcodeproj/project.pbxproj", NONE)).toBe(true);
     expect(isGeneratedDiffPath("web/public/vendor/highlight.min.js", NONE)).toBe(true);
     expect(isGeneratedDiffPath("webviews/src/App.tsx", NONE)).toBe(false);
+    // A `Vendor/` folder is not enough: this repo keeps hand-written Swift under one, and
+    // collapsing it behind "Load diff" hid 203 files a person does read. A vendored tree that
+    // really is unread says so in .gitattributes, which arrives as the declared list.
+    const vendored = "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift";
+    expect(isGeneratedDiffPath(vendored, NONE)).toBe(false);
+    expect(isGeneratedDiffPath(vendored, new Set([vendored]))).toBe(true);
   });
 
   test("a generated path is deferred before the size rules even look at it", () => {

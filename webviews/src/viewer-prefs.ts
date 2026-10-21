@@ -19,8 +19,16 @@ import type { DiffViewerOptions } from "./pierre-options";
  * On the shared page host the prefs are `diff.*` settings: `cmux.diff.prefs.get` and
  * `cmux.diff.prefs.set {key, value}` (diff/pageStore.ts), and web storage is never touched (the
  * page host pool clears it). The host seeds first paint through `payload.viewerOptions`.
+ *
+ * `groupByKind` is session-local for now, like `collapsed`: the host only accepts the `diff.*`
+ * keys it has schema rows for (`DiffPrefKey.booleans`), so sending it would be refused and
+ * dropped without a word. Giving it a row is the new-setting checklist (schema row, agent policy,
+ * 21 locales, regenerated settings exports) and lands on its own, once the defaults snapshot is
+ * green on base; `test/viewer-prefs-host-keys.test.ts` fails if the two lists drift apart again.
  */
-export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & { collapsedFiles?: string[] };
+export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed" | "groupByKind">> & {
+  collapsedFiles?: string[];
+};
 
 const persistedOptionsKey = "cmux.diffViewer.options";
 // Layout-only key from before options were persisted as one object.
@@ -41,14 +49,7 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
   if (source.colors === "theme" || source.colors === "muted" || source.colors === "standard") {
     prefs.colors = source.colors;
   }
-  for (const key of [
-    "wordWrap",
-    "wordDiffs",
-    "lineNumbers",
-    "showBackgrounds",
-    "expandUnchanged",
-    "groupByKind",
-  ] as const) {
+  for (const key of ["wordWrap", "wordDiffs", "lineNumbers", "showBackgrounds", "expandUnchanged"] as const) {
     if (typeof source[key] === "boolean") {
       prefs[key] = source[key];
     }

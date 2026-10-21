@@ -58,9 +58,21 @@ function changed() {
   for (const listener of listeners) listener();
 }
 
+/**
+ * Whether two answers say the same thing. `fetchedAt` is when gh last answered about the link, so
+ * an unchanged one means unchanged data: the answer object can stay the one React already has,
+ * and a poll that learns nothing re-renders no cards.
+ */
+function same(previous: PullRequestAnswer | undefined, next: PullRequestAnswer): boolean {
+  if (!previous) return false;
+  if (previous.reading !== next.reading || previous.fetchedAt !== next.fetchedAt) return false;
+  return previous.fetchedAt != null || previous.pullRequest === next.pullRequest;
+}
+
 function ask(url: string) {
   if (asking.has(url)) return;
   asking.add(url);
+  let settled = false;
   void callChipHost("pr.inspect", { url })
     .then((reply) => {
       const value = (reply ?? {}) as {
@@ -76,12 +88,14 @@ function ask(url: string) {
         fetchedAt: typeof value.fetchedAt === "number" ? value.fetchedAt : answers.get(url)?.fetchedAt,
         reading: value.reading === true,
       };
+      if (same(answers.get(url), answer)) return;
       if (!answers.has(url) && answers.size >= MAX_KEPT) answers.delete(answers.keys().next().value!);
       answers.set(url, answer);
+      settled = true;
     })
     .finally(() => {
       asking.delete(url);
-      changed();
+      if (settled) changed();
     });
 }
 
@@ -121,11 +135,5 @@ export function usePullRequestAnswer(url: string | undefined, open: boolean): Pu
 export function resetPullRequestStore(): void {
   answers.clear();
   asking.clear();
-  changed();
-}
-
-/** Gallery fixtures prime the same cache a host answer would fill. */
-export function seedPullRequestStore(url: string, answer: PullRequestAnswer): void {
-  answers.set(url, answer);
   changed();
 }

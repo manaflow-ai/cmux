@@ -15,7 +15,7 @@
 // old it is instead of an error.
 import { useState } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
-import { useT, type StringKey, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
@@ -63,6 +63,10 @@ export type KnownPullRequest = { repo: string; number: number; title?: string; s
 /// The card's content; its frame (AnchoredCard) belongs to the caller. `open` asks the host.
 export function PullRequestCardBody({ url, known, open }: { url: string; known: KnownPullRequest; open: boolean }) {
   const t = useT();
+  // Every age in the card is worded in the pane's own language, like a message's time
+  // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
+  // "vor 3 Minuten".
+  const language = usePaneLanguage();
   const plain = pullRequestRef(url)?.url ?? url;
   const answer = usePullRequestAnswer(plain, open);
   const read = answer?.pullRequest ?? undefined;
@@ -94,7 +98,7 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
           <span className="acpmux-pr-card__author">{read.author}</span>
           {read.updatedAt && (
             <span className="acpmux-pr-card__when">
-              {t("prCard.updated", { ago: relativeTime(Date.parse(read.updatedAt), now) })}
+              {t("prCard.updated", { ago: relativeTime(Date.parse(read.updatedAt), now, language) })}
             </span>
           )}
         </div>
@@ -109,7 +113,7 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
       <Checks read={read} t={t} />
       <Review read={read} t={t} />
       <Changes read={read} t={t} />
-      <Freshness answer={answer} now={now} t={t} />
+      <Freshness answer={answer} now={now} t={t} language={language} />
     </div>
   );
 }
@@ -187,11 +191,9 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
           <span className="acpmux-pr-card__added">+{additions.toLocaleString()}</span>
           <span className="acpmux-pr-card__removed">−{deletions.toLocaleString()}</span>
         </button>
-        {noTests && (
-          <span className="acpmux-pr-card__warning" title={t("prCard.noTestsWhy")}>
-            {t("prCard.noTests")}
-          </span>
-        )}
+        {/* Why, on the line below rather than in a `title`: this card is what replaces system
+            tooltips, so it does not grow one of its own. */}
+        {noTests && <span className="acpmux-pr-card__warning">{t("prCard.noTests")}</span>}
       </div>
       {open && totals.length > 0 && (
         <ul className="acpmux-pr-card__kinds" aria-label={t("prCard.linesByKind")}>
@@ -205,6 +207,7 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
               </li>
             );
           })}
+          {noTests && <li className="acpmux-pr-card__kindPartial">{t("prCard.noTestsWhy")}</li>}
           {partial && (
             <li className="acpmux-pr-card__kindPartial">{t("prCard.kindsPartial", { shown: files.length })}</li>
           )}
@@ -220,19 +223,22 @@ function Freshness({
   answer,
   now,
   t,
+  language,
 }: {
   answer: { fetchedAt?: number; reading: boolean } | undefined;
   now: number;
   t: Translate;
+  language: PaneLanguage;
 }) {
   if (!answer) return null;
   const at = answer.fetchedAt == null ? undefined : answer.fetchedAt * 1000;
-  if (at != null && now - at < STALE_MS && !answer.reading) return null;
-  return (
-    <div className="acpmux-pr-card__age">
-      {at == null ? t("prCard.reading") : t("prCard.read", { ago: relativeTime(at, now) })}
-    </div>
-  );
+  // Nothing read and nothing being read: the host has no answer and is not going to have one
+  // soon (no gh on the PATH, or a pull request this account cannot see — it waits `retry` before
+  // trying again). Saying "reading…" there is a lie that never resolves, so the card shows only
+  // what the reply itself knows.
+  if (at == null) return answer.reading ? <div className="acpmux-pr-card__age">{t("prCard.reading")}</div> : null;
+  if (now - at < STALE_MS && !answer.reading) return null;
+  return <div className="acpmux-pr-card__age">{t("prCard.read", { ago: relativeTime(at, now, language) })}</div>;
 }
 
 /// How many tones a monogram picks from; each is one of the theme's own terminal colours.

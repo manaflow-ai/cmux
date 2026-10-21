@@ -99,8 +99,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// The query for `targets`: `p<i>` is the i-th one's pull request, with the fields `gh pr view`
     /// reads (``AgentPanePullRequest/fields``) and its last commit's check rollup.
     static func query(_ targets: [Target]) -> String {
+        // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
+        // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
+        // not be missing its branches, labels or files.
         let fields = """
-            url number title state isDraft reviewDecision mergeable createdAt mergedAt additions deletions author { login } \
+            url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
+            changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
+            { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename \
             ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
             """
@@ -133,6 +138,10 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
             view["commits"] = nil
+            // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
+            for key in ["labels", "files"] {
+                view[key] = (view[key] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+            }
             guard let reshaped = try? JSONSerialization.data(withJSONObject: view),
                   let pullRequest = AgentPanePullRequest(ghView: reshaped) else { continue }
             result[target.url] = .some(pullRequest)
@@ -258,9 +267,25 @@ public final class AgentReplyPullRequests {
                                           reading: inflight[url] != nil)
     }
 
-    /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives.
+    /// Keeps the pull requests a reply links fresh, so a card has them before the pointer arrives:
+    /// one batched read for the whole reply (``AgentChatPullRequestReader/read(urls:)``, one
+    /// `gh api graphql`), never one `gh pr view` per link. A reply that mentions sixteen pull
+    /// requests is one call to GitHub, which is the point: the card Leo saw said "GitHub rate
+    /// limit" because every link cost its own.
     public func register(_ urls: [URL]) {
-        for url in urls.prefix(Self.maximumRegistered) { _ = startRead(url) }
+        var wanted: [URL] = []
+        for url in urls.prefix(Self.maximumRegistered) where inflight[url] == nil && stale(url) && !wanted.contains(url) {
+            wanted.append(url)
+        }
+        guard !wanted.isEmpty else { return }
+        let reader = reader
+        let addresses = wanted.map(\.absoluteString)
+        // task-owner: one read for every link of a reply; a card opened meanwhile shares it.
+        let task = Task { [weak self] in
+            let answers = await reader.read(urls: addresses)
+            self?.absorb(answers, for: wanted)
+        }
+        for url in wanted { inflight[url] = task }
     }
 
     /// Reads `url`, waiting for a read already running or starting one. The chat header's path.
@@ -269,15 +294,18 @@ public final class AgentReplyPullRequests {
         return entries[url]?.pullRequest
     }
 
+    /// Whether `url` is worth reading: never read, or its last read is old enough. A link that
+    /// answered is re-read after `freshness`; one that has never answered waits `retry`, so a
+    /// rate limit is not met with another call a minute later.
+    private func stale(_ url: URL) -> Bool {
+        guard let entry = entries[url], let tried = entry.tried else { return true }
+        return ContinuousClock.now - tried >= (entry.pullRequest == nil ? retry : freshness)
+    }
+
     /// The read running for `url`, a new one when it is stale, else nil.
     private func startRead(_ url: URL) -> Task<Void, Never>? {
         if let task = inflight[url] { return task }
-        if let tried = entries[url]?.tried {
-            // A link that answered is re-read after `freshness`; one that has never answered
-            // waits `retry`, so a rate limit is not met with another call a minute later.
-            let wait = entries[url]?.pullRequest == nil ? retry : freshness
-            if ContinuousClock.now - tried < wait { return nil }
-        }
+        guard stale(url) else { return nil }
         // task-owner: one gh read per stale link; everyone waiting on it shares this task.
         let task = Task { await self.perform(url) }
         inflight[url] = task
@@ -286,20 +314,37 @@ public final class AgentReplyPullRequests {
 
     private func perform(_ url: URL) async {
         let pullRequest = await reader.read(url: url)
+        record(pullRequest, for: url)
+        trim()
+    }
+
+    /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate
+    /// limited) keeps its last answer, and every URL of the batch counts as tried, so a failed
+    /// batch is not asked again at once.
+    private func absorb(_ answers: [String: AgentPanePullRequest?], for urls: [URL]) {
+        for url in urls { record(answers[url.absoluteString] ?? nil, for: url) }
+        trim()
+    }
+
+    /// Writes one read's outcome. A read that failed leaves the last good answer and its age
+    /// alone: a rate-limited GitHub must not replace the pull request the card is showing.
+    private func record(_ pullRequest: AgentPanePullRequest?, for url: URL) {
         var entry = entries[url] ?? Entry(touched: .now)
         entry.tried = .now
         entry.touched = .now
-        // A read that failed leaves the last good answer and its age alone: a rate-limited GitHub
-        // must not replace the pull request the card is showing.
         if let pullRequest {
             entry.pullRequest = pullRequest
             entry.at = Date()
         }
         entries[url] = entry
         inflight[url] = nil
-        if entries.count > Self.maximumKept,
-           let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key {
-            entries[stalest] = nil
-        }
+    }
+
+    /// Drops the stalest link once more than ``maximumKept`` are kept; one being read stays.
+    private func trim() {
+        guard entries.count > Self.maximumKept,
+              let stalest = entries.filter({ inflight[$0.key] == nil }).min(by: { $0.value.touched < $1.value.touched })?.key
+        else { return }
+        entries[stalest] = nil
     }
 }

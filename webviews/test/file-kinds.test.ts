@@ -66,6 +66,26 @@ describe("fileKind", () => {
     expect(fileKind("skills/cmux-review/SKILL.md")).toBe("docs");
   });
 
+  test("a document's whole name is a document; code that serves documents is code", () => {
+    // The name, never the stem: these three are the code behind a changelog page, a security
+    // service and the changes list, and calling them Docs hid them from the "no tests" warning
+    // and sorted them away from the code they belong to.
+    expect(fileKind("web/app/lib/changelog.ts")).toBe("code");
+    expect(fileKind("web/services/vm-publications/security.ts")).toBe("code");
+    expect(fileKind("webviews/src/agent-session/acpmux/changes/changes.css")).toBe("code");
+    expect(fileKind("CHANGELOG")).toBe("docs");
+    expect(fileKind("CHANGELOG.md")).toBe("docs");
+    expect(fileKind("SECURITY.md")).toBe("docs");
+  });
+
+  test("a spec folder holds a protocol as often as a test, so only the name makes a test", () => {
+    expect(fileKind("cmux-tui/spec/api-compat.json")).toBe("code");
+    expect(fileKind("cmux-tui/crates/acpmux/spec/acpmux-protocol.json")).toBe("code");
+    // A spec file that is a test still says so in its name.
+    expect(fileKind("cmux-tui/crates/cmux-theme-tokens/src/spec/tests.rs")).toBe("tests");
+    expect(fileKind("webviews/test/router.spec.ts")).toBe("tests");
+  });
+
   test("generated files are lockfiles, tool output and translation catalogs", () => {
     expect(fileKind("bun.lock")).toBe("generated");
     expect(fileKind("Cargo.lock")).toBe("generated");
@@ -75,6 +95,13 @@ describe("fileKind", () => {
     expect(fileKind("cmux.xcodeproj/project.pbxproj")).toBe("generated");
     expect(fileKind("webviews/src/agent-session/acpmux/Localizable.xcstrings")).toBe("generated");
     expect(fileKind("web/public/vendor/highlight.min.js")).toBe("generated");
+  });
+
+  test("a vendor folder is not generated: this repo keeps hand-written Swift under one", () => {
+    expect(fileKind("Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift")).toBe(
+      "code",
+    );
+    expect(fileKind("web/vendor/stripe-client.ts")).toBe("code");
   });
 
   test("the host's generated list wins over the path's own shape", () => {

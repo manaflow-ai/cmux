@@ -54,7 +54,8 @@ afterAll(() => {
   dom.window.close();
 });
 
-const URL = "https://github.com/manaflow-ai/cmux/pull/22777";
+// Not `URL`: a const of that name shadows the global constructor for the whole file.
+const PR_URL = "https://github.com/manaflow-ai/cmux/pull/22777";
 const KNOWN = { repo: "manaflow-ai/cmux", number: 22777 };
 const FILES = [
   { path: "webviews/src/agent-session/acpmux/chips/PullRequestCard.tsx", additions: 200, deletions: 40 },
@@ -66,7 +67,7 @@ const FILES = [
 
 function pullRequest(extra: Record<string, unknown> = {}) {
   return {
-    url: URL,
+    url: PR_URL,
     number: 22777,
     title: "One pull request card for every pull request cmux mentions",
     state: "open",
@@ -98,7 +99,11 @@ async function card(answer: Record<string, unknown>) {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
+  const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
   const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  // The card words every age in the pane's language, so the pane's language is pinned here
+  // rather than left to the runner's (REVIEW.md: a test must not read the machine).
+  setPaneLanguage("en");
   const { resetPullRequestStore } = await import("../src/agent-session/acpmux/chips/pullRequestStore");
   const { PullRequestCardBody } = await import("../src/agent-session/acpmux/chips/PullRequestCard");
   const calls: string[] = [];
@@ -112,7 +117,7 @@ async function card(answer: Record<string, unknown>) {
   await act(async () =>
     root.render(
       <UiProvider container={element}>
-        <PullRequestCardBody url={URL} known={KNOWN} open />
+        <PullRequestCardBody url={PR_URL} known={KNOWN} open />
       </UiProvider>,
     ),
   );
@@ -192,6 +197,15 @@ test("an answer cmux read a while ago says its age instead of looking current", 
   expect(stale.body.querySelector(".acpmux-pr-card__age")?.textContent).toBe("read 23 minutes ago");
   // And nothing in the card is a GitHub call: it asked the app once and drew what it had.
   expect(stale.calls).toEqual(["pr.inspect"]);
+});
+
+test("a read that answered nothing and is not running says nothing, instead of reading forever", async () => {
+  // No gh on the PATH, or a pull request this account cannot see: the host tried, has no answer,
+  // and will not try again for five minutes. "reading…" there is a lie that never resolves, so
+  // the card falls back to what the reply itself knows.
+  const { body } = await card({ pullRequest: null, reading: false });
+  expect(body.querySelector(".acpmux-pr-card__age")).toBeNull();
+  expect(body.textContent).toContain("manaflow-ai/cmux#22777");
 });
 
 test("no answer yet: the card says it is reading and keeps asking the app, not GitHub", async () => {

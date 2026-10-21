@@ -231,7 +231,11 @@ export function App({ config, initialStatus }: ConfigProps) {
   // The delineated diff: once every file has arrived, they read in kind order, code first, so
   // the work is at the top and a lockfile never sits between two source files.
   const generatedPathSet = useMemo(() => new Set(state.generatedPaths), [state.generatedPaths]);
-  const grouped = state.options.groupByKind && state.streamComplete;
+  // The reorder happens once the stream settles, and only through the effect below, which keeps
+  // the file the reader is on under them. Reordering straight off `streamComplete` moved the text
+  // out from under whoever was already reading a long diff.
+  const [kindOrderApplied, setKindOrderApplied] = useState(false);
+  const grouped = state.options.groupByKind && kindOrderApplied;
   const visibleItems = useMemo(() => {
     const filtered = filterDiffItems(state.items, deferredFileFilter, (item) =>
       viewedStateOfItem(item, state.viewedByPath),
@@ -450,6 +454,25 @@ export function App({ config, initialStatus }: ConfigProps) {
       ) || (items.some((item) => item.id === current.activeItemId) ? current.activeItemId : "")
     );
   }, [latestState, visibleItemsRef]);
+  // "Group files by kind" reorders the column once, when the last file of the diff has arrived.
+  // If the reader has already scrolled into the diff, the file under them must stay under them:
+  // measure that file, flush the reorder, then put it back at the top. Without this, finishing a
+  // 300-file stream threw the reader onto an unrelated file seconds after they started reading.
+  // A diff that is still streaming, or one the reader has not scrolled, needs no anchor.
+  useEffect(() => {
+    if (!state.streamComplete) {
+      setKindOrderApplied(false);
+      return;
+    }
+    if (kindOrderApplied) return;
+    const anchorItemId = state.options.groupByKind && codeViewScrollTopRef.current > 0 ? currentVisibleItemId() : "";
+    if (!anchorItemId) {
+      setKindOrderApplied(true);
+      return;
+    }
+    flushSync(() => setKindOrderApplied(true));
+    codeViewRef.current?.scrollTo({ type: "item", id: anchorItemId, align: "start", behavior: "instant" });
+  }, [currentVisibleItemId, kindOrderApplied, state.options.groupByKind, state.streamComplete]);
   const jumpAdjacentFile = useCallback(
     (direction: -1 | 1) => {
       const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);
@@ -572,10 +595,10 @@ export function App({ config, initialStatus }: ConfigProps) {
     dispatch({ type: "set-option", key: "layout", value: layout });
   };
   // Dispatches an options change and persists it globally when the key is a
-  // persisted preference (`collapsed` stays session-local).
+  // persisted preference (`collapsed` and `groupByKind` stay session-local; see ViewerPrefs).
   const setOption = (key: keyof DiffViewerOptions, value: any) => {
     dispatch({ type: "set-option", key, value });
-    if (key !== "collapsed") {
+    if (key !== "collapsed" && key !== "groupByKind") {
       saveViewerPrefs({ [key]: value }, writes);
     }
   };

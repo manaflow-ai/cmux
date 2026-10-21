@@ -65,8 +65,13 @@ const PROSE_EXTENSIONS = new Set(["md", "mdx", "markdown", "rst", "adoc"]);
 /** Prose, plus the extensions that are documentation only outside a test or fixture folder. */
 const DOC_EXTENSIONS = new Set([...PROSE_EXTENSIONS, "txt"]);
 
-/** A folder that makes everything under it generated. */
-const GENERATED_FOLDERS = new Set(["__generated__", "__snapshots__", "generated", "node_modules", "vendor"]);
+/**
+ * A folder that makes everything under it generated. Not `vendor`: this repo keeps 203
+ * hand-written Swift files under `Vendor/appkit-native/`, and calling them generated would
+ * collapse them behind "Load diff" in the viewer and book their lines as Generated on the card.
+ * A vendored tree that really is unread is declared in `.gitattributes` instead.
+ */
+const GENERATED_FOLDERS = new Set(["__generated__", "__snapshots__", "generated", "node_modules"]);
 
 /** A folder that makes everything under it a mock or a fixture. */
 const MOCK_FOLDERS = new Set([
@@ -83,8 +88,12 @@ const MOCK_FOLDERS = new Set([
   "testdata",
 ]);
 
-/** A folder that makes everything under it a test. */
-const TEST_FOLDERS = new Set(["__tests__", "bench", "benches", "benchmarks", "spec", "specs", "test", "tests"]);
+/**
+ * A folder that makes everything under it a test. Not `spec`: a `spec/` folder holds a protocol's
+ * source of truth as often as it holds tests (`cmux-tui/spec/api-compat.json`,
+ * `crates/acpmux/spec/acpmux-protocol.json`), and a spec file that is a test says so in its name.
+ */
+const TEST_FOLDERS = new Set(["__tests__", "bench", "benches", "benchmarks", "test", "tests"]);
 
 /** A folder that makes everything under it an eval. */
 const EVAL_FOLDERS = new Set(["eval", "evals", "evaluation", "evaluations"]);
@@ -181,7 +190,10 @@ export function fileKind(path: string, declaredGenerated?: ReadonlySet<string>):
   if (has(TEST_FOLDERS)) return "tests";
 
   if (DOC_EXTENSIONS.has(extension)) return "docs";
-  if (DOC_NAMES.has(lower) || DOC_NAMES.has(stem.toLowerCase())) return "docs";
+  // The whole name, never the stem: `LICENSE` and `CHANGELOG` are documents, but `changelog.ts`,
+  // `security.ts` and `changes.css` are the code that serves them. A document with an extension
+  // is already caught above, because its extension is prose or `.txt`.
+  if (DOC_NAMES.has(lower)) return "docs";
   if (has(DOC_FOLDERS)) return "docs";
 
   return "code";

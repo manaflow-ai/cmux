@@ -3,22 +3,44 @@
 import Foundation
 import Testing
 
-/// A pull request link's hover card reads that pull request with the user's GitHub CLI
-/// (`gh pr view <url> --json …`), never prompting, and keeps the answer a minute so hovering the
-/// same link again asks nothing. A script stands in for `gh` and records each ask.
+/// A pull request link's hover card reads that pull request with the user's GitHub CLI, never
+/// prompting, and keeps the answer a minute so hovering the same link again asks nothing. The
+/// links of a reply are read together, in one `gh api graphql`. A script stands in for `gh` and
+/// records each ask.
 @MainActor
 struct AgentReplyPullRequestsTests {
     private static let url = URL(string: "https://github.com/o/r/pull/7")!
+    private static let other = URL(string: "https://github.com/o/r/pull/8")!
     private static let view = #"{"url":"https://github.com/o/r/pull/7","number":7,"title":"Retry","state":"OPEN","isDraft":true,"author":{"login":"octocat"},"statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}"#
+
+    /// One pull request as GraphQL answers it: a connection's rows arrive under `nodes`, and the
+    /// check rollup hangs off the last commit.
+    private static func node(_ number: Int) -> String {
+        """
+        {"pullRequest":{"url":"https://github.com/o/r/pull/\(number)","number":\(number),"title":"Retry",
+        "state":"OPEN","isDraft":false,"updatedAt":"2026-10-20T01:02:03Z","changedFiles":3,
+        "baseRefName":"feat-cmux-next","headRefName":"work","additions":12,"deletions":4,"author":{"login":"octocat"},
+        "labels":{"nodes":[{"name":"risk:normal"},{"name":"agent"}]},
+        "files":{"nodes":[{"path":"webviews/src/a.ts","additions":12,"deletions":4}]},
+        "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+        {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}]}}}}]}}}
+        """.replacingOccurrences(of: "\n", with: "")
+    }
 
     private static func rig() throws -> String {
         let base = FileManager.default.temporaryDirectory.appending(path: "reply-pr-\(UUID().uuidString)").path
         let gh = base + "/gh"
         try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
         try view.write(toFile: base + "/view.json", atomically: true, encoding: .utf8)
+        try #"{"data":{"p0":\#(node(7)),"p1":\#(node(8))}}"#
+            .write(toFile: base + "/graphql.json", atomically: true, encoding: .utf8)
         let script = """
             #!/bin/sh
             echo "$*" >> "$0.calls"
+            if [ "$1" = "api" ]; then
+              cat "$(dirname "$0")/graphql.json"
+              exit 0
+            fi
             [ "$*" = "pr view \(url.absoluteString) --json \(AgentPanePullRequest.fields)" ] || exit 2
             cat "$(dirname "$0")/view.json"
             """
@@ -27,9 +49,12 @@ struct AgentReplyPullRequestsTests {
         return gh
     }
 
-    private static func calls(_ gh: String) -> Int {
-        ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "").split(separator: "\n").count
+    private static func callLines(_ gh: String) -> [String] {
+        ((try? String(contentsOfFile: gh + ".calls", encoding: .utf8)) ?? "")
+            .split(separator: "\n").map(String.init)
     }
+
+    private static func calls(_ gh: String) -> Int { callLines(gh).count }
 
     @Test func readsThePullRequestByItsLink() async throws {
         let gh = try Self.rig()
@@ -67,7 +92,7 @@ struct AgentReplyPullRequestsTests {
 
     /// A read that fails (no gh, no network, a rate limit) keeps the last good answer, so the
     /// card goes on showing the pull request with its age instead of an error.
-    @Test func afailedReadKeepsTheLastGoodAnswer() async throws {
+    @Test func aFailedReadKeepsTheLastGoodAnswer() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh),
                                                   freshness: .zero, retry: .zero)
@@ -82,12 +107,43 @@ struct AgentReplyPullRequestsTests {
     }
 
     /// The links a reply shows are read when the page inspects them, so the data is there before
-    /// a card opens, and at most ``AgentReplyPullRequests/maximumRegistered`` at a time.
-    @Test func registeringAReplysLinksReadsThemOnce() async throws {
+    /// a card opens — and all of them in one GraphQL read, not one `gh pr view` each. A reply
+    /// full of pull request links must cost GitHub one call, not sixteen.
+    @Test func aReplysLinksAreOneBatchedRead() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
-        pullRequests.register([Self.url, Self.url])
+        pullRequests.register([Self.url, Self.other, Self.url])
         #expect(await pullRequests.read(Self.url)?.number == 7)
+        #expect(await pullRequests.read(Self.other)?.number == 8)
         #expect(Self.calls(gh) == 1)
+        #expect(Self.callLines(gh).first?.hasPrefix("api graphql") == true)
+    }
+
+    /// The batched read asks for every field a card draws, so a card filled from it is not
+    /// missing the branches, labels or files a `gh pr view` of the same link would have.
+    @Test func aBatchedReadCarriesTheCardsFields() async throws {
+        let gh = try Self.rig()
+        let read = try #require(await AgentChatPullRequestReader(gh: gh).read(urls: [Self.url.absoluteString])[Self.url.absoluteString] ?? nil)
+        #expect(read.baseRef == "feat-cmux-next")
+        #expect(read.headRef == "work")
+        #expect(read.labels == ["risk:normal", "agent"])
+        #expect(read.changedFiles == 3)
+        #expect(read.files == [.init(path: "webviews/src/a.ts", additions: 12, deletions: 4)])
+        #expect(read.updatedAt == "2026-10-20T01:02:03Z")
+        #expect(read.checks == .init(state: "passing", passed: 1, total: 1))
+    }
+
+    /// One reply cannot start a hundred reads: ``AgentReplyPullRequests/maximumRegistered`` links
+    /// are prefetched, and the rest are read if and when a card opens.
+    @Test func aReplyPrefetchesAtMostItsBound() async throws {
+        let gh = try Self.rig()
+        let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
+        let many = (1...40).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }
+        pullRequests.register(many)
+        // Awaits the one batch the register started, whatever it answered for this link.
+        _ = await pullRequests.read(many[0])
+        #expect(Self.calls(gh) == 1)
+        let asked = Self.callLines(gh).first?.components(separatedBy: "pullRequest(number:").count ?? 0
+        #expect(asked - 1 == AgentReplyPullRequests.maximumRegistered)
     }
 }
