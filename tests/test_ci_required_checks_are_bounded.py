@@ -48,12 +48,11 @@ ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
 # pull_request workflows that end a superseded run themselves instead of with a
 # concurrency group, and why a group would be wrong there.
 OWN_SUPERSESSION = {
-    # Its pull_request and push runs only debounce: each waits for quiet and
-    # exits 0 once it sees a newer event's run (next_batch.py `superseded`),
-    # within its 15-minute timeout. A workflow-level group would also hold the
-    # dispatch modes, and the batch controller waits on the regen and build runs
-    # it dispatches into this same workflow.
-    "cmux-next-batch.yml": "debounce runs supersede themselves",
+    # Its pull_request and push runs only debounce: each waits for quiet (at
+    # most a few minutes) and exits 0 once it sees a newer event's run
+    # (next_batch.py `superseded`), within its 15-minute timeout. Cancelling one
+    # instead would read as a red run on the pull request.
+    "cmux-next-batch.yml": "debounce runs supersede themselves and exit 0",
 }
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
@@ -174,6 +173,13 @@ def main() -> int:
                 "concurrency group, so every push leaves the superseded run "
                 "running"
             )
+
+    for name, reason in sorted(OWN_SUPERSESSION.items()):
+        workflow = workflows.get(WORKFLOWS / name)
+        if workflow is None or not reason.strip():
+            failures.append(f"OWN_SUPERSESSION names {name}, which no longer exists or has no reason")
+        elif "pull_request" not in triggers(workflow) or workflow.get("concurrency"):
+            failures.append(f"{name} no longer needs its OWN_SUPERSESSION entry; remove it")
 
     if failures:
         print("unbounded CI:", file=sys.stderr)

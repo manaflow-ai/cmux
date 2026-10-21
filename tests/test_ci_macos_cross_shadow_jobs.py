@@ -44,7 +44,8 @@ def ordering_only(block: str, shadow: str) -> bool:
     condition = re.search(r"^    if:\s*(.+)$", block, re.M)
     return (condition is not None
             and re.match(r"\$\{\{\s*always\(\)\s*&&", condition.group(1)) is not None
-            and f"needs.{shadow}." not in block)
+            and f"needs.{shadow}." not in block
+            and not re.search(rf"needs\[\s*['\"]{re.escape(shadow)}['\"]\s*\]", block))
 
 
 class ShadowJobTests(unittest.TestCase):
