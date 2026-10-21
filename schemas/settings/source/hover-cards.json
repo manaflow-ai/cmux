@@ -61,7 +61,7 @@
         },
         {
           "key": "sidebar.hoverCards.layout",
-          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
+          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). compact (default since Leo 2026-10-20, \"no scroll, crisp\"): the facts, the last message rendered and the last three moments, never scrolling; timeline: stats and a scrollable history of prompts, waits and finished turns; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
           "title": {
             "key": "settings.sidebar.hoverCards.layout",
             "text": "Workspace Card Layout"
@@ -108,7 +108,7 @@
               }
             }
           ],
-          "default": "timeline",
+          "default": "compact",
           "keywords": [
             "hover",
             "card",

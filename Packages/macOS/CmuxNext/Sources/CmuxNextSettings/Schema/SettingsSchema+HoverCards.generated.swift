@@ -9,9 +9,9 @@ extension HoverCardSettings {
     public nonisolated static let delayPath = ["sidebar", "hoverCards", "delay"]
     public nonisolated static let delayDefault: Double = 250
     public nonisolated static let delayRange: ClosedRange<Double> = 0...5000
-    /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
+    /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). compact (default since Leo 2026-10-20, "no scroll, crisp"): the facts, the last message rendered and the last three moments, never scrolling; timeline: stats and a scrollable history of prompts, waits and finished turns; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]
-    public nonisolated static let layoutDefault: HoverCardLayoutSetting = .timeline
+    public nonisolated static let layoutDefault: HoverCardLayoutSetting = .compact
     /// `sidebar.hoverCards.sections.timings`: u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.
     public nonisolated static let timingsPath = ["sidebar", "hoverCards", "sections", "timings"]
     public nonisolated static let timingsDefault = true

@@ -82,7 +82,7 @@ cmux.json, the palette's settings rows (Cmd+Shift+P, the `,` scope) and `cmux se
 
 | Key | Default | |
 | --- | --- | --- |
-| `sidebar.hoverCards.layout` | `timeline` | `timeline`, `compact`, `log`, `classic`, `minimal` |
+| `sidebar.hoverCards.layout` | `compact` | `timeline`, `compact`, `log`, `classic`, `minimal` |
 | `sidebar.hoverCards.sections.timings` | `true` | running times and the stats line |
 | `sidebar.hoverCards.sections.prompts` | `true` | prompts and starts in the history |
 | `sidebar.hoverCards.sections.waiting` | `true` | waits, finishes, failures in the history |

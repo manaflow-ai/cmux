@@ -37,8 +37,8 @@ import Testing
         return options
     }
 
-    @Test func theDefaultCardListsTheHistoryNewestFirstWithStats() {
-        let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: WorkspaceHoverCardOptions(), timeline: Self.history())
+    @Test func theTimelineCardListsTheHistoryNewestFirstWithStats() {
+        let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: Self.options(.timeline), timeline: Self.history())
         #expect(card.options.layout == .timeline)
         #expect(card.timeline.map(\.kind) == [.finished, .prompt, .finished, .prompt, .finished, .prompt])
         #expect(card.timeline.first?.date == Self.now)
@@ -92,7 +92,7 @@ import Testing
 
     @Test func theCardViewListsTheHistoryAndCapsItsHeight() throws {
         let view = WorkspaceHoverCardView()
-        let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: WorkspaceHoverCardOptions(), timeline: Self.history(40))
+        let card = WorkspaceHoverCardContent.make(Self.workspace(), machine: nil, now: Self.now, options: Self.options(.timeline), timeline: Self.history(40))
         view.configure(card, now: Self.now)
         view.layoutSubtreeIfNeeded()
         let lines = view.lines
