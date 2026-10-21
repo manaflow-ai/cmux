@@ -76,6 +76,7 @@ struct AppFeatureCard: View {
             }
             HStack(spacing: Metrics.space2) {
                 if on { AppStoreBadge(text: AppsStrings.featureOn, emphasized: true) }
+                if model.hasSettings(feature) { settingsLink }
                 Spacer(minLength: 0)
                 AppFeatureButton(model: model, feature: feature, on: on)
             }
@@ -85,6 +86,17 @@ struct AppFeatureCard: View {
         .themedHelp(AppsStrings.featureSetting(feature.setting))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("appStore.feature.\(feature.id)")
+    }
+
+    /// Settings…: Settings on the feature's own options (the Chief Pet card: Settings > Chief Pet).
+    private var settingsLink: some View {
+        Button { model.openSettings(feature) } label: {
+            Text(AppsStrings.featureSettingsLink).font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(1)
+                .frame(height: AppStoreColumn.actionHeight).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .themedHelp(AppsStrings.featureSettingsHelp(feature.name))
+        .accessibilityIdentifier("appStore.feature.settings.\(feature.id)")
     }
 }
 
