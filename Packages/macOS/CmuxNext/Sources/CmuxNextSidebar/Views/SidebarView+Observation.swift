@@ -101,6 +101,11 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
+            } else if selectionChanged, rowsChanged, !model.followsUserIntent, list.showsSelectionRow,
+                      list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
+                // A click moves no row (Leo 2026-10-20): it draws its selection, and rows that changed with it
+                // wait under the pointer like any change nobody asked for.
+                if list.showModelChange(animates: false) { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
             } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
                 // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
                 list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)

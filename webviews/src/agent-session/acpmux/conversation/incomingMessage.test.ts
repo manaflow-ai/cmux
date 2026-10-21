@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt } from "./incomingMessage";
+import { incomingPrompt, renderedReply } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -35,7 +35,14 @@ function rendered(body: string, { id = "m-1", from = "Grid fix (acp:child-3)", r
 test("agent_message provenance names the sending chat", () => {
   expect(incomingPrompt("Tests pass.", { _meta: { provenance } })).toEqual({
     kind: "message",
-    message: { name: "Grid fix", sessionId: "child-3", text: "Tests pass.", raw: "Tests pass." },
+    message: {
+      name: "Grid fix",
+      sessionId: "child-3",
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "Tests pass.",
+      raw: "Tests pass.",
+    },
   });
   // Without a name the address stands in.
   const unnamed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, fromName: undefined } } });
@@ -45,7 +52,13 @@ test("agent_message provenance names the sending chat", () => {
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
   for (const from of ["cli", "term_0123456789abcdef0123456789abcdef", "acp:"]) {
     const message = incomingPrompt("hi", { _meta: { provenance: { ...provenance, from, fromName: undefined } } });
-    expect(message?.kind === "message" && message.message).toEqual({ name: from, text: "hi", raw: "hi" });
+    expect(message?.kind === "message" && message.message).toEqual({
+      name: from,
+      msgId: "m-1",
+      threadId: "t-1",
+      text: "hi",
+      raw: "hi",
+    });
   }
 });
 
@@ -54,14 +67,14 @@ test("a message cmux rendered shows the sender's words; raw keeps the whole prom
   const raw = rendered(body);
   expect(incomingPrompt(raw, { _meta: { provenance } })).toEqual({
     kind: "message",
-    message: { name: "Grid fix", sessionId: "child-3", text: body, raw },
+    message: { name: "Grid fix", sessionId: "child-3", msgId: "m-1", threadId: "t-1", text: body, raw },
   });
   // A reply, and a person's message from a shell (no Reply line).
   const reply = rendered("Thanks.", { replyTo: "m-0" });
   expect(incomingPrompt(reply, { _meta: { provenance } })).toMatchObject({ message: { text: "Thanks." } });
   const shell = rendered("Ship it.", { from: "cli", reply: false });
   expect(incomingPrompt(shell, { _meta: { provenance: { ...provenance, from: "cli", fromName: undefined } } })).toEqual(
-    { kind: "message", message: { name: "cli", text: "Ship it.", raw: shell } },
+    { kind: "message", message: { name: "cli", msgId: "m-1", threadId: "t-1", text: "Ship it.", raw: shell } },
   );
   expect(incomingPrompt(rendered(""), { _meta: { provenance } })).toMatchObject({ message: { text: "" } });
 });
@@ -148,4 +161,85 @@ test("numeric entities decode", () => {
     adopted,
   );
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
+});
+
+// Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
+// names every sender once, and the text is the prompt as the agent got it.
+test("an agent_digest is one card from its senders", () => {
+  const text = "2 messages from other agents arrived while you were busy.\n\n[agent message 1 of 2] from lane-a\nhi";
+  const digest = (...from: string[]) => ({
+    _meta: { provenance: { kind: "agent_digest", messages: from.map((f, i) => ({ promptId: `p${i}`, from: f })) } },
+  });
+  expect(incomingPrompt(text, digest("lane-a", "lane-b", "lane-a"))).toEqual({
+    kind: "message",
+    message: { name: "lane-a, lane-b", text, raw: text },
+  });
+  expect(incomingPrompt(text, digest("a", "b", "c", "d", "e"))).toMatchObject({ message: { name: "a, b, c +2" } });
+  // No sender named: the person's prompt, as before.
+  expect(incomingPrompt(text, digest())).toBeUndefined();
+});
+
+test("an agent_digest from one chat answers its newest message; from several, none", () => {
+  const text = "2 messages from other agents arrived while you were busy.";
+  const sent = (from: string, msgId: string) => ({
+    promptId: msgId,
+    from: "builder",
+    provenance: { kind: "agent_message", from, fromName: "builder", msgId, threadId: "t-1" },
+  });
+  const digest = (...messages: object[]) => ({ _meta: { provenance: { kind: "agent_digest", messages } } });
+  expect(incomingPrompt(text, digest(sent("acp:s1", "m-1"), sent("acp:s1", "m-2")))).toEqual({
+    kind: "message",
+    message: { name: "builder", sessionId: "s1", msgId: "m-2", threadId: "t-1", text, raw: text },
+  });
+  const several = incomingPrompt(text, digest(sent("acp:s1", "m-1"), sent("acp:s2", "m-2")));
+  expect(several).toMatchObject({ message: { name: "builder" } });
+  expect(several?.kind === "message" && several.message.msgId).toBe(undefined);
+  // A sender that is no chat here (`acpmux send --from`): no Reply.
+  const named = incomingPrompt(text, digest({ promptId: "p", from: "lane-a" }));
+  expect(named?.kind === "message" && named.message.msgId).toBe(undefined);
+});
+
+test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
+  // Chat `parent` answers message m-1 from `child-3` in place (direct.ts `reply`); acpmux records
+  // it in child-3's chat with the replying chat's address and its own name (`app_reply_fits`).
+  const text = renderedReply({
+    from: "acp:parent",
+    fromName: "Fix the\ngrid\u200b",
+    msgId: "m-2",
+    replyTo: "m-1",
+    text: "Merged; thanks.\nShip it.",
+  });
+  expect(text).toBe(
+    rendered("Merged; thanks.\nShip it.", {
+      id: "m-2",
+      from: "Fix the grid (acp:parent)",
+      replyTo: "m-1",
+      reply: false,
+    }),
+  );
+  const recorded = {
+    kind: "agent_message",
+    from: "acp:parent",
+    fromName: "Fix the grid",
+    to: "acp:child-3",
+    msgId: "m-2",
+    threadId: "t-1",
+    replyTo: "m-1",
+  };
+  // Its name opens the replying chat, and its ids let child-3's chat reply in turn.
+  expect(incomingPrompt(text, { _meta: { provenance: recorded } })).toEqual({
+    kind: "message",
+    message: {
+      name: "Fix the grid",
+      sessionId: "parent",
+      msgId: "m-2",
+      threadId: "t-1",
+      text: "Merged; thanks.\nShip it.",
+      raw: text,
+    },
+  });
+  // Without a title the address stands in.
+  expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
+    "[cmux agent message] from acp:parent",
+  );
 });

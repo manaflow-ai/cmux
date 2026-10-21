@@ -11,10 +11,13 @@ import AppKit
 final class PaneHeaderView: NSView {
     let avatar = NSImageView()
     let pill = NSButton()
-    /// cmux: a small translucent capsule behind the pill, always shown, so
-    /// its title reads over the rows when the header has no band
-    /// (HeaderFade.swift). Clear until `setPillBacking(_:)`.
+    /// cmux: the capsule behind the pill. Clear: on macOS 26 the pill's own
+    /// glass bezel is the capsule; before 26 it holds `pillGlass`
+    /// (`useGlassPill()`). Never a dark fill (Lawrence 2026-10-20).
     let pillBacking = NSView()
+    /// cmux: before macOS 26, the glass capsule under the borderless pill
+    /// (`useGlassPill()`); nil on 26, where the pill is system glass.
+    private(set) var pillGlass: (any LabGlassSurface)?
     var title: String = "" { didSet { if title != oldValue { applyTitle() } } }
     /// The avatar's monogram (the conversation's other participant).
     var initials: String = "" { didSet { if initials != oldValue { applyAvatar() } } }
@@ -99,6 +102,8 @@ final class PaneHeaderView: NSView {
         pillBacking.frame = pill.frame
         pillBacking.layer?.cornerRadius = h / 2
         pillBacking.isHidden = pill.isHidden
+        pillGlass?.frame = pillBacking.bounds
+        pillGlass?.cornerRadius = h / 2
     }
 
     private func applyTitle() {
@@ -117,9 +122,17 @@ final class PaneHeaderView: NSView {
         avatar.image = picture.map(PaneHeaderView.avatarImage(picture:)) ?? PaneHeaderView.avatarImage(initials, light: light)
     }
 
-    /// cmux: the pill's capsule color (translucent); nil leaves it clear.
-    func setPillBacking(_ color: NSColor?) {
-        pillBacking.layer?.backgroundColor = color?.cgColor
+    /// cmux: the name pill as glass. macOS 26 and newer: the pill's own
+    /// glass bezel, nothing behind it. Before 26: a borderless pill on a
+    /// glass capsule (`LabGlass`, a visual-effect view there). Once per header.
+    func useGlassPill() {
+        if #available(macOS 26, *) { return }
+        guard pillGlass == nil else { return }
+        let glass = LabGlass.surface()
+        pillBacking.addSubview(glass)
+        pillGlass = glass
+        pill.isBordered = false
+        needsLayout = true
     }
 
     /// A monogram on the header's avatar disc (white 253, as HeaderView

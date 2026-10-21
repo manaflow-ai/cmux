@@ -12,6 +12,7 @@ import { ChevronRight, Magnifier, OpenBook, Pencil, Spinner, TerminalSquare } fr
 import { isFailed, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { useT } from "../i18n";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -31,20 +32,25 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 export const GROUP_TAIL = 5;
 
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
-/// desktop apps list them; edits stay closed, since each opens to its whole diff. The glyph turns
-/// while any call runs.
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs.
 export function ToolGroupRow({
   kind,
   items,
   disclosureKey,
+  folded = false,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
+  folded?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits");
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
+  const fold = useFold(open);
   const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
   useFindReveal(items, () => setOpen(true));
   // A match in a call behind "+K more" shows the whole group.
@@ -91,22 +97,24 @@ export function ToolGroupRow({
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
-          {hidden > 0 && (
-            <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
-              <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
-            </button>
-          )}
-          {kind === "commands"
-            ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
-            : [
-                ...files.map((file) => <EditDiff key={file.path} file={file} />),
-                // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
-                ...shown
-                  .filter((item) => !files.length || !item.tool!.diffs?.length)
-                  .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
-              ]}
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <div className={kind === "edits" ? "cv-tool-group" : "cv-tool-group is-flat"} id={detailsId}>
+            {hidden > 0 && (
+              <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
+                <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
+              </button>
+            )}
+            {kind === "commands"
+              ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
+              : [
+                  ...files.map((file) => <EditDiff key={file.path} file={file} />),
+                  // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
+                  ...shown
+                    .filter((item) => !files.length || !item.tool!.diffs?.length)
+                    .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
+                ]}
+          </div>
         </div>
       )}
     </>

@@ -33,6 +33,11 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // A fold of this Mac's own sidebar view, nothing to script.
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarItem, .view, 50)])
             ),
+            // Opens a Chief subagent (target: its row's sidebar item) as its row does; the Chief pane's Subagents menu runs it.
+            ActionDescriptor(id: "chief.openSubagent", title: t("action.chief.openSubagent", "Open Chief Subagent"),
+                             keywords: ["chief", "subagent", "agent", "open", "show", "chat"], category: .agents, symbol: "person.2",
+                             surfaces: [.keyboard], targets: [.sidebarItem],
+                             surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -302,6 +307,11 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "tabs", "workspace", "show", "list", "nested", "children"], category: .sidebar, symbol: "list.bullet.indent",
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
+                    "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 119, folder: .options), p(.sidebarItem, .view, 120)])
             ),
             ActionDescriptor(
                 id: "sidebar.layout.reset", title: t("action.sidebar.layout.reset", "Reset Sidebar Layout"),

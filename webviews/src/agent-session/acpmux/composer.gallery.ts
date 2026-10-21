@@ -5,8 +5,52 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import type { PlayContext } from "../../gallery/play";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
+
+// Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
+// mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
+const SEND_ARRIVES = {
+  layoutShiftMax: {
+    value: 0.001,
+    reason: "Send comes in after the mic with the draft's first letter, moving the mic one slot left (0.0002).",
+  },
+};
+
+/// The one model button (Leo 2026-10-20: "Opus 5.5  Medium"): it names the model and its effort and
+/// opens the one menu, whose Effort row opens the levels beside it.
+const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
+const MODEL_DETAIL = ".acpmux-model .acpmux-model-detail:not(.acpmux-fit-label)";
+
+async function openModelMenu(ctx: PlayContext) {
+  await ctx.click(MODEL_BUTTON);
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]'));
+}
+
+/// Opens the model menu, then its Effort submenu; resolves with the submenu's popup.
+async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
+  await openModelMenu(ctx);
+  return openEffortSubmenu(ctx);
+}
+
+/// With the model menu open, opens its Effort submenu (pressing the model button again would close
+/// the menu); resolves with the submenu's popup.
+async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
+  // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
+  // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
+  let levels: HTMLElement | undefined;
+  await ctx.waitFor(() => {
+    levels = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")].find(
+      // The submenu is the quick menu with no submenu rows of its own (the main one has Effort's).
+      (menu) => !menu.querySelector(".acpmux-quick-sub") && menu.querySelector('[role="menuitemradio"]') !== null,
+    );
+    return levels;
+  });
+  return levels!;
+}
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -47,6 +91,28 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+/// Pastes files into the prompt as the browser does: a paste event whose clipboardData is a real
+/// DataTransfer, so the prompt's paste handler can read it (getData) as it reads a person's paste.
+function pasteFiles(ctx: PlayContext, files: File[]): void {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  for (const file of files) data.items.add(file);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+}
+
+// A side session `/btw` opened: the question and its answer, its composer replying in it.
+const sideSession = (() => {
+  const side = chat(
+    [
+      user("Why did the retry test flake?", 2),
+      assistant("The backoff timer raced the mocked clock: the first retry waited 0 ms.", 1),
+    ],
+    { title: "Why did the retry test flake?", model: "claude-haiku-4-5" },
+  );
+  return { ...side, sessions: side.sessions.map((entry) => ({ ...entry, side: true })) };
+})();
 // A chat beside others, for the @ picker (Leo's Claude desktop screenshot, 2026-10-19): what
 // `@proje` finds among chats, folders and the chat folder's files.
 function mentionChat() {
@@ -230,7 +296,6 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
-    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -238,7 +303,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
-    "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
@@ -250,6 +314,10 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "side-session": {
+      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      snapshot: sideSession,
     },
     // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
     // to take it (promptSuggestion.ts).
@@ -279,9 +347,7 @@ export default agentPaneEntry({
       }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-chips .acpmux-effort")?.textContent?.trim() === "Medium",
-        );
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
       },
     },
     "agent-home": {
@@ -342,14 +408,14 @@ export default agentPaneEntry({
     },
     // Leo's nightly (2026-10-20): a Claude chat on a second Claude profile (claude-sr2) whose
     // acpmux list names its models by id, on Claude Code's own level, with fast mode offered. The
-    // chip names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
+    // button names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
     "footer-profile-ids": {
       note: "A chat on a second Claude profile whose models carry only their ids, on the agent's default level: the footer names the model by its catalog short name (Opus 5.5) and the level it resolves to (Medium).",
       snapshot: profileIdsChat(),
       play: async (ctx) => {
         const text = (selector: string) => ctx.document.querySelector(selector)?.textContent?.trim() ?? "";
         await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
-        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button") === "Medium");
+        await ctx.waitFor(() => text(`.acpmux-composer-foot ${MODEL_DETAIL}`) === "Medium");
         await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
         await ctx.waitFor(() =>
           ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
@@ -360,10 +426,23 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
-    // Leo 2026-10-19: no composer button draws a pill at rest, the bolt on included
-    // (test/composer-quiet-chips.test.ts).
+    // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
+    // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
+    // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
+    "plus-tooltip": {
+      note: 'Play: hover the +; the tooltip reads "Add files and more".',
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const selector = ".acpmux-composer-plus .acpmux-picker-button";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent === "Add files and more",
+        );
+      },
+    },
     "quiet-chips": {
-      note: "Every footer button at rest: +, the model, effort and mode chips and the fast bolt on. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
+      note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),
     },
     // The composer's states, the New Tab page's beside them (agent-pane.new-tab composer-*):
@@ -431,10 +510,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -457,10 +533,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -475,10 +548,7 @@ export default agentPaneEntry({
         const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
@@ -500,10 +570,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "quick-screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.click({ selector: ".acpmux-attachment-open" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
@@ -516,10 +583,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
         const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
@@ -528,6 +592,121 @@ export default agentPaneEntry({
         if (!dialog || ctx.document.defaultView!.getComputedStyle(dialog).position !== "fixed")
           throw new Error("PDF preview must remain a fixed dialog over the composer");
         if (!ctx.document.querySelector(".ui-backdrop")) throw new Error("PDF preview is missing its backdrop");
+      },
+    },
+    "file-saved-as-path": {
+      note: "Pasted files no content block takes (a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path. A text file beside them is a plain file chip, sent in the prompt's text.",
+      snapshot: chat(finished),
+      native: {
+        "chat.upload": {
+          uploads: [
+            {
+              name: "build-logs.zip",
+              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/0/build-logs.zip",
+            },
+            { name: "repro.mov", path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/1/repro.mov" },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const files = [
+          new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([new Uint8Array([0, 0, 0, 0x18, 0xff])], "repro.mov", { type: "video/quicktime" }),
+        ];
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2);
+        if (ctx.find({ selector: ".acpmux-md" }).textContent?.includes("Chat Uploads"))
+          throw new Error("a saved file's path must go as its chip's link, not as prompt text");
+      },
+    },
+    "file-not-attached": {
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
+      snapshot: chat(finished),
+      native: { "chat.upload": { nativeError: { code: "unsupported" } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+          type: "application/zip",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+      },
+    },
+    "image-sent-as-path": {
+      note: "A pasted screenshot for an agent that takes no images (promptCapabilities.image false) is saved by the host and goes as its file path; its chip says so.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: false } } }))(
+        chat(finished),
+      ),
+      native: {
+        "chat.upload": {
+          uploads: [
+            {
+              name: "Screenshot.png",
+              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/2/0/Screenshot.png",
+            },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        const file = new view.File([png], "Screenshot.png", { type: "image/png" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
+    "folder-dropped-as-link": {
+      note: "A folder and a zip dropped from Finder on a chat whose folder is on this Mac: the host knows where they are (chat.attach.dropped), so each chip links to the real path (the folder's name ends in a slash) and nothing is copied or uploaded. The screenshot beside them is an image as before.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: `${CWD}/assets`, folder: true },
+            { path: "/Users/dev/Downloads/build-logs.zip", folder: false },
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        // A dropped folder: WebKit hands a File whose bytes cannot be read.
+        const folder = new view.File([], "assets", { type: "" });
+        Object.defineProperty(folder, "arrayBuffer", { value: () => Promise.reject(new Error("a folder")) });
+        const files = [
+          folder,
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([png], "Screenshot.png", { type: "image/png" }),
+        ];
+        const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachment-link:not([data-saved])").length === 2,
+        );
+        if (ctx.document.querySelector("output.acpmux-attachment-note"))
+          throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
       },
     },
     draft: {
@@ -646,6 +825,7 @@ export default agentPaneEntry({
       },
     },
     "history-recall": {
+      checks: SEND_ARRIVES,
       note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. The older prompt has Markdown characters the field escapes. A prompt being typed is never replaced.",
       snapshot: chat([
         user("Fix arr[0] and the 2 * 3 case in fetch_helper_retry", 6),
@@ -1042,6 +1222,7 @@ export default agentPaneEntry({
       },
     },
     "mention-picker": {
+      checks: SEND_ARRIVES,
       note: "Play: type @rea in the prompt; Ctrl-J/Ctrl-K move the file highlight, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),
       native: {
@@ -1076,6 +1257,7 @@ export default agentPaneEntry({
       },
     },
     "mention-escaped-path": {
+      checks: SEND_ARRIVES,
       note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
       snapshot: chat(finished),
       native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
@@ -1098,6 +1280,7 @@ export default agentPaneEntry({
       },
     },
     "mention-mid-word": {
+      checks: SEND_ARRIVES,
       note: "Play: an @ inside a word (an email address) opens no file picker.",
       snapshot: chat(finished),
       native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
@@ -1110,6 +1293,7 @@ export default agentPaneEntry({
       },
     },
     "mention-mixed": {
+      checks: SEND_ARRIVES,
       note: "Play: type @proje; other chats list first with their project muted, then folders, then the chat folder's files, matched letters bold.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },
@@ -1159,6 +1343,7 @@ export default agentPaneEntry({
       },
     },
     "mention-file-over-prompt-chat": {
+      checks: SEND_ARRIVES,
       note: "Play: type @app beside a chat named for a long prompt; the prompt's letters do not list the chat, and Return writes the file.",
       snapshot: (() => {
         const base = chat(finished);
@@ -1191,6 +1376,7 @@ export default agentPaneEntry({
       },
     },
     "mention-recent-chats": {
+      checks: SEND_ARRIVES,
       note: "Play: a bare @ lists the most recent other chats before a word is typed.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },
@@ -1220,7 +1406,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: Claude's reasoning menu: Low to Max with Extra High, then Ultracode On/Off (its line beside it, on one row) and Fast Mode On/Off; the chip reads Medium (the bolt beside the mic shows Fast).",
+      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists the levels Opus 5.5 offers (Low, Medium, High, Max) and no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -1251,12 +1437,23 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
+        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed bolt");
+        await openModelMenu(ctx);
+        const fast = ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast");
+        if (fast?.getAttribute("aria-checked") !== "true")
+          throw new Error("Fast mode must be a checked row of the menu");
+        // The menu is open: a second press on the model button would close it.
+        const levels = await openEffortSubmenu(ctx);
+        const names = [...levels.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent?.trim());
+        // The fixture's Opus 5.5 offers Low, Medium, High and Max (no Extra High, so no Ultracode).
+        const expected = ["Low", "Medium", "High", "Max"];
+        if (names.join("|") !== expected.join("|")) throw new Error(`Effort lists ${names.join(", ")}`);
+        if (levels.textContent?.includes("Fast")) throw new Error("Fast mode must live in one place, not in Effort");
       },
     },
     "reasoning-claude-default": {
-      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the chip names the level it resolves to, Medium; the menu checks Medium with a Default hint and lists no Ultrathink.",
+      note: "Play: a chat on Claude Code's own level (default) on Opus 5.5 [1m]: the model button names the level it resolves to, Medium; the Effort submenu checks Medium and lists no Ultrathink.",
       snapshot: withSummary(chat(finished, { title: "Claude default reasoning" }), {
         model: "claude-opus-5-5[1m]",
         configOptions: [
@@ -1272,23 +1469,16 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const chip = () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button");
-        await ctx.waitFor(() => chip()?.textContent?.trim() === "Medium");
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => {
-          const checked = ctx.document.querySelectorAll(
-            '.acpmux-effort-menu [role="menuitemradio"][aria-checked="true"]',
-          );
-          const level = checked[0]?.textContent ?? "";
-          return level.includes("Medium") && level.includes("Default");
-        });
-        await ctx.waitFor(
-          () => !ctx.document.querySelector(".acpmux-effort-menu")?.textContent?.includes("Ultrathink"),
+        await ctx.waitFor(() => ctx.document.querySelector(MODEL_DETAIL)?.textContent?.trim() === "Medium");
+        const levels = await openEffortMenu(ctx);
+        await ctx.waitFor(() =>
+          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("Medium"),
         );
+        if (levels.textContent?.includes("Ultrathink")) throw new Error("Effort lists Ultrathink");
       },
     },
     "reasoning-codex": {
-      note: "Play: open Codex's reasoning menu, choose Service Tier Fast, and close it; the snapshot shows Low to Ultra (Xhigh reads Extra High) plus Standard (Default) and Fast.",
+      note: "Play: open Codex's model button menu and check Fast mode (Codex's Fast service tier), its one place; Effort lists Low to Ultra (Xhigh reads Extra High).",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1309,14 +1499,15 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-effort .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-effort-menu"));
-        await ctx.click({ role: "menuitemradio", name: /^Fast/ });
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-effort-menu"));
+        await openModelMenu(ctx);
+        const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" };
+        await ctx.waitFor(() => ctx.document.querySelector(fast.selector));
+        if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start unchecked");
+        await ctx.click(fast);
       },
     },
     "model-menu-keyboard": {
-      note: "Play: open the model picker and move its highlight with the keyboard.",
+      note: "Play: open the model button's menu, then More models (the full picker), and move its highlight with the keyboard.",
       checks: {
         layoutShiftMax: {
           value: 0.03,
@@ -1330,8 +1521,9 @@ export default agentPaneEntry({
         title: "Model picker interaction",
       }),
       play: async (ctx) => {
-        const picker = ".acpmux-model .acpmux-picker-button";
-        await ctx.click({ selector: picker });
+        // A started chat's menu has no rail, so More models opens the full picker (Leo 2026-10-20).
+        await openModelMenu(ctx);
+        await ctx.click({ role: "menuitem", name: /^More models/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
         const search = ctx.find({ selector: ".acpmux-mp input[role=combobox]" });
         await ctx.waitFor(() => ctx.document.activeElement === search);
@@ -1372,7 +1564,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-menu": {
-      note: "Play: open Reasoning; a small menu lists only the model's levels and checks the current one.",
+      note: "Play: open the model button's Effort submenu; it lists only the model's levels and checks the current one.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-reasoning",
@@ -1397,12 +1589,14 @@ export default agentPaneEntry({
         },
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '[data-menu="Effort"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        const levels = await openEffortMenu(ctx);
+        await ctx.waitFor(() =>
+          levels.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent?.includes("High"),
+        );
       },
     },
     "reasoning-none": {
-      note: "A model whose only level is the agent's default shows no reasoning control, never Default / Default.",
+      note: "A model whose only level is the agent's default: the model button names the model alone and its menu has no Effort row, never Default / Default.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-reasoning-none",
@@ -1423,7 +1617,7 @@ export default agentPaneEntry({
       }),
     },
     "model-menu-starred": {
-      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      note: "Play: open the model button's menu before the first send: its harness rail lists each harness, and a tab shows that harness's models in place.",
       checks: {
         layoutShiftMax: {
           value: 0.055,
@@ -1438,25 +1632,13 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        const { translate } = await import("./i18n");
-        const starred = { role: "option", name: translate("picker.starred") };
-        const favorite = { selector: '.acpmux-mp-favorite[aria-label$="Sonnet 5.5"]' };
-        await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-mp"));
-        // A full provider catalog places Sonnet below the visible rows. Filter it into view
-        // before pointer input, then reveal the row's hover-only favorite control.
-        await ctx.type("Sonnet 5.5", { selector: ".acpmux-mp input[role=combobox]" });
-        await ctx.hover(favorite);
-        // Replay retains the pane's favorites. Keep Sonnet starred instead of toggling it off.
-        if (ctx.find(favorite).getAttribute("aria-pressed") !== "true") await ctx.click(favorite);
-        // Tooltips consume title on hover; the translated accessible name stays available.
-        await ctx.click(starred);
+        await openModelMenu(ctx);
+        // The rail's tabs draw a mark alone; each names its harness.
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(
           () =>
-            ctx.find(starred).getAttribute("aria-selected") === "true" &&
-            [...ctx.document.querySelectorAll(".acpmux-mp-models .acpmux-menu-label")].some((row) =>
-              row.textContent?.endsWith("Sonnet 5.5"),
-            ),
+            ctx.find({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' }).getAttribute("aria-pressed") ===
+              "true" && ctx.document.querySelector('.acpmux-quick-body [role="menuitemradio"]') !== null,
         );
       },
     },
@@ -1540,7 +1722,7 @@ export default agentPaneEntry({
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
         await ctx.waitFor(() => !ctx.document.querySelector('.ui-popup[role="menu"]'));
-        await ctx.click({ selector: '[data-menu="Effort"]' });
+        await openModelMenu(ctx);
         await ctx.waitFor(() => ctx.document.querySelector('.ui-popup[role="menu"] [role="menuitemradio"]'));
       },
     },
@@ -1559,8 +1741,8 @@ function withSummary(
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
 }
 
-/// Every footer button (+, the model, effort and mode chips, the fast bolt on), for the quiet-chips
-/// and composer-state variants.
+/// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only
+/// the model button's menu shows), for the quiet-chips and composer-state variants.
 function quietChips(): ReturnType<typeof chat> {
   return withSummary(chat(finished, { title: "Quiet chips" }), {
     modes: {
