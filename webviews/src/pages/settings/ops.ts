@@ -123,7 +123,7 @@ export type HostLists = {
 };
 
 /**
- * The Mobile page's iPhone card: the cnx phone host the app runs while the schema row
+ * The Mobile page's iPhone card: the iPhone host the app runs while the schema row
  * `mobile.allowIPhoneConnections` is on and an account is signed in. Every text is localized by
  * the host.
  */

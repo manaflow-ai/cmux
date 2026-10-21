@@ -258,6 +258,119 @@ describe("Hexclave mirror reconcile", () => {
     expect(dirtyTeamIds).toEqual([TEAM_ID]);
   });
 
+  test("a failed seat dirty mark for a membership addition is retried", async () => {
+    let fail = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (fail) {
+            fail = false;
+            throw new Error("seat queue unavailable");
+          }
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+
+    await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID }, "msg_seat_retry");
+    expect(inbox.rows.get("msg_seat_retry")).toMatchObject({ attempts: 1 });
+    await retry();
+
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+    expect(inbox.rows.has("msg_seat_retry")).toBe(false);
+  });
+
+  test("a failed seat dirty mark for a membership discovered by user update is retried", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.teams.set(OTHER_TEAM_ID, serverTeam({ id: OTHER_TEAM_ID, display_name: "Other" }));
+    hexclave.addMember(OTHER_TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_user_seat_retry");
+    expect(inbox.rows.get("msg_user_seat_retry")).toMatchObject({ attempts: 1 });
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds.sort()).toEqual([OTHER_TEAM_ID, TEAM_ID].sort());
+    expect(inbox.rows.has("msg_user_seat_retry")).toBe(false);
+  });
+
+  test("a failed seat decrement discovered by user update keeps its revoke pending for retry", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, mirror, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_remove_seat_retry");
+    expect(inbox.rows.get("msg_remove_seat_retry")).toMatchObject({ attempts: 1 });
+    expect([...mirror.pendingRevocations]).toEqual([`${TEAM_ID}:${USER_ID}`]);
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+    expect(mirror.pendingRevocations.size).toBe(0);
+    expect(inbox.rows.has("msg_remove_seat_retry")).toBe(false);
+  });
+
+  test("a concurrent membership re-add waits for an older revoke to settle", async () => {
+    let releaseRevoke!: () => void;
+    let markRevokeStarted!: () => void;
+    const revokeStarted = new Promise<void>((resolve) => { markRevokeStarted = resolve; });
+    const revokeReleased = new Promise<void>((resolve) => { releaseRevoke = resolve; });
+    const { hexclave, mirror, sync } = harness({
+      sync: {
+        revokeTeamMemberAccess: async () => {
+          markRevokeStarted();
+          await revokeReleased;
+        },
+      },
+    });
+    seed(hexclave);
+    await applyHexclaveWebhookEvent({ type: "user.created", data: serverUser() }, sync);
+    hexclave.removeMember(TEAM_ID, USER_ID);
+
+    const removal = applyHexclaveWebhookEvent({ type: "user.updated", data: serverUser() }, sync);
+    await revokeStarted;
+    hexclave.addMember(TEAM_ID, USER_ID);
+    let readdSettled = false;
+    const readd = applyHexclaveWebhookEvent({
+      type: "team_membership.created",
+      data: { team_id: TEAM_ID, user_id: USER_ID },
+    }, sync).then(() => { readdSettled = true; });
+    for (let turn = 0; turn < 50 && !readdSettled; turn += 1) await Promise.resolve();
+
+    const settledBeforeRelease = readdSettled;
+    releaseRevoke();
+    await Promise.all([removal, readd]);
+    expect(settledBeforeRelease).toBe(false);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([TEAM_ID]);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
