@@ -1102,8 +1102,7 @@
       "cli_name" : "workspace reopen-closed",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground",
-        "workspaceRow"
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -1896,17 +1895,7 @@
         "workspaceRow"
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "w",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "sidebar.multiSelection"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -25100,34 +25089,6 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "settings restart-background-services",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "palette.restartBackgroundServices",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Restart Background Services…",
-      "title_key" : "action.palette.restartBackgroundServices",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
       "cli_name" : "settings check-for-updates",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -41718,9 +41679,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "label" : "Move to Space…",
               "order" : 5,
               "visible_when" : {
@@ -41816,7 +41781,7 @@
           "enabled_when" : "can_perform",
           "id" : "workspaceGroup.closeWorkspaces",
           "kind" : "action",
-          "label" : "Close All in Group",
+          "label" : "Close Group",
           "order" : 13,
           "visible_when" : {
             "debug_only" : false,
@@ -42091,9 +42056,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -42104,9 +42073,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.duplicateToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
@@ -43025,19 +42998,6 @@
               "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 34,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
-              "kind" : "action",
-              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
