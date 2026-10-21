@@ -281,6 +281,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                     once.run()
                     return
                 }
+                guard self.holdsUserInstalls else {
+                    once.run()
+                    return
+                }
                 self.holdRelaunch(isAutoUpdate: true, install: once.run)
             },
             dismiss: {}
