@@ -13,8 +13,11 @@ import CmuxNextWakeups
 /// What a page opens (a chat and its pull request link, Home, New Tab, a Markdown page) is a tab in its pane, never an
 /// unasked split (Leo 2026-10-20); a terminal's or browser's Cmd-click (`cmdClick`) goes by `layout.linkPlacement`.
 ///
-/// A new tab for the pane on the right opens there, selected and focused. A new split or column is
-/// made by opening the tab unselected in the source pane and moving it there in one daemon move
+/// A new tab for the pane on the right opens there, selected and focused. A web link's new split
+/// is made with its tab in one daemon commit (`frontend-browser-tab-split-v1`, ``Split``): it never
+/// shows in the source pane first (user report 2026-10-20: a pull request's link opened as a tab
+/// of the chat's pane, then slid right). Any other new split, and every new column, is made by
+/// opening the tab unselected in the source pane and moving it there in one daemon move
 /// (`TabMoves`), the way an agent's tab reaches the column beside its chat (``AgentBesidePlacement``):
 /// the source keeps showing what it showed.
 @MainActor
@@ -23,6 +26,10 @@ final class LinkOpener {
     /// focused); else the tab must open unselected and report its surface to `placed`, which moves
     /// it. Returns false when nothing opened (the opener reported why).
     typealias Make = @MainActor (_ pane: PaneController, _ placed: (@MainActor (SurfaceID) -> Void)?) -> Bool
+    /// Opens the item straight in a new pane on `direction` of `pane`, made with it in one daemon
+    /// commit, and returns whether it opened; nil when it cannot be made there directly (an older
+    /// daemon), so ``Make`` makes it in `pane` and it moves.
+    typealias Split = @MainActor (_ pane: PaneController, _ direction: SplitDirection) -> Bool?
 
     /// How long a move waits for the store to list the new tab.
     static let listLimit: Duration = .seconds(30)
@@ -78,20 +85,23 @@ final class LinkOpener {
             .target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
 
-    /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
-    /// False with no source pane (no window) or when `make` refused.
+    /// Opens through `make` where the rule puts it, a new split through `split` when it can.
+    /// `background`: the opened tab takes no focus. False with no source pane (no window) or when
+    /// `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, split: Split? = nil, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
         switch target(from: source, cmdClick: cmdClick) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
+            if let opened = split?(source, .right) { return opened }
             return make(source) { [weak self, weak source] surface in
                 guard let self, let source else { return }
                 self.move(surface, from: source, to: .split(.right), focus: !background)
             }
         case .newColumn:
+            // A daemon split makes a pane beside the source in its column, not a column: still a move.
             return make(source) { [weak self, weak source] surface in
                 guard let self, let source else { return }
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
@@ -104,7 +114,20 @@ final class LinkOpener {
 
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``).
     func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) {
-        open(from: source, background: background, cmdClick: cmdClick) { $0.newBrowserTab(url: url, background: background || $1 != nil, then: $1) }
+        open(from: source, background: background, cmdClick: cmdClick, split: Self.webSplit(url, background: background)) {
+            $0.newBrowserTab(url: url, background: background || $1 != nil, then: $1)
+        }
+    }
+
+    /// A web link's tab made in its new split (``Split``) where the pane's daemon can and the pane
+    /// splits in place (`splitRoom`): a chat dock, a pane with no room or a strip column too narrow
+    /// keeps the move, which refuses or opens a new column as every split does.
+    private static func webSplit(_ url: URL, background: Bool) -> Split {
+        { pane, direction in
+            guard pane.opensBrowserSplitsDirectly,
+                  case .split = pane.services.splitRoom(for: pane.pane, edge: direction == .right ? .right : .bottom) else { return nil }
+            return pane.newBrowserTab(url: url, background: background, split: direction)
+        }
     }
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
@@ -174,9 +197,24 @@ final class LinkOpener {
             }
         }
         guard let destination else { return make(pane, nil) }
+        // A web link dropped on a right or bottom edge: its tab is made in the new split, never in the pane first.
+        if case .web(let url) = item, case .split(let edge) = destination, let direction = Self.splitDirection(edge),
+           let opened = Self.webSplit(url, background: false)(pane, direction) {
+            return opened
+        }
         return make(pane) { [weak self, weak pane] surface in
             guard let self, let pane else { return }
             self.move(surface, from: pane, to: destination, focus: true)
+        }
+    }
+
+    /// The daemon split that puts a new pane on `edge`; nil for a left or top edge (the split
+    /// makes the new pane right or below; those keep the move).
+    static func splitDirection(_ edge: PaneEdge) -> SplitDirection? {
+        switch edge {
+        case .right: .right
+        case .bottom: .down
+        case .left, .top: nil
         }
     }
 

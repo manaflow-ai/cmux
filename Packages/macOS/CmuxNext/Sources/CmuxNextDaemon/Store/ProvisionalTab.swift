@@ -29,6 +29,14 @@ public struct ProvisionalTab: Sendable, Hashable {
         return snapshot
     }
 
+    /// The stand-in of a new browser tab on `url` in a split (`new-frontend-browser-tab {split}`,
+    /// `frontend-browser-tab-split-v1`): the strip names it at once, and it has no page (not
+    /// frontend-owned), so no page loads under the provisional id; the daemon's tab in the daemon's
+    /// pane replaces it and makes the one page.
+    public func browser(_ url: String) -> TabSnapshot {
+        TabSnapshot(surface: surface, tabResourceID: ResourceID(rawValue: id), kind: .browser, title: url, url: url)
+    }
+
     /// The stand-in of a new terminal tab (`new-tab`, Ctrl-`) whose terminal host id the client
     /// chose (`terminal-placement-env-v1`): the daemon's tab carrying `terminal` is this one
     /// (``matched(_:in:)``), never a guess.
