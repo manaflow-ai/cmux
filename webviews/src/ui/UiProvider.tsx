@@ -26,7 +26,9 @@ const UiContext = createContext<UiContextValue>({
 });
 
 /** Right-to-left languages among the pages' locales (Apple localization codes or BCP 47 tags). */
-const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur"]);
+// Keep this in step with shared/i18n.ts's document direction list. Pages derive their UiProvider
+// direction from the resolved language, so every locale that sets document.dir=rtl must agree here.
+const RTL_LANGUAGES = new Set(["ar", "fa", "he", "ur", "ps", "sd", "ug", "yi"]);
 
 /** The text direction of `language` ("ar", "en", "zh-Hans", ...). */
 export function languageDirection(language: string): UiDirection {
