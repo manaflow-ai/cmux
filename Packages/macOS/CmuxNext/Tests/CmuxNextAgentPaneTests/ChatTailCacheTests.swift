@@ -148,4 +148,54 @@ struct ChatTailCacheTests {
         #expect(Self.bridge("chat.tail", ["sessionId": ""])["ok"] as? Bool == false)
         #expect(Self.bridge("chat.tail.forget", ["sessionId": "s-1"])["ok"] as? Bool == false)
     }
+
+    /// A tail too large to keep is refused whole, so this never becomes megabytes of a person's
+    /// text held per chat. The page bounds what it hands over, but the bound has to hold here too:
+    /// a page that bounds wrongly, or not at all, is the case this is for.
+    ///
+    /// The bytes are in the `queue` rather than the records, which is the hole this closes: a
+    /// queued prompt carries its whole text, and no record count bounds it.
+    @Test func aTailTooLargeToKeepIsRefusedAndDropsWhatWasKept() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        _ = Self.bridge("chat.tail", ["sessionId": "s-9", "tail": Self.tail(3)])
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-9"]))).count == 3)
+
+        var huge = Self.tail(2)
+        huge["queue"] = [["id": "q-1", "prompt": String(repeating: "p", count: AgentPaneTailCache.bytes + 1)]]
+        #expect(Self.bridge("chat.tail", ["sessionId": "s-9", "tail": huge])["ok"] as? Bool == true,
+                "the host refuses the tail, not the request")
+        // Refused, and the older tail is gone: the page has read on, so what it kept is stale.
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-9"])) is NSNull)
+    }
+
+    /// The one line no test here can reach: the pane's own host answers these ops from
+    /// `AgentPaneBridge.userContentController`, and a `WKScriptMessage` cannot be made outside
+    /// WebKit, so nothing can send that handler a message. Every test above calls
+    /// `AgentPaneTailCache.reply` directly. Delete the handler's branch and all of them stay green
+    /// while every new tab silently opens cold again — the whole point of this cache, on the host
+    /// `agent.pageHost: false` makes production use. So the call site is read out of the source.
+    ///
+    /// Renaming either symbol is fine; this test then names what to rewrite it to.
+    @Test func theHandlerStillRoutesTheseOpsToThisCache() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0 ..< 6 { root.deleteLastPathComponent() }
+        let bridge = root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift")
+        // Read, not guessed: a missing or unreadable file fails rather than passing vacuously.
+        let source = try String(contentsOf: bridge, encoding: .utf8)
+        guard let handler = source.range(of: "func userContentController(") else {
+            Issue.record("AgentPaneBridge no longer has a userContentController handler")
+            return
+        }
+        // Inside the handler, not merely somewhere in the file: the slice ends at the next doc
+        // comment, which today is the one on `reply(for:)`.
+        let rest = source[handler.lowerBound...]
+        let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
+        #expect(body.contains("AgentPaneTailCache"),
+                """
+                AgentPaneBridge.userContentController no longer routes chat.tail to \
+                AgentPaneTailCache, so the ops reach AgentPaneModel, which has no case for them: \
+                every chat opened in a new tab waits for acpmux again. Route them again, or give \
+                AgentPaneModel the ops and update this test.
+                """)
+    }
 }

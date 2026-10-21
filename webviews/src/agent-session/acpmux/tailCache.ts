@@ -122,9 +122,14 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// Hands the tail to the host for the next tab, bounded in records and bytes. Never awaited: an
 /// open must not wait on it, and a host that refuses it only means the next tab opens cold.
 function writeHostTail(sessionId: string, tail: KeptTail): void {
-  const events = newestWithin(tail.events, HOST_TAIL_BYTES);
-  // Not one record of this chat fits the host's bound (a single huge paste): the host forgets what
-  // it had rather than keeping an older tail under a chat this page has since read on.
+  // The rest of the tail is counted first, because it is not bounded by a record count the way
+  // `events` is: `queue` carries the whole text of every queued prompt, and a reader who queued a
+  // pasted log would otherwise hand over megabytes that neither side counts.
+  const rest = { ...tail, events: [] as EventRecord[] };
+  const events = newestWithin(tail.events, Math.max(0, HOST_TAIL_BYTES - bytesOf(rest)));
+  // Not one record of this chat fits the host's bound (a single huge paste, or a queue that fills
+  // it on its own): the host forgets what it had rather than keeping an older tail under a chat
+  // this page has since read on.
   if (events.length === 0) {
     void callHost("chat.tail", { sessionId }).catch(() => undefined);
     return;
@@ -139,6 +144,11 @@ function writeHostTail(sessionId: string, tail: KeptTail): void {
       historyExhausted: tail.historyExhausted && events.length === tail.events.length,
     },
   }).catch(() => undefined);
+}
+
+/// What `value` costs the host, measured the one way both bounds are measured: its JSON's length.
+function bytesOf(value: unknown): number {
+  return JSON.stringify(value)?.length ?? 0;
 }
 
 /// The newest records of `events` whose JSON fits `maxBytes`; none when even the newest does not.

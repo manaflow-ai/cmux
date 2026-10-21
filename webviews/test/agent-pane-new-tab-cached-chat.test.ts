@@ -15,6 +15,7 @@
 //   - a chat whose attach fails is dropped here and in the host, so no later tab draws it;
 //   - what the host answers is read defensively: anything but a page tail opens the chat cold.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { resetKeptTailsForTests } from "../src/agent-session/acpmux/tailCache";
@@ -284,6 +285,71 @@ test("a chat opened in a new tab draws from the tail the host kept, before its o
   expect(tab.last()!.canLoadOlder).toBe(false);
 });
 
+/// The flow this cache is named for, which every other test here reaches the long way round: the
+/// reader is on chat A and opens A in a new tab. The page keeps A selected, so A is never "left"
+/// and `select` never hands it over — only the hand-over that `App.tsx` does before
+/// `chat.openTab` (openOwnTab, onMoveToTab) puts A in the host. Without that call this test's
+/// first expectation stays false and the new tab opens cold, which is the bug it holds.
+test("opening the chat on screen in a new tab hands it over, with no switch away", async () => {
+  const chat = new Fixture("open-own");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  const read = chat.tab(chat.a);
+  const client = await read.client;
+  await flush();
+  // Read, and still on screen: nothing has been handed over yet.
+  expect(chat.host.tails.has(chat.a)).toBe(false);
+
+  client.handOverCurrentTail();
+  await flush();
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+  client.close();
+
+  // So the new tab draws the chat before its own attach answers, as it does for a chat left behind.
+  // The connect is not awaited: with the attach held it never settles, and what is drawn before it
+  // answers is the point.
+  const tab = chat.tab(chat.a, { hold: true });
+  await flush();
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.sessionId).toBe(chat.a);
+});
+
+/// The wiring the test above cannot reach. It calls `handOverCurrentTail` itself, so it proves the
+/// client hands a chat over — not that anything in the product asks it to. The asking happens in
+/// `App.tsx`, in the two actions that open a chat in a tab, and it is React code no test here
+/// drives. Take either call away and every test in this file stays green while the flow this cache
+/// is named for goes cold again, so the call sites are read out of the source.
+///
+/// Renaming the method is fine; this test then names what to rewrite it to.
+test("the actions that open a chat in a tab hand the chat over first", async () => {
+  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  const sites = [...app.matchAll(/callNative\("chat\.openTab"/g)];
+  // Two today (openOwnTab, onMoveToTab); a third would need the hand-over too, so this notices it.
+  expect(sites.length).toBe(2);
+  for (const site of sites) {
+    // The hand-over has to come before the op, and close enough to belong to it.
+    const before = app.slice(Math.max(0, site.index - 400), site.index);
+    expect(
+      before.includes("handOverCurrentTail()"),
+      `a chat.openTab at index ${site.index} does not hand the chat over first, so the new tab ` +
+        "opens cold (tailCache.ts). Call client.handOverCurrentTail() before it.",
+    ).toBe(true);
+  }
+});
+
+/// A tab closing on a chat leaves it warm too: the page is gone before anything else could hand it
+/// over, so `close` does it (and `pagehide`, which no test here can fire).
+test("a tab closed on a chat hands that chat over", async () => {
+  const chat = new Fixture("closed-on");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  const read = chat.tab(chat.a);
+  const client = await read.client;
+  await flush();
+  expect(chat.host.tails.has(chat.a)).toBe(false);
+  client.close();
+  await flush();
+  expect(chat.host.tails.has(chat.a)).toBe(true);
+});
+
 test("a new tab the host kept nothing for waits for acpmux, and draws what it answers", async () => {
   const chat = new Fixture("cold-tab");
   chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
@@ -308,7 +374,9 @@ test("the tail handed to the host is bounded in bytes, and what it cut it still 
   chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
   await chat.readInATab();
 
-  const wrote = chat.host.wrote.at(-1)!;
+  // A's write, not simply the last one: closing that tab hands its chat on screen over too, so B's
+  // is last.
+  const wrote = chat.host.wrote.filter((write) => write.sessionId === chat.a).at(-1)!;
   expect(wrote.sessionId).toBe(chat.a);
   // Bounded: the newest records that fit, not the chat's sixteen.
   expect(wrote.events).toBeLessThan(big.length);

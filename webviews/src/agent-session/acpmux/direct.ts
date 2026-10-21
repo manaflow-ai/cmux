@@ -946,6 +946,22 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // The chat on screen is handed over when this page goes away as well as when it is left, so a
+    // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
+    // hands the composer's chips over the same way). Without this the only chat the host ever
+    // learns is one the reader switched off, which is not the chat they open in a new tab.
+    if (typeof window !== "undefined") window.addEventListener("pagehide", this.pageWentAway);
+  }
+
+  private pageWentAway = (): void => {
+    this.rememberCurrentTail();
+  };
+
+  /// Hands the chat on screen to the host now, for a tab about to open it (`chat.openTab`). The
+  /// page keeps it selected, so nothing else would hand it over and the new tab would open cold —
+  /// the flow this cache exists for.
+  handOverCurrentTail(): void {
+    this.rememberCurrentTail();
   }
 
   /// A client with no connection that shows one recorded session as it stood at a point in it
@@ -4402,6 +4418,9 @@ export class AcpmuxDirectClient {
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
+    // Before anything is torn down: the chat on screen is still readable here, and a tab closing on
+    // it should leave it warm for the next one.
+    this.rememberCurrentTail();
     this.closed = true;
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
@@ -4413,6 +4432,7 @@ export class AcpmuxDirectClient {
     clearTimeout(this.stopTimer);
     this.stopTimer = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();

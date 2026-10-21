@@ -5237,13 +5237,16 @@ function AcpmuxPane() {
           const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
           pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
         };
-        const openOwnTab = (sessionId: string) =>
-          mock
-            ? Promise.resolve(false)
-            : callNative("chat.openTab", { sessionId }).then(
-                () => true,
-                () => false,
-              );
+        const openOwnTab = (sessionId: string) => {
+          if (mock) return Promise.resolve(false);
+          // The new tab draws this chat from the host's tail, and this page keeps it selected, so
+          // nothing else hands it over (tailCache.ts).
+          client.handOverCurrentTail();
+          return callNative("chat.openTab", { sessionId }).then(
+            () => true,
+            () => false,
+          );
+        };
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -6941,7 +6944,12 @@ function AcpmuxPane() {
             : undefined,
         onSelect: selectSession,
         onNewChat: () => void callNative("chat.new", {}).catch(() => undefined),
-        onMoveToTab: (sessionId: string) => void callNative("chat.openTab", { sessionId }).catch(() => undefined),
+        onMoveToTab: (sessionId: string) => {
+          // Warm for the new tab: this chat if it is the one on screen, and otherwise whatever this
+          // page already read of it, which rememberTail handed over when it was left.
+          directClient.current?.handOverCurrentTail();
+          void callNative("chat.openTab", { sessionId }).catch(() => undefined);
+        },
       }
     : undefined;
   if (quick)

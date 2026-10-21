@@ -9,12 +9,20 @@ public import Foundation
 ///
 /// IN MEMORY ONLY. Nothing is written to disk, so this adds no place a transcript persists and no
 /// setting to turn off: quitting the app forgets every tail, and signing out drops them with the
-/// rest of the session's state (``clear()``). What is held is bounded three ways: the most recent
-/// ``chats`` chats, ``events`` records of each, and the bytes the page bounds before it hands a
-/// tail over (acpmux/tailCache.ts `HOST_TAIL_BYTES`), which together come to about 2 MiB.
+/// rest of the session's state (``clear()``). What is held is bounded three ways here, so the
+/// bound holds whatever a page sends: the most recent ``chats`` chats, ``events`` records of each,
+/// and ``bytes`` of each (``holds(_:)``) — at most about 8 MiB in the worst case, and a small
+/// fraction of that for ordinary chats, which are far under the per-chat bound.
 ///
-/// The tail itself is the page's own shape, kept opaque: only the page reads it back, and a record
-/// count is all this needs to bound what it holds.
+/// The page bounds a tail to 256 KiB of its own before handing it over (acpmux/tailCache.ts
+/// `HOST_TAIL_BYTES`), which is the number that describes real use. ``bytes`` is deliberately
+/// larger rather than equal: it is a backstop against a page that bounds wrongly or not at all,
+/// and the two sides count differently — the page measures `JSON.stringify().length` in UTF-16
+/// units, this measures UTF-8 bytes, and one CJK character is 1 unit there and 3 bytes here. An
+/// equal number would silently refuse a correct page's tail for a chat that is not in English, so
+/// the chat would quietly open cold in the next tab.
+///
+/// The tail itself is the page's own shape, kept opaque: only the page reads it back.
 @MainActor
 public final class AgentPaneTailCache {
     public static let shared = AgentPaneTailCache()
@@ -24,6 +32,11 @@ public final class AgentPaneTailCache {
     /// is refused whole, never cut: a cut tail that still called its history exhausted would hide
     /// the chat's older turns (webviews/test/reopened-chat-history.test.ts).
     static let events = 400
+    /// Most bytes one chat's tail may carry, as its compact JSON in UTF-8. Four times the page's
+    /// own 256 KiB, for the reason in this type's documentation: enough that a correct page is
+    /// never refused in any language, small enough that a page that bounds nothing cannot grow
+    /// this without limit. A tail over it is refused whole, as an over-long one is.
+    static let bytes = 1024 * 1024
 
     private struct Entry {
         var sessionId: String
@@ -33,7 +46,10 @@ public final class AgentPaneTailCache {
     /// Least recently remembered first.
     private var entries: [Entry] = []
 
-    public init() {}
+    /// ``shared`` is the one store both hosts answer from. A second one would split the cache: a
+    /// tail handed to one would be invisible to the other, and a chat would open cold for no
+    /// reason a reader could see.
+    private init() {}
 
     /// The tail kept for `sessionId`, or nil when none is.
     public func tail(for sessionId: String) -> JSONValue? {
@@ -41,8 +57,9 @@ public final class AgentPaneTailCache {
     }
 
     /// Keeps `tail` for chat `sessionId`; nil forgets it (the page no longer stands behind that
-    /// transcript). A tail carrying more than ``events`` records is refused, which leaves the chat
-    /// to open from acpmux as it did before.
+    /// transcript). A tail this does not hold (``holds(_:)``) is refused, which leaves the chat to
+    /// open from acpmux as it did before — and it also drops any tail already kept for that chat,
+    /// because the page has read on since and this one is what it now stands behind.
     public func remember(_ tail: JSONValue?, for sessionId: String) {
         var kept = entries.filter { $0.sessionId != sessionId }
         if let tail, Self.holds(tail) { kept.append(Entry(sessionId: sessionId, tail: tail)) }
@@ -54,9 +71,15 @@ public final class AgentPaneTailCache {
         entries.removeAll()
     }
 
-    /// Whether `tail` is a page tail this keeps: records, and not too many of them.
+    /// Whether `tail` is a page tail this keeps: records, not too many of them, and not too large.
+    /// The byte bound is measured over the whole tail and not only its records, because the rest of
+    /// it is not bounded by a record count — a chat's `queue` carries the full text of every
+    /// prompt waiting to be sent, so a queued paste is what would grow this.
     private static func holds(_ tail: JSONValue) -> Bool {
         guard case .object(let fields) = tail, case .array(let events)? = fields["events"] else { return false }
-        return !events.isEmpty && events.count <= Self.events
+        guard !events.isEmpty, events.count <= Self.events else { return false }
+        var text = ""
+        tail.appendCompactText(to: &text)
+        return text.utf8.count <= Self.bytes
     }
 }
