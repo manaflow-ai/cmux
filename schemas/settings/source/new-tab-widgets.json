@@ -1,0 +1,108 @@
+{
+  "$comment": "HAND-EDITED source of the New Tab page's widgets; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "newTabWidgets",
+      "section": "general",
+      "group": {
+        "key": "settings.group.tabs",
+        "text": "Tabs"
+      },
+      "note": "The Minimal New Tab layout's widgets (Leo 2026-10-20: \"only do the composer for the default\"): Minimal, the default tabs.newTabTemplate, is a greeting and the composer; each other part is a widget, off by default. The other layouts draw what they always drew. The app sends the ones on as the page's pageWidgets (webviews newtab/pageWidgets.ts).",
+      "rows": [
+        {
+          "key": "tabs.newTabWidgets.greeting",
+          "note": "On by default: a short greeting by the time of day over the composer.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.greeting",
+            "text": "Show Greeting on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.greeting.help",
+            "text": "A short greeting over the composer."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": ["new tab", "widget", "greeting", "hello"]
+        },
+        {
+          "key": "tabs.newTabWidgets.projects",
+          "note": "Off by default. On: Default's card of this Mac and its recent projects, with the page in Default's stage. The composer's project strip picks a folder either way.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.projects",
+            "text": "Show Projects on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.projects.help",
+            "text": "A card of this Mac and its recent projects over the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "project", "folder", "machine", "environment"]
+        },
+        {
+          "key": "tabs.newTabWidgets.actions",
+          "note": "Off by default. On: the chats that need you, New Terminal, New Browser Tab and New Chat. The palette and the pane's + menu have them either way.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.actions",
+            "text": "Show Quick Actions on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.actions.help",
+            "text": "Chats that need you, and New Terminal, New Browser Tab and New Chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "actions", "new terminal", "new browser tab", "new chat"]
+        },
+        {
+          "key": "tabs.newTabWidgets.chats",
+          "note": "Off by default. On: the recent chats as rows under the composer. The palette (Cmd-P) finds a chat either way.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.chats",
+            "text": "Show Recent Chats on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.chats.help",
+            "text": "Your recent chats under the composer. The palette finds any chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "chats", "recent", "history", "all chats"]
+        },
+        {
+          "key": "tabs.newTabWidgets.modeSwitch",
+          "name": "modeSwitch",
+          "note": "Off by default. Tab still switches between asking the agent and searching the web; the field's placeholder says which.",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.modeSwitch",
+            "text": "Show Search and Ask Switch on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.modeSwitch.help",
+            "text": "Tab switches between asking the agent and searching the web either way."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "search", "ask", "mode", "tab to switch"]
+        },
+        {
+          "key": "tabs.newTabWidgets.styleDots",
+          "name": "styleDots",
+          "note": "Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).",
+          "title": {
+            "key": "settings.tabs.newTabWidgets.styleDots",
+            "text": "Show Template Dots on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabWidgets.styleDots.help",
+            "text": "Dots under the page that switch its template."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": ["new tab", "widget", "template", "style", "dots"]
+        }
+      ]
+    }
+  ]
+}

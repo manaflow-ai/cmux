@@ -29,6 +29,7 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
@@ -41,7 +42,13 @@
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.newTabNowPlaying",
+              "tabs.newTabWidgets.greeting",
+              "tabs.newTabWidgets.projects",
+              "tabs.newTabWidgets.actions",
+              "tabs.newTabWidgets.chats",
+              "tabs.newTabWidgets.modeSwitch",
+              "tabs.newTabWidgets.styleDots"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -2022,6 +2029,7 @@
     },
     {
       "accepts" : [
+        "minimal",
         "cards",
         "default",
         "composer",
@@ -2033,6 +2041,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabTemplateMinimal",
+            "text" : "Minimal"
+          },
+          "value" : "minimal"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabTemplateCards",
@@ -2086,7 +2101,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "cards",
+      "default" : "minimal",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -2103,6 +2118,8 @@
         "template",
         "layout",
         "page",
+        "minimal",
+        "greeting",
         "terminal",
         "classic",
         "composer",
@@ -2128,6 +2145,57 @@
       "title" : {
         "key" : "settings.tabs.newTabTemplate",
         "text" : "New Tab Template"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.terminalFirst.help",
+        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.terminalFirst",
+      "keywords" : [
+        "terminal",
+        "classic",
+        "new tab",
+        "split",
+        "cmd-t",
+        "cmd-d",
+        "new tab page",
+        "default"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "terminalFirst"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.terminalFirst",
+        "text" : "New Tabs and Splits Open a Terminal"
       },
       "validation" : "portable"
     },
@@ -5919,7 +5987,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "top",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -23383,6 +23451,303 @@
       "title" : {
         "key" : "settings.tabs.newTabNowPlaying",
         "text" : "Show Now Playing on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.greeting.help",
+        "text" : "A short greeting over the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.greeting",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "greeting",
+        "hello"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "greeting"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.greeting",
+        "text" : "Show Greeting on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.projects.help",
+        "text" : "A card of this Mac and its recent projects over the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.projects",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "project",
+        "folder",
+        "machine",
+        "environment"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "projects"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.projects",
+        "text" : "Show Projects on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.actions.help",
+        "text" : "Chats that need you, and New Terminal, New Browser Tab and New Chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.actions",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "actions",
+        "new terminal",
+        "new browser tab",
+        "new chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "actions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.actions",
+        "text" : "Show Quick Actions on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.chats.help",
+        "text" : "Your recent chats under the composer. The palette finds any chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.chats",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "chats",
+        "recent",
+        "history",
+        "all chats"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "chats"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.chats",
+        "text" : "Show Recent Chats on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.modeSwitch.help",
+        "text" : "Tab switches between asking the agent and searching the web either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.modeSwitch",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "search",
+        "ask",
+        "mode",
+        "tab to switch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "modeSwitch"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.modeSwitch",
+        "text" : "Show Search and Ask Switch on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.styleDots.help",
+        "text" : "Dots under the page that switch its template."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.styleDots",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "template",
+        "style",
+        "dots"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "styleDots"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.styleDots",
+        "text" : "Show Template Dots on New Tab"
       },
       "validation" : "portable"
     },
