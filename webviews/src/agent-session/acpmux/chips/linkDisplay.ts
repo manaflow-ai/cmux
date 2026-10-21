@@ -35,9 +35,10 @@ export function redactUrlText(text: string): string {
   return masked.slice(0, at) + tail;
 }
 
-/// Whether `href` is on this machine or a private network: localhost (and `*.localhost`), loopback,
-/// 0.0.0.0, RFC 1918, link-local, `.local`, and IPv6 loopback, unique-local and link-local. Such a
-/// page is a dev server or a device, never a site to preview.
+/// Whether `href` is a web address on this machine or a private network: localhost (and
+/// `*.localhost`), loopback, 0.0.0.0, RFC 1918, link-local, CGNAT, `.local`/`.internal`/`.lan`,
+/// single-label names, and IPv6 loopback, unique-local, link-local and IPv4-mapped. Such a page is a
+/// dev server or a device, never a site to preview. An address with no host (`mailto:`) is not one.
 export function isPrivateUrl(href: string): boolean {
   let host: string;
   try {
@@ -55,8 +56,8 @@ export function isPrivateUrl(href: string): boolean {
     }
     return v6 === "::1" || v6 === "::" || /^f[cd][0-9a-f]{2}:/.test(v6) || /^fe[89ab][0-9a-f]:/.test(v6);
   }
-  // A single-label name (`http://mymac/`) is on the local network; `.internal` is a private zone.
   if (!host) return false;
+  // A single-label name (`http://mymac/`) is on the local network; `.internal` is a private zone.
   if (host === "localhost" || !host.includes(".")) return true;
   if (/\.(?:localhost|local|internal|lan|home\.arpa)$/.test(host)) return true;
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
