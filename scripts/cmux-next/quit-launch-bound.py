@@ -15,23 +15,33 @@ web server its browser tabs load.
                     event that Restart to Update sends all take this origin (facts read, the
                     incognito question rule);
        scripted     action.run quit (the CLI's `cmux app quit`);
-       signal       SIGTERM (dev tooling).
+       signal       SIGTERM (dev tooling);
+       wedged       debug.quit {wedge_engine_stop: true}, then the interactive quit: the quit's
+                    engine stop blocks the main thread for good, as a wedged CefShutdown did
+                    (cx-ccjnn). The app must still end within the bound, by its quit deadline.
      The quit is measured from the request to the kernel's exit event (kqueue NOTE_EXIT). While
      it runs, `sample` records the app every SAMPLE_SECONDS into quit-<mode>-<n>.txt.
-  3. The launch after it is measured from process start: the first window frame, the first live
-     terminal frame (or the agent pane's handshake), and the main thread's longest stall in the
-     first LAUNCH_WATCH seconds (debug.hangs, threshold HANG_MS, with stacks). `sample` records
-     the launch too.
-  4. beforeunload: an app quit must neither run a page's beforeunload nor wait for it. The pages
-     send a beacon from their handler; a beacon during a quit fails the check.
+  3. The launch after it is measured from main() (the loader's time before it is reported): the
+     first window frame, the first live terminal frame (interactive), the agent pane's handshake,
+     and the main thread's longest stall in the first LAUNCH_WATCH seconds (debug.hangs, threshold
+     HANG_MS, with stacks). `sample` records the launch too.
+  4. beforeunload: an app quit never shows a page's question, and waits for its handler at most the
+     engines' close wait (the quit bound covers it). The pages send a beacon from their handler; a
+     beacon during a quit is reported (Chromium's forced close runs the handler), not failed.
+  5. --handoff: before the first quit, the bundle's cmux-tui gets another build commit (the same
+     bytes otherwise; update-harness/sessions.py), so the launch after it takes the daemon version
+     handoff that an update takes: the old daemon exits, the new one adopts every terminal host
+     before it answers. That launch's interactive bound covers the adoption (2026-10-20: 113
+     terminals took 21 s on a person's Mac). Changes the app bundle given: pass a copy.
 
 Exit 1 when a quit takes longer than --quit-bound, a launch misses --window-bound or
---interactive-bound, a launch stall exceeds --stall-bound, or beforeunload ran at quit. The
+--interactive-bound, a launch stall exceeds --stall-bound, or the restored session has fewer
+workspaces or tabs (by kind) than before the first quit. The
 report goes to <out>/quit-launch-bound.json; samples and the app's log go to <out>.
 
   scripts/cmux-next/quit-launch-bound.py --app "<path>/cmux DEV <tag>.app" --out DIR
-      [--quit interactive,scripted,signal] [--rounds 1] [--workspaces 8] [--no-agent]
-      [--quit-bound 5] [--window-bound 3] [--interactive-bound 8] [--stall-bound 2000]
+      [--quit interactive,scripted,signal,wedged] [--rounds 1] [--workspaces 8] [--no-agent]
+      [--quit-bound 6] [--window-bound 3] [--interactive-bound 8] [--stall-bound 2000]
 
 GUI host or CI macOS runner only (it launches the app without activation). Ends the tag's
 daemons at the end (tag_teardown), also on a failure.
@@ -54,6 +64,9 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from tag_teardown import TagTeardown  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "update-harness"))
+from sessions import bundle_commit, patch_build_stamp  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("bench_startup", os.path.join(HERE, "bench-startup.py"))
 bench = importlib.util.module_from_spec(_spec)
@@ -156,6 +169,11 @@ setInterval(() => { let x = 0; for (let i = 0; i < 2e5; i++) x += i; document.ti
                 self.changed.wait(left)
         return []
 
+    def beforeunload_times(self, start, end):
+        """{page: seconds after `start`} of each beforeunload beacon in the window."""
+        with self.lock:
+            return {page: round(at - start, 3) for at, page in self.beforeunload if start <= at <= end}
+
     def beforeunload_between(self, start, end):
         with self.lock:
             return [page for at, page in self.beforeunload if start <= at <= end]
@@ -255,7 +273,7 @@ class Session:
             client.close()
 
     def action(self, name, args=None, target=None):
-        params = {"action": name, "args": args or {}, "origin": "script"}
+        params = {"action": name, "args": args or {}, "origin": "script", "focus": True}
         if target:
             params["target"] = target
         reply = self.call("action.run", params)
@@ -285,13 +303,18 @@ class Session:
                 daemon.call("new-tab", {"pane": pane["id"]}, cmd_key="cmd")
             daemon.call("split", {"pane": pane["id"], "dir": "right"}, cmd_key="cmd")
         daemon.close()
+        # Home shows at a first launch and a page has no tabs: go to a workspace with a pane first.
+        self.action("workspace.selectFirst")
         names = ["ask", "spin", "busy", "plain"]
+        replies = {}
         for name in names:
-            self.action("openBrowser.chromium", {"url": f"{pages.origin}/{name}"})
-        self.action("openBrowser.webkit", {"url": f"{pages.origin}/webkit"})
-        missing = pages.wait_loaded(names + ["webkit"], 90)
+            replies[name] = self.action("openBrowser.chromium", {"url": f"{pages.origin}/{name}"})
+            # One at a time: each page loads (its beacon) before the next tab covers it.
+            pages.wait_loaded([name], 45)
+        replies["webkit"] = self.action("openBrowser.webkit", {"url": f"{pages.origin}/webkit"})
+        missing = pages.wait_loaded(names + ["webkit"], 45)
         if missing:
-            raise SystemExit(f"browser tabs never loaded: {missing}")
+            raise SystemExit(f"browser tabs never loaded: {missing}; replies {json.dumps(replies)[:1500]}")
         if not self.opts.no_agent:
             reply = self.action("palette.newAgentChat")
             self.has_agent = bool(reply.get("ok")) and launch.wait_for(AGENT_MARK, 60)
@@ -301,13 +324,42 @@ class Session:
         return {"workspaces": self.opts.workspaces, "terminals": self.opts.workspaces * 4,
                 "browser_tabs": len(tabs), "agent": self.has_agent}
 
+    def census(self):
+        """{workspaces, tabs by kind} of the app's local session (snapshot.get topology)."""
+        topology = (self.call("snapshot.get").get("result") or {}).get("topology") or {}
+        kinds = {}
+        workspaces = topology.get("workspaces", [])
+        for workspace in workspaces:
+            for screen in workspace.get("screens", []):
+                for pane in screen.get("panes", []):
+                    for tab in pane.get("tabs", []):
+                        kind = str(tab.get("kind") or "?")
+                        kinds[kind] = kinds.get(kind, 0) + 1
+        return {"workspaces": len(workspaces), "tabs": kinds}
+
+    def restored(self, before, timeout=LAUNCH_WATCH):
+        """The census once it holds every workspace and tab of `before`, else the last one read.
+        A restore fills in as the daemon answers; this waits for it, one read per second at most."""
+        deadline = time.monotonic() + timeout
+        while True:
+            now = self.census()
+            whole = now["workspaces"] >= before["workspaces"] and all(
+                now["tabs"].get(kind, 0) >= count for kind, count in before["tabs"].items())
+            if whole or time.monotonic() >= deadline:
+                return now, whole
+            select.select([], [], [], 1.0)  # a re-read cadence for a result that arrives by itself, not a sync
+
     def quit(self, mode, pages, out, label):
         """Quits the running launch by `mode`; returns its numbers."""
         launch = self.launch
         pid = launch.process.pid
         sampler = Sampler(pid, out, f"quit-{label}")
         started = time.time()
-        if mode == "interactive":
+        if mode in ("interactive", "wedged"):
+            if mode == "wedged":
+                armed = self.call("debug.quit", {"wedge_engine_stop": True})
+                if not ((armed.get("result") or {}).get("wedges_engine_stop")):
+                    raise SystemExit(f"debug.quit did not arm the engine-stop wedge: {armed}")
             reply = self.call("debug.quit", {"open": True})
         elif mode == "scripted":
             reply = self.call("action.run", {"action": "quit", "args": {}, "origin": "script"})
@@ -322,11 +374,14 @@ class Session:
             log(f"quit {label}: still running after {ended - started:.1f} s; stopping pid {pid}")
             bench.stop([pid], timeout=10)
         launch.process.wait()
+        # The marks the quit wrote: the pipe ends (EOF) with the process.
+        launch.wait_for("quit.never", 2)
         os.close(launch.read_fd)
         quit_marks = {k: v for k, v in launch.marks.items() if k.startswith("quit.")}
         result = {"mode": mode, "seconds": round(ended - started, 3), "exited": exited, "reply_ok": reply.get("ok", True),
                   "exit_code": launch.process.returncode, "quit_marks_ms": quit_marks,
                   "beforeunload_pages": pages.beforeunload_between(started, ended + 1),
+                  "beforeunload_at_s": pages.beforeunload_times(started, ended + 1),
                   "samples": [{"file": os.path.basename(f), "main": main_thread_top(f)} for f in files]}
         self.launch = None
         return result
@@ -334,9 +389,11 @@ class Session:
     def measure_launch(self, out, label):
         launch = self.start()
         sampler = Sampler(launch.process.pid, out, f"launch-{label}")
-        interactive_marks = [TERMINAL_MARK, AGENT_MARK] if self.has_agent else [TERMINAL_MARK]
         launch.wait_for(WINDOW_MARK, LAUNCH_WATCH * 2)
-        launch.wait_for(interactive_marks, LAUNCH_WATCH * 2, any_of=True)
+        # Interactive: the first live terminal frame (a terminal takes input). The agent pane's
+        # handshake is reported, not bounded: it can come long before the terminals (a daemon
+        # that still adopts its terminal hosts).
+        launch.wait_for([TERMINAL_MARK] + ([AGENT_MARK] if self.has_agent else []), LAUNCH_WATCH * 2)
         # The main thread's stalls during the restore: read after LAUNCH_WATCH seconds of the process.
         watch_left = LAUNCH_WATCH - (launch.marks.get(WINDOW_MARK, 0) / 1000)
         if watch_left > 0:
@@ -346,9 +403,15 @@ class Session:
         stalls = sorted(({"ms": round(r.get("duration_ms", 0), 1),
                           "frames": [f for f in r.get("frames", []) if "cmux" in f or "CmuxNext" in f][:10] or r.get("frames", [])[:10]}
                          for r in hangs), key=lambda s: -s["ms"])
-        interactive = min((launch.marks[m] for m in interactive_marks if m in launch.marks), default=None)
-        return {"window_ms": launch.marks.get(WINDOW_MARK), "interactive_ms": interactive,
-                "terminal_ms": launch.marks.get(TERMINAL_MARK), "agent_ms": launch.marks.get(AGENT_MARK),
+        # Bounds count from main(): the loader's time before it (dyld, the signature check of a bundle
+        # signed a moment ago) is the OS's, and is reported as main_start_ms.
+        start = launch.marks.get("main_start", 0)
+
+        def since_main(mark):
+            return None if mark not in launch.marks else round(launch.marks[mark] - start, 1)
+        return {"window_ms": since_main(WINDOW_MARK), "interactive_ms": since_main(TERMINAL_MARK),
+                "main_start_ms": launch.marks.get("main_start"),
+                "agent_ms": since_main(AGENT_MARK),
                 "longest_stall_ms": stalls[0]["ms"] if stalls else 0, "stalls": stalls[:5],
                 "marks": launch.marks, "samples": sampler.files and [os.path.basename(f) for f in sampler.files]}
 
@@ -357,14 +420,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
     ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="quit-launch-bound-"))
-    ap.add_argument("--quit", default="interactive,scripted,signal")
+    ap.add_argument("--quit", default="interactive,scripted,signal,wedged")
     ap.add_argument("--rounds", type=int, default=1)
     ap.add_argument("--workspaces", type=int, default=8)
     ap.add_argument("--no-agent", action="store_true")
-    ap.add_argument("--quit-bound", type=float, default=5.0, help="seconds from the quit request to the process exit")
-    ap.add_argument("--window-bound", type=float, default=3.0, help="seconds from process start to the first window frame")
+    ap.add_argument("--handoff", action="store_true",
+                    help="the first relaunch takes the daemon version handoff (changes the bundle's cmux-tui)")
+    ap.add_argument("--quit-bound", type=float, default=6.0,
+                    help="seconds from the quit request to the process exit (the app's own deadline is 4 s after the "
+                         "quit is decided; an interactive quit reads its facts for up to 1 s before that)")
+    ap.add_argument("--window-bound", type=float, default=3.0, help="seconds from main() to the first window frame")
     ap.add_argument("--interactive-bound", type=float, default=8.0,
-                    help="seconds from process start to the first live terminal frame (or agent handshake)")
+                    help="seconds from main() to the first live terminal frame")
     ap.add_argument("--stall-bound", type=float, default=2000, help="ms: the longest main-thread stall in the launch")
     ap.add_argument("--launch-advisory", action="store_true",
                     help="launch bounds only warn (a CI host over its load threshold); the quit bound still fails")
@@ -380,25 +447,44 @@ def main():
         bench.reset_state(session.tag)
         session.start()
         report["session"] = session.seed(pages)
-        log("session", json.dumps(report["session"]))
+        report["census"] = session.census()
+        log("session", json.dumps(report["session"]), "census", json.dumps(report["census"]))
+        if opts.handoff:
+            binary = os.path.join(session.app, "Contents/Resources/bin/cmux-tui")
+            report["handoff_patch"] = patch_build_stamp(binary, bundle_commit(session.app))
+            # The bundle's seal covers its binaries: seal it again (ad hoc), as the update harness does.
+            subprocess.run(["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none",
+                            "--preserve-metadata=entitlements,requirements,flags,runtime", session.app],
+                           check=True, capture_output=True)
+            log("handoff: the bundle's cmux-tui has another build commit", report["handoff_patch"])
         for round_index in range(opts.rounds):
             for mode in opts.quit.split(","):
                 label = f"{mode}-{round_index}"
                 quit_result = session.quit(mode, pages, opts.out, label)
                 report["quits"].append(quit_result)
                 log(f"quit {label}: {quit_result['seconds']} s exited={quit_result['exited']} "
-                    f"beforeunload={quit_result['beforeunload_pages']} marks={quit_result['quit_marks_ms']}")
+                    f"beforeunload={quit_result['beforeunload_at_s']} marks={quit_result['quit_marks_ms']}")
                 if not quit_result["exited"] or quit_result["seconds"] > opts.quit_bound:
                     failures.append(f"quit {label} took {quit_result['seconds']} s (bound {opts.quit_bound} s)")
                     for sample in quit_result["samples"]:
                         log(f"  {sample['file']}: " + " <- ".join(sample["main"][:8]))
                 if quit_result["beforeunload_pages"]:
-                    failures.append(f"quit {label} ran beforeunload in {quit_result['beforeunload_pages']}")
+                    # Chromium's forced close (cmux_shim_close_all) runs a page's beforeunload handler and
+                    # never shows its question; the quit waits for it at most QuitDeadline.engineCloseWait,
+                    # which the quit bound covers. Recorded, not failed.
+                    warnings.append(f"quit {label} ran beforeunload (no prompt) in {quit_result['beforeunload_pages']}")
                 launch_result = session.measure_launch(opts.out, label)
                 launch_result["after"] = label
+                census, whole = session.restored(report["census"])
+                launch_result["census"] = census
+                if not whole:
+                    failures.append(f"launch after {label}: the restored session lost work: {census} "
+                                    f"(before the quit: {report['census']})")
+                launch_result["handoff"] = bool(opts.handoff and round_index == 0 and mode == opts.quit.split(",")[0])
                 report["launches"].append(launch_result)
-                log(f"launch after {label}: window {launch_result['window_ms']} ms, interactive "
-                    f"{launch_result['interactive_ms']} ms, longest stall {launch_result['longest_stall_ms']} ms")
+                log(f"launch after {label}: main() at {launch_result['main_start_ms']} ms, then window "
+                    f"{launch_result['window_ms']} ms, terminal {launch_result['interactive_ms']} ms, agent "
+                    f"{launch_result['agent_ms']} ms, longest stall {launch_result['longest_stall_ms']} ms")
                 for stall in launch_result["stalls"][:3]:
                     log(f"  stall {stall['ms']} ms: " + " <- ".join(stall["frames"][:6]))
                 launch_failures = failures if not opts.launch_advisory else warnings
@@ -427,7 +513,7 @@ def main():
         shutil.rmtree(session.scratch, ignore_errors=True)
     log("report", os.path.join(opts.out, "quit-launch-bound.json"))
     for warning in warnings:
-        log("WARN (launch bounds advisory on a loaded host)", warning)
+        log("WARN", warning)
     for failure in failures:
         log("FAIL", failure)
     if failures:
