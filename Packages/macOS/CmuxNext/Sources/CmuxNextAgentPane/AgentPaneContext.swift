@@ -28,9 +28,9 @@ extension AgentPaneView {
     /// leaves the chat (``AgentPaneModel/folderForOtherTabs(_:)``).
     public func workingContext(limit: Duration = .seconds(1)) async -> AgentPaneContext? {
         let read: AgentPaneContext? = await agentPaneFirst(within: limit) { [weak self] in
-            guard let webView = self?.webView else { return nil }
+            guard let self else { return nil }
             let script = "const read = window.cmuxAcpmuxActions?.['pane.context']; return read ? await read({}) : null;"
-            let value = try? await webView.callAsyncJavaScript(script, arguments: [:], contentWorld: .page)
+            let value = try? await self.callPageScript(script)
             return AgentPaneContext(page: value)
         }
         guard var context = read else { return nil }
