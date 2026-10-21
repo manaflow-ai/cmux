@@ -47,6 +47,7 @@ mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_mode;
 mod pool;
 mod prompt_images;
 mod prompt_ledger;
@@ -68,6 +69,7 @@ mod seen;
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
+mod silent_turn;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
 mod shutdown;
@@ -86,14 +88,14 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage};
+pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
+pub(crate) use peers::{PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -720,6 +722,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
+            heard: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -1090,6 +1093,36 @@ impl Hub {
         {
             tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
+    }
+
+    /// Lists the temporary folders of sessions this daemon no longer has
+    /// (`agent/session_tmp.rs`) and removes them on a thread of their own.
+    /// The daemon calls it before its socket serves, so no session starts
+    /// between the list and the store it is checked against.
+    #[cfg(unix)]
+    pub fn sweep_session_tmp(&self) {
+        let metas = match self.store.list() {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("session tmp sweep skipped, the store did not list: {e}");
+                return;
+            }
+        };
+        let known: std::collections::HashSet<&str> = metas.iter().map(|m| m.id.as_str()).collect();
+        let closed: std::collections::HashSet<&str> = metas
+            .iter()
+            .filter(|m| m.status == SessionStatus::Closed)
+            .map(|m| m.id.as_str())
+            .collect();
+        // A session whose record did not list still has its folder.
+        let stored =
+            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
+        if stale.is_empty() {
+            return;
+        }
+        tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
+        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {

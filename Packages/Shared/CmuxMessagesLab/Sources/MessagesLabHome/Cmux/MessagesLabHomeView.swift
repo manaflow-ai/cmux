@@ -390,16 +390,31 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
-    /// A paste in the field or a drop on the pane: true when the host's
-    /// intake took the pasteboard.
+    /// A paste in the field: true when the host's intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
-    /// While dragging (types only): whether a drop would be taken.
+    /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }
         set { projection.acceptsAttachmentDrag = newValue }
+    }
+    /// A drop on the field: true when the host's intake took the drag's pasteboard
+    /// (nil: as a paste). A drop on the rest of the pane reaches the host's own view.
+    public var onAttachmentDrop: ((NSPasteboard) -> Bool)? {
+        get { projection.onAttachmentDrop }
+        set { projection.onAttachmentDrop = newValue }
+    }
+    /// While dragging over the field (types only): whether a drop would be taken (nil: as a paste).
+    public var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)? {
+        get { projection.acceptsAttachmentDrop }
+        set { projection.acceptsAttachmentDrop = newValue }
+    }
+    /// The field became (true) or stopped being (false) the target of a drag the host takes.
+    public var onAttachmentDropTarget: (Bool) -> Void {
+        get { projection.onAttachmentDropTarget }
+        set { projection.onAttachmentDropTarget = newValue }
     }
     /// The store refused a send's attachment before logging it; the text
     /// and attachments are back in the field.

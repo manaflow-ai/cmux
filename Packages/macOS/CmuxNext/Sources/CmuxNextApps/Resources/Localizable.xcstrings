@@ -13244,6 +13244,137 @@
         }
       }
     },
+    "store.feature.keptOn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "توصي مؤسستك بهذا، لذا يبقى مفعّلًا"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaša organizacija ovo preporučuje, pa ostaje uključeno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din organisation anbefaler dette, så det forbliver slået til"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine Organisation empfiehlt dies, daher bleibt es aktiviert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your organization recommends this, so it stays on"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu organización recomienda esto, así que sigue activado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre organisation le recommande, il reste donc activé"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La tua organizzazione lo consiglia, quindi resta attivo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "組織が推奨しているため、オンのままです"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ស្ថាប័នរបស់អ្នកណែនាំវា ដូច្នេះវានៅតែបើក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "조직에서 권장하므로 켜진 상태로 유지됩니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Organisasjonen din anbefaler dette, så det forblir på"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Twoja organizacja to zaleca, więc pozostaje włączone"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua organização recomenda isso, então continua ativado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваша организация рекомендует это, поэтому оно остаётся включённым"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "องค์กรของคุณแนะนำสิ่งนี้ จึงยังคงเปิดอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kuruluşunuz bunu öneriyor, bu yüzden açık kalıyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваша організація рекомендує це, тому воно залишається увімкненим"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tổ chức của bạn đề xuất điều này nên nó vẫn bật"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的组织推荐此项，因此它保持开启"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的組織建議此項，因此它保持開啟"
+          }
+        }
+      }
+    },
     "store.feature.setting" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17837,127 +17968,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "جرس في أعلى الشريط الجانبي يرتّب مساحات العمل حسب ما يحتاج إليك."
+            "value" : "جرس أعلى الشريط الجانبي يرتّب محادثات وكلائك على كل جهاز حسب ما يحتاج إليك."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zvono na vrhu bočne trake sortira radne prostore prema onome što traži vašu pažnju."
+            "value" : "Zvono na vrhu bočne trake rangira razgovore s agentima na svim računarima po hitnosti."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En klokke øverst i sidebjælken sorterer arbejdsområder efter, hvad der har brug for dig."
+            "value" : "En klokke øverst i sidebjælken rangerer dine agentchats på alle maskiner efter, hvad der kræver dig."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eine Glocke oben in der Seitenleiste sortiert Workspaces danach, was dich braucht."
+            "value" : "Eine Glocke oben in der Seitenleiste ordnet deine Agenten-Chats aller Rechner danach, was dich braucht."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A bell at the top of the sidebar sorts workspaces by what needs you."
+            "value" : "A bell atop the sidebar ranks your agent chats on every machine by what needs you."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una campana en la parte superior de la barra lateral ordena los espacios de trabajo según lo que te necesita."
+            "value" : "Una campana en la barra lateral ordena tus chats de agentes de cada equipo según lo que te necesita."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une cloche en haut de la barre latérale trie les espaces de travail selon ce qui a besoin de vous."
+            "value" : "Une cloche en haut de la barre latérale classe vos chats d'agents de chaque machine selon ce qui vous attend."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una campanella in cima alla barra laterale ordina gli spazi di lavoro in base a ciò che richiede la tua attenzione."
+            "value" : "Una campanella in cima alla barra laterale ordina le chat degli agenti di ogni macchina per urgenza."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サイドバー上部のベルで、対応が必要な順にワークスペースを並べ替えます。"
+            "value" : "サイドバー上部のベルで、全マシンのエージェントチャットを対応が必要な順に並べます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កណ្ដឹងនៅខាងលើរបារចំហៀងតម្រៀបកន្លែងធ្វើការតាមអ្វីដែលត្រូវការអ្នក។"
+            "value" : "កណ្ដឹងលើរបារចំហៀងតម្រៀបការជជែកភ្នាក់ងាររបស់អ្នកលើគ្រប់ម៉ាស៊ីន តាមអ្វីដែលត្រូវការអ្នក។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "사이드바 상단의 벨이 확인이 필요한 순서로 작업 공간을 정렬합니다."
+            "value" : "사이드바 상단의 벨이 모든 기기의 에이전트 채팅을 확인이 필요한 순서로 정렬합니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En bjelle øverst i sidepanelet sorterer arbeidsområder etter hva som trenger deg."
+            "value" : "En bjelle øverst i sidepanelet rangerer agentchattene dine på alle maskiner etter hva som trenger deg."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dzwonek u góry paska bocznego sortuje obszary robocze według tego, co wymaga Twojej uwagi."
+            "value" : "Dzwonek u góry paska bocznego porządkuje Twoje czaty z agentami na każdym komputerze według pilności."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Um sino no topo da barra lateral ordena os espaços de trabalho pelo que precisa de você."
+            "value" : "Um sino no topo da barra lateral ordena seus chats de agentes em cada máquina pelo que precisa de você."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Колокольчик вверху боковой панели сортирует рабочие пространства по тому, что требует вашего внимания."
+            "value" : "Колокольчик вверху боковой панели упорядочивает чаты агентов на всех компьютерах по срочности."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "กระดิ่งที่ด้านบนของแถบด้านข้างจัดเรียงเวิร์กสเปซตามสิ่งที่ต้องการคุณ"
+            "value" : "กระดิ่งบนแถบด้านข้างจัดลำดับแชทเอเจนต์ของคุณทุกเครื่องตามสิ่งที่ต้องการคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kenar çubuğunun üstündeki zil, çalışma alanlarını size ihtiyaç duyan şeye göre sıralar."
+            "value" : "Kenar çubuğunun üstündeki zil, tüm makinelerdeki ajan sohbetlerinizi size ihtiyaca göre sıralar."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Дзвіночок угорі бічної панелі сортує робочі простори за тим, що потребує вашої уваги."
+            "value" : "Дзвіночок угорі бічної панелі впорядковує чати агентів на всіх комп'ютерах за терміновістю."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Một chiếc chuông ở đầu thanh bên sắp xếp không gian làm việc theo những gì cần bạn."
+            "value" : "Chuông ở đầu thanh bên xếp các cuộc trò chuyện agent trên mọi máy theo việc cần bạn."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "边栏顶部的铃铛按需要你处理的事项对工作区排序。"
+            "value" : "边栏顶部的铃铛按需要你处理的事项，为所有机器上的代理对话排序。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄頂部的鈴鐺依需要你處理的事項排序工作區。"
+            "value" : "側邊欄頂部的鈴鐺依需要你處理的事項，為所有機器上的代理對話排序。"
           }
         }
       }

@@ -26,11 +26,11 @@ import Testing
     @Test func withTheTreeOffTheFeedPublishesBadgesButNoTree() {
         let tree = SidebarSessionTree()
         let state = SidebarSessionTreeState(parents: [Self.lane: Self.chief], pullRequests: [Self.lane: Self.badge])
-        SidebarSessionTreeFeed.publish(SidebarSessionTreeFeed.Pass(state: state, asks: [], nests: false), to: tree)
+        SidebarSessionTreeFeed.publish(SidebarSessionTreeFeed.Pass(state: state, asks: [], showsTree: false), to: tree)
         #expect(tree.state == nil, "no nesting, guide lines or keycaps while the tree is off")
         #expect(tree.pullRequests == [Self.lane: Self.badge])
 
-        SidebarSessionTreeFeed.publish(SidebarSessionTreeFeed.Pass(state: state, asks: [], nests: true), to: tree)
+        SidebarSessionTreeFeed.publish(SidebarSessionTreeFeed.Pass(state: state, asks: [], showsTree: true), to: tree)
         #expect(tree.state == state)
         SidebarSessionTreeFeed.publish(nil, to: tree)
         #expect(tree.state == nil)

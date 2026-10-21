@@ -14,20 +14,24 @@ import Observation
 /// on those sessions' lanes, the parents another machine's daemon listed for the chats a chat there
 /// started (``RemoteAgentSessionLinks``, a Cloud VM chat's children), the pull request of each session folder's branch (`gh pr view`, as the
 /// chat header's chip reads it) and each pull request a session opened (acpmux `pullRequests`,
-/// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil.
+/// `gh pr view <url>`). Off, it leaves `SidebarSessionTree.state` nil. The pull request reads also
+/// run while only the Priority view is on (`sidebar.priorityView.enabled`), for its Red CI
+/// (``checksFailing(_:)``); the tree then stays off.
 @MainActor
 public final class SidebarSessionTreeFeed {
     public static let shared = SidebarSessionTreeFeed()
 
     private var task: Task<Void, Never>?
-    private let pullRequests = SidebarPullRequestStore()
+    /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
+    let pullRequests = SidebarPullRequestStore()
 
     /// What one pass reads: the tree, and the folders and pull request URLs it shows.
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
-        /// `sidebar.sessionTree` is on: the tree nests; off, only the badges show.
-        var nests = true
+        /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
+        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
+        var showsTree = true
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
@@ -40,11 +44,11 @@ public final class SidebarSessionTreeFeed {
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
-                let nests = DesignSettings.shared.sidebarSections.sessionTree
-                guard nests || SidebarTunables.pullRequestBadges.value else { return nil }
+                let sections = DesignSettings.shared.sidebarSections
+                guard Self.readsPullRequests(sections) || SidebarTunables.pullRequestBadges.value else { return nil }
                 var pass = Self.pass(Self.chats(workspaces()), lanes: lanes.lanes, remoteParents: remote.parents, localHost: localHost,
                                      pullRequests: pullRequests.answers)
-                pass.nests = nests
+                pass.showsTree = sections.sessionTree
                 return pass
             }) {
                 Self.publish(pass, to: tree)
@@ -53,9 +57,9 @@ public final class SidebarSessionTreeFeed {
         }
     }
 
-    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it nests.
+    /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
     static func publish(_ pass: Pass?, to tree: SidebarSessionTree) {
-        let state = pass?.nests == true ? pass?.state : nil
+        let state = pass?.showsTree == true ? pass?.state : nil
         if tree.state != state { tree.state = state }
         let badges = pass?.state.pullRequests ?? [:]
         if tree.pullRequests != badges { tree.pullRequests = badges }

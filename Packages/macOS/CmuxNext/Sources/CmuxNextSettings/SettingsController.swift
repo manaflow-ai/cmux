@@ -47,6 +47,8 @@ public final class SettingsController {
     /// opacity write with Material unset names the material it gives, and an opacity reset drops
     /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
     @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
+    /// Font families written lately to a font family setting (`setSetting`), newest first.
+    @ObservationIgnored public var recentFonts = RecentFonts()
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 

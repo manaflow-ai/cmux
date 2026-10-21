@@ -53,6 +53,9 @@ final class AgentTabStore {
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
     var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
+    /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
+    /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
+    var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
