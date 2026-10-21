@@ -128,7 +128,10 @@ extension SidebarListView {
                 if path.member != nil, case let .group(group) = section.nodes[path.node] {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
-                    if shownGroupCard == group.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(group.id)) }
+                    // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
+                    if let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                        hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
+                    }
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
