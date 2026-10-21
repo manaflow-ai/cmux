@@ -3,10 +3,11 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// Hibernated pages' last frames, kept JPEG-compressed under their own budget, least recently
-/// used first out, so every hibernated tab wakes to its picture (PR 23083). They used to share
-/// the 32 MB decoded `previews` LRU with terminal previews at up to a quarter of it each: four
-/// hibernated pages kept a picture and the others woke to an empty pane.
+/// Hibernated pages' last frames, kept compressed (JPEG, or PNG when transparent) under their
+/// own budget, least recently used first out, so every hibernated tab wakes to its picture
+/// (PR 23083). They used to share the 32 MB decoded `previews` LRU with terminal previews at up
+/// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
+/// pane.
 ///
 /// A picture's image decodes from its bytes when drawn; the placeholder decodes it off the main
 /// thread, and holds the decoded pixels only while a pane shows it (`HibernatedBrowserTab`).
@@ -19,7 +20,7 @@ final class HibernationSnapshots {
     /// Least recently used first.
     private var order: [String] = []
 
-    /// One page's picture: `data` is the JPEG (nil for a decoded picture kept in `previews`
+    /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture kept in `previews`
     /// when `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
     nonisolated struct Picture: Sendable {
         let data: Data?
