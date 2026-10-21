@@ -1,11 +1,11 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
-// that call beside the time instead, as Claude desktop's line does, after the same small animated
-// mark as "Thinking". After that it counts the work still going in the background, as Claude's
-// phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command · 3 sessions", only
-// subagents still running, background commands that have not ended (the process registry's and
-// the transcript's, summary/backgroundWork.ts) and chats the agent started that are running. Each
-// count opens what it counts. The counts
+// that call beside the time instead, as Claude desktop's line does. No mark blinks before it; the
+// ticking time says the turn is alive. After that it counts the work still going in the
+// background, as Claude's phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command ·
+// 3 sessions", only subagents still running, background commands that have not ended (the process
+// registry's and the transcript's, summary/backgroundWork.ts) and chats the agent started that are
+// running. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
@@ -15,7 +15,6 @@ import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18
 import type { AcpmuxRow } from "../model";
 import type { BackgroundCounts } from "../summary/backgroundWork";
 import { formatDuration } from "./turns";
-import { WorkingMark } from "./WorkingMark";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -82,7 +81,6 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   // line is not painted either: the call it names is matched on its own tool row.
   return (
     <div className="cv-worked has-divider" data-find-skip>
-      <WorkingMark />
       {row.doing ? (
         <>
           <span className="cv-worked__label cv-worked__doing">{row.doing}</span>

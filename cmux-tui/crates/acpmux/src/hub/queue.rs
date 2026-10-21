@@ -233,7 +233,13 @@ impl Hub {
         drop(queue);
         // `prompt`, `control`, `trustGate` and the provenance let a new daemon run it
         // (`restore_queues`).
-        let queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        // Its images are kept now and named, so its row shows them before it runs
+        // (`prompt_images.rs`).
+        let images = super::prompt_images::keep(p.blocks);
+        if !images.is_empty() {
+            queued["images"] = Value::Array(images);
+        }
         self.append(
             session,
             "mux",

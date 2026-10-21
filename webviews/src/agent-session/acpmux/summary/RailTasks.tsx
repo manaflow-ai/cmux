@@ -35,7 +35,10 @@ export function RailTasks({
           {visible.map((process) => (
             <li key={process.id} className="acpmux-rail-task">
               <Icon name="terminal" size={ROW_ICON} row />
-              <span className="acpmux-rail-task__command">{process.command}</span>
+              {/* tooltip-allow: a long command is cut with an ellipsis; the tooltip is its whole text */}
+              <span className="acpmux-rail-task__command" title={process.command}>
+                {process.command}
+              </span>
               <span className="acpmux-rail-task__time">{formatDuration(Math.max(0, now - process.startedAt))}</span>
               {onStop && <StopButton id={process.id} name={process.command} stop={onStop} />}
             </li>
