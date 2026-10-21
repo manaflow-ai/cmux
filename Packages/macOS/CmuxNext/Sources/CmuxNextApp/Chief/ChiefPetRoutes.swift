@@ -15,9 +15,7 @@ struct ChiefPetRoutes {
 
     func makePet() -> ChiefPetController {
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
-            open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() },
-            hide: { _ = services?.registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(arguments: ["on": .bool(false)], origin: .user)) },
-            canHide: { services?.registry.action(for: HomeChiefPetSetting.toggleAction)?.isEnabled() == true }))
+            registry: services?.registry, open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }))
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its

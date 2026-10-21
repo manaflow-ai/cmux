@@ -306,7 +306,7 @@ let package = Package(
         // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
         .target(
             name: "CmuxNextChiefPetWiring",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

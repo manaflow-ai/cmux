@@ -51,7 +51,7 @@ public final class ChiefPetSettingsRows: NSObject {
     }
 
     /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
-    /// popover's Appearance section) in `host`, then follows the settings until `stop`. `open`
+    /// popover's Appearance section) in `host`, then follows the settings while the rows live. `open`
     /// opens (never closes) that popover; false when `host` cannot show it.
     public func install(in host: NSView, addRow: (String, NSView) -> Void, open: @escaping @MainActor () -> Bool) {
         self.host = host
@@ -62,7 +62,7 @@ public final class ChiefPetSettingsRows: NSObject {
         mascot.setAccessibilityLabel(ChiefPetMascot.pickerTitle)
         addRow(enabledTitle, toggle)
         addRow(ChiefPetMascot.pickerTitle, mascot)
-        // task-owner: lives as long as the Home view (`stop`); event-driven (Observation)
+        // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
         watch = Task { [weak self] in
             guard let settings = self?.settings else { return }
             for await shown in ObservationStream({ Self.shown(settings()) }) {
@@ -72,9 +72,10 @@ public final class ChiefPetSettingsRows: NSObject {
         }
     }
 
-    public func stop() {
-        watch?.cancel()
-        watch = nil
+    // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { watch?.cancel() }
     }
 
     /// The rows' state from the loaded settings (what the Settings page shows).

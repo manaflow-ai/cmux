@@ -275,7 +275,6 @@ final class HomeHostView: NSView {
             hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
-            petRows.stop()
             settings.close()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
