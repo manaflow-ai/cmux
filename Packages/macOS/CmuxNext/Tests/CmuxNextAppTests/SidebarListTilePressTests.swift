@@ -106,6 +106,7 @@ struct SidebarListTilePressTests {
         h.list.mouseUp(with: try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: restingStore.locationInWindow, modifierFlags: [],
                                                              timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: h.window.windowNumber,
                                                              context: nil, eventNumber: 0, clickCount: 1, pressure: 0)))
+        h.list.endLanding() // the cancelled card lands in Home's slot (its flight's completion, now)
         h.settle()
 
         #expect(h.list.drag == nil, "the stale drag is still held under the new press")
