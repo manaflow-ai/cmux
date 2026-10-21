@@ -1,6 +1,6 @@
 // Settings > Updates' Channels card: every release channel's recent builds from the host's
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
-// when the card shows and again when the followed channel changes. Each build says how it fared, whether this Mac runs or kept it, and links
+// when the card shows. Following tracks the Channel row above it at once. Each build says how it fared, whether this Mac runs or kept it, and links
 // to its commit, its PRs and the changes since the installed build; every text is the host's.
 // Read-only: installing a build is a later gesture on the same update path.
 import { useEffect, useState } from "react";
@@ -56,7 +56,15 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
   );
 }
 
-function Track({ track, labels }: { track: ChannelTrack; labels: ChannelsState["labels"] }) {
+function Track({
+  track,
+  followed,
+  labels,
+}: {
+  track: ChannelTrack;
+  followed: boolean;
+  labels: ChannelsState["labels"];
+}) {
   return (
     <div className="rows" data-channel={track.ring}>
       <div className="row">
@@ -66,7 +74,7 @@ function Track({ track, labels }: { track: ChannelTrack; labels: ChannelsState["
             {track.empty && <div className="row-help">{track.empty}</div>}
           </div>
           <div className="row-control">
-            {track.followed && (
+            {followed && (
               <span className="badge" data-channel-followed="">
                 {labels.following}
               </span>
@@ -84,7 +92,8 @@ function Track({ track, labels }: { track: ChannelTrack; labels: ChannelsState["
 
 export function ChannelsCard() {
   const store = useStore();
-  const followed = useSettingsState().rows.get("updates.channel")?.value;
+  // The row's value moves before the host has the write, so the card marks it, not a re-read.
+  const ring = useSettingsState().rows.get("updates.channel")?.value;
   const [state, setState] = useState<ChannelsState | null>(null);
   useEffect(() => {
     let alive = true;
@@ -92,14 +101,19 @@ export function ChannelsCard() {
     return () => {
       alive = false;
     };
-  }, [store, followed]);
+  }, [store]);
   if (!state) return null;
   return (
     <section className="group" data-card="channels">
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
       {state.tracks.map((track) => (
-        <Track key={track.ring} track={track} labels={state.labels} />
+        <Track
+          key={track.ring}
+          track={track}
+          followed={typeof ring === "string" ? track.ring === ring : track.followed}
+          labels={state.labels}
+        />
       ))}
     </section>
   );

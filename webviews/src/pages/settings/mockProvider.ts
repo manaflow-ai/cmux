@@ -210,10 +210,7 @@ export class MockSettingsProvider {
       },
       "cmux.settings.channels.state": () => {
         if (!this.channels) throw new ProtocolError("cmux.page.unavailable", "no updater");
-        // The host marks the ring `updates.channel` names, as the real updater follows it.
-        const ring = this.values.get("updates.channel");
-        if (typeof ring !== "string") return this.channels;
-        return { ...this.channels, tracks: this.channels.tracks.map((track) => ({ ...track, followed: track.ring === ring })) };
+        return this.channels;
       },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
