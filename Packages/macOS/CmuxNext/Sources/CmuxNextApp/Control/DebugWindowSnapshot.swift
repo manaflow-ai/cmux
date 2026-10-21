@@ -157,8 +157,8 @@ enum DebugWindowSnapshot {
             // Menus, and cards or popovers not attached to the window, go on top.
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
-            let composited = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
-            let output = composited ?? base.image
+            let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let output = painted ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
@@ -168,7 +168,7 @@ enum DebugWindowSnapshot {
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
-                "floating_windows": JSONValue(composited == nil ? 0 : floating?.count ?? 0),
+                "floating_windows": JSONValue(painted == nil ? 0 : floating?.count ?? 0),
                 "chromium_pages": JSONValue(pages.count + reactPages.count),
                 "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
