@@ -17,7 +17,8 @@ extension SidebarListViewComponents {
         case let .workspace(id):
             guard !model.isPlaceholder(id) else { return }
             let ids = model.selection.contains(id) ? model.orderedSelection : [id]
-            if !model.selection.contains(id) { model.click(id) }
+            // Multi-view: the drag moves the row and leaves the shown workspace (and the selection) as it is.
+            if !model.selection.contains(id), press.clickOnRelease != id { model.click(id) }
             payload = .workspaces(ids)
             hidden = Set(ids.map(SidebarRowKey.workspace))
             origin = ids.first.flatMap { SidebarEdits.position(of: $0, in: model.sections) }.map(DropTarget.position)
