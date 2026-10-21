@@ -1,5 +1,4 @@
 public import CmuxNextAgentActivity
-import CmuxNextAgentPane
 public import CmuxNextBridge
 import CmuxNextWakeups
 import Foundation
@@ -55,8 +54,6 @@ public final class AgentTurnStateFeed {
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
         if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
-        // A chat page opens the sessions of its family (`chat.offer.open`), which this watch mirrors.
-        if !isMirror { AgentPaneOfferOpen.isFamily = { [turns] session, chat in turns.isFamily(session, of: chat) } }
         if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
     }
 

@@ -1,4 +1,6 @@
+@testable import CmuxNextAgentLanes
 import CmuxNextBridge
+import Foundation
 import Testing
 
 /// acpmux's sub-session links (`startedBy`) as the app mirrors them: a chat's page may open only
@@ -11,6 +13,21 @@ struct AgentSubsessionFamilyTests {
         #expect(AgentTurnStateStore.startedBy(summary: ["sessionId": "x", "startedBy": "x"]) == nil, "a session never starts itself")
         let links = AgentTurnStateStore.startedBy(["sessions": [["sessionId": "c1", "startedBy": "root"], ["sessionId": "root"]]])
         #expect(links == ["c1": "root"])
+    }
+
+    /// The watch's lines carry the links: its page, a change, and none for a purge.
+    @Test func theFeedReadsStartedByFromItsPageAndItsChanges() {
+        func message(_ json: String) -> AgentTurnStateFeed.Message? { AgentTurnStateFeed.Message(line: Data(json.utf8)) }
+        let page = message(#"{"id":2,"result":{"sessions":[{"sessionId":"c1","startedBy":"root"},{"sessionId":"root"}]}}"#)
+        guard case .page(_, _, _, _, _, _, _, let links) = page else { Issue.record("not a page: \(String(describing: page))"); return }
+        #expect(links == ["c1": "root"])
+        let change = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","session":{"sessionId":"c1","startedBy":"root"}}}"#)
+        guard case .change(let session, _, _, _, _, _, _, _, let parent) = change else { Issue.record("not a change: \(String(describing: change))"); return }
+        #expect(session == "c1")
+        #expect(parent == "root")
+        let purge = message(#"{"method":"_acpmux/session_changed","params":{"sessionId":"c1","kind":"purged"}}"#)
+        guard case .change(_, _, _, _, _, _, _, _, let purged) = purge else { Issue.record("not a change: \(String(describing: purge))"); return }
+        #expect(purged == nil, "a purged session keeps no parent")
     }
 
     @Test func aChatsFamilyIsItsSubsessionsAtAnyDepthAndItsParent() {
@@ -45,5 +62,8 @@ struct AgentSubsessionFamilyTests {
         turns.setStartedBy("b", session: "a")
         turns.setStartedBy("a", session: "b")
         #expect(!turns.isFamily("a", of: "c"))
+        // Inside the cycle each is the other's parent: the walk ends and answers yes.
+        #expect(turns.isFamily("a", of: "b"))
+        #expect(turns.isFamily("b", of: "a"))
     }
 }

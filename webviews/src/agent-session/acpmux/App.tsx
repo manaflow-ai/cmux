@@ -5398,12 +5398,18 @@ function AcpmuxPane() {
             if (!chat) throw new Error(translate("error.notOpen"));
             await client.dismissOffer(chat, String(offerId));
           },
-          // Open on a started offer: beside this chat, as a side chat opens; else here.
+          // Open a started offer or a sub-session: the app shows its tab or opens it beside this
+          // chat (AgentPaneOfferOpen); a host without that opens it as a side chat; else here.
           "chat.offer.open": async ({ sessionId }) => {
+            const id = String(sessionId);
             try {
-              await postNative("chat.sideChat", { sessionId: String(sessionId) });
+              await postNative("chat.offer.open", { sessionId: id });
             } catch {
-              await persistSession(await client.select(String(sessionId)));
+              try {
+                await postNative("chat.sideChat", { sessionId: id });
+              } catch {
+                await persistSession(await client.select(id));
+              }
             }
           },
           // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
