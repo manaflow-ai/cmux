@@ -106,6 +106,11 @@ enum NewWorkspacePlacements {
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
     }
 
+    /// New workspaces whose create sent the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`):
+    /// this Mac's daemon placed them at their slot in the commit that made them, under every value, so
+    /// `applyPendingPlacements` sends no second write for them (a second state change and render).
+    static var placedByDaemon: Set<String> = []
+
     /// The local home workspace (`workspace-kind-v1`), whose row `top` stays below.
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
