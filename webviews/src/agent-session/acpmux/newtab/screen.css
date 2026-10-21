@@ -366,8 +366,10 @@
 .nt-style-option:has(:checked) .nt-style-dot{opacity:1}
 /* Hint: a pick's name over the dots for about a second (StyleSwitch.tsx PICKED_NAME_MS): it fades in,
    holds and fades out; no movement. */
-.nt-style-flash{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:var(--text-caption--line-height);white-space:nowrap;pointer-events:none;opacity:0;animation:nt-style-flash 1.1s linear forwards}
-@keyframes nt-style-flash{0%{opacity:0}12%{opacity:1}84%{opacity:1}100%{opacity:0}}
+.nt-style-flash{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:var(--text-caption--line-height);white-space:nowrap;pointer-events:none;animation:nt-style-flash var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}
+/* Shown as its base style; StyleSwitch unmounts it after PICKED_NAME_MS. The fade-in is decoration, so it
+   still shows with motion off (data-cmux-motion=off forces the duration to 0). */
+@keyframes nt-style-flash{from{opacity:0}}
 /* Strip: a 14px sketch of each style's layout in a 26x22 segment, named by tooltip. */
 .nt-style-options[data-look=strip] .nt-style-option{display:grid;place-items:center;width:26px;height:22px;padding:0}
 .nt-style-options[data-look=strip] .nt-style-option:hover:not(:has(:checked)){background:var(--agent-control-hover)}

@@ -16,7 +16,7 @@ import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
 import { useNt } from "./strings";
 import { DEFAULT_STYLE_SWITCH, PAGE_STYLES, type PageStyle, type StyleSwitchLook } from "./templates";
 
-/// How long a pick's name stays before it fades (the hint look's fades included, screen.css `nt-style-flash`).
+/// How long a pick's name stays (the hint look's name too, screen.css `nt-style-flash`, unmounts after it).
 const PICKED_NAME_MS = 1100;
 
 export function StyleSwitch({
