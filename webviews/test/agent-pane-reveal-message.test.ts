@@ -1,8 +1,10 @@
 // A `cmux://agent/<harness>/<session>?message=<id>` link opens the chat and scrolls to that one
 // message (schemas/deeplinks/agent-link.json). The app hands the page the reveal as
 // `message:<id>` on the same channel a turn and a subagent use (links.ts, subagentPanes.ts).
-// The id is the harness message id acpmux reports on the message's chunks, so a link that names
-// a message this session never saw must leave the view exactly where it is.
+// The transcript virtualizes its rows, so the reveal asks the transcript for the row by its place
+// in the chat (App.tsx `showMessage`) and marks it once it is drawn; the id is the harness message
+// id acpmux reports on the message's chunks, so a link that names a message this session never saw
+// must leave the view exactly where it is.
 import { describe, expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import {
@@ -10,7 +12,6 @@ import {
   REVEALED_TURN_CLASS,
   revealMessageWhenShown,
   revealedMessage,
-  scrollToMessage,
   scrollToRow,
 } from "../src/agent-session/acpmux/links";
 
@@ -35,21 +36,42 @@ describe("revealing one message", () => {
     expect(revealedMessage(MESSAGE_REVEAL)).toBeUndefined();
   });
 
-  test("scrolls to the message's first row and marks it", () => {
-    const { root, scrolled, document } = transcript(["user-1", "assistant-2", "assistant-5"]);
-    const rows = { msg_01: ["assistant-2", "assistant-5"] };
+  test("asks the transcript for the message's row, then marks the row it drew", async () => {
+    const { root, scrolled, document } = transcript(["user-1", "assistant-2"]);
+    const asked: string[] = [];
 
-    expect(scrollToMessage("msg_01", (id) => rows[id as keyof typeof rows] ?? [], root)).toBe(true);
+    const revealed = await revealMessageWhenShown(
+      "msg_01",
+      (id) => {
+        asked.push(id);
+        return "assistant-2";
+      },
+      root,
+      { waitMs: 200, pollMs: 10 },
+    );
+
+    expect(revealed).toBe(true);
+    expect(asked).toEqual(["msg_01"]);
     expect(scrolled).toEqual(["assistant-2"]);
     expect(document.querySelector('[data-row-id="assistant-2"]')?.classList.contains(REVEALED_TURN_CLASS)).toBe(true);
   });
 
-  test("a message with no row on screen moves nothing", () => {
-    const { root, scrolled } = transcript(["user-1", "assistant-2"]);
+  test("a row the transcript scrolls to but has not mounted is marked once it is", async () => {
+    // What virtualization does: the transcript scrolls by the row's place, and the element appears
+    // a frame or two later. The reveal has already answered by then.
+    const { root, scrolled, document } = transcript(["user-1"]);
 
-    expect(scrollToMessage("msg_missing", () => [], root)).toBe(false);
-    expect(scrollToMessage("msg_01", () => ["assistant-9"], root)).toBe(false);
+    expect(await revealMessageWhenShown("msg_01", () => "assistant-9", root, { waitMs: 300, pollMs: 10 })).toBe(true);
     expect(scrolled).toEqual([]);
+
+    const body = document.body as unknown as { innerHTML: string };
+    body.innerHTML += '<div data-row-id="assistant-9">row</div>';
+    const row = document.querySelector('[data-row-id="assistant-9"]');
+    (row as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-9");
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(scrolled).toEqual(["assistant-9"]);
+    expect(row?.classList.contains(REVEALED_TURN_CLASS)).toBe(true);
   });
 
   test("scrolls to a row by id, and to nothing for an id no row carries", () => {
@@ -60,15 +82,12 @@ describe("revealing one message", () => {
     expect(scrolled).toEqual(["assistant-2"]);
   });
 
-  test("waits for the row the transcript has not replayed yet", async () => {
+  test("waits for the message the transcript has not replayed yet", async () => {
     const { root, scrolled } = transcript(["assistant-2"]);
-    let rows: string[] = [];
+    let row: string | undefined;
 
-    const revealed = revealMessageWhenShown("msg_01", () => rows, root, {
-      waitMs: 2000,
-      pollMs: 10,
-    });
-    rows = ["assistant-2"];
+    const revealed = revealMessageWhenShown("msg_01", () => row, root, { waitMs: 2000, pollMs: 10 });
+    row = "assistant-2";
 
     expect(await revealed).toBe(true);
     expect(scrolled).toEqual(["assistant-2"]);
@@ -77,7 +96,7 @@ describe("revealing one message", () => {
   test("gives up quietly when the message never arrives", async () => {
     const { root, scrolled } = transcript(["assistant-2"]);
 
-    expect(await revealMessageWhenShown("msg_01", () => [], root, { waitMs: 30, pollMs: 10 })).toBe(false);
+    expect(await revealMessageWhenShown("msg_01", () => undefined, root, { waitMs: 30, pollMs: 10 })).toBe(false);
     expect(scrolled).toEqual([]);
   });
 });

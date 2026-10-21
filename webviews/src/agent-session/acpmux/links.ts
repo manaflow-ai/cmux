@@ -77,15 +77,20 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
   return false;
 }
 
-/// Scrolls to the first row message `messageId` streamed into (a tool call splits one message over
-/// several rows), and marks it. False when the page has no row for that message: another machine's
-/// transcript, or one this session never saw.
-export function scrollToMessage(
-  messageId: string,
-  rowsOfMessage: (messageId: string) => readonly string[],
-  root: ParentNode = document,
-): boolean {
-  return rowsOfMessage(messageId).some((rowId) => scrollToRow(rowId, root));
+/// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
+/// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
+/// Gives up quietly when it never mounts, leaving the view where the scroll put it.
+function markWhenDrawn(
+  rowId: string,
+  root: ParentNode,
+  { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
+): void {
+  const deadline = Date.now() + waitMs;
+  const tick = () => {
+    if (scrollToRow(rowId, root) || Date.now() >= deadline) return;
+    setTimeout(tick, pollMs);
+  };
+  tick();
 }
 
 let pendingReveal: (() => void) | undefined;
@@ -128,14 +133,22 @@ export function revealTurnWhenShown(
   return revealWhenShown(() => scrollToTurn(turnId, root), options);
 }
 
-/// Scrolls to message `messageId` once one of its rows renders (a link's `message=<id>`): the
-/// transcript replays when the tab opens, so the row can take a moment. Gives up quietly, leaving
-/// the view where it is, when no row ever carries that message.
+/// Brings message `messageId`'s row in once the chat has it (a link's `message=<id>`): the
+/// transcript replays when the tab opens, so the message can take a moment, and the row itself may
+/// be far above the view, where no element exists to scroll to. `show` asks the transcript for the
+/// row and answers which row it asked for (App.tsx `showMessage`), undefined while the chat has
+/// none; this marks that row once it is drawn. Gives up quietly, leaving the view where it is, when
+/// the chat never has that message: another machine's transcript, or one this session never saw.
 export function revealMessageWhenShown(
   messageId: string,
-  rowsOfMessage: (messageId: string) => readonly string[],
+  show: (messageId: string) => string | undefined,
   root: ParentNode = document,
   options: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
-  return revealWhenShown(() => scrollToMessage(messageId, rowsOfMessage, root), options);
+  return revealWhenShown(() => {
+    const rowId = show(messageId);
+    if (rowId === undefined) return false;
+    markWhenDrawn(rowId, root, options);
+    return true;
+  }, options);
 }

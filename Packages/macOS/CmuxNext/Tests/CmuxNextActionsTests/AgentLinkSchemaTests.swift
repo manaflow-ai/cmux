@@ -54,15 +54,48 @@ struct AgentLinkSchemaTests {
     @Test func theSchemaIsThere() {
         #expect(Self.schema()["nativeHost"] as? String == "agent")
         #expect(Self.schema()["pathParams"] as? [String] == ["harness", "session"])
-        #expect(Self.schema()["queryParams"] as? [String] == ["host", "name", "message"])
-        #expect(Self.vectors.count >= 10)
+        #expect(Self.schema()["queryParams"] as? [String] == ["host", "name", "message", "machine"])
+        #expect(Self.vectors.count >= 15)
+        #expect(Self.vectors.filter { $0.link != nil }.count >= 10)
     }
 
-    /// The parameters the parser reads are the schema's, plus the `machine` hint every kind takes.
+    /// The parameters the parser reads are the schema's.
     @Test func theParserReadsTheSchemasParameters() {
         let queries = Self.schema()["queryParams"] as? [String] ?? []
-        #expect(DeepLink.parameters(of: .agent(harness: "claude", session: "s1"))
-            == Set(queries + [DeepLink.machineKey]))
+        #expect(!queries.isEmpty)
+        #expect(DeepLink.parameters(of: .agent(harness: "claude", session: "s1")) == Set(queries))
+    }
+
+    /// Every charset the schema states is the one this app reads, probe for probe: the web page
+    /// compares its own expressions to these strings, so a bound that moves on one side without the
+    /// other fails here (a 65-character harness, a 201-character message, an empty value, `..`).
+    @Test func theParsersCharsetsAreTheSchemas() throws {
+        let params = try #require(Self.schema()["params"] as? [String: [String: Any]], "the schema states its parameters")
+        let readers: [String: (String) -> Bool] = [
+            "harness": DeepLink.isHarness,
+            "session": DeepLink.isAgentSession,
+            "host": DeepLink.isHint,
+            "name": DeepLink.isHint,
+            "message": DeepLink.isAgentSession,
+            "machine": { DeepLink.isResourceID($0, prefix: "machine_") },
+        ]
+        let probes = ["a", "A", "claude-code", "Claude", "ses-01.example_a", "msg_01hq9f4c7k",
+                      "5cf944c9-b816-486a-a3aa-c89b3faea35f", "machine_0123456789abcdef0123456789abcdef",
+                      "machine_0123456789ABCDEF0123456789abcdef", "machine_0123456789abcdef", "",
+                      ".", "..", "...", "a b", "a/b", "a?b", "a%20b", "<script>", "a@b", "a:b",
+                      String(repeating: "a", count: 64), String(repeating: "a", count: 65),
+                      String(repeating: "a", count: 200), String(repeating: "a", count: 201)]
+        #expect(Set(params.keys) == Set(readers.keys))
+        for (name, spec) in params {
+            let pattern = try #require(spec["pattern"] as? String, "\(name) states a charset")
+            let regex = try NSRegularExpression(pattern: pattern)
+            let reads = try #require(readers[name], "\(name) has a reader here")
+            for probe in probes {
+                let whole = NSRange(location: 0, length: (probe as NSString).length)
+                let fits = regex.firstMatch(in: probe, options: [], range: whole) != nil
+                #expect(reads(probe) == fits, "\(name) reads \(probe.count) characters differently from the schema")
+            }
+        }
     }
 
     /// Every vector's native link parses to the fields the schema states, or to nothing when the
@@ -125,6 +158,8 @@ struct AgentLinkSchemaTests {
         ("cmux://agent/claude/s1?cwd=%2Fhome%2Fleo", ["cwd"]),
         ("cmux://agent/claude/s1?cwd=x&cwd=y", ["cwd"]),
         ("cmux://agent/claude/s1?machine=not-a-resource-id", ["machine"]),
+        ("cmux://agent/claude/s1?machine=machine_0123456789abcdef0123456789abcdef"
+            + "&machine=machine_fedcba9876543210fedcba9876543210", ["machine"]),
         ("cmux://agent/claude/s1?host=a&host=b", ["host"]),
         ("cmux://agent/claude/s1?account=someone%40example.com", ["account"]),
     ]) func aStrayParameterNeverCostsTheChat(_ text: String, _ ignored: [String]) throws {
@@ -148,6 +183,14 @@ struct AgentLinkSchemaTests {
         #expect(parsed.link == DeepLink(.tab(tab)))
         #expect(parsed.ignoredParameters == ["cwd"])
         #expect(DeepLink.read(try #require(URL(string: "cmux://session/ses-01?machine=nope")), scheme: "cmux") == nil)
+        // `?machine` with no value names no machine, as it always did: it is not a machine cmux
+        // cannot read, so the link still opens.
+        let valueless = try #require(DeepLink.read(try #require(URL(string: "cmux://tab/\(tab)?machine")), scheme: "cmux"))
+        #expect(valueless.link == DeepLink(.tab(tab)))
+        // Two machines on another kind read as the first one did before.
+        let machine = "machine_0123456789abcdef0123456789abcdef"
+        let repeated = try #require(URL(string: "cmux://tab/\(tab)?machine=\(machine)&machine=machine_ffff"))
+        #expect(DeepLink.read(repeated, scheme: "cmux")?.link == DeepLink(.tab(tab), machine: machine))
         let workspace = "6B1F0A52-6C0F-4B44-9A43-0F4C2C0E6D11"
         let legacy = try #require(URL(string: "cmux://workspace/\(workspace)?stable_workspace_id=\(workspace)"))
         #expect(DeepLink.read(legacy, scheme: "cmux")?.ignoredParameters == [])

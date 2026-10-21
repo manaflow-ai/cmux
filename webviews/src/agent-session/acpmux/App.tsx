@@ -3211,12 +3211,16 @@ function AcpmuxPane() {
   /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
+  /// Brings one message's row into the transcript, the way a running line's count does, and says
+  /// which row it asked for; undefined while this chat has no row for that message. Set below,
+  /// where the chat's rows are.
+  const showMessage = useRef<(messageId: string) => string | undefined>(() => undefined);
   const reveal = (value: string) => {
-    // A `message=<id>` link (schemas/deeplinks/agent-link.json): scroll to that message's row
+    // A `message=<id>` link (schemas/deeplinks/agent-link.json): bring that message's row in
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
     if (message !== undefined) {
-      return void revealMessageWhenShown(message, (id) => directClient.current?.rowsOfMessage(id) ?? []);
+      return void revealMessageWhenShown(message, (id) => showMessage.current(id));
     }
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
@@ -4185,6 +4189,18 @@ function AcpmuxPane() {
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
   counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
+  // A `?message=<id>` link's row (links.ts `revealMessageWhenShown`): the transcript scrolls it in
+  // by its place in the chat, so a message far above the view works, where its element does not
+  // exist yet. One message can span several rows (a tool call splits it); the first drawn one wins.
+  const revealedRows = useRef(0);
+  showMessage.current = (messageId) => {
+    const rows = directClient.current?.rowsOfMessage(messageId) ?? [];
+    const { sourceRows: all } = counted.current;
+    const rowId = rows.find((id) => all.some((row) => row.id === id));
+    if (rowId === undefined) return undefined;
+    setRevealRow({ rowId, key: (revealedRows.current += 1), toolId: "" });
+    return rowId;
+  };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.

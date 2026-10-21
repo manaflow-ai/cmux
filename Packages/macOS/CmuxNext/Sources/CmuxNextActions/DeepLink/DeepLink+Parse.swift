@@ -54,12 +54,19 @@ nonisolated extension DeepLink {
         guard let target = target(host: host, segments: segments, query: query, fragment: fragment) else { return nil }
         var ignored: [String] = []
         var machine: String?
-        if let item = query.first(where: { $0.name == machineKey }) {
-            if let value = item.value, isResourceID(value, prefix: "machine_") {
-                machine = value
-            } else if target.isAgent {
-                // One parameter cmux cannot read never costs an agent link its session.
-                ignored.append(machineKey)
+        // `?machine` with no value names no machine, which is how it always read.
+        let machines = query.filter { $0.name == machineKey }.compactMap(\.value)
+        if !machines.isEmpty {
+            if target.isAgent {
+                // One parameter cmux cannot read, or two that disagree, never costs an agent
+                // link its session: the name is dropped and said.
+                if machines.count == 1, isResourceID(machines[0], prefix: "machine_") {
+                    machine = machines[0]
+                } else {
+                    ignored.append(machineKey)
+                }
+            } else if isResourceID(machines[0], prefix: "machine_") {
+                machine = machines[0]
             } else {
                 return nil
             }

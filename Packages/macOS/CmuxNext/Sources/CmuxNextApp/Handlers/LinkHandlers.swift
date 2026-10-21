@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
@@ -18,13 +19,16 @@ enum LinkHandlers {
             // start (a script, an agent) still navigates, as it asked, but
             // never takes the key window.
             let background = invocation["background"]?.boolValue == true || !ActionRunScope.viewChangeAllowed()
-            // A parameter cmux does not use never costs the link its target: the link opens, and a
-            // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
-            if !parsed.ignoredParameters.isEmpty {
-                services.refusalHUD.show(RefusalStrings.linkParametersIgnored(parsed.ignoredParameters),
-                                         in: services.windows.active?.window)
-            }
             try DeepLinkNavigator(services: services).open(parsed.link, background: background)
+            // A parameter cmux does not use never costs an agent link its chat: it opens, and a
+            // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
+            // Only this kind, and only after it opened: the older kinds have always ignored
+            // their extra parameters (a shared `?utm_source=…`, nightly's `stable_*_id`), and a
+            // link that refused shows why it refused instead.
+            if case .agent = parsed.link.target, !parsed.ignoredParameters.isEmpty {
+                services.refusalHUD.show(RefusalStrings.linkParametersIgnored(parsed.ignoredParameters),
+                                         in: services.windows.active?.window ?? NSApp.keyWindow)
+            }
         })
         registry.bind("palette.copyWorkspaceLink", run: { invocation in
             context.copy(try services.link(workspace: try context.workspace(invocation).model))

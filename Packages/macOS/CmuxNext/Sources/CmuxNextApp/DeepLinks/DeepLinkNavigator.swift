@@ -117,7 +117,9 @@ struct DeepLinkNavigator {
         let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
                                       harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
         guard let shown = tabs.first(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
-        if let message, shown == adopted { services.agentTabs.revealTurn(AgentTabs.messageReveal(message), in: shown) }
+        if let message, shown == adopted {
+            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown)
+        }
     }
 
     /// Nightly's durable workspace UUID is `WorkspaceModel.id` (the
