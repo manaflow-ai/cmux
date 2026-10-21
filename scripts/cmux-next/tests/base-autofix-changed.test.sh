@@ -36,11 +36,12 @@ PY
   (cd "$tmp/lane" && echo b > b.txt && git add -A && git commit -q -m B \
     && echo c > c.txt && git add -A && git commit -q -m C && git push -q origin feat)
   c="$(git -C "$tmp/lane" rev-parse HEAD)"
-  # Like the CI checkout: the run's commit A alone, depth 1.
+  # Like actions/checkout: the run's commit A alone, depth 1, with its remote ref and local branch. The
+  # scratch fetch must not offer those refs as commits it has (it has none of their history).
   git init -q "$tmp/bot"
   git -C "$tmp/bot" remote add origin "file://$tmp/remote.git"
-  git -C "$tmp/bot" fetch -q --depth=1 origin "$a"
-  git -C "$tmp/bot" checkout -q --detach FETCH_HEAD
+  git -C "$tmp/bot" fetch -q --depth=1 origin "+$a:refs/remotes/origin/feat"
+  git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
   [[ "$(git -C "$tmp/bot" rev-parse --is-shallow-repository)" == true ]] || fail "setup: the bot checkout is not shallow"
 }
 changed() { (cd "$tmp/bot" && bash "$script" "$@"); }
@@ -60,7 +61,7 @@ grep -qx "$c" "$tmp/bot/.git/shallow" 2>/dev/null && fail "since is in the check
 setup
 (cd "$tmp/lane" && echo e > e.txt && git add -A && git commit -q -m E && git push -q origin feat)
 e="$(git -C "$tmp/lane" rev-parse HEAD)"
-git -C "$tmp/bot" fetch -q --depth=1 origin "$e" && git -C "$tmp/bot" checkout -q --detach FETCH_HEAD
+git -C "$tmp/bot" fetch -q --depth=1 origin "+$e:refs/remotes/origin/feat" && git -C "$tmp/bot" checkout -q -B feat refs/remotes/origin/feat
 changed "$a" > "$tmp/out" 2>"$tmp/err" || fail "an older since was not read: $(cat "$tmp/err")"
 [[ "$(sort "$tmp/out" | tr '\n' ' ')" == "b.txt c.txt e.txt " ]] || fail "an older since names the wrong paths: $(cat "$tmp/out")"
 
