@@ -11,8 +11,8 @@ final class AgentPaneWakeStateFile {
     static let fileName = "agent-pane-wake-states.json"
     /// Attachments carry their contents: a tab holding more is not kept, and the file stops growing
     /// past ``maximumBytes`` (a larger file is not read).
-    nonisolated static let maximumTabBytes = 16 * 1024 * 1024
-    nonisolated static let maximumBytes = 64 * 1024 * 1024
+    nonisolated static let maximumTabBytes = 4 * 1024 * 1024
+    nonisolated static let maximumBytes = 8 * 1024 * 1024
 
     let file: URL?
 

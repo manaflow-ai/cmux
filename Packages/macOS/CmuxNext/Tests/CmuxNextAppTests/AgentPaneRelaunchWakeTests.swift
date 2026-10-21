@@ -52,6 +52,8 @@ struct AgentPaneRelaunchWakeTests {
         let shown = try #require(before.view(for: "tab_shown"))
         _ = try await Self.ready(shown)
         before.wakeStates["tab_released"] = releasedHeld
+        // A tab that left every tree (closed elsewhere) keeps nothing.
+        before.wakeStates["tab_gone"] = AgentPaneWakeState(shell: true, shellText: "rm -rf build")
         before.wakeStateReader = { page, _ in page === shown ? shownHeld : nil }
         // The quit's window step (every relaunch's quit goes through it).
         await before.wakeStateFile.save(before.relaunchWakeStates())
@@ -59,6 +61,7 @@ struct AgentPaneRelaunchWakeTests {
         // The next run: each tab's first page gets its chat's composer back with its handshake.
         let after = Self.run(file: file, records: records)
         after.restoreWakeStates()
+        #expect(after.wakeStates["tab_gone"] == nil, "a closed tab's composer was kept")
         let shownPage = try #require(after.view(for: "tab_shown"))
         let shownHandshake = try await Self.ready(shownPage)
         let shownWake = try #require(shownHandshake["wake"] as? [String: Any], "the live chat came back without its composer")
