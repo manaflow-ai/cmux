@@ -33,6 +33,8 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  // An image or a PDF kept with acpmux ahead of the prompt (`_acpmux/attachment_put`), by its id.
+  | { type: "image" | "document"; mimeType: string; uri: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
@@ -284,15 +286,32 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
+/// How a prompt block names an attachment acpmux keeps (`_acpmux/attachment_put`); acpmux puts its
+/// bytes back before the prompt runs (cmux-tui acpmux `hub/prompt_images.rs`).
+export const ATTACHMENT_URI = "acpmux-attachment:";
+
 /// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
-export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
+/// An attachment in `kept` (by its id: acpmux's id for it) is named, not carried, so the frame
+/// stays small however many screenshots it has.
+export function promptBlocks(
+  input: string,
+  chips: ComposerAttachment[],
+  kept: ReadonlyMap<string, string> = new Map(),
+): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
   for (const attachment of attachments)
-    if (attachment.kind === "image" && attachment.data)
+    if ((attachment.kind === "image" || attachment.kind === "document") && kept.has(attachment.id))
+      blocks.push({
+        type: attachment.kind,
+        mimeType: attachment.mimeType,
+        uri: `${ATTACHMENT_URI}${kept.get(attachment.id)}`,
+        name: attachment.name,
+      });
+    else if (attachment.kind === "image" && attachment.data)
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
