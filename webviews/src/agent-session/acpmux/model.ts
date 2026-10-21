@@ -112,9 +112,22 @@ export type PromptDelivery = {
   connection?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
+/// A prompt waiting for the running turn, with the images it sends, in its order (Leo,
+/// 2026-10-21: a queued row showed only its text).
+export type QueuedPrompt = {
+  id: string;
+  prompt: string;
+  next?: boolean;
+  sending?: boolean;
+  images?: QueuedPromptImage[];
+};
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
+/// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
+/// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
+/// acpmux names it, so an edit cannot keep or drop it by id yet.
+export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 export type AcpmuxRow = {
   id: string;
@@ -377,7 +390,8 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  | { op: "update"; text: string }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
+  | { op: "update"; text: string; images?: string[] }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }
@@ -560,6 +574,10 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
+/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
+/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
+export const TRANSCRIPT_RUNWAY = 24;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
