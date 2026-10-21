@@ -204,3 +204,13 @@ test("a family message without a name or a known relation still names and opens 
   // Without a sender it is the person's prompt.
   expect(incomingPrompt("hi", { _meta: { provenance: { ...family, from: "" } } })).toBeUndefined();
 });
+
+test("another session's prompt to this one is that session's message, and opens it", () => {
+  const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
+  expect(incomingPrompt("PR #22761 merged.", { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", sessionId: "lane-7", text: "PR #22761 merged.", raw: "PR #22761 merged." },
+  });
+  // The same client with no provenance is the person (the acpmux TUI, or `acpmux send` at a shell).
+  expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+});
