@@ -186,6 +186,12 @@ macro_rules! home_rule {
   the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so. Tell each
+  subagent the same.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
   push, never force; no pull requests unless the user asks. Work in your own
@@ -473,6 +479,11 @@ report.
   top, ungrouped. Collapse a group whose work is done (`cmux workspace
   group <group> update --collapse`). Never close or rename the user's
   workspaces to group them.
+- Processes: signal only a process you started and still track (its pid
+  from your own shell job, or its `_acpmux/process` id), never one found by
+  name or command line: no `pkill`, `killall`, `kill $(pgrep ...)` or
+  `ps | grep` kills. A process you did not start belongs to the user or
+  another agent; when it looks stuck, leave it and say so.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
   push, never force; no pull requests unless the user asks. Work in your own
