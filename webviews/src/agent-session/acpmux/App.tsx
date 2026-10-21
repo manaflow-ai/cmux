@@ -884,6 +884,7 @@ const ThinkingRow = memo(
         doing={row.doing}
         doingAt={row.doingAt}
         doingShell={row.doingShell}
+        draft={row.doingDraft}
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
@@ -906,6 +907,7 @@ const ThinkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
+    a.row.doingDraft === b.row.doingDraft &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
     a.row.below === b.row.below &&
@@ -1636,7 +1638,7 @@ function JumpToLatest({
   return (
     <button
       type="button"
-      className="acpmux-jump-latest"
+      className="ui-glass acpmux-jump-latest"
       data-shown={shown ? "" : undefined}
       data-working={working ? "" : undefined}
       style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
