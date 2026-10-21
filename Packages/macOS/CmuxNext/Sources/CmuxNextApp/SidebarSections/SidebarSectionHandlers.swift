@@ -147,9 +147,6 @@ enum SidebarSectionHandlers {
                 return .sectionMove(section.id, region: region, index: region == .middle ? 0 : Int.max)
             }
         }
-        bind("sidebar.section.moveToBottom", unavailable: { SidebarSectionStrings.noBottomArea }) { _, _ in
-            throw ActionFailure(message: SidebarSectionStrings.noBottomArea)
-        }
         let looks: [(ActionID, SectionLook)] = [("sidebar.section.useBuiltInLook", .builtIn), ("sidebar.section.useListLook", .list)]
         for (id, look) in looks {
             bind(id) { invocation, doc in
