@@ -781,7 +781,8 @@ pub enum PeerCmd {
     /// as NAME/session.
     Add {
         name: String,
-        url: String,
+        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
+        url: Option<String>,
         #[arg(long)]
         token: Option<String>,
     },
