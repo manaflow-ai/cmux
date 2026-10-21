@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 200
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A followed chat stays still at its bottom while a reply streams (Leo, 2026-10-20: "the transcript
 // jumps up and down instead of staying pinned"). The reply streams a few words at a time, a tool call
