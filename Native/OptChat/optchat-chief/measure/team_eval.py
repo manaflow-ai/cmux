@@ -453,16 +453,18 @@ def attributed_replies(sent, starts, messages, arrivals):
     reply can be tied to it."""
     chief = sorted((arrivals.get(m["id"], 0), m.get("seq", 0)) for m in messages
                    if m.get("author") == CHIEF and text_of(m).strip())
+    # The floor is the last credited message as (arrival, seq): two messages seen
+    # in the same poll share an arrival, and the later one is still free.
     out, floor = {}, None
     for pid, at in sorted(sent.items(), key=lambda kv: kv[1]):
         st = starts.get(pid)
         if st is None:
             out[pid] = (None, True)
             continue
-        t = next((t for t, seq in chief if t >= max(at, st) and (floor is None or t > floor)), None)
-        out[pid] = (t - at if t is not None else None, False)
-        if t is not None:
-            floor = t
+        hit = next((ts for ts in chief if ts[0] >= max(at, st) and (floor is None or ts > floor)), None)
+        out[pid] = (hit[0] - at if hit is not None else None, False)
+        if hit is not None:
+            floor = hit
     return out
 
 
@@ -525,6 +527,33 @@ def ratelimit_summary(readings):
             "readings": rs[-Ledger.READINGS:]}
 
 
+def wait_for_change(paths, timeout):
+    """Blocks until one of `paths` (files or directories) is written or
+    extended, or `timeout` seconds pass (kqueue; without it, or with nothing
+    to watch, one sleep of `timeout`)."""
+    timeout = max(0.0, timeout)
+    if not hasattr(select, "kqueue") or not paths:
+        time.sleep(timeout)
+        return
+    fds, kq = [], select.kqueue()
+    try:
+        for p in paths:
+            try:
+                fds.append(os.open(p, os.O_RDONLY))
+            except OSError:
+                continue
+        if not fds:
+            time.sleep(timeout)
+            return
+        kq.control([select.kevent(fd, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                                  select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND) for fd in fds], 0)
+        kq.control(None, 1, timeout)
+    finally:
+        for fd in fds:
+            os.close(fd)
+        kq.close()
+
+
 class LiveReadings:
     """Prints each new real reading at once, as one flushed line
     `TEAM-EVAL-RATELIMIT {json}` on stdout and on `fd` (the step's own
@@ -581,9 +610,15 @@ class AcpmuxFollower:
         return self
 
     def stop(self):
+        if self.wake_w < 0:
+            return
         if self.thread.is_alive():
             os.write(self.wake_w, b"x")
             self.thread.join(10)
+        if self.thread.is_alive():
+            # Still in a pass: it may yet read wake_r, so the pipe stays open.
+            self.log("the acpmux log follower did not stop in 10 s; its pipe stays open")
+            return
         for fd in (self.wake_r, self.wake_w):
             try:
                 os.close(fd)
@@ -644,16 +679,32 @@ class AcpmuxFollower:
         if got:
             self.on(got)
 
-    def _run(self):
-        while True:
+    def _scan_safely(self):
+        # A race (a file gone between listdir and open) or a failing callback
+        # costs this pass only, never the thread.
+        try:
             self._scan()
-            evs = self.kq.control(None, 64, None)
-            if any(e.ident == self.wake_r for e in evs):
-                self._scan()
-                break
-        for fd in self.watched.values():
-            os.close(fd)
-        self.kq.close()
+        except Exception as e:  # noqa: BLE001
+            self.log(f"following acpmux's session logs: {type(e).__name__}: {e}; going on")
+
+    def _run(self):
+        try:
+            while True:
+                self._scan_safely()
+                try:
+                    evs = self.kq.control(None, 64, None)
+                except InterruptedError:
+                    continue
+                if any(e.ident == self.wake_r for e in evs):
+                    self._scan_safely()
+                    break
+        finally:
+            for fd in self.watched.values():
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            self.kq.close()
 
 
 def acpmux_ratelimit(acpmux_home):
@@ -1216,9 +1267,13 @@ class Headroom:
         if not self.cmd or h is None or h >= self.minimum:
             return
         since = (self.clock() - self.max_age_s) * 1000
-        fresh = [r for r in self.ledger.readings()[-self.window:]
+        fresh = [reading_headroom(r) for r in self.ledger.readings()[-self.window:]
                  if (r.get("at") or 0) >= since and reading_headroom(r) is not None]
-        if min(reading_headroom(r) for r in fresh) == h:
+        if not fresh:
+            # Too old (a late log, clock skew) or out of the window: it gates nothing.
+            self.log(f"live reading from {key}: headroom {h:.2f}, but it is not among the recent readings; "
+                     "the gate does not count it")
+        elif min(fresh) == h:
             self.log(f"live reading from {key}: headroom {h:.2f} is under {self.minimum}: no new step starts; "
                      "running steps go on")
 
@@ -1265,6 +1320,17 @@ def positive(text):
     if n < 1:
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number of at least 1")
     return n
+
+
+def above_zero(text):
+    """A number over 0."""
+    try:
+        x = float(text)
+    except ValueError:
+        x = 0
+    if not x > 0:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number over 0")
+    return x
 
 
 def full_sha(ref):
@@ -1327,13 +1393,15 @@ def campaign(opts):
         for line in p.stdout:
             lines.append(line)
             if line.startswith("TEAM-EVAL-RATELIMIT {"):
+                # Nothing here may stop the reading: the step runs on, and its
+                # worker must not go back before it ends.
                 try:
                     reading = json.loads(line[len("TEAM-EVAL-RATELIMIT "):])
-                except ValueError:
-                    continue
-                reading.update(source=key, arrived=int(time.time() * 1000))
-                ledger.add_readings([reading])
-                headroom.note(key, reading)
+                    reading.update(source=key, arrived=int(time.time() * 1000))
+                    ledger.add_readings([reading])
+                    headroom.note(key, reading)
+                except Exception as e:  # noqa: BLE001
+                    say(f"{key}: a live reading was not taken ({type(e).__name__}: {e}): {line.strip()[:200]}")
         p.wait()
         drain.join()
         return types.SimpleNamespace(stdout="".join(lines), stderr="".join(err), returncode=p.returncode)
@@ -1450,8 +1518,8 @@ def main():
                         "(default: headroom_probe.py --base-url BASE_URL); '' turns the headroom check off")
     c.add_argument("--min-headroom", type=float, default=0.25, help="start no step while the headroom is below this")
     c.add_argument("--headroom-window", type=positive, default=20, help="the last N readings the check reads")
-    c.add_argument("--headroom-max-age", type=float, default=30, help="minutes a reading counts")
-    c.add_argument("--headroom-sleep", type=float, default=180, help="seconds between checks while paused")
+    c.add_argument("--headroom-max-age", type=above_zero, default=30, help="minutes a reading counts")
+    c.add_argument("--headroom-sleep", type=above_zero, default=180, help="seconds between checks while paused")
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
     r = sub.add_parser("run")
@@ -1469,6 +1537,14 @@ def main():
     r.add_argument("--live-fd", type=int, default=None,
                    help="also write each TEAM-EVAL-RATELIMIT line to this open fd (the step's stdout)")
     opts = ap.parse_args()
+    if opts.cmd == "run" and opts.live_fd is not None:
+        # An fd that is not open now could later be a pipe of the run's own
+        # (arm L's claude stdin): never write lines there.
+        try:
+            os.fstat(opts.live_fd)
+        except OSError:
+            print(f"[team-eval] --live-fd {opts.live_fd} is not open: live readings go to stdout only", flush=True)
+            opts.live_fd = None
     if opts.cmd == "campaign":
         campaign(opts)
         return
@@ -1680,7 +1756,9 @@ def run(opts):
                 rc, said = None, str(e)[-200:]
             while now_ms() - at < 30000 and chief_state(trace_events(), now_ms())[0]:
                 poll()  # replies and the cursor keep their times meanwhile
-                time.sleep(0.2)
+                # Until the trace changes (the turn.end), at most to the deadline.
+                wait_for_change([traces] + [os.path.join(traces, n) for n in os.listdir(traces)]
+                                if os.path.isdir(traces) else [], (30000 - (now_ms() - at)) / 1000)
             ended = not chief_state(trace_events(), now_ms())[0]
             log(f"stopped the running turn: rc {rc}, {'ended' if ended else 'STILL RUNNING'} "
                 f"after {(now_ms() - at) / 1000:.1f} s")

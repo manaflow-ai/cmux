@@ -108,17 +108,29 @@ def main():
     ap.add_argument("--timeout", type=float, default=120)
     opts = ap.parse_args()
     env = dict(os.environ, ANTHROPIC_LOG="debug")
+    scratch = None
     if opts.base_url:
         # The steps' route signs its requests itself: as team-eval.sh does, it
-        # gets a placeholder key and none of this host's credentials.
-        for k in ("ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):
-            env.pop(k, None)
-        env.update(ANTHROPIC_BASE_URL=opts.base_url, ANTHROPIC_API_KEY="sk-ant-placeholder-the-route-signs")
+        # gets a placeholder key and none of this host's credentials, under a
+        # scratch HOME and config dir, so no settings.json env, apiKeyHelper
+        # or login of this host's sends a credential or another route.
+        import shutil
+        import tempfile
+        scratch = tempfile.mkdtemp(prefix="headroom-probe.")
+        for k in [k for k in env if k.startswith(("ANTHROPIC_", "CLAUDE_CODE_", "AWS_", "GOOGLE_", "CLOUD_ML_",
+                                                   "VERTEX_"))]:
+            env.pop(k)
+        env.update(ANTHROPIC_LOG="debug", HOME=scratch, CLAUDE_CONFIG_DIR=os.path.join(scratch, ".claude"),
+                   ANTHROPIC_BASE_URL=opts.base_url, ANTHROPIC_API_KEY="sk-ant-placeholder-the-route-signs",
+                   DISABLE_AUTOUPDATER="1")
     try:
         r = subprocess.run([opts.claude, "-p", "reply with the word ok", "--model", opts.model],
                            capture_output=True, text=True, env=env, timeout=opts.timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         sys.exit(f"headroom_probe: claude -p failed: {e}")
+    finally:
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
     got = [x for x in ratelimit_readings(r.stdout.splitlines()) if reading_headroom(x) is not None]
     if not got:
         sys.exit(f"headroom_probe: no anthropic-ratelimit-unified-7d header in the response (claude rc {r.returncode})")

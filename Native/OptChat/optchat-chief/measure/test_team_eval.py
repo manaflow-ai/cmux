@@ -454,6 +454,13 @@ class StallTests(unittest.TestCase):
         self.assertEqual(got, {"brief": (1000, False), "status": (40000, False), "scope": (None, False),
                                "side": (None, True)})
 
+    def test_two_replies_seen_in_one_poll_go_to_two_prompts(self):
+        msgs = [msg(1, "user_local", "fix it"), msg(2, "user_local", "status?"),
+                msg(3, "agent_mux", "Fixed."), msg(4, "agent_mux", "Status: done.")]
+        arrivals = {"m3": 9000, "m4": 9000}  # one poll saw both
+        got = team_eval.attributed_replies({"brief": 1000, "f1": 2000}, {"brief": 1100, "f1": 2100}, msgs, arrivals)
+        self.assertEqual(got, {"brief": (8000, False), "f1": (7000, False)})
+
     def test_a_resumed_subagent_runs_again(self):
         ev = [{"ts": 1, "ev": "subagent.start", "id": "a"}, {"ts": 2, "ev": "subagent.done", "id": "a"},
               {"ts": 3, "ev": "subagent.resume", "id": "a"}]
@@ -708,6 +715,16 @@ class HeadroomTests(unittest.TestCase):
         self.assertIn("failing closed", self.logs[0])
         self.assertIn("resuming", self.logs[1])
 
+    def test_a_live_reading_too_old_for_the_window_is_logged_not_raised(self):
+        stale = {"at": 1000, "request_id": "req_old", "7d_utilization": 0.95, "7d_status": "allowed"}
+        g = self.gate([stale], cmd="echo 0.9")              # the only reading is 2.7 h old
+        g.note("k", stale)
+        self.assertIn("headroom 0.05, but it is not among the recent readings", self.logs[-1])
+        g = self.gate([stale], cmd="echo 0.9", window=1)
+        g.ledger.add_readings([{"at": 10000 * 1000, "request_id": "req_x", "7d_utilization": 0.1}])
+        g.note("k", stale)                                  # out of the window: the newer one is the minimum
+        self.assertEqual(self.logs, [])
+
     def test_a_probe_reading_joins_the_window_and_no_command_only_warns(self):
         g = self.gate([], cmd="echo 0.6")
         self.assertEqual(g.wait(), 0.6)
@@ -732,14 +749,20 @@ class HeadroomTests(unittest.TestCase):
         open(fake, "w").write("#!/bin/sh\necho ok\n")
         r = subprocess.run(probe, capture_output=True, text=True)
         self.assertEqual((r.returncode, r.stdout), (1, ""))
-        # --base-url: claude -p goes through that route, with a placeholder key and no host token.
-        open(fake, "w").write(f"#!/bin/sh\necho \"$ANTHROPIC_BASE_URL $ANTHROPIC_API_KEY ${{ANTHROPIC_AUTH_TOKEN:-none}}\" "
-                              f"> {d}/env\ncat {d}/sample\n")
+        # --base-url: claude -p goes through that route, with a placeholder key, no host token or
+        # provider switch, and a scratch HOME and config dir (no host settings.json).
+        open(fake, "w").write(f"#!/bin/sh\necho \"$ANTHROPIC_BASE_URL $ANTHROPIC_API_KEY ${{ANTHROPIC_AUTH_TOKEN:-none}} "
+                              f"${{CLAUDE_CODE_USE_BEDROCK:-none}} ${{AWS_PROFILE:-none}} $ANTHROPIC_LOG $HOME "
+                              f"$CLAUDE_CONFIG_DIR\" > {d}/env\ncat {d}/sample\n")
         r = subprocess.run(probe + ["--base-url", "http://route:9"], capture_output=True, text=True,
-                           env=dict(os.environ, ANTHROPIC_AUTH_TOKEN="host-token"))
+                           env=dict(os.environ, ANTHROPIC_AUTH_TOKEN="host-token", CLAUDE_CODE_USE_BEDROCK="1",
+                                    AWS_PROFILE="p"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(open(os.path.join(d, "env")).read().split(),
-                         ["http://route:9", "sk-ant-placeholder-the-route-signs", "none"])
+        got = open(os.path.join(d, "env")).read().split()
+        self.assertEqual(got[:6], ["http://route:9", "sk-ant-placeholder-the-route-signs", "none", "none", "none", "debug"])
+        self.assertNotEqual(got[6], os.environ["HOME"])
+        self.assertEqual(got[7], os.path.join(got[6], ".claude"))
+        self.assertFalse(os.path.exists(got[6]))  # the scratch HOME is gone after
 
 
 class LiveReadingTests(unittest.TestCase):
@@ -796,6 +819,57 @@ class LiveReadingTests(unittest.TestCase):
         self.assertEqual(got.get(timeout=10)["request_id"], "req_c")
         f.stop()
         self.assertTrue(got.empty())  # each once
+
+    def test_a_failing_callback_or_a_vanished_file_costs_one_pass_not_the_follower(self):
+        import queue
+        import shutil
+        import tempfile
+        if not hasattr(team_eval.select, "kqueue"):
+            self.skipTest("no kqueue")
+        home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, home, True)
+        got, logs = queue.Queue(), []
+
+        def on(rs):
+            got.put(rs)
+            if len(got.queue) == 1:
+                raise RuntimeError("callback broke")
+        f = team_eval.AcpmuxFollower(home, on, log=logs.append).start()
+        self.addCleanup(f.stop)
+        ev = os.path.join(home, "sessions", "s1", "events")
+        os.makedirs(ev)
+        line = lambda req: "".join(json.dumps({"at": 1, "kind": "stderr", "msg": {"text": l}}) + "\n"
+                                   for l in DEBUG_SAMPLE.replace("req_010UkMXn2kP8WvvTaLbryLXo", req).splitlines())
+        open(os.path.join(ev, "000001.ndjson"), "w").write(line("req_a"))
+        got.get(timeout=10)
+        open(os.path.join(ev, "000002.ndjson"), "w").write(line("req_b"))  # the thread lives on
+        self.assertEqual(got.get(timeout=10)[0]["request_id"], "req_b")
+        self.assertTrue(any("callback broke" in m for m in logs))
+        f.stop()
+        self.assertFalse(f.thread.is_alive())
+        self.assertEqual(f.wake_r, -1)
+
+    def test_wait_for_change_returns_on_a_write_and_at_the_deadline(self):
+        import tempfile
+        import threading
+        import time
+        path = os.path.join(tempfile.mkdtemp(), "trace.jsonl")
+        open(path, "w").close()
+        t = time.time()
+        team_eval.wait_for_change([path], 0.3)
+        self.assertGreaterEqual(time.time() - t, 0.25)
+        threading.Timer(0.2, lambda: open(path, "a").write("x\n")).start()
+        t = time.time()
+        team_eval.wait_for_change([path], 10)
+        self.assertLess(time.time() - t, 5)
+
+    def test_a_live_fd_that_is_not_open_is_dropped(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        r = subprocess.run([sys.executable, os.path.join(HERE, "team_eval.py"), "run", "--task", "nope", "--arm", "L",
+                            "--bins", d, "--repo", d, "--out", d, "--tasks", os.path.join(HERE, "team_eval_tasks.json"),
+                            "--live-fd", "97"], capture_output=True, text=True)
+        self.assertIn("--live-fd 97 is not open", r.stdout)
 
 
 class StreamingCampaignTests(unittest.TestCase):
@@ -871,15 +945,33 @@ class StreamingCampaignTests(unittest.TestCase):
             most = max(most, now)
         self.assertEqual(most, 4)
 
+    def test_a_stale_or_bad_live_reading_never_stops_the_step_or_frees_its_worker_early(self):
+        import contextlib
+        import io
+        stale = json.dumps({"at": 1000, "request_id": "req_old", "7d_utilization": 0.95, "7d_status": "allowed"})
+        body = (f"echo 'TEAM-EVAL-RATELIMIT {stale}'; echo 'TEAM-EVAL-RATELIMIT {{not json'; "
+                f"echo 'TEAM-EVAL-RATELIMIT {self.reading('req_new', 0.4)}'; sleep 0.5;")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            led = self.campaign_with("", 1, run=self.fake_run(body), cap_usd=None, worker=["m1"],
+                                     headroom_cmd="echo 0.9")
+        out = buf.getvalue()
+        self.assertIn("a live reading was not taken (JSONDecodeError", out)
+        # The reader went on to the end: the later reading and the step's result are in.
+        self.assertIn("req_new", [r.get("request_id") for r in led.readings()])
+        self.assertEqual(led.tokens()["total"], 26)
+        self.assertIn("ok, 26 tokens", out)
+
     def test_the_default_probe_uses_the_steps_route_and_bad_counts_are_refused(self):
         cmd = team_eval.default_headroom_cmd("http://route:9")
         self.assertTrue(cmd.endswith("headroom_probe.py --base-url http://route:9"), cmd)
-        for flag in ("--max-concurrent", "--headroom-window"):
+        for flag, why in (("--max-concurrent", "at least 1"), ("--headroom-window", "at least 1"),
+                          ("--headroom-sleep", "over 0"), ("--headroom-max-age", "over 0")):
             r = subprocess.run([sys.executable, os.path.join(HERE, "team_eval.py"), "campaign", "--name", "x",
                                 "--ref", "a" * 40, "--base-url", "u", "--task", "t", "--arm", "A", "--out", "/tmp/x",
                                 flag, "0"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 2, flag)
-            self.assertIn("at least 1", r.stderr)
+            self.assertIn(why, r.stderr)
 
 
 if __name__ == "__main__":
