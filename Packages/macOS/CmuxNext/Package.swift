@@ -821,8 +821,9 @@ let package = Package(
         // (with its App Store card, Chief in Sidebar) and the Chief's tools in the docked Home's tab row.
         .target(
             name: "CmuxNextAgentLanes",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDesign",
-                           "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge",
+                           "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeEngine",
+                           "CmuxNextSidebar", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
