@@ -79,9 +79,10 @@ public struct SidebarPriorityMachine {
             createdAtMs = ledger?[marker.notification]
         }
         // A notice posted before the app connected has no time here, nor has a tab with no notice:
-        // it counts from when the app first saw it. A mark holds for the notice, not that time
-        // (`markKey`), so it outlives the app's memory of it.
-        let key = marker.map { "n\($0.notification.rawValue)" } ?? "none"
+        // it counts from when the app first saw it. A mark holds for the notice and its time when
+        // known (`markKey`): a restarted daemon renumbers its notices, so an id alone can name a
+        // new one; an untimed notice's mark holds for its id, not the app's first-seen time.
+        let key = marker.map { "n\($0.notification.rawValue)" + (createdAtMs.map { "@\($0)" } ?? "") } ?? "none"
         let since = createdAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) } ?? Self.firstSeen("\(session)#\(key)")
         let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return AgentActivityLane(id: session, name: session, title: title.isEmpty ? ref.harness ?? session : title, peer: name,
