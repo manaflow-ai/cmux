@@ -376,6 +376,8 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
