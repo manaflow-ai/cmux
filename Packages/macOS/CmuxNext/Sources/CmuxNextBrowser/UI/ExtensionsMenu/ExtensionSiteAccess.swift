@@ -66,6 +66,9 @@ nonisolated enum ExtensionSiteAccess: Equatable, Sendable {
     case thisSite
     case whenClicked
     case none
+    /// Its manifest was not read (yet, or the fork lists no folder): no line and no section,
+    /// rather than claiming it asks for nothing.
+    case unknown
 
     /// Chrome's sections of the bubble, in their order.
     enum Group: Int, CaseIterable, Sendable {
@@ -77,11 +80,13 @@ nonisolated enum ExtensionSiteAccess: Equatable, Sendable {
         case noAccess
     }
 
-    var group: Group {
+    /// The section the extension is listed in; nil for ``unknown``, listed after the sections.
+    var group: Group? {
         switch self {
         case .allSites, .thisSite: .canSeeAndChange
         case .whenClicked: .whenClicked
         case .none: .noAccess
+        case .unknown: nil
         }
     }
 
@@ -89,7 +94,7 @@ nonisolated enum ExtensionSiteAccess: Equatable, Sendable {
     /// site: only all-sites patterns count).
     init(_ facts: ExtensionManifestFacts?, url: URL?) {
         guard let facts else {
-            self = .none
+            self = .unknown
             return
         }
         if facts.hostPatterns.contains(where: Self.isAllSites) {

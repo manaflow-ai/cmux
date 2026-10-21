@@ -126,7 +126,7 @@ final class ExtensionsMenuHoverButton: NSView {
         let x = boxX + imageBox + imageLabelSpacing
         let width = max(0, bounds.width - x - insets.right)
         let height = ceil(titleLabel.intrinsicContentSize.height)
-        guard detailLabel.superview != nil else {
+        guard detailLabel.superview != nil, !detailLabel.stringValue.isEmpty else {
             titleLabel.frame = NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
             return
         }

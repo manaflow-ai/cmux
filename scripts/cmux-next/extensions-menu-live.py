@@ -14,7 +14,7 @@ pins two extensions and saves 2x window captures with the bubble:
 
   few-dark.png, few-light.png, few-accent.png   the five extensions (accent: the theme's hue)
   many-dark.png                                 sixteen extensions: the list scrolls
-  none-dark.png                                 no extensions: the empty state
+  none-dark.png                                 no extensions (the bundled uBlock Origin off): the empty state
 
 It checks only that each bubble opened and listed what was loaded; the pictures are the proof.
 Self-contained (no imports from this folder), so a base commit can run the head's copy for a
@@ -107,7 +107,7 @@ FEW = [
     ("Page Highlighter", (66, 133, 244), {"host_permissions": ["<all_urls>"], "action": {"default_popup": "popup.html"}}),
     ("Example Notes", (52, 168, 83), {"host_permissions": ["https://example.com/*"], "action": {}}),
     ("Sidebar Assistant", (217, 119, 87), {"permissions": ["activeTab", "sidePanel"], "side_panel": {"default_path": "panel.html"},
-                                           "action": {}}),
+                                           "action": {}, "background": {"service_worker": "background.js"}}),
     ("Tab Counter", (171, 71, 188), {"permissions": ["tabs"], "action": {"default_popup": "popup.html"}}),
     ("A Very Long Extension Name That Does Not Fit In The Menu", (0, 150, 136), {"permissions": ["activeTab"], "action": {}}),
 ]
@@ -129,6 +129,10 @@ def write_extensions(root, specs):
         for page in ("popup.html", "panel.html"):
             with open(os.path.join(folder, page), "w") as f:
                 f.write(f"<!doctype html><title>{name}</title><p>{name}</p>")
+        if "background" in manifest:
+            # As side panel extensions do: a click on the action opens the panel.
+            with open(os.path.join(folder, "background.js"), "w") as f:
+                f.write("chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true});\n")
         paths.append(folder)
     return paths
 
@@ -181,10 +185,10 @@ def shot(process, name):
     log(f"snapshot {name}: {json.dumps(result)[:300]}")
 
 
-def scenario(name, specs, pin=(), modes=(("dark", "Catppuccin Mocha", "neutral"),)):
+def scenario(name, specs, pin=(), modes=(("dark", "Catppuccin Mocha", "neutral"),), ad_blocker=True):
     root = tempfile.mkdtemp(prefix=f"ext-{name}-")
     folders = write_extensions(root, specs)
-    process = launch(folders, {"appearance": {"theme": modes[0][1]}})
+    process = launch(folders, {"appearance": {"theme": modes[0][1]}, "browser": {"builtInAdBlocker": ad_blocker}})
     try:
         opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": "https://example.com/"},
                                     "focus": True, "origin": "remote"})
@@ -218,6 +222,6 @@ scenario("few", FEW, pin=("Example Notes", "Sidebar Assistant"),
 MANY = FEW + [(f"Helper {n}", (60 + n * 10, 120, 200 - n * 8), {"permissions": ["activeTab"] if n % 2 else [], "action": {}})
               for n in range(11)]
 scenario("many", MANY, pin=("Example Notes",))
-scenario("none", [])
+scenario("none", [], ad_blocker=False)  # the bundled uBlock Origin off: nothing installed
 log(f"artifacts in {OUT}")
 sys.exit(1 if failures else 0)

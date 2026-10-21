@@ -43,7 +43,7 @@ final class ExtensionsMenuView: NSView {
     private let fade: ScrollEdgeFadeView
     private let list = ExtensionsMenuListView()
     private var sectionLabels: [ExtensionSiteAccess.Group: ThemedLabel] = [:]
-    private let empty = ExtensionsMenuEmptyView()
+    private let empty: ExtensionsMenuEmptyView
     private let headerSeparator = ExtensionsMenuSeparator()
     private let footerSeparator = ExtensionsMenuSeparator()
     let manageButton: ExtensionsMenuHoverButton
@@ -52,6 +52,8 @@ final class ExtensionsMenuView: NSView {
     private var rowsByID: [String: ExtensionsMenuItemView] = [:]
     /// The list's sections in order, each with its rows.
     private var sections: [(ExtensionSiteAccess.Group, [ExtensionsMenuItemView])] = []
+    /// Rows whose manifest was not read, after the sections and without a title.
+    private var ungrouped: [ExtensionsMenuItemView] = []
     private var listHeight: CGFloat = 0
 
     init(style: ExtensionsMenuStyle = .standard) {
@@ -73,6 +75,7 @@ final class ExtensionsMenuView: NSView {
             imageLabelSpacing: style.imageLabelSpacing, style: style
         )
         fade = ScrollEdgeFadeView(scrollView: scrollView)
+        empty = ExtensionsMenuEmptyView(style: style)
         super.init(frame: NSRect(x: 0, y: 0, width: style.width, height: 100))
         titleLabel.stringValue = Strings.extensions
         titleLabel.font = style.titleFont
@@ -121,6 +124,7 @@ final class ExtensionsMenuView: NSView {
     func update(_ entries: [Entry], site: String?) {
         var byID: [String: ExtensionsMenuItemView] = [:]
         var grouped: [ExtensionSiteAccess.Group: [ExtensionsMenuItemView]] = [:]
+        var ungrouped: [ExtensionsMenuItemView] = []
         for entry in entries {
             let info = entry.info
             let row: ExtensionsMenuItemView
@@ -135,11 +139,12 @@ final class ExtensionsMenuView: NSView {
             }
             row.primary.themedToolTip = entry.tooltip
             byID[info.id] = row
-            grouped[entry.access.group, default: []].append(row)
+            if let group = entry.access.group { grouped[group, default: []].append(row) } else { ungrouped.append(row) }
         }
         for row in rows where byID[row.extensionID] == nil { row.removeFromSuperview() }
         sections = ExtensionSiteAccess.Group.allCases.compactMap { group in grouped[group].map { (group, $0) } }
-        rows = sections.flatMap(\.1)
+        self.ungrouped = ungrouped
+        rows = sections.flatMap(\.1) + ungrouped
         rowsByID = byID
         for row in rows where row.superview !== list { list.addSubview(row) }
         for (group, label) in sectionLabels {
@@ -178,7 +183,7 @@ final class ExtensionsMenuView: NSView {
     /// The row of extension `id`, when listed.
     func row(for id: String) -> ExtensionsMenuItemView? { rowsByID[id] }
 
-    /// The section titles shown, in order (``ExtensionsMenuController/report``).
+    /// The titled sections shown, in order, each with its rows.
     var shownSections: [(ExtensionSiteAccess.Group, [ExtensionsMenuItemView])] { sections }
 
     /// The keyboard order: the rows' buttons, the footer, then the close button (Chrome's arrow
@@ -220,6 +225,10 @@ final class ExtensionsMenuView: NSView {
                 y += style.rowHeight
             }
         }
+        for row in ungrouped {
+            row.frame = NSRect(x: style.padding, y: y, width: width - style.padding * 2, height: style.rowHeight)
+            y += style.rowHeight
+        }
 
         // Footer.
         footerSeparator.frame = NSRect(x: 0, y: listTop + visible, width: width, height: 1)
@@ -247,10 +256,11 @@ private final class ExtensionsMenuEmptyView: NSView {
     private let icon = ThemedImageView()
     private let title = ThemedLabel(labelWithString: Strings.noExtensions)
     private let detail = ThemedLabel(wrappingLabelWithString: Strings.extensionMenuEmptyDetail)
-    private let style = ExtensionsMenuStyle.standard
+    private let style: ExtensionsMenuStyle
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    init(style: ExtensionsMenuStyle) {
+        self.style = style
+        super.init(frame: .zero)
         icon.image = NSImage.icon(.browserToolbarExtensions, size: 28)
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.themeTint = { Palette.textTertiary }

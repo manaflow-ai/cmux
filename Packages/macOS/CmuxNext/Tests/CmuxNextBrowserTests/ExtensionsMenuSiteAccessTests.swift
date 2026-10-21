@@ -50,7 +50,7 @@ import Testing
         #expect(ExtensionSiteAccess(ExtensionManifestFacts(hostPatterns: ["https://example.com:8080/*"]),
                                     url: URL(string: "https://example.com/a")) == .thisSite)
         #expect(ExtensionSiteAccess(ExtensionManifestFacts(), url: Self.youtube) == .none)
-        #expect(ExtensionSiteAccess(nil, url: Self.youtube) == .none, "an unread manifest asks for nothing")
+        #expect(ExtensionSiteAccess(nil, url: Self.youtube) == .unknown, "an unread manifest claims nothing")
         #expect(ExtensionSiteAccess(some, url: URL(string: "chrome://extensions/")) == .whenClicked)
     }
 
@@ -91,6 +91,25 @@ import Testing
         #expect(view.row(for: "site") === row)
         #expect(view.shownSections.map(\.0) == [.whenClicked])
         #expect(row?.primary.detailLabel.stringValue == Strings.extensionAccess(.whenClicked))
+    }
+
+    @Test func anUnreadManifestGetsNoSectionAndNoLine() {
+        let view = ExtensionsMenuView()
+        func entry(_ id: String, _ access: ExtensionSiteAccess) -> ExtensionsMenuView.Entry {
+            ExtensionsMenuView.Entry(info: BrowserExtensionInfo(id: id, name: id, hasAction: true), icon: NSImage(),
+                                     access: access, canPin: true, hasSidePanel: false, tooltip: nil)
+        }
+        view.update([entry("unread", .unknown), entry("all", .allSites)], site: "example.com")
+        #expect(view.shownSections.map(\.0) == [.canSeeAndChange])
+        #expect(view.rows.map(\.extensionID) == ["all", "unread"], "after the sections")
+        #expect(view.row(for: "unread")?.primary.detailLabel.isHidden == true)
+
+        // Read later: the same row moves into its section and says its access.
+        let row = view.row(for: "unread")
+        view.update([entry("unread", .whenClicked), entry("all", .allSites)], site: "example.com")
+        #expect(view.row(for: "unread") === row)
+        #expect(view.shownSections.map(\.0) == [.canSeeAndChange, .whenClicked])
+        #expect(row?.primary.detailLabel.isHidden == false)
     }
 
     @Test func aPinnedPinIsSelected() {

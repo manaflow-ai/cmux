@@ -49,6 +49,15 @@ final class ExtensionsMenuController {
     /// Renders done since the bubble opened (a test seam).
     private(set) var renders = 0
 
+    /// What an open bubble shows, so a tab state change that keeps it does not re-render.
+    private struct RenderInputs: Equatable {
+        var extensions: [BrowserExtensionInfo]
+        var actions: [CEFExtensionAction]
+        var url: URL?
+    }
+
+    private var observedInputs: RenderInputs?
+
     init(style: ExtensionsMenuStyle = .standard) {
         self.style = style
         content = ExtensionsMenuView(style: style)
@@ -98,13 +107,16 @@ final class ExtensionsMenuController {
         self.handler = handler
         anchorView = anchor
         renders = 0
-        // Renders now, then again when the extensions or their toolbar state change while open.
+        // Renders now, then again when the extensions, their toolbar state or the page change while
+        // open. The tab's state changes on every load event; only these inputs re-render.
         observation?.cancel()
+        observedInputs = nil
         observation = ObservationLoop { [weak self] in
             guard let self, let host = self.host else { return }
-            _ = host.extensionStore.extensions
-            _ = host.extensionActions
-            _ = (host as? any BrowserTab)?.state.url
+            let inputs = RenderInputs(extensions: host.extensionStore.extensions, actions: host.extensionActions,
+                                      url: (host as? any BrowserTab)?.state.url)
+            guard inputs != self.observedInputs else { return }
+            self.observedInputs = inputs
             self.render()
         }
         anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))

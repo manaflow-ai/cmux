@@ -66,13 +66,15 @@ nonisolated enum Strings {
         }
     }
 
-    /// The line under an extension's name: what it can see and change (Edge's wording).
+    /// The line under an extension's name: what it can see and change (Edge's wording); empty
+    /// when its manifest was not read.
     static func extensionAccess(_ access: ExtensionSiteAccess) -> String {
         switch access {
         case .allSites: String(localized: "browser.extensions.menu.access.allSites", defaultValue: "Allowed on all sites", bundle: .module)
         case .thisSite: String(localized: "browser.extensions.menu.access.thisSite", defaultValue: "Allowed on this site", bundle: .module)
         case .whenClicked: String(localized: "browser.extensions.menu.access.whenClicked", defaultValue: "Allowed when clicked", bundle: .module)
         case .none: String(localized: "browser.extensions.menu.access.none", defaultValue: "No site access", bundle: .module)
+        case .unknown: ""
         }
     }
 

@@ -77,10 +77,13 @@ final class ExtensionsMenuItemView: NSView {
         self.canPin = canPin
         self.hasSidePanel = hasSidePanel
         primary.titleLabel.stringValue = info.name
-        primary.detailLabel.stringValue = Strings.extensionAccess(access)
+        let detail = Strings.extensionAccess(access)
+        primary.detailLabel.stringValue = detail
+        primary.detailLabel.isHidden = detail.isEmpty
+        primary.needsLayout = true
         primary.setImage(icon, size: style.extensionIcon)
         primary.setAccessibilityLabel(info.name)
-        primary.setAccessibilityHelp(Strings.extensionAccess(access))
+        primary.setAccessibilityHelp(detail.isEmpty ? nil : detail)
         primary.setAccessibilityIdentifier(ExtensionsMenu.rowIdentifier(info.id))
         primary.isEnabled = info.isEnabled
         sidePanelButton.setAccessibilityIdentifier(ExtensionsMenu.sidePanelIdentifier(info.id))
