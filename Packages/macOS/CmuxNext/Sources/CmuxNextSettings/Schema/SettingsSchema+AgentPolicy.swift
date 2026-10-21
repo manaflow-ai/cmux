@@ -62,6 +62,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
+        "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
