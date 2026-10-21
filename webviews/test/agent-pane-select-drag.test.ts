@@ -148,15 +148,21 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       return lines;
     }, REPLY.slice(0, 20));
 
-  test.each(engines.map(([name]) => name))(
-    "%s: a drag along a line of a reply selects words on that line",
-    async (name) => {
+  // The app shows the pane at a page zoom (`app.uiScale` times the chat's own zoom); the root's
+  // CSS zoom is how a page here gets the same effective zoom.
+  const cases = engines.flatMap(([name]) => [1, 1.25, 1.5].map((zoom) => [name, zoom] as const));
+  test.each(cases)(
+    "%s at zoom %p: a drag along a line of a reply selects words on that line",
+    async (name, zoom) => {
       const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
       await installPaintedFrames(page);
       const { port } = vite!.httpServer!.address() as { port: number };
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.getByText(REPLY.slice(0, 20), { exact: false }).waitFor();
+      await page.evaluate((zoom) => {
+        document.documentElement.style.zoom = String(zoom);
+      }, zoom);
       for (let frame = 0; frame < 3; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       const lines = await replyLines(page);
       expect(lines.length).toBeGreaterThanOrEqual(3);
