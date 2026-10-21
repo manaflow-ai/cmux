@@ -34,7 +34,8 @@ final class HomeClipboardHistory {
         guard activation == nil else { return }
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.recordIfAllowed(backgroundRead: true) }
+            // task-owner: one read per activation, on the main actor.
+            Task { @MainActor in self?.recordIfAllowed(backgroundRead: true) }
         }
     }
 
