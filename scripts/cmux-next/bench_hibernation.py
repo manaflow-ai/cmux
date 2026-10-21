@@ -18,8 +18,10 @@ Then each tab is selected in turn and timed:
 
   mounted_ms  until the app reports the page restored (debug.surfaces restored_total)
   usable_ms   until the page answers script again (it has loaded)
-  painted_ms  until the app reports the woken page painted (debug.surfaces
-              wakes, builds that report it), and whether a snapshot covered it
+  app_mounted_ms, loaded_ms  the app's own times from the restore to the page being
+              back and to its load ending (debug.surfaces wakes, builds that report it;
+              mounted_ms and usable_ms above include the CLI's round trip), and
+              whether a snapshot covered the pane
   scroll/form whether its scroll position and form fields came back
 
 With --pressure (and passwordless sudo) a second set of tabs is opened and
@@ -159,7 +161,6 @@ def wake(app: bm.App, sock: str, tab: str, engine: str) -> dict:
     """Selects a hibernated tab and times it back."""
     before = hibernation(sock)
     restored = before.get("restored_total") or 0
-    wakes_before = len(before.get("wakes") or [])
     started = time.monotonic()
     app.run("tab.focus", target=tab)
     mounted = wait_for(lambda: (hibernation(sock).get("restored_total") or 0) > restored and time.monotonic(), 15, 0.01)
@@ -183,14 +184,13 @@ def wake(app: bm.App, sock: str, tab: str, engine: str) -> dict:
     row["scroll_ok"] = abs((got.get("y") or 0) - SCROLL_Y) <= 2
     row["form_ok"] = all(got.get(key) == value for key, value in FORM.items())
     row["got"] = got
-    # The app's own record of the wake (builds that report it): show to first paint, and the cover.
-    wakes = wait_for(lambda: (lambda w: w if len(w) > wakes_before else None)(hibernation(sock).get("wakes") or []), 3)
-    if wakes:
-        own = wakes[-1]
-        row.update({"painted_ms": own.get("painted_ms"), "app_mounted_ms": own.get("mounted_ms"),
-                    "snapshot": own.get("snapshot")})
+    # The app's own record of the wake (builds that report it): back, loaded, and the snapshot.
+    own = wait_for(lambda: next((w for w in reversed(hibernation(sock).get("wakes") or [])
+                                 if w.get("tab") == tab and w.get("loaded_ms") is not None), None), 3)
+    if own:
+        row.update({"loaded_ms": own.get("loaded_ms"), "app_mounted_ms": own.get("mounted_ms"), "snapshot": own.get("snapshot")})
     print(f"PERF-HIBERNATE-WAKE engine={engine} tab={tab} mounted_ms={row['mounted_ms']} usable_ms={row['usable_ms']} "
-          f"restored_ms={row['restored_ms']} painted_ms={row.get('painted_ms')} snapshot={row.get('snapshot')} scroll_ok={row['scroll_ok']} "
+          f"restored_ms={row['restored_ms']} app_mounted_ms={row.get('app_mounted_ms')} loaded_ms={row.get('loaded_ms')} snapshot={row.get('snapshot')} scroll_ok={row['scroll_ok']} "
           f"form_ok={row['form_ok']}", flush=True)
     return row
 
@@ -295,7 +295,9 @@ def main():
                 print(f"   hibernate {tab}: {reply['error']}", file=sys.stderr)
         asleep = wait_for(lambda: set(tabs) <= set(hibernation(sock).get("hibernated") or []), 60, 0.5)
         status = hibernation(sock)
+        report["snapshot_store"] = {"pictures": status.get("snapshots"), "bytes": status.get("snapshot_bytes")}
         print(f"PERF-HIBERNATE-SLEPT all={bool(asleep)} hibernated={len(status.get('hibernated') or [])} "
+              f"snapshots={status.get('snapshots')} snapshot_bytes={status.get('snapshot_bytes')} "
               f"exemptions={json.dumps(status.get('exemptions') or {})}", flush=True)
         time.sleep(10)  # test script: renderers exit and the app settles
         phase(pid, bundle, "hibernated", args.measure, report)
@@ -327,7 +329,9 @@ def main():
                 "usable_p50_ms": percentile([r["usable_ms"] for r in rows], 0.5),
                 "usable_p90_ms": percentile([r["usable_ms"] for r in rows], 0.9),
                 "restored_p50_ms": percentile([r["restored_ms"] for r in rows], 0.5),
-                "painted_p50_ms": percentile([r.get("painted_ms") for r in rows], 0.5),
+                "app_mounted_p50_ms": percentile([r.get("app_mounted_ms") for r in rows], 0.5),
+                "loaded_p50_ms": percentile([r.get("loaded_ms") for r in rows], 0.5),
+                "loaded_p90_ms": percentile([r.get("loaded_ms") for r in rows], 0.9),
                 "snapshots": sum(1 for r in rows if r.get("snapshot")),
                 "scroll_restored": sum(1 for r in rows if r["scroll_ok"]), "form_restored": sum(1 for r in rows if r["form_ok"]),
                 "woken": len(rows),
@@ -338,7 +342,8 @@ def main():
                   f"hidden_cpu_pct={s['hidden_cpu_pct']} frozen_cpu_pct={s['frozen_cpu_pct']} "
                   f"hidden_wakeups_per_s={s['hidden_wakeups_per_s']} frozen_wakeups_per_s={s['frozen_wakeups_per_s']} "
                   f"mounted_p50_ms={s['mounted_p50_ms']} usable_p50_ms={s['usable_p50_ms']} usable_p90_ms={s['usable_p90_ms']} "
-                  f"restored_p50_ms={s['restored_p50_ms']} painted_p50_ms={s['painted_p50_ms']} "
+                  f"restored_p50_ms={s['restored_p50_ms']} app_mounted_p50_ms={s['app_mounted_p50_ms']} "
+                  f"loaded_p50_ms={s['loaded_p50_ms']} loaded_p90_ms={s['loaded_p90_ms']} "
                   f"snapshots={s['snapshots']}/{s['woken']} scroll={s['scroll_restored']}/{s['woken']} "
                   f"form={s['form_restored']}/{s['woken']}", flush=True)
         report["summary"] = summary
