@@ -5,9 +5,10 @@ public import CmuxNextFloating
 @MainActor
 extension ChiefPetNotice {
     /// The notice says which chat and what happened: the program's or poster's title, else the tab's name
-    /// with what happened ("api-server finished"); then the workspace and one line of its text (else the
-    /// subtitle), as "workspace · text". A bare tab name over a bare step ("New chat" / "Ran command")
-    /// said neither (Leo 2026-10-20). A terminal takes a typed reply only for an
+    /// (else the workspace's) with what happened ("New chat finished"; "finished" only for an agent's
+    /// notice, as a shell's titleless line finished nothing); then the workspace and one line of its text
+    /// (else the subtitle), as "workspace · text". A bare tab name over a bare step ("New chat" /
+    /// "Ran command") said neither (Leo 2026-10-20). A terminal takes a typed reply only for an
     /// agent's notice or one whose poster asked for it (like a `notify --reply` banner); any other
     /// opens its tab (an OSC 9/777 line from a remote shell or a log must not type into what runs there).
     /// An agent chat opens.
@@ -19,8 +20,10 @@ extension ChiefPetNotice {
         case .info: .done
         }
         let text = line.isEmpty ? (notification.shownSubtitle ?? "") : line
+        let name = tab.displayTitle.isEmpty ? (workspace ?? "") : tab.displayTitle
+        let happened = name.isEmpty || (kind == .done && notification.source != "agent") ? name : Self.title(name, kind: kind)
         self.init(id: notification.notification.rawValue, tab: tab.id, surface: notification.surface?.rawValue,
-                  title: programTitle ?? (notification.title.isEmpty ? Self.title(tab.displayTitle, kind: kind) : notification.title),
+                  title: programTitle ?? (notification.title.isEmpty ? happened : notification.title),
                   detail: [workspace ?? "", text].filter { !$0.isEmpty }.joined(separator: " · "), kind: kind,
                   reply: tab.kind == .pty ? (Self.takesTypedReply(notification) ? .type : .openTab)
                       : tab.agentSession == nil ? .openTab : .openChat)

@@ -37,12 +37,14 @@ import Testing
             service.desktopPostingEnabled = false
             service.terminalNotificationsEnabled = { true }
             var opened: (ChiefPetReplyTarget) -> Void = { _ in }
+            var isActive: @MainActor () -> Bool = { true }
             controller = ChiefPetController(makePanel: { [defaults] in ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock,
-                                            appIsActive: { [weak self] in self?.active ?? true }, notifications: center)
+                                            appIsActive: { isActive() }, notifications: center)
             opened = { [weak self] target in
                 if case .notice(let notice) = target { self?.opened.append(notice.id) }
             }
+            isActive = { [weak self] in self?.active ?? true }
             service.chiefPet = controller
             controller.sync(true)
         }
@@ -107,9 +109,6 @@ import Testing
         #expect(notice.surface == 1)
     }
 
-    /// Only an agent's notice, or one whose poster asked for a reply (`notify --reply`), takes typed
-    /// text (like a `--reply` banner): an OSC 9/777 line from a remote shell or a log must not open a box that
-    /// types into whatever runs there.
     /// A notice whose poster gave no title says which chat and what happened, never a bare tab
     /// name over a bare step (Leo 2026-10-20: "New chat" / "Ran command" said neither).
     @Test func untitledNoticeSaysWhichChatAndWhatHappened() throws {
@@ -124,8 +123,15 @@ import Testing
         try harness.deliver(7, surface: 1, title: "", level: "error")
         #expect(harness.controller.feed.front?.title == ChiefPetNotice.title("New chat", kind: .failed))
         #expect(harness.controller.feed.front?.detail == "api-server")
+        // A titleless line that is not an agent's (an OSC 9 from a shell) did not "finish" anything.
+        try harness.deliver(8, surface: 2, title: "", body: "build done", source: "terminal")
+        #expect(harness.controller.feed.front?.title == "New chat")
+        #expect(harness.controller.feed.front?.detail == "api-server · build done")
     }
 
+    /// Only an agent's notice, or one whose poster asked for a reply (`notify --reply`), takes typed
+    /// text (like a `--reply` banner): an OSC 9/777 line from a remote shell or a log must not open a box that
+    /// types into whatever runs there.
     @Test func onlyAgentsAndAskedForRepliesTakeTypedText() throws {
         let harness = Harness()
         defer { harness.controller.sync(false) }
@@ -152,7 +158,12 @@ import Testing
         try harness.deliver(5, surface: 1, title: "Claude finished")
         try await harness.clock.waitForSleeper()
         harness.clock.advance(by: .seconds(ChiefPetController.doneSeconds + 1))
-        for _ in 0..<1000 where !harness.titles.isEmpty { await Task.yield() }
+        // Its card's timer sleeps on the clock too; the leave timer may have gone to sleep after the
+        // advance (its deadline counts from then), so the clock moves on until it fires.
+        for _ in 0..<1000 where !harness.titles.isEmpty {
+            await Task.yield()
+            harness.clock.advance(by: .milliseconds(100))
+        }
         #expect(harness.titles.isEmpty)
         #expect(harness.controller.bubble?.isVisible == false)
     }
