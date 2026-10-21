@@ -145,3 +145,47 @@ test("the Digest design shows each change's docs link under its summary", async 
   style.remove();
   act(() => root.unmount());
 });
+
+test("the Ledger design keeps a change's actions on its row, not on a blank line under it", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { Groups } = await import("../src/pages/changelog/ReleaseParts");
+  const { releaseView } = await import("../src/pages/changelog/model");
+  const entry = {
+    id: "groups",
+    category: "new" as const,
+    title: { en: "Workspace groups" },
+    summary: { en: "Keep related workspaces together." },
+    docs: "https://cmux.com/docs/sidebar",
+  };
+  const notes = {
+    build: "1",
+    shortVersion: "1.0.0-nightly.1",
+    date: "2026-10-16",
+    highlights: [],
+    changes: [],
+    whatsNew: {
+      version: "1.0.0-nightly.1",
+      channel: "nightly" as const,
+      date: "2026-10-16",
+      headline: { en: "x" },
+      entries: [entry],
+    },
+  };
+  const strings = { language: "en", t: (key: string) => key, format: (key: string) => key };
+  const style = host.ownerDocument.createElement("style");
+  style.textContent = await Bun.file(new URL("../src/pages/changelog/styles.css", import.meta.url)).text();
+  host.ownerDocument.head.append(style);
+  const root = createRoot(host);
+  act(() =>
+    root.render(
+      <div className="cll">
+        <Groups view={releaseView(notes, "en")} ctx={{ strings, onTry: () => undefined }} />
+      </div>,
+    ),
+  );
+  // Ledger rows are inline text in a bullet list; a block-level actions box would add an empty line under each.
+  const actions = host.querySelector<HTMLElement>(".cl-group li .cl-row-actions")!;
+  expect(host.ownerDocument.defaultView!.getComputedStyle(actions).display).toBe("inline-flex");
+  style.remove();
+  act(() => root.unmount());
+});
