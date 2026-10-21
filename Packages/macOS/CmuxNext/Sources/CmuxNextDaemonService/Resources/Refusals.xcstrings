@@ -12708,6 +12708,137 @@
         }
       }
     },
+    "handlers.refusal.linkParametersIgnored": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "opened the link and ignored parameters it doesn't use: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link geöffnet und Parameter ignoriert, die cmux nicht verwendet: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lien ouvert, en ignorant les paramètres non utilisés : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم فتح الرابط مع تجاهل المعاملات غير المستخدمة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enlace abierto, ignorando los parámetros que no se usan: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已開啟連結，並忽略未使用的參數：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已打开链接，并忽略未使用的参数：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "링크를 열고 사용하지 않는 매개변수를 무시함: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リンクを開き、使用しないパラメータを無視しました: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "link otvoren, parametri koji se ne koriste su ignorisani: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "linket blev åbnet, og parametre, der ikke bruges, blev ignoreret: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "link aperto, ignorando i parametri non utilizzati: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបើកតំណ ហើយមិនយកប៉ារ៉ាម៉ែត្រដែលមិនប្រើ៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "lenken ble åpnet, og parametere som ikke brukes ble ignorert: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "link otwarty, zignorowano parametry, które nie są używane: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "link aberto, ignorando os parâmetros que não são usados: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ссылка открыта, параметры, которые не используются, проигнорированы: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดลิงก์แล้ว และข้ามพารามิเตอร์ที่ไม่ได้ใช้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bağlantı açıldı, kullanılmayan parametreler yok sayıldı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "посилання відкрито, параметри, які не використовуються, проігноровано: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "đã mở liên kết và bỏ qua các tham số không dùng: %@"
+          }
+        }
+      }
+    },
     "handlers.refusal.linkNotRecognized": {
       "extractionState": "manual",
       "localizations": {
