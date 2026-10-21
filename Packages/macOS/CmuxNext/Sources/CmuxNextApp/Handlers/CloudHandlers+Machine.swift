@@ -111,8 +111,8 @@ extension CloudHandlers {
             let session = try machine(invocation, context)
             let rename = { (name: String) in run("rename machine", context) { try await cloud.renameMachine(session.machineID, to: name) } }
             if let name = invocation["name"]?.stringValue { return rename(name) }
-            CloudPresenter.askText(CloudStrings.renameMachineTitle, initial: session.machine.displayName ?? "", button: CloudStrings.rename,
-                                   in: window(context)) { name in if let name { rename(name) } }
+            context.services.registry.ask("cloudRenameMachine", invocation,
+                                          ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
