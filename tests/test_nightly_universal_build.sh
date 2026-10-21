@@ -427,8 +427,8 @@ if ! awk '
   exit 1
 fi
 
-# nightly-next ships arm64 only (tests/test_nightly_next_arm64_only.py); main's nightly keeps all three.
-if ! grep -Fq "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+# nightly-next ships thin arm64 and x86_64 (tests/test_nightly_next_variants.py); main's nightly keeps all three.
+if ! grep -Fq "const variants = fastBuild ? ['arm64'] : track === 'nightly-next' ? ['arm64', 'x86_64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
   echo "FAIL: main's nightly must always build the universal download alongside the thin update tracks"
   exit 1
 fi
@@ -486,8 +486,8 @@ fi
 for expected in \
   "id: notarize-nightly" \
   "CMUX_NOTARY_WAIT_TIMEOUT: \${{ needs.decide.outputs.notary_test == 'true' && '160m' || needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && '20m' || '40m' }}" \
-  "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}" \
-  "notary_pending: \${{ steps.notarize-nightly.outputs.submission_pending }}" \
+  "CMUX_NOTARY_PENDING_ON_TIMEOUT: \${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && !contains(needs.decide.outputs.optional_variants, matrix.variant) && 'true' || 'false' }}" \
+  "notary_pending: \${{ !contains(needs.decide.outputs.optional_variants, matrix.variant) && steps.notarize-nightly.outputs.submission_pending || '' }}" \
   "- name: Prepare pending notarization recovery artifact" \
   "- name: Upload pending notarization recovery artifact"; do
   if ! grep -Fq -- "$expected" "$WORKFLOW_FILE"; then
@@ -782,12 +782,12 @@ if ! awk '
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
   in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
-  # Main publishes every variant, four aliases and the four feeds decide lists;
-  # nightly-next publishes arm64 only (tests/test_nightly_next_arm64_only.py).
+  # Main publishes every variant, four aliases and the four feeds decide lists (Choose the variants to publish keeps them all);
+  # nightly-next publishes the thin variants that passed (tests/test_nightly_next_variants.py).
   in_publish && /variants=\(arm64 x86_64 universal\)/ { saw_all_variants=1 }
   in_publish && /--immutable .*CHANNEL_DMG_PREFIX.*-\$\{variant\}-\$\{NIGHTLY_BUILD\}\.dmg/ { saw_immutable_variants=1 }
   in_publish && /aliases=\(.*-arm64\.dmg.*-x86_64\.dmg.*-universal\.dmg" "\$\{CHANNEL_DMG_PREFIX\}\.dmg"\)/ { saw_four_aliases=1 }
-  in_publish && /for feed in \$NIGHTLY_FEEDS/ { saw_feeds=1 }
+  in_publish && /for feed in \$NIGHTLY_PUBLISH_FEEDS/ { saw_feeds=1 }
   END { exit !(saw_publish_if && saw_publisher && saw_all_variants && saw_immutable_variants && saw_four_aliases && saw_feeds) }
 ' "$WORKFLOW_FILE" || ! grep -Fq ": ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"

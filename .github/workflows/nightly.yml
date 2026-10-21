@@ -240,6 +240,8 @@ jobs:
       variants: ${{ steps.decide.outputs.variants }}
       compile_archs: ${{ steps.decide.outputs.compile_archs }}
       feeds: ${{ steps.decide.outputs.feeds }}
+      # Variants whose failure never holds the publish (nightly-next: x86_64).
+      optional_variants: ${{ steps.decide.outputs.optional_variants }}
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
       build_only: ${{ steps.decide.outputs.build_only }}
@@ -358,19 +360,22 @@ jobs:
             // A manually dispatched fast build is a branch-dogfood artifact only.
             // It deliberately produces one Apple silicon DMG and never publishes
             // to the shared NIGHTLY release or feed.
-            // nightly-next ships arm64 only (Leo, 2026-10-07): one DMG notarization per
-            // build instead of three, after Apple's queue held all three past the wait in
-            // runs 37648507383 and 37667249069. Its x86_64, universal and legacy feeds keep
-            // their last build, so an Intel Mac is never offered an arm64-only app.
-            const variants = fastBuild || track === 'nightly-next' ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
-            // Compile only the slices these variants consume. nightly-next
-            // ships arm64 only; compiling Intel here still paid for a second
-            // whole-module Swift compile and both slices of the Rust helpers.
-            const compileArchs = variants.includes('universal') ? ['arm64', 'x86_64'] : variants;
+            // nightly-next ships a thin arm64 and a thin x86_64 DMG, no universal
+            // one: two notarizations per build instead of three (arm64 alone from
+            // 2026-10-07, #18424, after Apple's queue held all three past the wait in
+            // runs 37648507383 and 37667249069). x86_64 is optional there: a leg that
+            // fails or is not accepted in time never holds the arm64 publish, and
+            // its feed keeps the last Intel build. Its universal and legacy feeds keep
+            // their last build; installs move to their architecture's feed.
+            const variants = fastBuild ? ['arm64'] : track === 'nightly-next' ? ['arm64', 'x86_64'] : ['arm64', 'x86_64', 'universal'];
+            const optionalVariants = !fastBuild && track === 'nightly-next' ? ['x86_64'] : [];
+            // Compile only the slices these variants consume.
+            const compileArchs = variants.includes('x86_64') ? ['arm64', 'x86_64'] : variants;
             const feeds = track === 'nightly-next'
-              ? ['appcast-arm64.xml']
+              ? ['appcast-arm64.xml', 'appcast-x86_64.xml']
               : ['appcast-arm64.xml', 'appcast-x86_64.xml', 'appcast-universal.xml', 'appcast.xml'];
             core.setOutput('variants', JSON.stringify(variants));
+            core.setOutput('optional_variants', optionalVariants.join(' '));
             core.setOutput('compile_archs', compileArchs.join(' '));
             core.setOutput('feeds', feeds.join(' '));
             core.setOutput('legacy_variant', 'universal');
@@ -2653,6 +2658,9 @@ jobs:
       actions: read
     runs-on: macos-26
     timeout-minutes: 40
+    # An optional variant (nightly-next x86_64) fails alone; publish-nightly
+    # leaves it out unless every one of its legs passed.
+    continue-on-error: ${{ contains(needs.decide.outputs.optional_variants, matrix.variant) }}
     strategy:
       fail-fast: false
       matrix:
@@ -3042,11 +3050,12 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     outputs:
-      # nightly-next is arm64 only, so its one matrix leg sets this; publish
-      # waits for a later run when Apple had not accepted the build in time.
-      notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
+      # Only a required leg sets these: an empty value is not recorded, so an
+      # optional leg (nightly-next x86_64) finishing last cannot clear arm64's.
+      # publish waits for a later run when Apple had not accepted arm64 in time.
+      notary_pending: ${{ !contains(needs.decide.outputs.optional_variants, matrix.variant) && steps.notarize-nightly.outputs.submission_pending || '' }}
       # The 6 h stapled-app fallback (notarize-nightly-dmg.sh) shipped the first DMG.
-      stapled_app_fallback_id: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
+      stapled_app_fallback_id: ${{ !contains(needs.decide.outputs.optional_variants, matrix.variant) && steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -3070,6 +3079,9 @@ jobs:
     timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
+    # An optional variant (nightly-next x86_64) fails alone; publish-nightly
+    # leaves it out unless every one of its legs passed.
+    continue-on-error: ${{ contains(needs.decide.outputs.optional_variants, matrix.variant) }}
     strategy:
       fail-fast: false
       matrix:
@@ -3602,7 +3614,9 @@ jobs:
           CMUX_STAPLE_APP_IN_DMG: ${{ needs.decide.outputs.notary_test == 'true' && 'false' || 'true' }}
           # Only a build that may publish hands a pending submission to a
           # later run; a notary test waits here and is never continued.
-          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && 'true' || 'false' }}
+          # The recovery hand-off is arm64's alone: an optional leg still in
+          # Apple's queue fails and its feed keeps the last build.
+          CMUX_NOTARY_PENDING_ON_TIMEOUT: ${{ needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && !contains(needs.decide.outputs.optional_variants, matrix.variant) && 'true' || 'false' }}
           CMUX_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
           # The launch smokes of the stapled app and the final DMG run in
           # verify-signed-nightly, a job without secrets.
@@ -3672,6 +3686,7 @@ jobs:
         id: prepare-notarization-recovery
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
+          !contains(needs.decide.outputs.optional_variants, matrix.variant) &&
           (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure') &&
           steps.signed-app-checks.outcome == 'success'
         env:
@@ -3949,6 +3964,9 @@ jobs:
       issues: read # the canary mode's report week (nightly_next_canary_mode.py)
     runs-on: macos-26
     timeout-minutes: 30
+    # An optional variant (nightly-next x86_64) fails alone; publish-nightly
+    # leaves it out unless every one of its legs passed.
+    continue-on-error: ${{ contains(needs.decide.outputs.optional_variants, matrix.variant) }}
     strategy:
       fail-fast: false
       matrix:
@@ -4201,6 +4219,21 @@ jobs:
           echo "cmux processes after the stop:"
           ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
 
+      # Per-variant proof that every step above passed: an optional variant's
+      # failure does not fail this job, so publish-nightly reads this instead.
+      - name: Record the verified variant
+        run: |
+          mkdir -p signed-verified
+          printf '%s\n' "$NIGHTLY_BUILD" > "signed-verified/signed-verified-${NIGHTLY_VARIANT}"
+
+      - name: Upload the verified variant record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-verified-${{ matrix.variant }}
+          path: signed-verified/signed-verified-${{ matrix.variant }}
+          if-no-files-found: error
+          retention-days: 3
+
   verify-final-dmg-nightly:
     name: Verify final nightly DMG (${{ matrix.variant }})
     # The final-DMG half of verify-signed-nightly, on its own runner so the two
@@ -4215,6 +4248,9 @@ jobs:
       contents: read
     runs-on: macos-26
     timeout-minutes: 30
+    # An optional variant (nightly-next x86_64) fails alone; publish-nightly
+    # leaves it out unless every one of its legs passed.
+    continue-on-error: ${{ contains(needs.decide.outputs.optional_variants, matrix.variant) }}
     strategy:
       fail-fast: false
       matrix:
@@ -4755,6 +4791,8 @@ jobs:
       # live is not mac, or is unreadable; or NIGHTLY_NEXT_HOLD is 1).
       refused: ${{ steps.gate.outputs.refused }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
+      # The variants this run published (an optional one that failed is left out).
+      published_variants: ${{ steps.published-variants.outputs.variants }}
     if: "!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))"
     # A literal ephemeral label: this job holds the release App key (guard rule 7).
     runs-on: ubuntu-24.04
@@ -4865,6 +4903,56 @@ jobs:
           path: tested
           merge-multiple: true
 
+      # Missing for a variant whose verify-signed-nightly leg failed.
+      - name: Download verified variant records
+        if: steps.source.outputs.source == 'own'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cmux-nightly-signed-verified-*
+          path: signed-verified
+          merge-multiple: true
+
+      # Required variants passed (the job's needs). An optional one (nightly-next
+      # x86_64) ships only when this run's own build passed every leg for it:
+      # notarized, its signed app and final DMG verified. Otherwise its files
+      # are dropped here and its DMG names and feed keep their last build.
+      - name: Choose the variants to publish
+        id: published-variants
+        env:
+          VARIANTS: ${{ needs.decide.outputs.variants }}
+          OPTIONAL_VARIANTS: ${{ needs.decide.outputs.optional_variants }}
+          SOURCE: ${{ steps.source.outputs.source }}
+        run: |
+          set -euo pipefail
+          read -ra all <<< "$(jq -r 'join(" ")' <<< "$VARIANTS")"
+          publish=() feeds=" $NIGHTLY_FEEDS "
+          for variant in "${all[@]}"; do
+            if [[ " $OPTIONAL_VARIANTS " != *" $variant "* ]]; then
+              publish+=("$variant")
+              continue
+            fi
+            if [ "$SOURCE" = own ] \
+              && [ -f "tested/tested-${variant}.sha256" ] \
+              && [ "$(cat "signed-verified/signed-verified-${variant}" 2>/dev/null)" = "$NIGHTLY_BUILD" ] \
+              && [ -f "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}-${NIGHTLY_BUILD}.dmg" ] \
+              && [ -f "nightly-out/appcast-${variant}.xml" ]; then
+              publish+=("$variant")
+              continue
+            fi
+            echo "::warning title=Optional variant not published::${variant} did not pass every leg of build $NIGHTLY_BUILD; its downloads and feed keep their last build"
+            rm -f "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}"-*.dmg "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}.dmg" \
+              "nightly-out/${CHANNEL_DMG_PREFIX}-${variant}"-*.delta "nightly-out/appcast-${variant}.xml"
+            feeds="${feeds// appcast-${variant}.xml / }"
+          done
+          read -ra feeds <<< "$feeds"
+          echo "Publishing variants: ${publish[*]}; feeds: ${feeds[*]}"
+          {
+            echo "NIGHTLY_PUBLISH_VARIANTS=${publish[*]}"
+            echo "NIGHTLY_PUBLISH_FEEDS=${feeds[*]}"
+          } >> "$GITHUB_ENV"
+          echo "variants=${publish[*]}" >> "$GITHUB_OUTPUT"
+
       - name: Require every DMG to match a tested digest
         run: |
           set -euo pipefail
@@ -4925,9 +5013,11 @@ jobs:
           cd nightly-out
           ls -l
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-            # arm64 only (decide): no Intel or universal names to assemble.
-            [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
-            [ -f appcast-arm64.xml ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
+            # Thin variants only (decide): no universal names to assemble.
+            for variant in $NIGHTLY_PUBLISH_VARIANTS; do
+              [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
+              [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
+            done
             exit 0
           fi
           for variant in arm64 x86_64; do
@@ -4963,16 +5053,23 @@ jobs:
           NOTES_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
         run: |
           set -euo pipefail
-          read -ra feeds <<< "$NIGHTLY_FEEDS"
+          read -ra feeds <<< "$NIGHTLY_PUBLISH_FEEDS"
           download="https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}"
           arm64_line="- [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](${download}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`"
+          intel_line="- [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`"
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-            downloads="**${NOTES_APP_NAME}** ships for Apple silicon only (bundle ID \`${NOTES_BUNDLE_ID}\`):
-          ${arm64_line}"
+            if [[ " $NIGHTLY_PUBLISH_VARIANTS " == *" x86_64 "* ]]; then
+              intel_next="${intel_line}"
+            else
+              intel_next="${intel_line} (an earlier build: this build's Intel app did not pass its checks)"
+            fi
+            downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
+          ${arm64_line}
+          ${intel_next}"
           else
             downloads="**${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
           ${arm64_line}
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](${download}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
+          ${intel_line}
           - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](${download}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check"
           fi
           # The release metadata steps below list the same downloads.
@@ -5046,7 +5143,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true'
         run: |
           set -euo pipefail
-          for appcast in $NIGHTLY_FEEDS; do
+          for appcast in $NIGHTLY_PUBLISH_FEEDS; do
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
           done
 
@@ -5164,9 +5261,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$NIGHTLY_TRACK" = nightly-next ]; then
-            # arm64 only (decide): the x86_64, universal and legacy names keep their last build.
-            variants=(arm64)
-            aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg")
+            # Thin variants that passed (Choose the variants to publish); the
+            # universal and legacy names, and a skipped x86_64, keep their last build.
+            read -ra variants <<< "$NIGHTLY_PUBLISH_VARIANTS"
+            aliases=()
+            for variant in "${variants[@]}"; do aliases+=("${CHANNEL_DMG_PREFIX}-${variant}.dmg"); done
           else
             variants=(arm64 x86_64 universal)
             aliases=("${CHANNEL_DMG_PREFIX}-arm64.dmg" "${CHANNEL_DMG_PREFIX}-x86_64.dmg" "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg")
@@ -5184,7 +5283,7 @@ jobs:
           for alias in "${aliases[@]}"; do
             args+=(--alias "nightly-out/$alias")
           done
-          for feed in $NIGHTLY_FEEDS; do
+          for feed in $NIGHTLY_PUBLISH_FEEDS; do
             args+=(--feed "nightly-out/$feed")
           done
           python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
@@ -5267,6 +5366,9 @@ jobs:
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          # nightly-next edits one release in place, so GitHub keeps showing its
+          # first publish date; the build number in the title says which build it is.
+          NAME_BUILD_SUFFIX: ${{ needs.decide.outputs.track == 'nightly-next' && format(' {0}', steps.source.outputs.build) || '' }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -5294,7 +5396,7 @@ jobs:
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
-            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --name "$RELEASE_NAME${NAME_BUILD_SUFFIX}" --target-commitish "$BUILD_SHA" \
             --body-file "$RUNNER_TEMP/nightly-release-body.md" \
             --prerelease true --make-latest false "${expect[@]}"
 
@@ -5312,7 +5414,7 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in $NIGHTLY_FEEDS; do
+          for appcast in $NIGHTLY_PUBLISH_FEEDS; do
             python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
@@ -5354,7 +5456,7 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
-          for appcast in $NIGHTLY_FEEDS; do
+          for appcast in $NIGHTLY_PUBLISH_FEEDS; do
             key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" appcast "nightly-out/$appcast"
             python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
@@ -5380,6 +5482,9 @@ jobs:
           UPLOADED_ASSETS: ${{ steps.publish_assets.outputs.asset_names }}
           RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           RELEASE_NAME: ${{ needs.decide.outputs.release_name }}
+          # nightly-next edits one release in place, so GitHub keeps showing its
+          # first publish date; the build number in the title says which build it is.
+          NAME_BUILD_SUFFIX: ${{ needs.decide.outputs.track == 'nightly-next' && format(' {0}', steps.source.outputs.build) || '' }}
           BUILD_SHA: ${{ steps.source.outputs.build_sha }}
           BUILD_SHORT_SHA: ${{ steps.source.outputs.build_short_sha }}
           CHANNEL: ${{ needs.decide.outputs.channel }}
@@ -5408,7 +5513,7 @@ jobs:
           for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
           python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
             --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
-            --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
+            --name "$RELEASE_NAME${NAME_BUILD_SUFFIX}" --target-commitish "$BUILD_SHA" \
             --body-file "$RUNNER_TEMP/nightly-release-body.md" \
             --prerelease true --make-latest false "${expect[@]}"
 
@@ -6427,12 +6532,17 @@ jobs:
     # DMG and signed appcast. The nightly-next track signs in release-next
     # with its own key, as build-sign-notarize-nightly does.
     environment: ${{ needs.decide.outputs.environment }}
+    # A variant publish-nightly left out (an optional one that failed) gets no
+    # deltas: its revised appcast would put an unpublished build on its feed.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.fast_build != 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.source != 'recovered' && needs.publish-nightly.outputs.refused != 'true'
     permissions:
       contents: read
       actions: read
     runs-on: macos-26
+    # An optional variant (nightly-next x86_64) fails alone; publish-nightly
+    # leaves it out unless every one of its legs passed.
+    continue-on-error: ${{ contains(needs.decide.outputs.optional_variants, matrix.variant) }}
     strategy:
       fail-fast: false
       matrix:
@@ -6462,12 +6572,14 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download published variant
+        if: contains(format(' {0} ', needs.publish-nightly.outputs.published_variants), format(' {0} ', matrix.variant))
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: nightly-delta/input
 
       - name: Generate deltas and revised appcast
+        if: contains(format(' {0} ', needs.publish-nightly.outputs.published_variants), format(' {0} ', matrix.variant))
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -6482,6 +6594,7 @@ jobs:
           ls -l nightly-delta/output
 
       - name: Upload delta result
+        if: contains(format(' {0} ', needs.publish-nightly.outputs.published_variants), format(' {0} ', matrix.variant))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-deltas-${{ matrix.variant }}
