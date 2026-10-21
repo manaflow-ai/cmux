@@ -82,11 +82,11 @@ public final class AgentActivityModel {
         // Keep this projection linear on the main actor. The sorted union
         // allocated and sorted every lane ID for each ACPmux update.
         var firstChanged: String?
-        for id in oldByID.keys where oldByID[id] != newByID[id] {
+        for id in oldByID.keys where oldByID[id]?.ranked != newByID[id]?.ranked {
             if let firstChanged, id >= firstChanged { continue }
             firstChanged = id
         }
-        for id in newByID.keys where newByID[id] != oldByID[id] {
+        for id in newByID.keys where newByID[id]?.ranked != oldByID[id]?.ranked {
             if let firstChanged, id >= firstChanged { continue }
             firstChanged = id
         }

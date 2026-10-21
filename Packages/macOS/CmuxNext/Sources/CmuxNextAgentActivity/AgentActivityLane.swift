@@ -43,7 +43,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let cwd: String?
     /// When the session last changed (its last output), when the summary carries it. It moves on
     /// every output; the lanes view ignores it (``ranked``).
-    public let updatedAt: Date?
+    public private(set) var updatedAt: Date?
     /// When the session started, when the summary carries it.
     public let createdAt: Date?
 
@@ -69,8 +69,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// This lane without its output time: what the lanes view ranks and animates on, so output
     /// alone does not re-rank a row (``AgentActivityModel/lanes``).
     public var ranked: Self {
-        Self(id: id, name: name, title: title, peer: peer, parent: parent, state: state, since: since, error: error,
-             workspaceID: workspaceID, harness: harness, step: step, cwd: cwd, updatedAt: nil, createdAt: createdAt)
+        var lane = self
+        lane.updatedAt = nil
+        return lane
     }
 
     /// A person should look: it waits on them, failed or was lost.
