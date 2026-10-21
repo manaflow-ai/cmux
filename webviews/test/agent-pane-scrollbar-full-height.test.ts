@@ -2,8 +2,9 @@
 // The transcript runs the pane's full height and scrolls under the composer, as the Claude and
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
 // stopping above the composer. Scrolled to the end, the last row still sits fully above the
-// composer's card, and a composer that grows (a prompt of several lines) keeps a followed view at
-// its end on every painted frame, with nothing under the card.
+// composer's card. A composer that grows or shrinks (a prompt of several lines) keeps a followed
+// view at its end on every painted frame, with nothing under the card, and leaves a reader scrolled
+// up where they were.
 //
 // Before: the transcript ended at the top of the bottom stack, so its track ended about a
 // composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
@@ -243,18 +244,38 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.mouse.wheel(0, -900);
     await page.waitForTimeout(500);
     await page.locator(".acpmux-md").click();
-    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    expect(start).toBeGreaterThan(0);
-    await page.evaluate(() => {
-      const tops: number[] = [];
-      (window as unknown as { __tops: typeof tops }).__tops = tops;
+    // Well up from the end, so the view is a reader's, not a follower's.
+    expect((await measure(page)).fromEnd).toBeGreaterThan(100);
+    // The row in the middle of the view, and the offset.
+    const start = await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      const middle = (view.top + view.bottom) / 2;
+      const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((row) => {
+        const box = row.getBoundingClientRect();
+        return box.top <= middle && box.bottom >= middle;
+      })!;
+      return { row: row.getAttribute("aria-posinset")!, top: scroller.scrollTop };
+    });
+    await page.evaluate((posinset) => {
+      const frames: { top: number; rowTop: number; cardHeight: number }[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const row = scroller.querySelector(`.acpmux-row[aria-posinset="${posinset}"]`)!;
+        frames.push({
+          top: scroller.scrollTop,
+          rowTop: row.getBoundingClientRect().top,
+          cardHeight: document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
+        });
+      };
       const tick = () => {
-        if ((window as unknown as { __tops?: unknown }).__tops !== tops) return;
-        setTimeout(() => tops.push(document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop), 0);
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
+        setTimeout(sample, 0);
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
-    });
+    }, start.row);
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
@@ -272,14 +293,23 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
     await page.waitForTimeout(300);
-    const tops = await page.evaluate(() => {
-      const holder = window as unknown as { __tops?: number[] };
-      const tops = holder.__tops ?? [];
-      holder.__tops = undefined;
-      return tops;
+    const frames = await page.evaluate(() => {
+      const holder = window as unknown as { __frames?: { top: number; rowTop: number; cardHeight: number }[] };
+      const frames = holder.__frames ?? [];
+      holder.__frames = undefined;
+      return frames;
     });
-    expect(tops.length).toBeGreaterThan(5);
-    expect(tops.filter((top) => Math.abs(top - start) > 0.5)).toEqual([]);
+    expect(frames.length).toBeGreaterThan(5);
+    // The card grew by the lines typed and shrank back.
+    const heights = frames.map((frame) => frame.cardHeight);
+    expect(Math.max(...heights) - heights[0]!).toBeGreaterThan(60);
+    expect(Math.abs(heights.at(-1)! - heights[0]!)).toBeLessThanOrEqual(1);
+    // Neither the offset nor the row being read moved on any frame.
+    const { top, rowTop } = frames[0]!;
+    expect(Math.abs(top - start.top)).toBeLessThanOrEqual(0.5);
+    expect(frames.filter((frame) => Math.abs(frame.top - top) > 0.5 || Math.abs(frame.rowTop - rowTop) > 0.5)).toEqual(
+      [],
+    );
     await page.close();
   });
 
@@ -289,7 +319,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const page = await open();
     await page.locator(".acpmux-md").click();
     await page.evaluate(() => {
-      const frames: { rowAboveCard: number; fromEnd: number }[] = [];
+      const frames: { rowAboveCard: number; fromEnd: number; cardHeight: number }[] = [];
       (window as unknown as { __frames: typeof frames }).__frames = frames;
       const sample = () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -301,6 +331,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
         frames.push({
           rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+          cardHeight: Math.round(card.height),
         });
       };
       const tick = () => {
@@ -327,12 +358,18 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.keyboard.press("Backspace");
     await page.waitForTimeout(300);
     const frames = await page.evaluate(() => {
-      const holder = window as unknown as { __frames?: { rowAboveCard: number; fromEnd: number }[] };
+      const holder = window as unknown as {
+        __frames?: { rowAboveCard: number; fromEnd: number; cardHeight: number }[];
+      };
       const frames = holder.__frames ?? [];
       holder.__frames = undefined;
       return frames;
     });
     expect(frames.length).toBeGreaterThan(5);
+    // The card grew by the lines typed and shrank back.
+    const heights = frames.map((frame) => frame.cardHeight);
+    expect(Math.max(...heights) - heights[0]!).toBeGreaterThan(60);
+    expect(Math.abs(heights.at(-1)! - heights[0]!)).toBeLessThanOrEqual(1);
     // No frame lands late (the last row under the card, or the view off its end) ...
     expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
     // ... or overshoots: the last row sits where it rests above the card on every frame, so the
