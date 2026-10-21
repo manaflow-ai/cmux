@@ -68,9 +68,12 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
 }
 
 describe("editors", () => {
-  test("every schema row renders the editor for its kind", async () => {
-    const failures: string[] = [];
-    for (const category of categories) {
+  // One test per Settings page, so each renders one page well inside the default timeout: one
+  // test over every page went past 5 s on a loaded CI runner, and its act() left running failed
+  // every test after it.
+  for (const category of categories)
+    test(`every schema row renders the editor for its kind: ${category.id}`, async () => {
+      const failures: string[] = [];
       page = await renderPage({ path: `/settings/${category.id}` });
       for (const row of category.groups.flatMap((group) => group.rows)) {
         // The Theme section draws appearance.theme as its theme picker.
@@ -112,9 +115,8 @@ describe("editors", () => {
       }
       page.unmount();
       page = null;
-    }
-    expect(failures).toEqual([]);
-  });
+      expect(failures).toEqual([]);
+    });
 
   test("the window material is a material choice, never a radius slider", async () => {
     page = await renderPage({ path: "/settings/appearance" });

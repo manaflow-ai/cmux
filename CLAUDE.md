@@ -114,6 +114,13 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 
+`scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
+`webviews/` and `cmux-tui/frontends/web/` with that package's own `vp fmt`
+(reinstalled from its lockfile when stale), Rust with the pinned toolchain's
+rustfmt. The pre-commit hook does the same for staged files and restages them.
+Both touch only those files, so agents sharing a checkout never reformat each
+other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
