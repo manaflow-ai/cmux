@@ -10,7 +10,7 @@
 //
 // The three cases: a new file (Write, nothing before it), a file outside the repository, and an
 // edited file (Edit with old and new strings). Each opens inline and through View changes.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
@@ -27,12 +27,17 @@ const keys = [
   "Node",
   "customElements",
   "MutationObserver",
+  "ResizeObserver",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 const added: string[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
+// The first card imports the pane's modules and Pierre's diff chunk, which takes seconds cold.
+setDefaultTimeout(30_000);
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
@@ -45,6 +50,14 @@ beforeAll(() => {
     Node: window.Node,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
+    // jsdom has no layout; the inline diff's lines (Pierre) watch their size.
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   // Pierre's registered elements (the diff card) read their own DOM constructors at import time.
