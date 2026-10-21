@@ -54,6 +54,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// label with `progress` on. Nil when none of those is reported, so a
     /// quiet workspace keeps its one-line row.
     public var status: SidebarWorkspaceStatus?
+    /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
+    public var machine: SidebarMachineMark?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,

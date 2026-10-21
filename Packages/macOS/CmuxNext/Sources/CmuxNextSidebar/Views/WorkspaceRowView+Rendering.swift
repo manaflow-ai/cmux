@@ -53,6 +53,7 @@ extension WorkspaceRowView {
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
+            if let machine { machineMark.setTint(machine.color) }
             prBadge.setColor(Palette.textSecondary)
             let waits = if case .waiting = activityState { true } else { false }
             agentMark.setTint(waits ? Palette.attention : Palette.textSecondary)
@@ -165,6 +166,10 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !machineMark.isHidden {
+            machineMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
+            trailing -= ind + Metrics.space2
+        }
         if !audioButton.isHidden {
             audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -207,7 +212,7 @@ extension WorkspaceRowView {
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -389,7 +390,8 @@ final class SidebarBridge {
             }
         }
         let detail = (status == .updateRequired || status == .updateAvailable) ? compat.map(CloudStrings.compatibility) : nil
-        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status, detail: detail)
+        return SidebarMachine(id: MachineID(daemon.machineID), name: name, kind: kind, status: status, detail: detail,
+                              identityName: kind == .local ? AgentPaneModel.localMachineDisplayName : nil)
     }
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {

@@ -591,6 +591,10 @@ public final class SidebarModel {
                 o.machineStatusLabels[machine.id] = status
             }
         }
+        let listed = sections.compactMap(\.machine)
+        if Set(listed.map(\.id)).count > 1 {
+            o.machines = Dictionary(listed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
         o.groupsByFolder = groupsByFolder

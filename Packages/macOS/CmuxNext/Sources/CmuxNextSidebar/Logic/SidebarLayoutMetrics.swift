@@ -103,6 +103,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// cannot connect until the person acts ("Failed to start"; cx-mdo0).
     /// Localized by the model, so the layout stays nonisolated.
     public var machineStatusLabels: [MachineID: String] = [:]
+    /// The listed machines by id, when there is more than one: each workspace row marks its
+    /// machine (SidebarMachineMark). Empty with one machine, where a mark would tell nothing.
+    public var machines: [MachineID: SidebarMachine] = [:]
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
     /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
@@ -147,6 +150,7 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
+        content.machine = machines[ws.machineID].map(SidebarMachineMark.init)
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         return content
     }
