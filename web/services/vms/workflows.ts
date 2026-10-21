@@ -2088,6 +2088,20 @@ function afterResponseOrNow<E>(
 
 export const VM_SNAPSHOT_LIMIT = 10;
 
+/** Whether a provider response proves that no snapshot was created. */
+function snapshotProviderDefinitelyRejected(error: VmProviderOperationError): boolean {
+  let cause: unknown = error.cause;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!cause || typeof cause !== "object") return false;
+    const status = (cause as { status?: unknown }).status;
+    if (typeof status === "number" && Number.isInteger(status)) {
+      return status >= 400 && status < 500 && status !== 408;
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -2135,7 +2149,7 @@ export function snapshotVm(input: {
         )
         : null;
       const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
-      yield* repo.recordUsageEvent({
+      const event = {
         userId: vm.userId,
         billingTeamId: vm.billingTeamId,
         billingPlanId: vm.billingPlanId,
@@ -2151,7 +2165,10 @@ export function snapshotVm(input: {
           memoryMb: snapshotReservation.memoryMb,
           diskMb: snapshotReservation.diskMb,
         },
-      });
+      };
+      yield* repo.recordSnapshotUsageEventIfMissing
+        ? repo.recordSnapshotUsageEventIfMissing(event)
+        : repo.recordUsageEvent(event);
     });
     if (key) {
       if (!repo.beginSnapshotRequest || !repo.finishSnapshotRequest) {
@@ -2174,17 +2191,31 @@ export function snapshotVm(input: {
       }
     }
     const finish = repo.finishSnapshotRequest;
-    const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
-      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmOperationUnsupportedError({
+    const releaseRejectedKey = key && finish
+      ? Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } })).pipe(
+        Effect.retry({ times: 2 }),
+      )
+      : Effect.void;
+    if (!providers.snapshot) {
+      yield* releaseRejectedKey;
+      return yield* Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
       }));
-    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", takeSnapshot);
+    }
+    const takeSnapshot = providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name);
+    const snapshot = yield* measureVmEffect(
+      input.timing,
+      "provider_snapshot",
+      Effect.tapError(takeSnapshot, (error) => snapshotProviderDefinitelyRejected(error) ? releaseRejectedKey : Effect.void),
+    );
     if (key && finish) {
-      // The snapshot exists now. A failed write leaves a permanent pending
-      // fence; retries cannot duplicate the ambiguous provider result.
-      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+      // Persist the provider result before the ownership event. Retrying a
+      // transient write prevents one snapshot from counting as both a pending
+      // request and a created snapshot.
+      yield* Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } })).pipe(
+        Effect.retry({ times: 2 }),
+      );
     }
     const recordCreated = recordSnapshotCreated(snapshot);
     // Idempotent requests must durably record ownership before returning. A
