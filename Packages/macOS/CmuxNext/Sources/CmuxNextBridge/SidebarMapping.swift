@@ -130,10 +130,12 @@ public struct SidebarMapping {
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
+        let title = Self.sidebarTitle(workspace, page: page)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            title: Self.sidebarTitle(workspace, page: page),
+            // The Chief's subagent workspaces show their task title, never the subagent id.
+            title: machine.isLocalChief ? ChiefWorkspaceName.taskTitle(title) ?? title : title,
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),

@@ -70,6 +70,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
+    private lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
@@ -133,6 +135,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// When a real key or mouse event last reached the Chromium page (``PageChromiumEvent/userInput(_:)``).
     var chromiumUserEventUptime: TimeInterval?
+    /// The host's extra message handlers (``addMessageHandler(_:handler:)``), for a Chromium page.
+    var chromiumMessageHandlers: [String: @MainActor (Any) -> Void] = [:]
+    /// Runs before the host builds a Chromium page's right-click menu: a host whose menu depends on
+    /// a report the page sends on `contextmenu` (the agent chat) waits for it here, since Chromium's
+    /// menu request and the page's message arrive in either order. Nil builds the menu at once.
+    public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
@@ -361,6 +369,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
         evaluateInPage(DesignSettings.shared.interfaceScaleScript)
+        if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -524,9 +533,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeFollower.rebind()
         guard loaded else { return }
         let theme = currentTheme()
-        guard force || theme.payloadJSON != appliedTheme else { return }
-        appliedTheme = theme.payloadJSON
-        evaluateInPage(theme.applyScript)
+        if force || theme.payloadJSON != appliedTheme {
+            appliedTheme = theme.payloadJSON
+            evaluateInPage(theme.applyScript)
+        }
+        // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
+        glassFeed.refresh(newDocument: force)
     }
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from

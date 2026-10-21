@@ -60,6 +60,48 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A screenshot-like picture (a title bar, a sidebar and lines of text) in `hue`, as a data URL, so
+// a queued prompt's thumbnails draw without acpmux.
+const shot = (hue: number, width = 1440, height = 900) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<rect width="100%" height="100%" fill="hsl(${hue} 30% 16%)"/>` +
+      `<rect width="100%" height="7%" fill="hsl(${hue} 30% 26%)"/>` +
+      `<rect width="22%" height="100%" fill="hsl(${hue} 30% 24%)"/>` +
+      [0, 1, 2, 3, 4, 5]
+        .map(
+          (line) =>
+            `<rect x="27%" y="${14 + line * 11}%" width="${30 + ((line * 37) % 40)}%" height="3%" fill="hsl(${hue} 70% 62%)"/>`,
+        )
+        .join("") +
+      "</svg>",
+  )}`;
+// A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
+const pictured = {
+  id: "q1",
+  prompt: "Why does the sidebar overlap the toolbar here?",
+  images: [
+    { id: "a".repeat(64), mimeType: "image/svg+xml", name: "sidebar.png", src: shot(220) },
+    { id: "b".repeat(64), mimeType: "image/svg+xml", name: "image.png", src: shot(150, 2458, 1180) },
+  ],
+};
+
+// A turn that took two steers, one the agent read and one it has not yet, and a prompt sent now
+// to an agent that cannot steer (it goes on with the turn).
+const steerMarks = () =>
+  chat(
+    [
+      user("Add retries", 6),
+      user("Use the cache dir, not tmp", 5, { steer: "landed" }),
+      assistant("Using the cache dir now.", 4),
+      user("Stop and fix the space thing first", 3, { continues: true }),
+      assistant("Fixing the space handling…", 2),
+      user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
+      assistant("Reading the flag parser…", 0.5, { streaming: true }),
+    ],
+    { isWorking: true },
+  );
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -305,6 +347,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/QueuedImages.tsx#QueuedImages",
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
@@ -551,6 +594,27 @@ export default agentPaneEntry({
         pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
         await new Promise((resolve) => setTimeout(resolve, 300));
+      },
+    },
+    // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
+    // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
+    "text-pasted": {
+      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      ready: { draft: "Why does the build fail?" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", log.join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        await ctx.hover({ selector: ".acpmux-attachment-pasted" });
       },
     },
     "quick-image-attached": {
@@ -801,6 +865,19 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-images": {
+      note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-images-edit": {
+      note: "Play: Edit on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+      native: { "chat.queue.edit": { ok: true } },
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-action[data-action="edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
+      },
+    },
     "queued-paused": {
       note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
@@ -858,19 +935,25 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: while the agent has not read it, no label (it shows as any sent prompt), only a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on); Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
-      snapshot: chat(
-        [
-          user("Add retries", 6),
-          user("Use the cache dir, not tmp", 5, { steer: "landed" }),
-          assistant("Using the cache dir now.", 4),
-          user("Stop and fix the space thing first", 3, { continues: true }),
-          assistant("Fixing the space handling…", 2),
-          user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
-          assistant("Reading the flag parser…", 0.5, { streaming: true }),
-        ],
-        { isWorking: true },
-      ),
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit under it (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      snapshot: steerMarks(),
+    },
+    "steer-read-hover": {
+      note: "Play: hover the steer the agent read: the same row as any prompt (age, two checks, Copy, Retry, Pin), and the check's tooltip says who read it. No Steered or Steering text anywhere in the transcript.",
+      snapshot: steerMarks(),
+      play: async (ctx) => {
+        const steer = ctx.find({ text: "Use the cache dir, not tmp" }).closest(".cv-user");
+        const receipt = steer?.querySelector('.cv-user__read[data-read="true"]');
+        if (!receipt) throw new Error("the read steer shows no read check");
+        receipt.setAttribute("data-gallery-target", "steer-read");
+        await ctx.hover({ selector: '[data-gallery-target="steer-read"]' });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Read by") ?? false,
+        );
+        const transcript = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
+        if (/Steered|Steering/.test(transcript)) throw new Error("a steer is labeled in the transcript");
+      },
     },
     "queued-long": {
       note: 'Many queued prompts fold: the next two show, then one "3 more queued" row. The cut-off one shows a tooltip on hover and opens whole on click.',

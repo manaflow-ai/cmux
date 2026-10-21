@@ -53,6 +53,9 @@ final class AgentTabStore {
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
     var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
+    /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
+    /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
+    var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
@@ -268,6 +271,12 @@ final class AgentTabStore {
     /// it was made with, and the start runs at the first send, after the tree settled and dropped
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
     func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
+
+    /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
+    /// id an `agent/<harness>/<session>?message=<id>` link carries (the page's `MESSAGE_REVEAL`,
+    /// webviews/src/agent-session/acpmux/links.ts). A message this machine's transcript does not
+    /// have leaves the view where it is.
+    static func messageReveal(_ id: String) -> String { "message:" + id }
 
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.

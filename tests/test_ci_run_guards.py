@@ -90,10 +90,9 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         for unit in self.units:
             for step in unit.steps:
                 self.assertNotIn("${{ matrix.group }}", step.run, step.name)
-        ios = next(u for u in self.units if u.group == "release-ios")
-        env = next(s.env for s in ios.steps if "BASE_SHA" in s.env)
-        self.assertEqual(env["BASE_SHA"], "base")
         preflight = next(u for u in self.units if u.group == "preflight")
+        conventions = next(s for s in preflight.steps if s.name == "Validate iOS package conventions for this change")
+        self.assertEqual(conventions.env["BASE_SHA"], "base")
         registry = next(
             s for s in preflight.steps if s.name == "Validate Python test execution registry"
         )
@@ -179,6 +178,24 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         ])
         self.assertTrue(run_ci_guards.is_stateful(unit))
 
+    def test_the_submodule_init_script_makes_its_group_sequential(self) -> None:
+        """release-tooling initializes ghostty with scripts/ci/init-submodule.sh before the Zig version
+        sync reads ghostty/build.zig.zon; run in parallel, the sync ran first and failed (#23534)."""
+        unit = run_ci_guards.Unit("j", "g", [
+            run_ci_guards.Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+            run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
+        ])
+        self.assertTrue(run_ci_guards.is_stateful(unit))
+
+    def test_the_zig_installer_test_keeps_its_github_env_to_itself(self) -> None:
+        """Run in order, release-tooling's Zig download test published its fake zig through the job's
+        GITHUB_ENV, and the next step (the Zig package fetch test) ran that deleted zig (#23534)."""
+        text = (ROOT / "tests/test_install_zig_ci_download_resume.sh").read_text(encoding="utf-8")
+        body = text[text.index("run_install() {"):]
+        body = body[:body.index('"$SCRIPT"')]
+        self.assertIn('GITHUB_ENV="$TMP_DIR/', body)
+        self.assertIn('GITHUB_PATH="$TMP_DIR/', body)
+
 
 class StepsFinish(unittest.TestCase):
     def test_a_leaked_background_child_does_not_hang_the_runner(self) -> None:
@@ -249,6 +266,42 @@ class FastWorkflowReportsOnMainPush(unittest.TestCase):
         self.assertEqual(job["name"], "CI fast guards")
         runs = [s.get("run", "") for s in job["steps"]]
         self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
+
+
+class FeatRoutesSelectTheGroups(unittest.TestCase):
+    """`--feat-routes FILE` runs the `ci` group plus the groups the changed files in FILE route to
+    for a feat-cmux-next pull request (detect_linux_guard_changes.classify_feat)."""
+
+    def listed(self, changed: list[str] | None) -> str:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-routes-") as temp:
+            path = Path(temp) / "changed.txt"
+            if changed is not None:
+                path.write_text("\n".join(changed) + "\n", encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = run_ci_guards.main(["--list", "--feat-routes", str(path)])
+        self.assertEqual(code, 0)
+        return "\n".join(line for line in out.getvalue().splitlines() if not line.startswith(" "))
+
+    def test_a_watchdog_change_runs_the_ci_and_watchdog_groups(self) -> None:
+        listed = self.listed(["scripts/ci/hung_test_watchdog.py"])
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertIn("workflow-guard-tests / app-host-watchdog:", listed)
+        self.assertNotIn("workflow-guard-tests / preflight:", listed)
+        self.assertNotIn("release-ios", listed)
+
+    def test_a_missing_file_runs_every_feat_group_but_release_ios(self) -> None:
+        listed = self.listed(None)
+        for label in ("workflow-guard-tests / ci:", "workflow-guard-tests / preflight:",
+                      "workflow-guard-tests / release-tooling:", "workflow-guard-history:",
+                      "workflow-guard-source-lints / dispatch-ownership:"):
+            with self.subTest(label=label):
+                self.assertIn(label, listed)
+        self.assertNotIn("release-ios", listed)
+        self.assertNotIn("release-notary", listed)
 
 
 if __name__ == "__main__":
