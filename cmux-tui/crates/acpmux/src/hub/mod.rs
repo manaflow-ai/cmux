@@ -390,6 +390,8 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let start_mode_state =
+            start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -434,7 +436,7 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
-            start_mode_state: Default::default(),
+            start_mode_state,
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),

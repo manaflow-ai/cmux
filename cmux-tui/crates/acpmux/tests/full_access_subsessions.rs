@@ -24,7 +24,8 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        // Real mode ids: a mode the full-access allowlist does not know counts as full access.
+        "harnesses": {"fake": {"argv": ["env", "FAKE_MODE_IDS=default,plan", "python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))

@@ -15,6 +15,22 @@ struct FullAccessModeRuleTests {
         let data = try Data(contentsOf: root.appendingPathComponent("cmux-tui/spec/full-access-modes.json"))
         let spec = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(spec["markers"] as? [String] == AgentPaneModeConfirmation.fullAccessMarkers)
+        #expect(spec["allowedModes"] as? [String] == AgentPaneModeConfirmation.allowedModes)
+    }
+
+    /// Permission modes are an allowlist that fails closed: a mode no one reviewed counts as full access.
+    @Test func anUnknownModeIsFullAccess() {
+        for id in ["default", "acceptEdits", "plan", "dontAsk", "auto", "ask", "read-only", "Read Only", "agent", "full-auto"] {
+            #expect(!AgentPaneModeConfirmation.isFullAccessMode(id), "\(id)")
+            #expect(!AgentPaneModeConfirmation.mode(id).skipsApprovals, "\(id)")
+        }
+        for id in ["bypassPermissions", "agent-full-access", "yolo", "turbo", "build", "normal"] {
+            #expect(AgentPaneModeConfirmation.isFullAccessMode(id), "\(id)")
+            #expect(AgentPaneModeConfirmation.mode(id).skipsApprovals, "\(id)")
+        }
+        // Another option's value is judged by its markers only.
+        #expect(!AgentPaneModeConfirmation.option(id: "sandbox", value: "turbo").skipsApprovals)
+        #expect(AgentPaneModeConfirmation.option(id: "sandbox", value: "danger-full-access").skipsApprovals)
     }
 
     @Test func idsAreFoldedBeforeMatching() {
