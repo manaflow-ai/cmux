@@ -345,8 +345,8 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
   await ctx.waitFor(() => {
     const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
     const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
-    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
-    const datasetMatches = placement === "right" ? datasetPlacement === undefined : datasetPlacement === placement;
+    // Left is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "left" ? datasetPlacement === undefined : datasetPlacement === placement;
     return (
       datasetMatches &&
       group !== null &&
@@ -586,7 +586,9 @@ export default agentPaneEntry({
       snapshot: forkTurns(undefined),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll('.cv-turn-actions button[aria-label="Fork from here"]').length === 1,
+        );
       },
     },
     "mark-unread-menu": {
@@ -1462,7 +1464,10 @@ async function forkEarlierTurn(ctx: PlayContext) {
   const page = ctx.document.defaultView as unknown as {
     cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
   };
-  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  // The answers' footers: a prompt's own row has a Fork too (UserBubble.tsx).
+  const forks = () => [
+    ...ctx.document.querySelectorAll<HTMLButtonElement>('.cv-turn-actions button[aria-label="Fork from here"]'),
+  ];
   await ctx.focus({ selector: "[contenteditable='true']" });
   await ctx.waitFor(() => forks().length === 2);
   forks()[0]!.click();
