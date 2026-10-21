@@ -57,13 +57,30 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("GITHUB_OUTPUT", busy["run"])
         self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", DOC["jobs"]["action-exports"]["if"])
 
-    def test_a_run_that_deferred_its_exports_fails_so_the_next_run_covers_them(self):
-        # The next run diffs from the last successful run: a run that left its exports to another must not be it.
-        job = DOC["jobs"]["autofix"]
-        self.assertIn("action-areas", job["needs"])
-        deferred = [s for s in job["steps"] if "needs.action-areas.outputs.mac_busy == 'true'" in str(s.get("if", ""))]
-        self.assertEqual(len(deferred), 1)
-        self.assertIn("exit 1", deferred[0]["run"])
+    def test_a_deferred_run_is_not_red(self):
+        # While the Mac runners are saturated most runs defer, and base-red-watch would blame each red one
+        # on whoever pushed. A deferred run ends green and names the run that carries its exports.
+        self.assertNotIn("action-areas", DOC["jobs"]["autofix"]["needs"])
+        for step in DOC["jobs"]["autofix"]["steps"]:
+            self.assertNotIn("mac_busy", str(step.get("if", "")))
+        job = DOC["jobs"]["mac-exports-deferred"]
+        self.assertEqual(job["name"], "Mac exports deferred")
+        self.assertEqual(job["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        self.assertNotIn("continue-on-error", job)
+        run = "\n".join(s.get("run", "") for s in job["steps"])
+        self.assertIn("GITHUB_STEP_SUMMARY", run)
+        self.assertIn("mac_busy_run", str(job["steps"]))
+        self.assertNotIn("exit 1", run)
+        self.assertNotIn("::error::", run)
+
+    def test_both_change_lookups_skip_runs_that_deferred_their_exports(self):
+        # A deferred run is green but exported nothing: the next run's "since" must reach past it.
+        for job in ("action-areas", "autofix"):
+            with self.subTest(job=job):
+                areas = next(s for s in DOC["jobs"][job]["steps"] if s.get("id") == "areas")
+                self.assertIn("scripts/cmux-next/base-autofix-since.sh", areas["run"])
+                self.assertNotIn("status=success", areas["run"])
+        self.assertIn("scripts/cmux-next/base-autofix-since.sh", DOC[True]["push"]["paths"])
 
     def test_the_autofix_that_carries_mac_exports_is_never_replaced_while_pending(self):
         # 2026-10-21: runs whose own Mac job a newer push replaced still run autofix (about 1.5 minutes,
@@ -313,6 +330,56 @@ else:
     def test_mac_busy_fails_open_when_github_cannot_be_read(self):
         # Two Mac jobs beat none.
         self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "queued")]}, fail=True), "mac_busy=false\n")
+
+    def since(self, runs: list[tuple[int, str, list[tuple[str, str]] | None]], fail: bool = False) -> str:
+        """Runs base-autofix-since.sh with a gh stand-in: `runs` lists successful runs, newest first, as
+        (id, head sha, its (job, conclusion) list, or None when its jobs cannot be read)."""
+        work = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
+        (work / "bin").mkdir()
+        data = work / "runs.json"
+        data.write_text(json.dumps(runs))
+        gh = work / "bin/gh"
+        gh.write_text(f"""#!/usr/bin/env python3
+import json, re, sys
+if {fail!r}:
+    sys.exit(1)
+runs = json.load(open({str(data)!r}))
+path = sys.argv[2]
+m = re.search(r"/runs/(\\d+)/jobs", path)
+if m:
+    jobs = next(j for i, _, j in runs if str(i) == m.group(1))
+    if jobs is None:
+        sys.exit(1)
+    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success"))
+else:
+    assert "status=success" in path and "event=push" in path, path
+    for i, sha, _ in runs:
+        print(i, sha)
+""")
+        gh.chmod(0o755)
+        done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-since.sh")], capture_output=True,
+                              text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def test_since_is_the_newest_successful_run_that_made_its_own_exports(self):
+        deferred = [("action export areas", "success"), ("Mac exports deferred", "success")]
+        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
+        self.assertEqual(self.since([(9, "c" * 40, deferred), (8, "b" * 40, deferred), (7, "a" * 40, made)]),
+                         "a" * 40 + "\n")
+        self.assertEqual(self.since([(9, "c" * 40, made), (8, "b" * 40, deferred)]), "c" * 40 + "\n")
+        # A run with no Mac areas at all made nothing to defer.
+        self.assertEqual(self.since([(9, "c" * 40, [("action export areas", "success")])]), "c" * 40 + "\n")
+
+    def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
+        self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
+
+    def test_since_is_empty_when_no_run_qualifies_or_github_cannot_be_read(self):
+        # The caller then runs every repair.
+        self.assertEqual(self.since([(9, "c" * 40, [("Mac exports deferred", "success")])]), "")
+        self.assertEqual(self.since([]), "")
+        self.assertEqual(self.since([(7, "a" * 40, [])], fail=True), "")
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]
