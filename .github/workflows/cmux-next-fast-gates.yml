@@ -126,8 +126,7 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
           if [[ "$PREPARE" == success && "$GATES" == success ]]; then state=success; fi
-          body="$(jq -n --arg state "$state" --arg context "$CONTEXT" --arg url "$TARGET_URL" \
-            --arg description "base $BASE" '{state: $state, context: $context, target_url: $url, description: $description}')"
-          curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -d "$body"
+          # gh api prints GitHub's message on an error (curl -f hid the reason for a 403).
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" > /dev/null
           echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"
