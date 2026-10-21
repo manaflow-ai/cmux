@@ -497,6 +497,7 @@ fn an_agent_caller_cannot_control_or_raw_write_a_chief() {
         (argv(&["--json", "action", "run", "home.newChief"]), "home.newChief"),
         (argv(&["--json", "action", "run", "home.archiveChief"]), "home.archiveChief"),
         (argv(&["--json", "action", "run", "home.stopChief"]), "home.stopChief"),
+        (argv(&["--json", "action", "run", "home.stopAllAgents"]), "home.stopAllAgents"),
         (argv(&["--json", "home", "new-chief", "--name", "Rogue"]), "home new-chief"),
         (argv(&["--json", "home", "archive-chief", "--chief", &id]), "home archive-chief"),
     ];

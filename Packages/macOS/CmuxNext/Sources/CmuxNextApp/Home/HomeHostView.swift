@@ -27,7 +27,7 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private var isChief = false
+    private(set) var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
@@ -40,7 +40,7 @@ final class HomeHostView: NSView {
     static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    private var control: HomeChiefControl
+    private(set) var control: HomeChiefControl
     private var stopObserver: (any NSObjectProtocol)?
     /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
     /// (else a paired server runs it).
@@ -119,9 +119,9 @@ final class HomeHostView: NSView {
             // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
             Task { @MainActor [target = (note.object as? NSWindow).map(ObjectIdentifier.init)] in if let self, HomeChiefSettingsPopover.answersToggle(for: target, in: self.window) { self.toggleChiefSettings() } }
         }
-        // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
+        // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        wireStopButton(registry)
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
