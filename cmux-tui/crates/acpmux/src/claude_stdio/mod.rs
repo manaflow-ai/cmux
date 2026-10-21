@@ -425,8 +425,10 @@ enum Pending {
     /// A `stop_task` (`STOP_TASK`), answered when claude takes it.
     StopTask,
     /// A `background_tasks` (`BACKGROUND_TASKS`), with the shells it marked
-    /// `asked`, unmarked when nothing moved.
-    Background(Vec<String>),
+    /// `asked` and when the hub stops waiting for it (its `timeoutMs`):
+    /// `end_background_asks` unmarks them when nothing moved, at that
+    /// deadline, or when the turn ends.
+    Background(Vec<String>, Option<std::time::Instant>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -506,6 +508,45 @@ impl Translator {
                 )
             })
             .collect()
+    }
+
+    /// Ends the `background_tasks` requests `ended` picks by ACP id and
+    /// deadline (Ctrl-B). When Claude Code `moved` their work, their shells
+    /// stay the person's: no other request's end unmarks them. Otherwise
+    /// each loses its `asked` mark, unless it is in the background already
+    /// (it moved while asked) or a request still waiting names it.
+    async fn end_background_asks(
+        &self,
+        moved: bool,
+        ended: impl Fn(&str, Option<std::time::Instant>) -> bool,
+    ) {
+        let mut pending = self.pending.lock().await;
+        let mut shells = Vec::new();
+        pending.retain(|id, p| match p {
+            Pending::Background(asked, deadline) if ended(id.as_str(), *deadline) => {
+                shells.append(asked);
+                false
+            }
+            _ => true,
+        });
+        let waiting = pending.values_mut().filter_map(|p| match p {
+            Pending::Background(asked, _) => Some(asked),
+            _ => None,
+        });
+        if moved {
+            for asked in waiting {
+                asked.retain(|tool| !shells.contains(tool));
+            }
+            return;
+        }
+        let waiting: HashSet<String> = waiting.flat_map(|asked| asked.iter().cloned()).collect();
+        drop(pending);
+        let mut all = self.background_shells.lock().await;
+        for tool in shells.iter().filter(|tool| !waiting.contains(*tool)) {
+            if let Some(shell) = all.get_mut(tool).filter(|s| !s.background) {
+                shell.asked = false;
+            }
+        }
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
