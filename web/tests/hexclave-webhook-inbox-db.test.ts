@@ -76,6 +76,20 @@ describe("Hexclave webhook inbox store", () => {
     expect([...claimedA, ...claimedB, ...rest.map((entry) => entry.svixId)].sort()).toEqual(["m1", "m2", "m3", "m4"]);
   });
 
+  dbTest("a new event for an entity waits for that entity's active claim", async () => {
+    const store = createDrizzleHexclaveInboxStore();
+    const now = new Date();
+    const leaseUntil = new Date(now.getTime() + 60_000);
+    await store.enqueue({ svixId: "m-remove", eventType: "user.updated", target: user("u-one") });
+    expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
+
+    await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
+    expect(await store.claimDue(now, 5, leaseUntil)).toEqual([]);
+    const afterLease = new Date(leaseUntil.getTime() + 1);
+    expect((await store.claimDue(afterLease, 5, new Date(afterLease.getTime() + 60_000)))
+      .map((entry) => entry.svixId).sort()).toEqual(["m-readd", "m-remove"]);
+  });
+
   dbTest("a failed entity counts an attempt and dead-letters at the cap; a deferred one does not count", async () => {
     const store = createDrizzleHexclaveInboxStore();
     await store.enqueue({ svixId: "m1", eventType: "team.updated", target: { kind: "team", id: "t1", revokeCandidateTeamIds: [] } });
