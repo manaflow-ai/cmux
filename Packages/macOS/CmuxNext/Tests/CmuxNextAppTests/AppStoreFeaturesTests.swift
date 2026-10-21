@@ -1,4 +1,5 @@
 import CmuxNextActions
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSettings
@@ -117,6 +118,21 @@ import Testing
         sidebar.refuses = true
         await #expect(throws: SettingRefused.self) { try await bridge.set(card, on: true) }
         #expect(sidebar.edits == ["add chief", "remove chief", "add chief"])
+    }
+
+    /// The Chief card's edits are the sidebar's own actions: Add to Sidebar with the item's name,
+    /// Remove from Sidebar on the item, both as the person's.
+    @Test func theChiefCardRunsTheSidebarsAddAndRemove() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        var runs: [String] = []
+        registry.bind("sidebar.item.add", invoke: { runs.append("add \($0["item"]?.stringValue ?? "") \($0.origin == .user)") })
+        registry.bind("sidebar.item.removeEverywhere", invoke: {
+            runs.append("remove \($0.target?.kind == .sidebarItem ? $0.target?.id ?? "" : "") \($0.origin == .user)")
+        })
+        #expect(ChiefSidebar.setPlaced("chief", true, registry: registry))
+        #expect(ChiefSidebar.setPlaced("chief", false, registry: registry))
+        #expect(!ChiefSidebar.setPlaced("chief", true, registry: nil))
+        #expect(runs == ["add chief true", "remove chief true"])
     }
 
     @Test func removeWritesFalseForAFeatureThatIsOnByDefault() async throws {
