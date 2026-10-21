@@ -180,8 +180,10 @@ export type AcpmuxRow = {
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
-  /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
-  images?: PromptImage[];
+  /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs). A
+  /// prompt this pane sent shows its images from the send on, with their bytes (`src`), before
+  /// acpmux names them, and still when acpmux never took the prompt (direct.ts `send`).
+  images?: QueuedPromptImage[];
   /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
   /// as a chip that opens in place (conversation/promptCollapse.ts).
   pasted?: PasteRange[];

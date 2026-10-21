@@ -13,7 +13,7 @@
 // vanished once sent). A long prompt opens collapsed on its first ten lines with Show more, and a
 // pasted block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AcpmuxRow, PromptImage } from "../model";
+import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
@@ -59,11 +59,14 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">
-        <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
-        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-      </div>
+      {/* A prompt with no words (an image alone) has no bubble: its images are the message. */}
+      {text.trim() !== "" && (
+        <div className="cv-user__bubble selectable">
+          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+        </div>
+      )}
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
@@ -120,7 +123,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.
-export function SentImages({ images, className }: { images: readonly PromptImage[]; className?: string }) {
+export function SentImages({ images, className }: { images: readonly QueuedPromptImage[]; className?: string }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
       {images.map((image) => (
@@ -136,22 +139,28 @@ export function SentImages({ images, className }: { images: readonly PromptImage
 export const SENT_IMAGE_HEIGHT = 120;
 const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
 
-/// One sent image, read from acpmux by its id. Its slot holds the thumbnail's height while the image
-/// is read (square, then the image's own shape within bounds once it loads), and says
-/// "Couldn't load image" when the image cannot be drawn. An image acpmux no longer has shows nothing.
-function SentImage({ image }: { image: PromptImage }) {
+/// One sent image, from the bytes the pane sent (`src`) or read from acpmux by its id. Its slot holds
+/// the thumbnail's height while the image is read (square, then the image's own shape within bounds
+/// once it loads), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no
+/// longer has shows nothing.
+function SentImage({ image }: { image: QueuedPromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const [src, setSrc] = useState<string>();
+  const [src, setSrc] = useState<string | undefined>(image.src);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "failed">(() =>
-    promptImage ? "loading" : "missing",
+    image.src ? "ready" : promptImage ? "loading" : "missing",
   );
   const [size, setSize] = useState<{ width: number; height: number }>();
   useEffect(() => {
     let live = true;
-    setSrc(undefined);
     setSize(undefined);
+    if (image.src) {
+      setSrc(image.src);
+      setState("ready");
+      return;
+    }
+    setSrc(undefined);
     if (!promptImage) {
       setState("missing");
       return;
@@ -177,7 +186,7 @@ function SentImage({ image }: { image: PromptImage }) {
     return () => {
       live = false;
     };
-  }, [promptImage, image.id]);
+  }, [promptImage, image.id, image.src]);
   if (state === "missing") return null;
   if (state === "failed")
     return (

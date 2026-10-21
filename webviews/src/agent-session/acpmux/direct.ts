@@ -3285,6 +3285,10 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const { text, pasted } = shownPrompt(promptText(input, attachments), attachments);
+    // Its images show on its row from the send on, from the bytes sent: a prompt sent as an image
+    // alone is no empty bubble, while it goes or once refused (Leo 2026-10-21).
+    const images = attachedImages(attachments);
+    const shownImages = images.length ? { images } : {};
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -3322,6 +3326,7 @@ export class AcpmuxDirectClient {
         kind: "user",
         text,
         ...(pasted.length ? { pasted } : {}),
+        ...shownImages,
         pending: true,
         delivery,
       });
@@ -3365,7 +3370,7 @@ export class AcpmuxDirectClient {
         // copy as a failed row.
         if (accepted !== undefined && !released) return;
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
-        const shownRow = this.rows.get(rowId) ?? { id: rowId, version: 1, at, kind: "user", text };
+        const shownRow = this.rows.get(rowId) ?? { id: rowId, version: 1, at, kind: "user", text, ...shownImages };
         this.rows.set(rowId, {
           ...shownRow,
           pending: false,
@@ -3443,7 +3448,7 @@ export class AcpmuxDirectClient {
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
         this.optimisticPromptRows.set(promptId, rowId);
         if (!this.rows.has(rowId))
-          this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+          this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, ...shownImages, pending: true });
       }
       const refused = typeof code === "string" && code.startsWith("transport.");
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and

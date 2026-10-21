@@ -55,6 +55,30 @@ const pastedPrompt = () => {
   );
 };
 
+/// A screenshot-like image as an SVG data URL: a title bar, a sidebar and lines of text.
+const SHOT = `data:image/svg+xml;base64,${btoa(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="#1d2433"/>` +
+    `<rect width="320" height="14" fill="#2a3346"/><rect width="70" height="200" fill="#2a3346"/>` +
+    `<rect x="86" y="30" width="160" height="6" fill="#6b8fd6"/><rect x="86" y="46" width="200" height="6" fill="#6b8fd6"/>` +
+    `<rect x="86" y="62" width="120" height="6" fill="#6b8fd6"/></svg>`,
+)}`;
+/// A prompt sent as a screenshot alone that acpmux refused (the folder's trust question): the
+/// pane's own row, with the image's bytes from the send.
+const imageAloneNotSent = () =>
+  claude(
+    chat([
+      user("Add retry with backoff to the uploader", 9, { seq: 1 }),
+      assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+      user("", 1, {
+        id: "local-gallery-image",
+        failed: true,
+        error: "Not sent: answer the trust question for the folder first",
+        images: [{ id: "local-shot", mimeType: "image/svg+xml", name: "image.png", src: SHOT, local: true }],
+      }),
+    ]),
+  );
+
 /// Hovers the latest prompt's `label` button and waits for the pane's tooltip to name it.
 const hoverTooltip = (label: string) => async (ctx: PlayContext) => {
   const selector = `.cv-user__actions button[aria-label="${label}"]`;
@@ -135,6 +159,10 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".cv-user__paste" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
       },
+    },
+    "image-alone-not-sent": {
+      note: "A screenshot sent with no words, refused before acpmux took it: the image shows from its bytes, with no empty bubble beside it.",
+      snapshot: imageAloneNotSent(),
     },
     "edit-tooltip": {
       note: "Play: hover the later prompt's pencil; the tooltip says Edit.",
