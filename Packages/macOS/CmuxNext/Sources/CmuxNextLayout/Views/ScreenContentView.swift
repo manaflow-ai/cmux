@@ -192,7 +192,8 @@ final class ScreenContentView: NSView {
         let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
-        // Panes.
+        // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
+        let shownBefore = arrivals.isEmpty ? [:] : paneFrames
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 if carried {
@@ -210,6 +211,7 @@ final class ScreenContentView: NSView {
                 }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
+                if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
                 zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
@@ -261,10 +263,15 @@ final class ScreenContentView: NSView {
                 // A split's new divider starts on the edge of the pane beside it, where that edge shows now
                 // (an even split may put it past the new pane, on the next pane's edge); an unzoom's are
                 // there at once, under the zoomed pane springing back (it ranks above them).
-                let edge = arrivals.isEmpty ? .zero : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
-                                                                              skipping: Set(arrivals.keys)) ?? arrivals.values.first?.edgeOffset ?? .zero
+                let start = arrivals.isEmpty ? nil : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
+                                                                             skipping: Set(arrivals.keys))
+                let edge = arrivals.isEmpty ? .zero : start?.shift ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
+                // It moves with that edge from its first frame (a split landing mid-motion).
+                if let velocity = start?.velocity {
+                    if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
+                }
                 dividerFrames[kind] = frame
             }
         }
