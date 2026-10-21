@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTabs
 
 /// The one question a user's tab close can ask (#17501, as classic #17430).
 /// A closed terminal ends after the daemon's reap grace, so a close asks
@@ -25,11 +26,36 @@ enum TabCloseGuard {
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
                       close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
         guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
+        // A second close of tabs this close is already asking about (a double click on a close button) is the same close.
+        guard tabs.contains(where: { !asking.contains($0.id) }) else { return }
+        let ids = Set(tabs.map(\.id))
+        asking.formUnion(ids)
         Task { @MainActor in
             let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
-            guard let prompt else { return close(asked) }
-            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { if $0 { close(asked) } }
+            guard let prompt else {
+                asking.subtract(ids)
+                return close(asked)
+            }
+            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) {
+                asking.subtract(ids)
+                if $0 { close(asked) }
+            }
         }
+    }
+
+    /// The tabs whose close is still asking (the daemon's read, then the question): they
+    /// stay in their strip, selected, until it answers, so a quick next Cmd-W skips them.
+    private(set) static var asking: Set<String> = []
+
+    /// The tab a user's Cmd-W on `id` closes: `id`, or while `id`'s close is still asking,
+    /// the tab selected once it closes (the next not closing, else the previous), so N
+    /// quick presses close N tabs (Leo 2026-10-21). Nil when every other tab is closing too.
+    static func cmdWTarget(_ id: StripTabID, in strip: TabStripModel) -> StripTabID? {
+        guard asking.contains(id.rawValue) else { return id }
+        let ordered = strip.orderedTabs
+        guard let index = ordered.firstIndex(where: { $0.id == id }) else { return id }
+        func open(_ tab: TabItem) -> Bool { !asking.contains(tab.id.rawValue) && tab.isClosable }
+        return (ordered[(index + 1)...].first(where: open) ?? ordered[..<index].last(where: open))?.id
     }
 
     /// Whether closing `tabs` can ask at all (a live terminal and a warning

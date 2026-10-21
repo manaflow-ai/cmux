@@ -56,6 +56,8 @@ struct RapidCloseTabTests {
             let performed = services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
             #expect(performed)
         }
+        // A terminal's close waits for the daemon's read first; the presses during it close the next tabs.
+        if terminals { try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue) == expected }) }
         let after: [String] = pane.orderedIDs.map(\.rawValue)
         #expect(after == expected, "each press closed the tab selected after the last")
         let selected: String? = pane.stripModel.selectedID?.rawValue
