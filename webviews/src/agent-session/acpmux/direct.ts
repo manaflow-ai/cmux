@@ -15,6 +15,7 @@ import type {
   QueuedPrompt,
   StartSource,
 } from "./model";
+import { continuesTurn } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
@@ -732,9 +733,12 @@ export class AcpmuxDirectClient {
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
   private waitingSteers: { rowId: string; promptId?: string }[] = [];
-  /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
-  /// turn and runs next, so its row reads as sent now.
-  private sentNow = new Set<string>();
+  /// A prompt sent now to an agent that cannot steer while a turn ran (acpmux `queue_order`
+  /// `next`): acpmux cancels that turn and runs the prompt next. The cancel it causes is not a
+  /// Stop: its summary is `continued`, and the prompt then draws inside the turn it went into.
+  private interrupting?: string;
+  /// The prompts sent now whose cancel ended the turn they went into: each reads as a steer.
+  private continuations = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -1092,7 +1096,8 @@ export class AcpmuxDirectClient {
     this.optimisticPromptAttachments.clear();
     this.queuedSends.clear();
     this.waitingSteers = [];
-    this.sentNow.clear();
+    this.interrupting = undefined;
+    this.continuations.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
@@ -1743,6 +1748,7 @@ export class AcpmuxDirectClient {
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.waitingSteers = [];
+    this.interrupting = undefined;
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -1807,7 +1813,9 @@ export class AcpmuxDirectClient {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
       // A prompt sent now goes first and stops the turn: only the last one sent now is next.
       const next = msg.next === true ? String(msg.promptId ?? "") : undefined;
-      if (next) this.sentNow.add(next);
+      // Into a running turn, it stops that turn. Only while it still waits: a record replayed over
+      // the live queue (rebuildKeepingLiveState) is of a prompt that already ran.
+      if (next && this.turnOpen && this.queue.some((entry) => entry.id === next)) this.interrupting = next;
       this.queue = [...this.queue]
         .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
         .map((entry) => (next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next)));
@@ -2083,7 +2091,10 @@ export class AcpmuxDirectClient {
         if (received) this.receivedOffers.add(received.offerId);
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
-        const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
+        if (promptId !== undefined && promptId === this.interrupting) this.interrupting = undefined;
+        // A prompt sent now that stopped the turn it went into goes on with that turn: read.
+        const steer =
+          msg.steer === true ? "waiting" : promptId && this.continuations.has(promptId) ? "landed" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
@@ -2138,6 +2149,11 @@ export class AcpmuxDirectClient {
         this.endAssistantSegment();
         this.rows.delete("typing");
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
+        const status = String(msg.status ?? "completed");
+        // A turn a prompt sent now cancelled goes on under that prompt; one that ended first did not.
+        const continued = event.kind === "turn_result" && status === "cancelled" && this.interrupting !== undefined;
+        if (continued) this.continuations.add(this.interrupting!);
+        if (event.kind === "turn_result") this.interrupting = undefined;
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -2146,7 +2162,8 @@ export class AcpmuxDirectClient {
             kind: "turnSummary",
             seq: event.seq,
             ...this.turnTotals(event.at),
-            status: String(msg.status ?? "completed"),
+            status,
+            ...(continued ? { continued } : {}),
             error: msg.errorText,
             ...(checkpoint ? { checkpoint } : {}),
           });
@@ -2362,8 +2379,9 @@ export class AcpmuxDirectClient {
     const rows = this.rows
       .sorted()
       .filter((row) => !row.pending && !row.failed && (below === undefined || this.rows.orderOf(row.id) < below));
+    // A steer goes on with its turn: the turn's time and calls run from the prompt that opened it.
     let start = rows.length;
-    while (start > 0 && rows[start - 1]!.kind !== "user") start -= 1;
+    while (start > 0 && (rows[start - 1]!.kind !== "user" || continuesTurn(rows[start - 1]!))) start -= 1;
     const user = rows[start - 1];
     const toolCount = rows
       .slice(start)

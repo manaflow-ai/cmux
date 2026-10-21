@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import type { AcpmuxRow } from "../model";
+import { continuesTurn, type AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
@@ -163,12 +163,16 @@ export function turnViewFrom(
   const fromStart = lead === 0;
   // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
   // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
-  // and neither ends the turn nor folds into it. Indexes, not arrays: a long chat's snapshot only
-  // copies the rows of a turn that changed (shapedTurn).
+  // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
+  // (``continuesTurn``). Indexes, not arrays: a long chat's snapshot only copies the rows of a
+  // turn that changed (shapedTurn).
   while (index < rows.length) {
     const start = index++;
     let answerAt: number | undefined;
-    while (index < rows.length && (rows[index]!.kind !== "user" || isUnsent(rows[index]!))) {
+    while (
+      index < rows.length &&
+      (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
+    ) {
       if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
       index += 1;
     }
@@ -246,8 +250,15 @@ function shapedTurn(
     if (same) return cached.rows;
   }
   const source = rows.slice(start + 1, end);
-  const turn = source.filter((row) => row.kind !== "user");
-  const held = turn.length === source.length ? [] : source.filter((row) => row.kind === "user");
+  // A steer draws where it went into the turn; bookkeeping sent in draws nothing
+  // (incomingMessage.ts). The summary of the turn a prompt sent now stopped is not a Stop: the
+  // turn goes on under that prompt, so it neither ends nor times the turn.
+  const turn = source.filter(
+    (row, at) =>
+      (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
+      !(row.kind === "turnSummary" && row.continued && source.slice(at + 1).some(continuesTurn)),
+  );
+  const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const date = dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
   // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
   // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
@@ -322,8 +333,9 @@ function shapeTurn(
   // also close the turn as their card. Subagent groups and the todo list stay out, under the
   // fold's line.
   const before = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
-  const work = before.filter((row) => !staysOut(row));
-  const groups = before.filter(staysOut);
+  const answered = steeredAnswers(before);
+  const work = before.filter((row) => !staysOut(row) && !answered.has(row));
+  const groups = before.filter((row) => staysOut(row) || answered.has(row));
   const after = final >= 0 ? body.slice(final + 1) : [];
   // Edits after the answer join the card too, so its Undo covers the whole turn.
   const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
@@ -378,6 +390,21 @@ function shapeTurn(
 
 const VERSION_SPAN = 1_000_000;
 
+/// In a turn that took steers, the reply each steer followed: the text that ended the part of the
+/// turn before it, when no work came after that text. It answered what was asked then, so it draws
+/// beside the steer rather than folding into the turn's work.
+function steeredAnswers(rows: readonly AcpmuxRow[]): Set<AcpmuxRow> {
+  const answers = new Set<AcpmuxRow>();
+  let from = 0;
+  rows.forEach((row, at) => {
+    if (!continuesTurn(row)) return;
+    const reply = answerAt(rows.slice(from, at));
+    if (reply >= 0) answers.add(rows[from + reply]!);
+    from = at + 1;
+  });
+  return answers;
+}
+
 /// One render card per render call in `body`, in call order.
 function renderRows(body: readonly AcpmuxRow[], version: number): AcpmuxRow[] {
   return body.flatMap((row) =>
@@ -421,6 +448,8 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 /// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
 /// below.
 const staysOut = (row: AcpmuxRow) =>
+  // A steer: the person's own words are never folded away.
+  continuesTurn(row) ||
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||

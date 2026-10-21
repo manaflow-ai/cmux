@@ -766,6 +766,34 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "steer-continuous": {
+      note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline under Steered, the line counts from the first prompt, and nothing says the turn was stopped.",
+      snapshot: chat(
+        [
+          user("Fix the flaky login test", 1.5),
+          activity(
+            [
+              thought("The login test fails one run in five; check how the retry waits for the session."),
+              tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+            ],
+            1.3,
+          ),
+          assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 0.9),
+          summary(0.58, { status: "cancelled", durationMs: 55_000, continued: true }),
+          user("Also check the logout path, it uses the same retry", 0.58, { steer: "landed" }),
+          activity(
+            [
+              tool("bun test src/auth/logout", "execute", "in_progress", {
+                command: "bun test src/auth/logout",
+                startedAt: minutesAgo(0.3),
+              }),
+            ],
+            0.3,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
       snapshot: chat(

@@ -528,13 +528,13 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      note: "Under a steer's bubble: Steering while the agent has not read it, and Steered once it has, also for a prompt sent now to an agent that cannot steer (it went on with the turn).",
       snapshot: chat(
         [
           user("Add retries", 6),
           user("Use the cache dir, not tmp", 5, { steer: "landed" }),
           assistant("Using the cache dir now.", 4),
-          user("Stop and fix the space thing first", 3, { steer: "stopped" }),
+          user("Stop and fix the space thing first", 3, { steer: "landed" }),
           assistant("Fixing the space handling…", 2),
           user("Also keep the old flag working", 1, { steer: "waiting" }),
           assistant("Reading the flag parser…", 0.5, { streaming: true }),

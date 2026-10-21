@@ -10,7 +10,8 @@
 //   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
-//   queued ones, and "Sent now · stopped the turn" under its bubble once it runs.
+//   queued ones, and "Steered" under its bubble once it runs: acpmux stopped the turn for it, but
+//   the turn goes on with it, so nothing reads as stopped (only Stop or Esc does).
 // - A steer reads "Steering" under its bubble while the reply it went into still streams, and
 //   "Steered" once the agent's next message starts; a second steer in the same step does not mark
 //   the first read.
@@ -367,7 +368,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("a prompt sent now to an agent that cannot steer reads Steering, then Sent now under its bubble", async () => {
+    test("a prompt sent now to an agent that cannot steer reads Steering, then Steered under its bubble", async () => {
       const page = await openChat(false);
       send(["mux", "queued", { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" }]);
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
@@ -383,7 +384,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" },
       ]);
       await bubbleMark(page, "fix the space thing first")
-        .getByText("Sent now · stopped the turn")
+        .getByText("Steered · the agent read it")
         .waitFor({ timeout: 10_000 });
       await page.close();
     });
@@ -406,7 +407,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
       ]);
-      await bubbleMark(page, "space thing").getByText("Sent now · stopped the turn").waitFor({ timeout: 10_000 });
+      await bubbleMark(page, "space thing").getByText("Steered · the agent read it").waitFor({ timeout: 10_000 });
       await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });
