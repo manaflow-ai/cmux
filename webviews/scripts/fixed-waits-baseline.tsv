@@ -11,7 +11,7 @@ test/agent-pane-reading-place.test.ts	2
 test/agent-pane-scrollbar-full-height.test.ts	19
 test/agent-pane-soft-edges.test.ts	7
 test/agent-pane-start-mode-chip.test.ts	9
-test/agent-pane-stream-jitter.test.ts	14
+test/agent-pane-stream-jitter.test.ts	8
 test/agent-pane-transcript-spacing.test.ts	2
 test/agent-pane-unsent-draft.test.ts	3
 test/agent-pane-wheel-pass-through.test.ts	16

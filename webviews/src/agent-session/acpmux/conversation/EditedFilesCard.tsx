@@ -12,12 +12,12 @@
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
 import { useContext, useMemo, useState, type ReactNode } from "react";
-import { turnFiles, turnPathsOnly, type TurnFile } from "../diff";
+import { commonDirectory, turnFiles, turnPathsOnly, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
-import { outsideRepository, turnCounts } from "../changes/turnCheckpoint";
-import { useT, type Translate } from "../i18n";
+import { changedByTools, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
 import { SessionEditsContext } from "../turnChanges/sessionRows";
@@ -101,19 +101,28 @@ function Card({
   const changes = useMemo(() => turnChanges(row.id, rows, toolFiles), [row.id, rows, toolFiles]);
   const undoState = useUndoState(row.id);
   // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
-  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs.
+  // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs, and a
+  // failed call's, which no checkpoint file covers unless a later call changed it (matched as the
+  // checkpoint matches its files, so /tmp/x is /private/tmp/x).
   const plain =
     counts.files === toolFiles
       ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
-      : outsideRepository(
-          labels.flatMap((entry) => (entry.path ? [{ ...entry, path: entry.path }] : [])),
-          counts.root,
-          files,
-        );
-  const entries: { key: string; file?: TurnFile; path?: string }[] = [
+      : [
+          ...outsideRepository(
+            labels.flatMap((entry) => (entry.path && !entry.failed ? [{ ...entry, path: entry.path }] : [])),
+            counts.root,
+            files,
+          ),
+          ...labels.filter(
+            ({ path, failed }) => failed && (!path || !files.some((file) => changedByTools(file, [{ path }]))),
+          ),
+        ];
+  const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
-    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path })),
+    ...plain.map((entry) => ({ key: `plain-${entry.key}`, path: entry.path, failed: entry.failed })),
   ];
+  // Undo leaves the paths listed without counts as they are: the page never had their old text.
+  const kept = pathsOnly.filter((path) => !changes.files.some((file) => file.path === path));
   const total = entries.length;
   const single = total === 1 && files.length === 1 ? files[0] : undefined;
   const limit = settings.maxRows;
@@ -181,6 +190,7 @@ function Card({
       {undoState.phase === "confirm" && (
         <UndoConfirm
           summary={undoState.summary}
+          kept={kept}
           onUndo={() => void applyUndo(row.id, changes.files)}
           onCancel={() => cancelUndo(row.id)}
           t={t}
@@ -211,6 +221,7 @@ function Card({
               ) : (
                 <span className="acpmux-edited-path">{t("edited.unknownFile")}</span>
               )}
+              {entry.failed && <span className="acpmux-edited-failed">{t("tools.failed")}</span>}
             </div>
           );
         }
@@ -303,15 +314,21 @@ function UndoButton({
 
 function UndoConfirm({
   summary,
+  kept,
   onUndo,
   onCancel,
   t,
 }: {
   summary: { undo: number; changed: number; cannot: number };
+  kept: readonly string[];
   onUndo: () => void;
   onCancel: () => void;
   t: Translate;
 }) {
+  const language = usePaneLanguage();
+  // Named from their shared directory, as the card's rows are: a/x.ts and b/x.ts, not x.ts twice.
+  const base = commonDirectory([...kept]).length;
+  const names = kept.map((path) => path.slice(base));
   return (
     <div className="acpmux-edited-confirm" role="alertdialog" aria-label={t("edited.undo")}>
       <div className="acpmux-edited-confirm-text">
@@ -334,6 +351,15 @@ function UndoConfirm({
             {summary.cannot === 1
               ? t("edited.undoSkip.cannot.one")
               : t("edited.undoSkip.cannot.other", { n: summary.cannot })}
+          </div>
+        )}
+        {names.length > 0 && (
+          <div className="acpmux-edited-confirm-skip acpmux-edited-confirm-kept">
+            {names.length === 1
+              ? t("edited.undoSkip.unknown.one", { file: names[0]! })
+              : t("edited.undoSkip.unknown.other", {
+                  files: new Intl.ListFormat(language, { type: "conjunction" }).format(names),
+                })}
           </div>
         )}
       </div>

@@ -64,6 +64,9 @@ public struct WebKitNativeInput: Sendable {
     public func wheel(at css: CGPoint, deltaX: Double, deltaY: Double, flags: NSEvent.ModifierFlags,
                       in webView: WKWebView) async throws(Failure) {
         guard let window = webView.window else { throw .noWindow }
+        // WebKit drops a wheel that reaches a just-loaded page before its next presentation
+        // update (about one in three on the test Macs); an occluded window presents too.
+        await privateCalls.afterNextPresentationUpdate(webView)
         guard let event = Self.wheelEvent(window: window, location: Self.windowPoint(webView, css: css),
                                           deltaX: deltaX, deltaY: deltaY, flags: flags) else { throw .noEvent }
         webView.scrollWheel(with: event)
