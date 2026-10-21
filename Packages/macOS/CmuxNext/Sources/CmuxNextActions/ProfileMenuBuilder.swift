@@ -64,7 +64,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         }
         guard let who else { return }
         menu.insertItem(.separator(), at: 0)
-        if let team, let item = row(ProfileMenuSpec.Row(action: "openTeamPicker", title: team, symbol: "person.2")) { menu.insertItem(item, at: 0) }
+        if let team, let item = registry.makeMenuItem(for: "openTeamPicker") {
+            item.title = team
+            item.image = Self.symbol("person.2", label: team)
+            menu.insertItem(item, at: 0)
+        }
         for line in who.reversed() {
             let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
             header.isEnabled = false
