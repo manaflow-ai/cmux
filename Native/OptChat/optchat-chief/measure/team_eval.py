@@ -581,6 +581,9 @@ def run_lossy(opts):
         log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
             f"diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
+        # A second TERM (the step's own stop) must not cut the cleanup short.
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
         stop_claude()
         left = []
         if proc:
@@ -1065,6 +1068,9 @@ def run(opts):
         log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
             f"{info['spawns']} spawns, diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
+        # A second TERM (the step's own stop) must not cut the cleanup short.
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            signal.signal(sig, signal.SIG_IGN)
         # The evidence of a stopped run, before the brain dir goes.
         try:
             if info.get("conversation") and not os.path.exists(os.path.join(out, "conversation.json")):
