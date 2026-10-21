@@ -3172,7 +3172,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_name</key>
 			<string>diff.wordDiffs</string>
 			<key>pfm_title</key>

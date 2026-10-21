@@ -1718,7 +1718,7 @@
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
-      "default" : false,
+      "default" : true,
       "description" : "diff.wordDiffs",
       "title" : "Highlight Word Changes",
       "type" : "boolean"

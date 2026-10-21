@@ -209,7 +209,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
 | `diff.colors` | string | `"theme"` | `theme`, `muted`, `standard` | Diff Colors |
 | `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
-| `diff.wordDiffs` | boolean | `false` |  | Highlight Word Changes |
+| `diff.wordDiffs` | boolean | `true` |  | Highlight Word Changes |
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
