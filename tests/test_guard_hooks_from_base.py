@@ -44,6 +44,7 @@ class GuardsRunFromTheBase(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp)
+        self.isolate_git()
         git(self.tmp, "init", "-q", "--bare", "-b", "feat-cmux-next", "remote.git")
         self.seed = self.tmp / "seed"
         git(self.tmp, "clone", "-q", "remote.git", "seed")
@@ -65,6 +66,22 @@ class GuardsRunFromTheBase(unittest.TestCase):
         (self.lane / "scripts/ci/merge-compile-guard-hook.sh").write_text("exit 0\n")
         (self.lane / "scripts/ci/base_merge_warning.py").write_text("")
         git(self.lane, "commit", "-qam", "the pull request edits the guard that judges it")
+
+    def isolate_git(self) -> None:
+        """Every git this test starts, its own and the hook's, reads config only from inside self.tmp, and that
+        config turns auto maintenance and gc off. Otherwise a commit, push or fetch leaves a detached
+        `git maintenance run --auto` taking and dropping .git/objects/maintenance.lock while the cleanup's rmtree
+        walks the directory, and the rmtree fails with FileNotFoundError."""
+        home = self.tmp / "home"
+        home.mkdir()
+        config = home / ".gitconfig"
+        config.write_text("[maintenance]\n\tauto = false\n\tautoDetach = false\n"
+                          "[gc]\n\tauto = 0\n\tautoDetach = false\n")
+        env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "GIT_CONFIG_GLOBAL": str(config),
+               "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"}
+        patcher = mock.patch.dict(os.environ, env)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def guards(self, label: str) -> None:
         (self.seed / "scripts/ci/merge_compile_guard.py").write_text(GUARD % label)
