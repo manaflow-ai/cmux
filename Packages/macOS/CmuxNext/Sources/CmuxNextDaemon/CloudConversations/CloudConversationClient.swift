@@ -20,6 +20,9 @@ public protocol CloudConversationCommands: Sendable {
     func messageRequests() async throws -> [CloudMessageRequest]
     /// `cloud-conversation-typing`: the person's typing in a subscribed conversation.
     func typing(_ conversation: String, on: Bool) async throws
+    /// `cloud-inbox-op`: the person's own pin or mute of one Cloud conversation
+    /// (UserDO `inbox.pin`, `inbox.mute`), with the intent's idempotency key.
+    func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -114,6 +117,10 @@ public struct CloudConversationClient: CloudConversationCommands {
         _ = try await local(CloudConversationTypingRequest(conversation: conversation, on: on))
     }
 
+    public func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
+        _ = try await network(CloudInboxOpRequest(conversation: conversation, idempotencyKey: idempotencyKey, op: op))
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
@@ -137,6 +144,11 @@ extension CloudConversationCommands {
 
     /// Fakes and daemons without typing: nothing to send.
     public func typing(_ conversation: String, on: Bool) async throws {}
+
+    /// Fakes without the person's inbox: refused as a daemon without `cloud-inbox-op` would.
+    public func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
+        throw DaemonError.missingCapabilities([DaemonCapabilities.shared.conversationInboxState])
+    }
 
     /// Fakes and daemons without run reads.
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? { nil }
