@@ -82,8 +82,8 @@ final class SidebarChatHistoryHeader: NSView {
 /// right-click menu pins or unpins it.
 final class SidebarChatHistoryRow: NSView {
     var onClick: (() -> Void)?
-    /// The right-click menu's items, built when it opens.
-    var menuItems: (() -> [(String, () -> Void)])?
+    /// The right-click menu (the app's, from the action registry), built when it opens.
+    var makeMenu: (() -> NSMenu?)?
     private let title = SidebarRowView.label(font: SidebarStyle.titleFont)
     private let meta = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private var quiet = false
@@ -168,11 +168,9 @@ final class SidebarChatHistoryRow: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
 
-    /// The row's right-click menu (Pin or Unpin); nil without items.
+    /// The row's right-click menu (Pin or Unpin); nil without one or with no rows.
     func contextMenu() -> NSMenu? {
-        guard let items = menuItems?(), !items.isEmpty else { return nil }
-        let menu = NSMenu()
-        for (label, action) in items { menu.addItem(SidebarChatHistoryMenuAction.item(label, run: action)) }
+        guard let menu = makeMenu?(), !menu.items.isEmpty else { return nil }
         return menu
     }
 
@@ -186,25 +184,4 @@ final class SidebarChatHistoryRow: NSView {
         let trailing = meta.isHidden ? bounds.width - Metrics.space2 : meta.frame.minX - Metrics.space2
         title.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
     }
-}
-
-/// The action of a history row's menu item (Pin, Unpin): the item's target, kept alive as its
-/// `representedObject` (a menu item holds its target weakly).
-final class SidebarChatHistoryMenuAction: NSObject {
-    private let run: () -> Void
-
-    init(_ run: @escaping () -> Void) {
-        self.run = run
-    }
-
-    /// A menu item titled `title` that runs `run`.
-    static func item(_ title: String, run: @escaping () -> Void) -> NSMenuItem {
-        let action = SidebarChatHistoryMenuAction(run)
-        let item = NSMenuItem(title: title, action: #selector(runAction), keyEquivalent: "")
-        item.target = action
-        item.representedObject = action
-        return item
-    }
-
-    @objc func runAction() { run() }
 }

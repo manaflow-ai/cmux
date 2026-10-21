@@ -1,3 +1,5 @@
+import AppKit
+public import CmuxNextActions
 public import CmuxNextAgentActivity
 public import CmuxNextAgentPane
 import CmuxNextCompat
@@ -50,6 +52,23 @@ public final class SidebarChatHistoryFeed {
             }
         }
         return live
+    }
+
+    /// Pin or Unpin Chat: its target is a history row's chat (`sidebar-item:<chat key>`).
+    public static let togglePinAction: ActionID = "sidebar.chat.togglePin"
+
+    /// Binds Pin or Unpin Chat to `history`'s pins and gives each history row its right-click menu
+    /// from `registry` (that one action on the row's chat), so the menu, `cmux action run` and
+    /// the palette's keys all run the same handler (scripts/cmux-next/check-menu-actions.py).
+    public static func bind(into registry: ActionRegistry, history: SidebarChatHistory = .shared) {
+        registry.bind(togglePinAction, invoke: { [weak history] invocation in
+            guard let history, let target = invocation.target, target.kind == .sidebarItem else { return }
+            history.setPinned(target.id, !history.isPinned(target.id))
+        })
+        SidebarChatHistoryMenu.make = { [weak registry] key in
+            registry?.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: key),
+                                      entries: [.action(togglePinAction)])
+        }
     }
 
     /// The history of `index`: reads the index lazily, newest first, only as far as the page needs.

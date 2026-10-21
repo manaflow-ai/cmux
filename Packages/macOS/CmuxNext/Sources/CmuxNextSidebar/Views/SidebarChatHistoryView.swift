@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// The session tree's chat history blocks in the list (`SidebarChatHistoryState`): Pinned above the
@@ -41,7 +41,7 @@ final class SidebarChatHistoryViews {
             }
         }
         guard !moves.isEmpty else { return }
-        Motion.animate(.move, in: list, {
+        Motion.sidebar.animate(.move, in: list, {
             for (view, frame) in moves { view.animator().frame = frame }
         })
     }
@@ -50,6 +50,12 @@ final class SidebarChatHistoryViews {
     func shift(by dy: CGFloat) {
         Motion.withoutAnimation { for view in all where !view.isHidden { view.frame.origin.y += dy } }
     }
+}
+
+/// A history row's right-click menu, by chat key: the app's, built from the action registry (Pin or
+/// Unpin Chat on the row's chat, `SidebarChatHistoryFeed.bind`), so the row runs the registered action.
+@MainActor public enum SidebarChatHistoryMenu {
+    public static var make: ((String) -> NSMenu?)?
 }
 
 /// One history block: a quiet header (Pinned, or Earlier, which folds), then one compact row per
@@ -116,10 +122,12 @@ final class SidebarChatHistoryView: NSView {
             let key = chat.id
             row.configure(title: chat.title, meta: SidebarChatsDesign.age(from: chat.updatedAt, to: now), quiet: part == .earlier)
             row.onClick = { [weak self] in self?.history.open(key) }
-            row.menuItems = { [weak self] in
-                guard let self else { return [] }
-                let pinned = self.history.isPinned(key)
-                return [(pinned ? Strings.chatHistoryUnpin : Strings.chatHistoryPin, { [weak self] in self?.history.setPinned(key, !pinned) })]
+            row.makeMenu = { [weak self] in
+                guard let self, let menu = SidebarChatHistoryMenu.make?(key) else { return nil }
+                // The registry's Pin or Unpin Chat row, named for what it does to this chat.
+                let title = self.history.isPinned(key) ? Strings.chatHistoryUnpin : Strings.chatHistoryPin
+                if let item = menu.items.first(where: { !$0.isSeparatorItem }) { item.title = title }
+                return menu
             }
         }
         more.configure(title: Strings.chatHistoryShowMore, meta: nil, quiet: true)

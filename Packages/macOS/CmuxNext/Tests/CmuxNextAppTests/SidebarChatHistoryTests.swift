@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextAgentPane
@@ -166,9 +167,15 @@ import Testing
         #expect(view.header.foldable)
         view.rows[1].onClick?()
         #expect(opened == ["c1"])
+        // The row's menu is the registry's Pin or Unpin Chat on its chat, retitled for this chat.
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        SidebarChatHistoryFeed.bind(into: registry, history: history)
         let menu = try #require(view.rows[1].contextMenu())
         #expect(menu.items.map(\.title) == [Strings.chatHistoryPin])
-        (menu.items.first?.target as? SidebarChatHistoryMenuAction)?.runAction()
+        let run = try #require(menu.items.first.flatMap(ActionRegistry.menuRun(of:)))
+        #expect(run.id == SidebarChatHistoryFeed.togglePinAction)
+        #expect(run.target == ActionTargetRef(kind: .sidebarItem, id: "c1"))
+        #expect(registry.perform(run.id, invocation: ActionInvocation(target: run.target)))
         #expect(history.pinned == ["c1"])
         #expect(view.rows[1].contextMenu()?.items.map(\.title) == [Strings.chatHistoryUnpin])
         view.more.onClick?()

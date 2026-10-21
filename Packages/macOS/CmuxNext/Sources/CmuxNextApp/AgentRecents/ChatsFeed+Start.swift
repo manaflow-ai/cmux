@@ -24,6 +24,7 @@ extension ChatsFeed {
         feed.observe(history) { [weak feed] in if let feed { history.chats = feed.store } }
         history.start(workspaces: { services.machines.allWorkspaces.map { $0.0 } }, localHost: localHost,
                       open: { [weak services] key in services?.chatsOpener.open(key) })
+        SidebarChatHistoryFeed.bind(into: services.registry)
         return feed
     }
 
