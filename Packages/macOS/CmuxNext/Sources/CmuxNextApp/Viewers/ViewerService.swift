@@ -43,8 +43,8 @@ final class ViewerService {
 
     /// Opens `file` through ``fileOpener`` (the markdown page, a previewing tab, or the editor).
     /// `userChose` false for a page's or an agent's open. Returns why it did not open.
-    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool) -> String? {
-        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose) }
+    func openFile(_ file: URL, in pane: PaneController?, userChose: Bool, line: FileLineLocation? = nil, focus: Bool = false) -> String? {
+        if let opener = fileOpener as? FilePageOpener { return opener.open(file, in: pane, userChose: userChose, line: line, revealExistingLine: userChose || focus) }
         return fileOpener.open(file, in: pane)
     }
 
@@ -115,10 +115,10 @@ final class ViewerService {
     /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
     /// is selected where it is.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool,
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, line: FileLineLocation? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        let refusal = if let placed, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, placed: placed)
+        let refusal = if let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, line: line, placed: placed)
         } else {
             fileOpener.open(file, in: pane)
         }

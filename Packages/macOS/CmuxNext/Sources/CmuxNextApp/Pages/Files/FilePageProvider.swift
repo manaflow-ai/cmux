@@ -54,6 +54,7 @@ extension FilePageHosting {
 /// `changes` stream, and serves the markdown page's images and libraries
 /// (``PageDynamicResourceSource``).
 final class FilePageProvider: PageProvider, PageDynamicResourceSource {
+    let lineLocation = FilePageLineLocation()
     let kind: FilePageKind
     private(set) var file: URL?
     /// Strong: the tab host holds its service weakly, so no cycle.
@@ -208,6 +209,8 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard !isClosed, let host else { throw PageError.closed }
         switch stream {
+        case kind.op("reveal") where kind == .editor:
+            return lineLocation.subscribe(onEvent)
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
@@ -333,6 +336,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             if let comments = await savedComments(file.url) { config["comments"] = comments }
         case .editor:
             config["size"] = JSONValue(file.size)
+            if let line = lineLocation.take() { config["location"] = line }
         }
         return merged(.object(config), host?.look() ?? .object([:]))
     }
@@ -482,6 +486,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         watch?.stop()
         watch = nil
         changeListeners.removeAll()
+        lineLocation.close()
         host = nil
     }
 }

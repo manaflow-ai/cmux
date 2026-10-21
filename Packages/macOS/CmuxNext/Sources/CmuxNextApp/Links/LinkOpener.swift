@@ -111,9 +111,9 @@ final class LinkOpener {
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows).
     @discardableResult
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false) -> Bool {
+    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, line: FileLineLocation? = nil) -> Bool {
         open(from: source) { pane, placed in
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, placed: placed)
+            pane.services.viewers.openFile(file, in: pane, markdown: markdown, line: line, placed: placed)
         }
     }
 

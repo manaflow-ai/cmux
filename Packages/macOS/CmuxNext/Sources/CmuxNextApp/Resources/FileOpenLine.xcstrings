@@ -1,0 +1,65 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "file.open.invalidLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line must be 1–10,000,000, optionally followed by :column or -endLine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行は1〜10,000,000で指定してください。必要に応じて:列または-終了行を続けられます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zeile muss zwischen 1 und 10.000.000 liegen, optional gefolgt von :Spalte oder -Endzeile."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ligne doit être comprise entre 1 et 10 000 000, éventuellement suivie de :colonne ou -ligneDeFin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La línea debe estar entre 1 y 10.000.000, seguida opcionalmente de :columna o -líneaFinal."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون السطر بين 1 و10,000,000، ويمكن إتباعه بـ :عمود أو -سطرالنهاية."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号必须为1到10,000,000，可选择在后面加上:列号或-结束行号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行號必須為1到10,000,000，可選擇在後面加上:欄號或-結束行號。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행은 1~10,000,000이어야 하며, 선택적으로 :열 또는 -끝행을 덧붙일 수 있습니다."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

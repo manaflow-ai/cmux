@@ -47,6 +47,8 @@ export const APP_ACTION_RUN_OP = "cmux.app.action.run";
 /** Page to host: `{path, text, baseHash}` after an edit (the quit hook's unsaved state and draft). */
 export const EDITOR_EDITED_OP = "cmux.editor.edited";
 export const EDITOR_CHANGES = "cmux.editor.changes";
+/** Host to page: a validated numeric location in this tab, including a reused tab. */
+export const EDITOR_REVEAL = "cmux.editor.reveal";
 export const EDITOR_LOOK = "cmux.editor.look";
 export const EDITOR_CONFLICT = "cmux.editor.conflict";
 export const EDITOR_READ_ONLY = "cmux.editor.read_only";
@@ -74,6 +76,7 @@ export interface EditorFile {
 
 /** What `cmux.editor.config` and `cmux.editor.open` answer. */
 export interface EditorConfig extends EditorFile {
+  location?: import("../../fileLocation").FileLocation;
   /** A recovered crash draft of this file: the page loads it as an unsaved edit (once). */
   recoveredText?: string;
   /** The terminal appearance, as the diff viewer gets it (code font, palette, colors). */

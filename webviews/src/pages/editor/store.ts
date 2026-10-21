@@ -11,6 +11,7 @@ import {
   EDITOR_CONFLICT,
   EDITOR_EDITED_OP,
   EDITOR_LOOK,
+  EDITOR_REVEAL,
   EDITOR_OPEN_OP,
   EDITOR_SAVE_OP,
   EDITOR_SET_PREFERENCE_OP,
@@ -23,6 +24,7 @@ import {
   type EditorSaveResult,
   type ReadOnlyReason,
 } from "./host";
+import { fileLocation, type FileLocation } from "../../fileLocation";
 import { resolveEditorSettings } from "./settings";
 import { createEditReporter } from "../shared/editReporter";
 
@@ -58,6 +60,7 @@ export interface EditorState {
 
 /** A document the view loads: the file's full text (BOM and line endings included). */
 export interface EditorDocument {
+  location?: FileLocation;
   path: string;
   text: string;
   size: number;
@@ -67,6 +70,7 @@ export interface EditorDocument {
 /** The editor surface the store drives (the Monaco view, or a fake in tests). */
 export interface CodeView {
   load(document: EditorDocument): void;
+  reveal?(location: FileLocation): void;
   /** The file's text as it would be written: BOM and line endings as the file had them. */
   text(): string;
   /** A number that returns to an earlier value when the edits are undone back to it. */
@@ -148,6 +152,7 @@ export class EditorStore {
   private saveAgain = false;
   private pendingChange: EditorChange | null = null;
   private stopChanges: (() => void) | null = null;
+  private stopReveal: (() => void) | null = null;
   private stopLook: (() => void) | null = null;
   /** A recovered draft to load as an edit once the file is in the view. */
   private recovered: string | null = null;
@@ -250,7 +255,7 @@ export class EditorStore {
       revision: this.state.revision + 1,
       look: lookOf(config),
     });
-    this.show({ path: config.path, text: config.text, size, readOnly });
+    this.show({ path: config.path, text: config.text, size, readOnly, location: fileLocation(config.location) });
     await this.subscribeStreams(client);
   }
 
@@ -259,6 +264,18 @@ export class EditorStore {
       if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
         console.warn(`cmux editor ${name}`, error);
     };
+    if (!this.stopReveal) {
+      try {
+        this.stopReveal = await client.subscribe<unknown>(EDITOR_REVEAL, (value) => {
+          const location = fileLocation(value);
+          if (!location) return;
+          if (this.view) this.view.reveal?.(location);
+          else if (this.pending) this.pending.location = location;
+        });
+      } catch (error) {
+        tolerate(error, "reveal");
+      }
+    }
     if (!this.stopLook) {
       try {
         this.stopLook = await client.subscribe<EditorLook>(EDITOR_LOOK, (look) => this.lookChanged(look));
@@ -482,6 +499,8 @@ export class EditorStore {
     this.cancelAutosave?.();
     this.stopChanges?.();
     this.stopChanges = null;
+    this.stopReveal?.();
+    this.stopReveal = null;
     this.stopLook?.();
     this.stopLook = null;
   }

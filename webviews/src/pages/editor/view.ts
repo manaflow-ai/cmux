@@ -24,6 +24,8 @@ import { keybindingRules } from "./vscodeKeys";
 import type { CodeView, EditorDocument } from "./store";
 import type { FindRange, FindTarget } from "./editorFind";
 import { DARK_THEME, LIGHT_THEME, SyntaxEngine, editorThemes } from "./syntax";
+import { LineReveal } from "./lineReveal";
+import type { FileLocation } from "../../fileLocation";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
   MONACO_THEME_VARIABLES,
@@ -293,6 +295,7 @@ function defineStandInThemes(chrome: Record<string, string>): void {
 
 /** Monaco plus Shiki for one page. */
 export class MonacoView implements CodeView {
+  private lineReveal: LineReveal | null = null;
   private readonly editor: monaco.editor.IStandaloneCodeEditor;
   private model: monaco.editor.ITextModel | null = null;
   private endings: LineEndings | null = null;
@@ -547,6 +550,7 @@ export class MonacoView implements CodeView {
   }
 
   load(document: EditorDocument): void {
+    this.lineReveal?.clear();
     const token = ++this.loadToken;
     const shape = analyzeText(document.text);
     this.endings = new LineEndings(shape);
@@ -575,6 +579,7 @@ export class MonacoView implements CodeView {
       this.endings?.apply(event.changes.map((change) => ({ ...change.range, text: change.text })));
       if (!this.applyingLoad && !event.isFlush) this.callbacks.onUserEdit();
     });
+    if (document.location) this.reveal(document.location);
     this.highlighted = false;
     this.reportStatus();
     if (!large && detected.id !== PLAIN_TEXT_LANGUAGE) {
@@ -588,6 +593,11 @@ export class MonacoView implements CodeView {
       });
     }
   }
+  reveal(location: FileLocation): void {
+    this.lineReveal ??= new LineReveal(this.editor);
+    this.lineReveal.reveal(location);
+  }
+
   private highlighted = false;
   private eolLabel: ViewStatus["eol"] = "LF";
   private modelListener: monaco.IDisposable | null = null;
@@ -776,6 +786,7 @@ export class MonacoView implements CodeView {
   }
 
   dispose(): void {
+    this.lineReveal?.clear();
     this.scheme.removeEventListener("change", this.onSchemeChange);
     for (const disposable of this.disposables) disposable.dispose();
     this.modelListener?.dispose();

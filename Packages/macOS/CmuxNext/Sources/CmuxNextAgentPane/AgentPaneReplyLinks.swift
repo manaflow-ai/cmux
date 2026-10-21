@@ -1,3 +1,4 @@
+import CmuxNextActions
 public import AppKit
 public import CmuxNextSettings
 public import Foundation
@@ -70,8 +71,8 @@ extension AgentPaneModel {
                 "paths": places, "sites": sites,
                 "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
             ])
-        case .openPath(let path):
-            return Self.replyResult(await openReplyPath(path))
+        case .openPath(let path, let line):
+            return Self.replyResult(await openReplyPath(path, line: line))
         case .loadImage(let src):
             return await loadReplyImage(src)
         case .loadMedia(let src):
@@ -93,7 +94,7 @@ extension AgentPaneModel {
 
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
-    func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+    func openReplyPath(_ text: String, line: FileLineLocation? = nil) async -> Result<Void, AgentPaneReplyError> {
         guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
@@ -106,15 +107,15 @@ extension AgentPaneModel {
             case .confirm:
                 guard transport.gestures.consume() else { return .failure(.gestureRequired) }
                 guard await confirmOutside(resolved.path) else { return .failure(.notConfirmed) }
-                return await openResolved(resolved.path)
+                return await openResolved(resolved.path, line: line)
             }
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
-        return await openResolved(resolved.path)
+        return await openResolved(resolved.path, line: line)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
-    private func openResolved(_ path: String) async -> Result<Void, AgentPaneReplyError> {
+    private func openResolved(_ path: String, line: FileLineLocation?) async -> Result<Void, AgentPaneReplyError> {
         guard let canonical = AcpmuxPathPolicy.canonical(path) else { return .failure(.pathInvalid) }
         // The link may have changed between the check and now: check the secret names again.
         guard !replyPaths().isDenied(canonical) else { return .failure(.pathDenied) }
@@ -124,7 +125,7 @@ extension AgentPaneModel {
         }
         guard let url = AgentPaneFileOpen.resolve(canonical), let onOpenFile else { return .failure(.pathInvalid) }
         // A tab is cmux's file pages, which show any file as text and never run it.
-        return await onOpenFile(url, .tab) ? .success(()) : .failure(.openFailed)
+        return await onOpenFile(url, .tab, line) ? .success(()) : .failure(.openFailed)
     }
 
     private func confirmOutside(_ path: String) async -> Bool {

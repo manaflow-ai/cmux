@@ -11,16 +11,19 @@ import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
 import { HOVER_INTENT } from "../../../ui/hoverIntent";
 import { AnchoredCard } from "../../../ui/Tooltip";
+import { locationArgument, type FileLocation } from "../../../fileLocation";
 import { useT } from "../i18n";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-export function PathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+type PathChipProps = { path: string; label?: ReactNode; written?: string; location?: FileLocation; suffix?: string };
+
+export function PathChip({ path, label, written, ...position }: PathChipProps) {
   if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
-  return <HostPathChip path={path} label={label} written={written} />;
+  return <HostPathChip path={path} label={label} written={written} {...position} />;
 }
 
-function HostPathChip({ path, label, written }: { path: string; label?: ReactNode; written?: string }) {
+function HostPathChip({ path, label, written, location, suffix }: PathChipProps) {
   const { info, policy } = usePathInfo(path);
   const plain =
     info?.place === "denied" ||
@@ -34,10 +37,19 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
-      onClick={() => void callChipHost("link.openPath", { path })}
+      data-line={!folder && location ? locationArgument(location) : undefined}
+      onClick={() =>
+        void callChipHost("link.openPath", {
+          path,
+          ...(!folder && location ? { line: locationArgument(location) } : {}),
+        })
+      }
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
-      <span className="cv-chip__label">{label ?? pathName(path)}</span>
+      <span className="cv-chip__label">
+        {label ?? pathName(path)}
+        {folder ? "" : suffix}
+      </span>
       {outside && <Lock size={11} className="cv-chip__lock" />}
     </button>
   );
@@ -166,7 +178,13 @@ export function linkedText(text: string, key: string): ReactNode[] {
     if (link.start > at) out.push(text.slice(at, link.start));
     out.push(
       link.kind === "path" ? (
-        <PathChip key={`${key}-${index}`} path={link.path!} written={link.value} />
+        <PathChip
+          key={`${key}-${index}`}
+          path={link.path!}
+          written={link.value}
+          location={link.location}
+          suffix={link.suffix}
+        />
       ) : (
         <UrlChip key={`${key}-${index}`} href={link.value}>
           {githubRefLabel(link.value) ?? link.value}
