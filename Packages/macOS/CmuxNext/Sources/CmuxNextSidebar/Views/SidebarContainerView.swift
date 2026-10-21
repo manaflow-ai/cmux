@@ -52,7 +52,11 @@ public final class SidebarContainerView: NSView {
     /// edge beside the sidebar, so content whose resize is costly (a terminal's
     /// PTY grid) holds it until the landing
     /// (`ContentAreaMotionHosting`, `onWidthMotionChange`).
-    public private(set) var isWidthAnimating = false {
+    /// Set only inside this package: `apply()` starts the motion and the
+    /// animation's completion, `snap()`, a drag or the watchdog
+    /// (`SidebarContainerView+WidthMotion`) end it. `internal(set)` and not
+    /// `private(set)` because the watchdog lives in that file.
+    public internal(set) var isWidthAnimating = false {
         didSet {
             guard isWidthAnimating != oldValue else { return }
             if !isWidthAnimating { widthMotionWatchdog.cancel() }
