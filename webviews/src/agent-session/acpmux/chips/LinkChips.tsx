@@ -21,20 +21,38 @@ import { useT } from "../i18n";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
-type PathChipProps = { path: string; label?: ReactNode; written?: string; location?: FileLocation; suffix?: string };
+type PathChipProps = {
+  path: string;
+  label?: ReactNode;
+  written?: string;
+  location?: FileLocation;
+  suffix?: string;
+  /// Written in a code span: a path that gets no chip stays code.
+  code?: boolean;
+  /// A bare file name: no chip until the host has found the file.
+  bare?: boolean;
+};
+
+/// What a path that gets no chip draws as: code for a code span, else the reply's text.
+function NoChip({ path, label, written, code }: PathChipProps) {
+  const text = written ?? label ?? path;
+  return code ? <code className="cv-code">{text}</code> : <span className="cv-chip-plain">{text}</span>;
+}
 
 export function PathChip({ path, label, written, ...position }: PathChipProps) {
-  if (isDeniedPath(path)) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
+  if (isDeniedPath(path)) return <NoChip path={path} label={label} written={written} code={position.code} />;
   return <HostPathChip path={path} label={label} written={written} {...position} />;
 }
 
-function HostPathChip({ path, label, written, location, suffix }: PathChipProps) {
+function HostPathChip({ path, label, written, location, suffix, code, bare }: PathChipProps) {
   const { info, policy } = usePathInfo(path);
   const plain =
     info?.place === "denied" ||
     info?.place === "missing" ||
-    (info?.place === "outside" && policy.outsideRoots === "text");
-  if (plain) return <span className="cv-chip-plain">{written ?? label ?? path}</span>;
+    (info?.place === "outside" && policy.outsideRoots === "text") ||
+    // A bare name is a chip only for a file the host found inside the chat's folders.
+    (bare && info?.place !== "root");
+  if (plain) return <NoChip path={path} label={label} written={written} code={code} />;
   const outside = info?.place === "outside";
   const folder = info?.folder ?? path.endsWith("/");
   return (

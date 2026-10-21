@@ -31,7 +31,8 @@ export function linkReplyPath(href: string): ReplyPath | undefined {
   const pathname = (hash < 0 ? href : href.slice(0, hash)).split("?")[0]!;
   const fragment = hash < 0 ? "" : href.slice(hash);
   const target = pathLocation(safeDecode(pathname) + (/^#L\d+(?:C\d+|-L\d+)?$/.test(fragment) ? fragment : ""));
-  if (target.location && !isFileLocation(target)) return undefined;
+  // Only a bare name is ambiguous (`example.com:8080`); a link with a folder is a file.
+  if (target.location && !target.path.includes("/") && !isFileLocation(target)) return undefined;
   return target.path ? target : undefined;
 }
 
@@ -51,7 +52,11 @@ export function codeReplyPath(text: string): ReplyPath | undefined {
   }
   if (/^[\w+.-]+:\/\//.test(value) || /[\t\n`'"<>|*?$;&(){}[\]]| -/.test(value)) return undefined;
   const target = pathLocation(value);
-  return isFileLocation(target) && (target.path.includes("/") || target.location) ? target : undefined;
+  if (!isFileLocation(target)) return undefined;
+  if (target.path.includes("/") || target.location) return target;
+  // A bare name (`test.py`, also `console.log`) is a chip only when the host finds that file in
+  // the chat's folders; until then, and when it does not, it stays code.
+  return { ...target, bare: true };
 }
 
 /// A file name with an extension, optionally inside a relative, absolute or home folder, or
@@ -59,7 +64,7 @@ export function codeReplyPath(text: string): ReplyPath | undefined {
 export function isPathShape(path: string): boolean {
   if (
     !/^(?:~|\.{1,2})?\//.test(path) &&
-    !/^[\w@+-]+\//.test(path) &&
+    !/^\.?[\w@+-]+\//.test(path) &&
     !/^[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}$/.test(path)
   )
     return false;
@@ -87,7 +92,7 @@ export type TextLink = {
 // Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
 // with its trailing slash that is not followed by more of a name); a web URL.
 const TEXT_LINK =
-  /(?<![\w/\\.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|[\w@+-]+\/)?(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?:[\w.@+-]+\/)+(?![\w@+-]|\.\w))))/g;
+  /(?<![\w/\\.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|((?:(?:~|\.{1,2})?\/|\.?[\w@+-]+\/)?(?:[\w.@+-]+\/)*(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+|-\d+)?|#L\d+(?:C\d+|-L\d+)?)?(?![\w/#-]|:\w|\.\d)|(?:[\w.@+-]+\/)+(?![\w@+-]|\.\w))))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!/[/.]/.test(text)) return [];
@@ -131,7 +136,7 @@ function safeDecode(text: string): string {
 }
 
 /// Folders under a home folder that hold credentials, and secret file names (D4).
-const DENIED_FOLDER = /\/(?:\.ssh|\.gnupg|Library\/Keychains|\.aws|\.config\/gh)(?:\/|$)/;
+const DENIED_FOLDER = /(?:^|\/)(?:\.ssh|\.gnupg|Library\/Keychains|\.aws|\.config\/gh)(?:\/|$)/;
 
 /// Whether `path` is on the deny list: plain text, no action.
 export function isDeniedPath(path: string): boolean {

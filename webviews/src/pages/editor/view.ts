@@ -28,6 +28,7 @@ import { LineReveal } from "./lineReveal";
 import type { FileLocation } from "../../fileLocation";
 import { analyzeText, LineEndings, lineEndingLabel } from "./textCodec";
 import {
+  EDITOR_STYLE_DEFAULTS,
   MONACO_THEME_VARIABLES,
   isLargeFile,
   modelOptions,
@@ -489,9 +490,14 @@ export class MonacoView implements CodeView {
       const color = cssColorToHex(style.getPropertyValue(variable), this.container);
       if (color) for (const key of keys) chrome[key] = color;
     }
+    // A theme that sets the sticky color itself keeps it; only the default yields to a solid editor.
+    const authored = style.getPropertyValue("--cmux-editor-sticky-background").replace(/\s+/g, "");
+    const themed =
+      authored !== "" && authored !== EDITOR_STYLE_DEFAULTS["--cmux-editor-sticky-background"].replace(/\s+/g, "");
     const sticky = editorStickyBackground(
       chrome["editor.background"] ?? null,
       chrome["editorStickyScroll.background"] ?? null,
+      themed,
     );
     if (sticky) {
       chrome["editorStickyScroll.background"] = sticky;

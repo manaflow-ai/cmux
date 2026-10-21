@@ -160,13 +160,14 @@ extension NewTabPage {
     /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
     private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController, outsideChatDock: Bool = false, keep: Bool = false) {
         let services = pane.services
-        let closePage: @MainActor () -> Void = keep ? {} : closingPage(key, in: pane)
+        let closePage: @MainActor () -> Void
+        if keep { closePage = {} } else { closePage = closingPage(key, in: pane) }
         let placement: LinkOpenPlacement<LayoutPaneID>.Target?
         if outsideChatDock {
             switch ChatColumnPlacement.resolve(from: pane, services: services) {
             case .tab(let id): placement = .pane(id)
             // A dock alone still needs a strip column, regardless of its takes-tabs flag.
-            default: placement = .newColumn
+            default: placement = .newColumn(rightOf: pane.layoutPaneID)
             }
         } else {
             placement = nil

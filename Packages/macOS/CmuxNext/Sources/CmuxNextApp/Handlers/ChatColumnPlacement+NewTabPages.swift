@@ -15,7 +15,8 @@ extension ChatColumnPlacement {
     /// tracked run; optional page moves cannot fail the tool open or move keyboard focus.
     @MainActor static func moveNewTabPages(_ pages: [TabModel], with chat: TabModel, from source: PaneModel,
                                            in content: WorkspaceContentController, services: AppServices,
-                                           generation: UInt64, whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
+                                           generation: UInt64, seed: @MainActor (PaneModel) -> Void = { _ in },
+                                           whenDocked: @MainActor (PaneModel) -> Void = { _ in }) async {
         let daemon = services.machines.daemon(forTab: chat)
         let appeared = await waitForDockUpdate {
             services.locateTab(chat.id).map { $0.1 !== source } ?? false
@@ -24,15 +25,21 @@ extension ChatColumnPlacement {
             daemon.logger.error("chat dock: the moved chat's pane did not appear; New Tab pages stayed in their pane")
             return
         }
-        await followNewTabPages(pages, focus: content.focus, generation: generation, isDockCurrent: {
+        await followNewTabPages(pages, isCurrentIntent: { content.focus.currentState().generation == generation }, isDockCurrent: {
             services.locateTab(chat.id)?.1 === dock
                 && content.workspace.screens.contains { $0.panes.contains { $0 === dock } }
                 && ChatDockRules.isChatDock(dock, in: daemon.store)
-        }, prepare: {
-            // Only the run's original intent may seed selection or restore focus. Newer
-            // keyboard/mouse selections bump this existing FocusCoordinator generation.
+        }, seed: {
+            // The dock is new and no page is in it yet: the chat is its selected tab, so the
+            // daemon's active-tab default never shows a page that follows it.
             content.state.selection.select(chat.id, in: dock.id)
+            seed(dock)
+        }, prepare: {
+            // Focus only for the run's own intent: a newer click or key (FocusCoordinator's
+            // generation) keeps the focus the person chose.
             whenDocked(dock)
+        }, isChosen: { page in
+            content.state.selection.selection(in: source.id) == page.id
         }) { page, index in
             guard services.locateTab(page.id)?.1 === source,
                   services.agentTabs.isNewTabPage(page.id) else { return false }
@@ -69,15 +76,21 @@ extension ChatColumnPlacement {
         }
     }
 
-    /// Prepares selection before any optional moves, revalidating the destination between awaits.
-    /// A failed move leaves its slot available to the next page and never fails the tool open.
-    @MainActor static func followNewTabPages<Page>(_ pages: [Page], focus: FocusCoordinator, generation: UInt64, isDockCurrent: @MainActor () -> Bool,
-                                                   prepare: @MainActor () -> Void, move: @MainActor (Page, Int) async -> Bool) async {
+    /// The order of a dock's follow-up: `seed` the new dock's selection (always: nothing newer can
+    /// be in a dock that just appeared), `prepare` focus while the run's own intent is current, then
+    /// move each page after the chat, rechecking the dock between awaits. A page the person selected
+    /// after the run began stays where they are working. A failed move leaves its slot to the next.
+    @MainActor static func followNewTabPages<Page>(_ pages: [Page], isCurrentIntent: @MainActor () -> Bool,
+                                                   isDockCurrent: @MainActor () -> Bool, seed: @MainActor () -> Void,
+                                                   prepare: @MainActor () -> Void, isChosen: @MainActor (Page) -> Bool,
+                                                   move: @MainActor (Page, Int) async -> Bool) async {
         guard isDockCurrent() else { return }
-        if focus.currentState().generation == generation { prepare() }
+        seed()
+        if isCurrentIntent() { prepare() }
         var index = 1
         for page in pages {
             guard isDockCurrent() else { return }
+            if !isCurrentIntent(), isChosen(page) { continue }
             if await move(page, index) { index += 1 }
         }
     }

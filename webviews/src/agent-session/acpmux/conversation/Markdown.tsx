@@ -435,7 +435,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
       const path = opts.linkLabel ? undefined : codeReplyPath(t.slice(1, -1));
       out.push(
         path ? (
-          <PathChip key={k++} {...path} written={t.slice(1, -1)} />
+          <PathChip key={k++} {...path} written={t.slice(1, -1)} code />
         ) : (
           <code key={k++} className="cv-code">
             {t.slice(1, -1)}

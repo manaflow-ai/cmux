@@ -62,7 +62,7 @@ extension ChatColumnPlacement {
                   let chat = loneChat(in: controller.pane.tabs, isChat: { isChat($0, services: services) },
                                       isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
             // The new tab left in the pane takes focus, not the docked chat.
-            let source = controller.pane
+            let source = controller.pane, pane = controller.layoutPaneID
             let originalSurfaces = Set(source.tabs.map(\.surface))
             let intent = content.beginFocusIntent()
             let pages = newTabPages(in: source.tabs) { services.agentTabs.isNewTabPage($0.id) }
@@ -75,9 +75,12 @@ extension ChatColumnPlacement {
                 if let content {
                     await moveNewTabPages(pages, with: chat, from: source, in: content, services: services,
                                           generation: intent) { _ in
-                        // Land focus as soon as the dock is listed, before optional page moves.
+                        // Land focus as soon as the dock is listed, before optional page moves: on the
+                        // respawned tab, else (not listed yet) on the pane it opens in.
                         if let respawned = source.tabs.first(where: { !originalSurfaces.contains($0.surface) }) {
                             content.expectFocus(on: respawned.surface, generation: intent)
+                        } else {
+                            PaneHandlers.focus(pane, in: content)
                         }
                     }
                 }

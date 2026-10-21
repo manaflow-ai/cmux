@@ -17,6 +17,10 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
+        let names = AgentReplyNames()
+        links.findByName = { wanted, roots in await names.find(wanted, in: roots) }
+        // A chip that did not open says why, as other refused actions do.
+        links.notice = { [weak services] message in services?.registry.refuse(message) }
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

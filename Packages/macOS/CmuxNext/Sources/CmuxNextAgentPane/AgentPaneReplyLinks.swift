@@ -26,6 +26,13 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
     /// Asks the user to open a file outside the project (the view's native sheet).
     public var confirmOutside: (@MainActor (_ path: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// The files named like each bare name (`next-sync.py`) inside the roots, as absolute paths:
+    /// the App searches off the main thread with a bounded name index. The pane ranks and checks
+    /// them like any written path (``AgentPaneModel/resolveNames(_:resolver:)``). The default finds
+    /// nothing, so a host that wires nothing keeps bare names that are not in the folder as text.
+    public var findByName: @MainActor (_ names: [String], _ roots: [String]) async -> [String: [String]] = { _, _ in [:] }
+    /// Tells the person why a path chip did not open (the App's refusal notice).
+    public var notice: @MainActor (String) -> Void = { _ in }
     /// Shows a folder (in Finder: nothing in it runs).
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
@@ -51,9 +58,13 @@ extension AgentPaneModel {
         switch request {
         case .inspect(let paths, let urls):
             let resolver = replyPaths()
+            var resolvedPaths: [String: AgentPaneReplyPaths.Resolved] = [:]
+            for path in paths { resolvedPaths[path] = resolver.resolve(path) }
+            // A bare name that is not in the chat's folder may be in one of its subfolders.
+            let missing = resolvedPaths.filter { $0.value.place == .missing }.map(\.key)
+            for (name, found) in await resolveNames(missing, resolver: resolver) { resolvedPaths[name] = found }
             var places: [String: Any] = [:]
-            for path in paths {
-                guard let resolved = resolver.resolve(path) else { continue }
+            for (path, resolved) in resolvedPaths {
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
             let parsed = urls.compactMap { text in AgentPaneReplyRequest.webURL(text).map { (text, $0) } }
@@ -72,7 +83,11 @@ extension AgentPaneModel {
                 "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
             ])
         case .openPath(let path, let line):
-            return Self.replyResult(await openReplyPath(path, line: line))
+            let result = await openReplyPath(path, line: line)
+            if case .failure(let error) = result, let message = Self.openFailureNotice(error, path: path) {
+                replyLinks.notice(message)
+            }
+            return Self.replyResult(result)
         case .loadImage(let src):
             return await loadReplyImage(src)
         case .loadMedia(let src):
@@ -95,7 +110,9 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String, line: FileLineLocation? = nil) async -> Result<Void, AgentPaneReplyError> {
-        guard let resolved = replyPaths().resolve(text) else { return .failure(.pathInvalid) }
+        let resolver = replyPaths()
+        guard var resolved = resolver.resolve(text) else { return .failure(.pathInvalid) }
+        if resolved.place == .missing, let found = await resolveNames([text], resolver: resolver)[text] { resolved = found }
         switch resolved.place {
         case .denied: return .failure(.pathDenied)
         case .missing: return .failure(.pathInvalid)

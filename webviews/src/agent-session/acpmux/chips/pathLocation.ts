@@ -4,6 +4,8 @@ export interface ReplyPath {
   path: string;
   location?: FileLocation;
   suffix?: string;
+  /// A bare file name (`test.py`) in a code span: a chip only once the host finds the file.
+  bare?: boolean;
 }
 
 /** Splits the supported line spellings from a local path; folders have no position. */
