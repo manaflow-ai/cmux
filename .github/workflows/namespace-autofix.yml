@@ -101,8 +101,13 @@ jobs:
             esac
           }
 
-          # Restore every executable and baseline from the trusted base before
-          # inspecting PR source. No PR-controlled script is executed here.
+          # Replace all of scripts/ with the trusted base's before inspecting PR
+          # source, not only the files below: Python imports from the running
+          # script's own directory first, so a PR file such as
+          # scripts/argparse.py would run inside the lint with the token. No
+          # PR-controlled script is executed here.
+          rm -rf -- scripts
+          git archive "$BASE_SHA" scripts | tar -x
           for path in \
             scripts/lint-ios-package-conventions.sh \
             scripts/lint_swift_namespaces.py \
