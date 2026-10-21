@@ -47,5 +47,48 @@ async fn a_turn_whose_agent_only_reports_bookkeeping_is_silent() {
     let rid = c.send(method::SESSION_PROMPT, prompt(&id, "mute-busy", None)).await;
     let silent = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_silent").await;
     assert_eq!(silent["msg"]["silentMs"], 400, "{silent}");
+    // The model's late word ends the silence for every client: `turn_heard`, before the word.
+    let heard = c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_heard").await;
+    assert_eq!(heard["msg"]["turnId"], silent["msg"]["turnId"], "{heard}");
     assert_eq!(c.response(rid).await.0.unwrap()["stopReason"], "end_turn");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let at = |kind: &str| events.iter().position(|e| e.kind == kind).unwrap_or(usize::MAX);
+    assert!(
+        at("turn_heard") < at("agent_message_chunk"),
+        "{:?}",
+        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
+    );
+    assert_eq!(find(&events, "turn_heard").len(), 1);
+}
+
+/// A model at work often says nothing a client shows: Codex reasoning without summaries, Claude's
+/// redacted thinking, a prompt queued behind a running tool. Any sign of the model working counts:
+/// what it says or does, its requests, and the raw harness lines only a responding model produces.
+#[tokio::test]
+async fn a_turn_whose_model_shows_any_sign_of_work_is_not_silent() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.silent_turn_ms = Some(300);
+    let id = new_session(&mut c, "silent-signs").await;
+    for what in [
+        "thought",
+        "tool",
+        "plan",
+        "ask",
+        "compaction",
+        "subagent",
+        "stream",
+        "assistant",
+        "thinking",
+        "tool-progress",
+        "moderation",
+    ] {
+        let text = format!("quiet-{what}");
+        c.request(method::SESSION_PROMPT, prompt(&id, &text, None)).await.unwrap();
+        let events = hub.events(&id, 0, 10_000).unwrap();
+        assert!(
+            find(&events, "turn_silent").is_empty(),
+            "{what}: {:?}",
+            find(&events, "turn_silent")
+        );
+    }
 }
