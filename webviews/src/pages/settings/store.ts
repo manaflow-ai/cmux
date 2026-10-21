@@ -329,7 +329,7 @@ export class SettingsStore {
   }
 
   /** Removes an allowed phone (Settings > Accounts > Phone Access); the list is read again. */
-  async removePhone(id: string): Promise<void> {
+  async removeAllowedPhone(id: string): Promise<void> {
     const reply = await this.request("cmux.settings.phones.remove", { id });
     if (reply.ok) await this.refreshHost();
   }

@@ -123,7 +123,7 @@ export function PhonesSection() {
                   type="button"
                   className="button danger"
                   data-remove-phone={phone.id}
-                  onClick={() => void store.removePhone(phone.id)}
+                  onClick={() => void store.removeAllowedPhone(phone.id)}
                 >
                   {t("settingsWindow.removePhone")}
                 </button>
