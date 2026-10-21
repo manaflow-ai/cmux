@@ -42,10 +42,13 @@ struct UpdateEverythingRunTests {
             #expect(ids == ["ssh:devbox"])
             var mac = Self.thisMac
             mac.harnesses = []
-            return UpdateEverythingPlan(machines: [mac, Self.devbox])
+            // A machine that connected after the confirmation was never shown to the person.
+            let late = UpdateEverythingMachine(id: "ssh:late", name: "late", kind: .ssh,
+                                               daemon: UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: "aaaaaaa", to: "bbbbbbb"))
+            return UpdateEverythingPlan(machines: [mac, Self.devbox, late])
         }, steps: steps)
         #expect(again?.map(\.failure) == [nil])
-        #expect(steps.log == ["daemon ssh:devbox", "agents ssh:devbox codex continue"])
+        #expect(steps.log == ["daemon ssh:devbox", "agents ssh:devbox codex continue"], "only the confirmed machines update")
         #expect(!steps.log.contains("install app"), "the app installs once")
         // The note is gone: a third launch finishes nothing.
         #expect(await UpdateEverythingRunner(journal: journal, appVersion: "101").finishAfterRelaunch(plan: { _ in plan }, steps: steps) == nil)

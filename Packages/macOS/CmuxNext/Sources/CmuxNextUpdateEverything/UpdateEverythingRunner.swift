@@ -102,6 +102,8 @@ public final class UpdateEverythingRunner {
         guard let entry = await journal.take(runningVersion: appVersion), claim() else { return nil }
         defer { release() }
         var fresh = await plan(entry.machineIDs)
+        // Only the machines the person confirmed: one that connected since is not in the note.
+        fresh.machines.removeAll { !entry.machineIDs.contains($0.id) }
         // The app just updated: a second Sparkle update found meanwhile waits for the next run.
         for index in fresh.machines.indices { fresh.machines[index].app = nil }
         return await run(fresh, continueThreads: entry.continueThreads, steps: steps)
