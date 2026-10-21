@@ -315,6 +315,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         claude_profile: None,
         last_turn: None,
         remote_origin: d.remote,
+        restricted: false,
         session_env: Default::default(),
         workspace_id: None,
         chat_store: None,

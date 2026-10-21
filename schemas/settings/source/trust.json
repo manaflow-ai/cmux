@@ -33,6 +33,30 @@
           ]
         },
         {
+          "key": "agents.trust.restrictedChats",
+          "name": "trustRestrictedChats",
+          "note": "On: Not now on a folder's trust question leaves a Claude Code chat that still runs, restricted (acpmux hub/restricted.rs): no project settings, hooks or MCP servers, and every tool asks. Off: the chat sends no prompts until the folder is trusted. Other agents always refuse.",
+          "title": {
+            "key": "settings.agents.trust.restrictedChats",
+            "text": "Restricted Chats in Untrusted Folders"
+          },
+          "help": {
+            "key": "settings.agents.trust.restrictedChats.help",
+            "text": "After Not now, Claude Code still runs in the folder without its project settings, hooks or MCP servers, and asks before every tool. Off: the chat waits until you trust the folder."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "trust",
+            "untrusted",
+            "restricted",
+            "folder",
+            "hooks",
+            "mcp",
+            "agents"
+          ]
+        },
+        {
           "key": "agents.trust.projectRoots",
           "name": "trustProjectRoots",
           "note": "Folders whose contents are trusted without a question: absolute or ~/ paths. Symlinks are resolved first, so a link out of a root is not trusted.",

@@ -113,7 +113,14 @@ pub(super) async fn handle_request(
         )
         .await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
-    super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
+    // The folder-trust gate; a folder the person did not trust may open a restricted chat.
+    let verdict_trust =
+        super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?;
+    // A restricted chat never widens what runs without asking (`hub/restricted.rs`).
+    if let Some(s) = &resolved {
+        crate::hub::restricted::refuse_widening(&s.meta(), m, &params)?;
+    }
+    let restricted = verdict_trust == super::trust_gate::Verdict::Restricted;
     let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
         // The check saw a peer's prompt: only the peer decides it. If the
@@ -126,7 +133,7 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        dispatch_request(hub, conn, m, params, resolved).await
+        dispatch_request(hub, conn, m, params, resolved, restricted).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
@@ -138,6 +145,8 @@ async fn dispatch_request(
     m: &str,
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
+    // The trust gate's verdict: the request's folder opens a restricted chat (`hub/restricted.rs`).
+    restricted: bool,
 ) -> Result<Value, RpcError> {
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -399,6 +408,7 @@ async fn dispatch_request(
                     .await,
                 route,
                 subsession: None,
+                restricted,
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
@@ -417,7 +427,8 @@ async fn dispatch_request(
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
                 }
-            } else {
+            } else if !s.meta().restricted {
+                // A restricted chat starts in Claude Code's asking default (`hub/restricted.rs`).
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);

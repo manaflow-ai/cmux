@@ -200,6 +200,8 @@ impl Hub {
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            // A fork of a restricted chat stays restricted (`hub/restricted.rs`).
+            restricted: parent_meta.restricted,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,

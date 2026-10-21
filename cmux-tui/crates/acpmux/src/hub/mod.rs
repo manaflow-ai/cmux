@@ -98,6 +98,7 @@ mod pull_requests;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+pub(crate) mod restricted;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod subsessions;

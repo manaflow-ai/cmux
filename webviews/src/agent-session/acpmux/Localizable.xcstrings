@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "trust.restricted" : {
+      "comment" : "Agent pane: after Not now, the chat still runs restricted (acpmux restricted chat): it reads no project settings, hooks or MCP servers and asks before every tool. Shown with Trust repo / Trust folder and Undo.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مقيّد: بلا إعدادات المشروع أو الخطافات أو MCP؛ يسأل قبل كل أداة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ograničeno: bez postavki projekta, hookova i MCP-a; pita prije svakog alata"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Begrænset: ingen projektindstillinger, hooks eller MCP; spørger før hvert værktøj"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eingeschränkt: keine Projekteinstellungen, Hooks oder MCP; fragt vor jedem Werkzeug"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restricted: no project settings, hooks or MCP; asks before every tool"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Restringido: sin ajustes del proyecto, hooks ni MCP; pregunta antes de cada herramienta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Restreint : sans réglages du projet, hooks ni MCP ; demande avant chaque outil"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Limitato: niente impostazioni del progetto, hook o MCP; chiede prima di ogni strumento"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "制限付き: プロジェクトの設定、フック、MCP は読み込まず、ツールごとに確認します"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានដាក់កំហិត៖ គ្មានការកំណត់គម្រោង hook ឬ MCP ទេ; សួរមុនរាល់ឧបករណ៍"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제한됨: 프로젝트 설정, 훅, MCP 없이 실행하며 도구마다 묻습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Begrenset: ingen prosjektinnstillinger, hooks eller MCP; spør før hvert verktøy"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ograniczony: bez ustawień projektu, hooków i MCP; pyta przed każdym narzędziem"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Restrito: sem configurações do projeto, hooks nem MCP; pergunta antes de cada ferramenta"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ограничено: без настроек проекта, хуков и MCP; спрашивает перед каждым инструментом"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำกัด: ไม่มีการตั้งค่าโปรเจกต์ ฮุก หรือ MCP; ถามก่อนใช้ทุกเครื่องมือ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kısıtlı: proje ayarları, kancalar ve MCP yok; her araçtan önce sorar"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Обмежено: без налаштувань проєкту, хуків і MCP; питає перед кожним інструментом"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bị hạn chế: không có cài đặt dự án, hook hay MCP; hỏi trước mỗi công cụ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "受限：不加载项目设置、钩子或 MCP；每次使用工具前都会询问"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "受限：不載入專案設定、鉤子或 MCP；每次使用工具前都會詢問"
+          }
+        }
+      }
+    },
+    "failover.refusedRestricted" : {
+      "comment" : "Agent pane: transcript note where acpmux kept a restricted chat (a folder the person has not trusted) on its harness after a usage limit instead of moving it to its fallback harness, which cannot run restricted; {to} is the fallback harness name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يمكن التبديل إلى {to} في مجلد لم تمنحه الثقة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće prebaciti na {to} u folderu kojem niste dali povjerenje"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kan ikke skifte til {to} i en mappe, du ikke har givet tillid"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wechsel zu {to} ist in einem Ordner, dem du nicht vertraust, nicht möglich"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't switch to {to} in a folder you haven't trusted"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se puede cambiar a {to} en una carpeta en la que no has confiado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de passer à {to} dans un dossier auquel vous n’avez pas fait confiance"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile passare a {to} in una cartella di cui non ti sei fidato"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "信頼していないフォルダでは {to} に切り替えられません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចប្ដូរទៅ {to} ក្នុងថតដែលអ្នកមិនទាន់ទុកចិត្តបានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "신뢰하지 않은 폴더에서는 {to}(으)로 전환할 수 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kan ikke bytte til {to} i en mappe du ikke har stolt på"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można przełączyć na {to} w folderze, któremu nie zaufano"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não é possível mudar para {to} em uma pasta em que você não confiou"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нельзя переключиться на {to} в папке, которой вы не доверяете"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สลับไปใช้ {to} ไม่ได้ในโฟลเดอร์ที่คุณยังไม่ได้เชื่อถือ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Güvenmediğiniz bir klasörde {to} aracına geçilemez"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдається перейти на {to} у теці, якій ви не довіряєте"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể chuyển sang {to} trong thư mục bạn chưa tin cậy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法在你未信任的文件夹中切换到 {to}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法在你未信任的資料夾中切換到 {to}"
+          }
+        }
+      }
+    },
     "runBoard.error.snapshotFailed" : {
       "comment" : "Agent pane run board: error shown when loading the run's snapshot fails and the server sent no message; {status} is the HTTP status code",
       "extractionState" : "manual",
