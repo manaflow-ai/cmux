@@ -146,6 +146,12 @@ public final class UpdaterService {
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
     /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Reads the executable's live session and input state before Sparkle relaunches.
+    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
+    /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).
+    @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
+    /// The install in flight started by itself (the idle policy): a failure opens nothing.
+    @ObservationIgnored var automaticInstallInFlight = false
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
@@ -199,10 +205,16 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The click hides every window and the daemon keeps every session, so a user
+            // install relaunches at once; only automatic idle installs wait.
+            controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
             // waits once instead of downloading the full DMG.
             if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
+            // A nightly installs a downloaded update by itself once agents, commands and input
+            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
+            controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
             #if DEBUG
@@ -453,10 +465,9 @@ extension UpdaterService: UpdateActionDelegate {
         willRelaunch?()
     }
 
-    /// A relaunch interrupts nothing (the daemon keeps every terminal and
-    /// agent running), so a ready update is never held.
+    /// Reads the executable's live blocker provider before Sparkle relaunches.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
-        .empty
+        relaunchBlockers()
     }
 }
 
