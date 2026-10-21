@@ -292,6 +292,15 @@ class SidebarItemRowView: NSView {
         layoutActivity(onGlyph: wellFrame)
     }
 
+    /// The cache key of the pin's ink (`SidebarGlyphInk`).
+    private static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+
+    /// The pin's drawn ink in the row's coordinates; nil without a pin (tests).
+    var pinInkFrame: CGRect? {
+        guard !pin.isHidden, let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else { return nil }
+        return ink.offsetBy(dx: pin.frame.minX, dy: pin.frame.minY)
+    }
+
     /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
     private func glyphImage(side: CGFloat) -> NSImage? {
         if let favicon = info.favicon { return NSImage(cgImage: favicon.image, size: NSSize(width: side, height: side)) }
