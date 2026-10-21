@@ -53,12 +53,6 @@ extension DaemonConnection {
         _ = try await request(PinWorkspaceRequest(sessionID: session, workspaceKey: key, profile: room))
     }
 
-    /// The same, with deadline `timeout` (``createTimeout`` for a person's create).
-    public func pinWorkspace(session: String, key: WorkspaceKey, to room: ProfileID, timeout: Duration?) async throws {
-        try requireProfiles()
-        _ = try await request(PinWorkspaceRequest(sessionID: session, workspaceKey: key, profile: room), timeout: timeout)
-    }
-
     public func unpinWorkspace(session: String, key: WorkspaceKey) async throws {
         try requireProfiles()
         _ = try await request(UnpinWorkspaceRequest(sessionID: session, workspaceKey: key))

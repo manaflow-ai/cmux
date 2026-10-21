@@ -131,18 +131,6 @@ public actor DaemonConnection {
     /// Control requests that start a terminal use this plus 1 s
     /// (`ControlRouter.terminalStartDeadline`).
     public static let defaultSpawnTimeout: Duration = .seconds(5)
-    /// The deadline for a workspace create a person asked for (Cmd-N, New
-    /// Workspace): its room pin, `create-workspace` and its first tab. The
-    /// window shows the new workspace from the press, so nothing waits on
-    /// these. A busy daemon missed the 2 s control deadline yet made the
-    /// workspace, and giving up then removed the workspace the person was
-    /// looking at and closed it.
-    public static let defaultCreateTimeout: Duration = .seconds(30)
-
-    /// ``defaultCreateTimeout``, or no deadline when this connection has none (tests).
-    public nonisolated var createTimeout: Duration? {
-        configuration.requestTimeout == nil ? nil : Self.defaultCreateTimeout
-    }
 
     /// Sends one command and decodes its response. Fails with
     /// `DaemonError.timedOut` after `timeout` (default: the configured
