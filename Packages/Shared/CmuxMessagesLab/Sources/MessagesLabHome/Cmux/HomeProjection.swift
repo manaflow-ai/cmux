@@ -56,6 +56,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // morph and the bubbles are MessagesLab's.
     /// The "+" button.
     var onPickAttachments: () -> Void = {}
+    /// The "+" button's menu, shown at the button (`anchor`); nil: the "+" opens the file picker.
+    var onPlusMenu: ((NSView) -> Void)?
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
     /// While dragging, types only.
@@ -592,6 +594,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func pickAttachments() { onPickAttachments() }
+    func plusClicked(anchor: NSView) {
+        if let onPlusMenu { onPlusMenu(anchor) } else { onPickAttachments() }
+    }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func statusLineClicked(_ rect: CGRect, in view: NSView) {

@@ -1199,7 +1199,8 @@
             "key" : "privacy.0",
             "rows" : [
               "history.terminalCommands",
-              "home.attachments.keepLocation"
+              "home.attachments.keepLocation",
+              "home.clipboardHistory"
             ],
             "title" : {
               "key" : "settings.pageGroup.localData",
@@ -16463,7 +16464,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.diffViewer",
@@ -31067,6 +31068,58 @@
       "title" : {
         "key" : "settings.home.keepLocation",
         "text" : "Keep Location in Photos and Videos"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attachments",
+        "text" : "Attachments"
+      },
+      "help" : {
+        "key" : "settings.home.clipboardHistory.help",
+        "text" : "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.clipboardHistory",
+      "keywords" : [
+        "clipboard",
+        "pasteboard",
+        "copy",
+        "paste",
+        "history",
+        "privacy",
+        "attachments",
+        "chief",
+        "plus"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "clipboardHistory"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.clipboardHistory",
+        "text" : "Clipboard History in the + Menu"
       },
       "validation" : "portable"
     },

@@ -5,6 +5,7 @@
   "defaults": {
     "flag.CmuxNextDaemonService/PaneSplitCommand.optimisticSplitEnabled": true,
     "flag.CmuxNextDesign/Motion/MotionTrace.isEnabled": false,
+    "flag.CmuxNextSettings/HomeClipboardHistorySetting.defaultEnabled": true,
     "flag.CmuxNextSidebar/Views/SidebarListView+RowHold.rowHoldEnabled": false,
     "ghostty.super+alt+shift+w": "unbind",
     "ghostty.super+alt+w": "unbind",
@@ -52,7 +53,7 @@
     "key.closeOtherTabsInPane": ["opt+cmd+t"],
     "key.closeTab": ["cmd+w"],
     "key.closeWindow": ["ctrl+cmd+w"],
-    "key.closeWorkspace": ["shift+cmd+w"],
+    "key.closeWorkspace": ["cmd+w when sidebar.multiSelection", "shift+cmd+w"],
     "key.column.dock": ["ctrl+cmd+p"],
     "key.commandPalette": ["shift+cmd+p"],
     "key.commandPaletteNext": ["ctrl+n", "down when paletteOpen"],
@@ -471,6 +472,7 @@
     "setting.home.chiefBubbleStyle": "imessage",
     "setting.home.chiefPetEnabled": false,
     "setting.home.chiefPetMascot": "orb",
+    "setting.home.clipboardHistory": true,
     "setting.home.server": "hosted",
     "setting.labs.classicHome": false,
     "setting.labs.previewFeatures": false,
@@ -730,7 +732,7 @@
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
     "setting.workspaces.autoName": true,
-    "setting.workspaces.newPlacement": "afterCurrent",
+    "setting.workspaces.newPlacement": "top",
     "steps-aside.yieldsToCodeEditor": ["all common vscode shortcuts", "focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],
     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
     "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"]

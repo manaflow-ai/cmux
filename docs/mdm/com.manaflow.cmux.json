@@ -1712,7 +1712,7 @@
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
-      "default" : true,
+      "default" : false,
       "description" : "diff.wordDiffs",
       "title" : "Highlight Word Changes",
       "type" : "boolean"
@@ -2306,6 +2306,12 @@
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.clipboardHistory" : {
+      "default" : true,
+      "description" : "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it.",
+      "title" : "Clipboard History in the + Menu",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",

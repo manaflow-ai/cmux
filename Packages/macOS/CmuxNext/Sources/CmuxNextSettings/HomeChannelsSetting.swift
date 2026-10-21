@@ -46,13 +46,16 @@ extension HomeChannelsSetting {
 }
 
 extension CmuxConfigSnapshot {
-    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet and the messages server; each toggle absent is off, and a value
-    /// that is not a bool is off plus a diagnostic.
+    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet, the messages server and the + menu's
+    /// clipboard history; each toggle absent is its default (the history on, the rest off), and a value that is not a
+    /// bool is the default plus a diagnostic.
     mutating func takeHome(_ root: JSONValue) {
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: false), \.homeChannelsEnabled)
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)
         take(HomeChiefPetSetting.parseMascot(root), \.homeChiefPetMascot)
         take(HomeServerSetting.parse(root), \.homeServer)
+        take(Self.parseLabsToggle(root, path: HomeClipboardHistorySetting.configPath, fallback: HomeClipboardHistorySetting.defaultEnabled),
+             \.homeClipboardHistory)
     }
 }
