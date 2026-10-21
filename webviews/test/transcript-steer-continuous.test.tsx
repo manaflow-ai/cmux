@@ -6,7 +6,9 @@
 // fresh "Working for 18s". He never pressed Stop; with Claude a steer does not stop the turn.
 //
 // - The steer draws inline in the running turn, which reads "Working for" from the first prompt.
-// - The cancel the steer caused is not drawn as "You stopped after"; the steer reads "Steered".
+// - The cancel the steer caused is not drawn as "You stopped after", and the prompt carries no
+//   mark of its own (no "Steered": #22773 removes those marks); it is accepted and drawn inline.
+// - A Send now that ends the turn with `end_turn` (acpmux #22808, Claude) goes on the same way.
 // - Once the turn ends, its fold times the whole chain from the first prompt.
 // - A real Stop still reads "You stopped after", also when a prompt is sent now after it.
 // - Everything else that finds a turn by its prompt walks past a steer too (review of #22691): the
@@ -15,11 +17,9 @@
 //   the chain as one. "You stopped after" neither flashes between the cancel and the steer's
 //   record nor comes back when an older history page ends at the steer.
 import { expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { SteerMark } from "../src/agent-session/acpmux/conversation/SteerMark";
 import {
   turnFoldFor,
   turnFooterFrom,
@@ -141,8 +141,6 @@ const steerChain: Step[] = [
   ["in", "tool_call", call("t-2", "bun test logout"), 70],
 ];
 
-const steerText = (row: AcpmuxRow) => renderToStaticMarkup(<SteerMark steer={row.steer!} />);
-
 test("a steer draws inline in the running turn, whose line counts from the first prompt", async () => {
   const rows = await rowsOf(record(steerChain));
   const view = turnView(rows, new Set(), { working: true });
@@ -156,8 +154,9 @@ test("a steer draws inline in the running turn, whose line counts from the first
   // Nothing says the turn was stopped.
   expect(view.some((row) => row.kind === "turnSummary" && row.status === "cancelled")).toBe(false);
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
-  expect(steer.steer).toBe("landed");
-  expect(steerText(steer)).toContain(translate("steer.landed"));
+  expect(steer.steer).toBeUndefined();
+  expect(steer.continues).toBe(true);
+  expect(steer.pending).toBeFalsy();
 });
 
 test("once the chain ends, its fold reads Worked for, timed from the first prompt", async () => {
@@ -317,7 +316,8 @@ test("an older history page that ends at the steer leaves it a steer", async () 
   const { client, rows } = await clientOf(history, history.length - from);
   await client.loadOlder();
   const steer = rows().find((row) => row.kind === "user" && row.text === "also check the logout path")!;
-  expect(steer.steer).toBe("landed");
+  expect(steer.steer).toBeUndefined();
+  expect(steer.continues).toBe(true);
   const view = turnView(rows(), new Set());
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
@@ -336,7 +336,7 @@ test("an edit before a sent-now cancel asks for its checkpoint only once the tur
     row("u", "user", { text: "Fix the flaky login test" }),
     row("e", "editedFiles"),
     row("cut", "turnSummary", { status: "cancelled", continued: true }),
-    row("s", "user", { text: "also check the logout path", steer: "landed" }),
+    row("s", "user", { text: "also check the logout path", continues: true }),
   ];
   // The cancel the steer caused does not end the turn: nothing asks for a pair that is not there.
   expect(endedEditRow(markRows(before))).toBeUndefined();
@@ -408,7 +408,37 @@ test("an older page read while a Send now waits leaves that Send now a steer", a
     ]),
   );
   const steer = rows().find((row) => row.kind === "user" && row.text === "also check the logout path")!;
-  expect(steer.steer).toBe("landed");
+  expect(steer.steer).toBeUndefined();
+  expect(steer.continues).toBe(true);
   const view = turnView(rows(), new Set(), { working: true });
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
+});
+
+test("a Send now that ends the turn with end_turn goes on as the same turn", async () => {
+  // acpmux #22808: Claude's Send now ends the running turn as completed, not cancelled.
+  const chain = steerChain.map((step): Step =>
+    step[1] === "turn_result"
+      ? [step[0], step[1], { status: "completed", stopReason: "end_turn", turnId: "turn-1" }, step[3]]
+      : step,
+  );
+  const rows = await rowsOf(record(chain));
+  const view = turnView(rows, new Set(), { working: true });
+  const first = view.find((row) => row.kind === "user" && row.text === "Fix the flaky login test")!;
+  const steer = view.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
+  expect(steer.continues).toBe(true);
+  expect(view.filter((row) => row.kind === WORKED)).toHaveLength(0);
+  expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(0);
+  const working = view.filter((row) => row.kind === WORKING);
+  expect(working).toHaveLength(1);
+  expect(working[0]!.at).toBe(first.at);
+});
+
+test("a turn that failed while a Send now waited still shows its failure", async () => {
+  const chain = steerChain.map((step): Step =>
+    step[1] === "turn_result" ? [step[0], step[1], { status: "failed", turnId: "turn-1" }, step[3]] : step,
+  );
+  const rows = await rowsOf(record(chain));
+  const next = rows.find((row) => row.kind === "user" && row.text === "also check the logout path")!;
+  expect(next.continues).toBeUndefined();
+  expect(rows.some((row) => row.kind === "turnSummary" && row.status === "failed" && !row.continued)).toBe(true);
 });
