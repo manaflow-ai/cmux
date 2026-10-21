@@ -23,6 +23,7 @@ pub struct NativeBootstrap {
     binding: ReceiverBinding,
     keys: Keyset,
     private_key: Zeroizing<[u8; 32]>,
+    generation: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -31,6 +32,7 @@ struct Header {
     version: u8,
     binding: ReceiverBinding,
     keyset: Value,
+    generation: String,
 }
 
 impl NativeBootstrap {
@@ -38,14 +40,17 @@ impl NativeBootstrap {
         binding: ReceiverBinding,
         keys: Keyset,
         private_key: Zeroizing<[u8; 32]>,
+        generation: String,
     ) -> Result<Self, String> {
         let public = PublicKey::from(&StaticSecret::from(*private_key));
         if private_key.iter().all(|b| *b == 0)
             || STANDARD.encode(public.as_bytes()) != binding.wg_public_key
+            || generation.len() != 64
+            || !generation.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         {
             return Err(UNAVAILABLE.into());
         }
-        let value = Self { binding, keys, private_key };
+        let value = Self { binding, keys, private_key, generation };
         // Validate the same public keyset representation the recipient reads.
         read_keyset(&value.header().keyset).map_err(|_| UNAVAILABLE)?;
         Ok(value)
@@ -59,8 +64,12 @@ impl NativeBootstrap {
         &self.keys
     }
 
-    pub fn into_parts(self) -> (ReceiverBinding, Keyset, Zeroizing<[u8; 32]>) {
-        (self.binding, self.keys, self.private_key)
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    pub fn into_parts(self) -> (ReceiverBinding, Keyset, Zeroizing<[u8; 32]>, String) {
+        (self.binding, self.keys, self.private_key, self.generation)
     }
 
     fn header(&self) -> Header {
@@ -68,9 +77,10 @@ impl NativeBootstrap {
             (kid.clone(), json!({"kty":"OKP","crv":"Ed25519","alg":"EdDSA","kid":kid,"x":URL_SAFE_NO_PAD.encode(key)}))
         ).collect();
         Header {
-            version: 1,
+            version: 2,
             binding: self.binding.clone(),
             keyset: json!({"version":self.keys.version,"keys":keys}),
+            generation: self.generation.clone(),
         }
     }
 
@@ -105,12 +115,12 @@ impl NativeBootstrap {
         let header = &bytes[4..length - 32];
         let _: UniqueJson = serde_json::from_slice(header).map_err(|_| UNAVAILABLE)?;
         let header: Header = serde_json::from_slice(header).map_err(|_| UNAVAILABLE)?;
-        if header.version != 1 {
+        if header.version != 2 {
             return Err(UNAVAILABLE.into());
         }
         let keys = read_keyset(&header.keyset).map_err(|_| UNAVAILABLE)?;
         let private = Zeroizing::new(bytes[length - 32..].try_into().map_err(|_| UNAVAILABLE)?);
-        Self::new(header.binding, keys, private)
+        Self::new(header.binding, keys, private, header.generation)
     }
 }
 

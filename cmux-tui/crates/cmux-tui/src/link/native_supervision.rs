@@ -97,9 +97,11 @@ async fn receive_role(
     mux: &Arc<Mux>,
     session: &Path,
 ) -> anyhow::Result<()> {
+    let notification = role.try_clone()?;
     role.set_nonblocking(true)?;
     stopped.set_nonblocking(true)?;
     let mut role = UnixStream::from_std(role)?;
+    let mut notification = UnixStream::from_std(notification)?;
     let mut stopped = UnixStream::from_std(stopped)?;
     let frame = tokio::select! {
         biased;
@@ -117,34 +119,26 @@ async fn receive_role(
         }
     };
     tokio::pin!(canceled);
-    let mut retry = Duration::from_secs(1);
-    loop {
-        let command = receiving_command(session)?;
-        let started = tokio::select! {
-            biased;
-            result = &mut canceled => return result,
-            result = tokio::time::timeout(REQUEST_BUDGET, NativeChild::start(command, mux, session, &frame)) => result,
-        };
-        if let Ok(Ok(mut child)) = started {
-            tokio::select! {
-                biased;
-                result = &mut canceled => {
-                    child.stop().await?;
-                    return result;
-                }
-                _ = child.ended() => {},
-            }
-            // Also closes ingress and reaps on unexpected child/control loss.
+    let command = receiving_command(session)?;
+    let mut child = tokio::select! {
+        biased;
+        result = &mut canceled => return result,
+        result = tokio::time::timeout(REQUEST_BUDGET, NativeChild::start(command, mux, session, &frame)) => result??,
+    };
+    if let Err(error) = notification.write_all(&[2]).await {
+        child.stop().await?;
+        return Err(error.into());
+    }
+    tokio::select! {
+        biased;
+        result = &mut canceled => { child.stop().await?; result },
+        _ = child.ended() => {
+            // One frame owns exactly one process attempt. Remove ingress and
+            // reap before the daemon reports completion; root must supply a
+            // fresh generation rather than replaying this private frame.
             drop(child);
-        }
-        eprintln!("cmux: Native receiver unavailable; retrying");
-        // Genuine startup/process failure backoff, not a state polling timer.
-        tokio::select! {
-            biased;
-            result = &mut canceled => return result,
-            () = tokio::time::sleep(retry) => {},
-        }
-        retry = (retry * 2).min(Duration::from_secs(30));
+            Ok(())
+        },
     }
 }
 

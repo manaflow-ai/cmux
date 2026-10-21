@@ -56,6 +56,12 @@ struct Server {
     status: u16,
     deadlines: Deadlines,
     after_policy: Option<Rc<dyn Fn()>>,
+    lifecycle: Option<Rc<RefCell<Lifecycle>>>,
+}
+struct Lifecycle {
+    phase: String,
+    generation: String,
+    counter: u64,
 }
 impl Http for Server {
     fn post(&self, _: &str, _: &Value, _: Option<&str>) -> Result<(u16, Value), String> {
@@ -84,13 +90,57 @@ impl Http for Server {
             ));
             json!({ "user":USER,"install":INSTALL,"team":TEAM,"grant":GRANT,"token_type":"Bearer",
                 "access_token":"private-test-bearer","expires_at":NOW+600_000 })
+        } else if url.ends_with("/v1/ops") {
+            assert_eq!(bearer, Some("private-test-bearer"));
+            let request = body.unwrap();
+            assert_eq!(request["op"], "cloud.vm.receiver.lifecycle");
+            assert!(request.get("idempotency_key").is_none());
+            let params = &request["params"];
+            assert_eq!(params["machine"], MACHINE);
+            let mut state =
+                self.lifecycle.as_ref().expect("lifecycle fixture enabled").borrow_mut();
+            let phase = params["phase"].as_str().unwrap();
+            if phase != "read" {
+                assert_eq!(params["expected"], state.generation);
+            }
+            match phase {
+                "read" => {}
+                "begin" => {
+                    assert!(state.phase == "idle" || state.phase == "stopped");
+                    let nonce = params["attempt"].as_str().unwrap();
+                    assert_eq!(nonce.len(), 32);
+                    state.counter += 1;
+                    state.generation = format!("{:064x}", state.counter);
+                    state.phase = "starting".into();
+                }
+                "ready" => {
+                    assert!(state.phase == "starting" || state.phase == "ready");
+                    state.phase = "ready".into();
+                }
+                "end" => state.phase = "stopped".into(),
+                _ => panic!("unknown lifecycle phase"),
+            }
+            json!({"ok":true,"op":"cloud.vm.receiver.lifecycle","value":{"machine":MACHINE,"generation":state.generation,"phase":state.phase},
+                "transaction":"fixture-transaction","idempotency_key":"","replayed":false,"stream":"","sequence":0})
         } else if url.ends_with("/v1/read") {
             assert_eq!(bearer, Some("private-test-bearer"));
             assert_eq!(body.unwrap()["params"], json!({"machine":MACHINE}));
             if let Some(after) = &self.after_policy {
                 after();
             }
-            return Ok((self.status, self.policy.clone()));
+            let mut policy = self.policy.clone();
+            if let Some(state) = &self.lifecycle {
+                let state = state.borrow();
+                let mut value: Value = serde_json::from_slice(&policy).unwrap();
+                value["value"]["receiver_generation"] =
+                    if state.phase == "starting" || state.phase == "ready" {
+                        state.generation.clone().into()
+                    } else {
+                        Value::Null
+                    };
+                policy = serde_json::to_vec(&value).unwrap();
+            }
+            return Ok((self.status, policy));
         } else {
             assert!(url.ends_with("/v1/cloud/keyset"));
             assert!(body.is_none() && bearer.is_none());
@@ -141,7 +191,7 @@ fn setup_tweaked(
     record(&key, &bound, &wg);
     let peer_key = InstallKey::generate(&SystemRandom::new()).unwrap();
     let mut policy = json!({ "op":"cloud.vm.network_policy", "stream":format!("cloud:{TEAM}"),"revision":"1","value":{
-        "schema_version":1,"machine":MACHINE,"host":bound.host,"epoch":4,"user":USER,"install":INSTALL,"team":TEAM,
+        "schema_version":2,"receiver_generation":"a".repeat(64),"machine":MACHINE,"host":bound.host,"epoch":4,"user":USER,"install":INSTALL,"team":TEAM,
         "origin":"https://native.example.com","tenant":network["tenant"],"mesh":network["mesh"],
         "vm":"vm_00000000000000000000000004","ipv4":"10.2.0.4","wg_public_key":wg,
         "install_public_key":install_point(&key.public_jwk()).unwrap(), "authority_version":"a".repeat(64),
@@ -160,6 +210,7 @@ fn setup_tweaked(
         status: 200,
         deadlines: deadlines.clone(),
         after_policy,
+        lifecycle: None,
     };
     tweak(&mut http);
     (CloudClient::new(http, bound, key), wg, deadlines)
@@ -235,6 +286,9 @@ refuses!(vm_receiver_client_read_refuses_wrong_operation, |p, _| p["op"] =
 refuses!(vm_receiver_client_read_refuses_long_lease, |p, _| p["value"]["expires_at"] =
     (NOW + 30_001).into());
 refuses!(vm_receiver_client_read_refuses_empty_lease, |p, _| p["value"]["expires_at"] = NOW.into());
+refuses!(vm_receiver_client_read_refuses_missing_generation, |p, _| {
+    p["value"].as_object_mut().unwrap().remove("receiver_generation");
+});
 refuses!(vm_receiver_client_read_refuses_unsafe_number, |p, _| p["value"]["acl_version"] =
     9_007_199_254_740_992i64.into());
 refuses!(

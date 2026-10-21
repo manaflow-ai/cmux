@@ -12,6 +12,7 @@ import { newBindToken, sha256Hex } from "./cloud-link.ts"
 import { AccessAudit, who } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
+import { CloudMachineAuthorities } from "./cloud-machine-authorities.ts"
 import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
 import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
@@ -54,6 +55,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected readonly vmStatus = new VmStatusQueue(this.sqlStore)
   /** The one durable path that ends VM installs (cloud-vm-revoke.ts). */
   protected readonly vmRevokes = new VmInstallRevokes(this.sqlStore)
+  private readonly machineAuthorities = new CloudMachineAuthorities(this.sqlStore, this.vmRevokes, () => this.audit,
+    () => Date.now() + this.skewMs, { at: (machine) => this.silentRetryAt(machine), clear: (machine) => this.silentRetry.clear(machine) })
   /** The coderouter.cmux.internal edge rule and its token refresh (development only; cloud-coderouter-edge.ts). */
   protected readonly edge = new CoderouterEdge(this.sqlStore, this.env)
   /** Test only: fail the next N revoke calls (fakeControl `fail_revokes`). */
@@ -73,17 +76,10 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   protected abstract silentRetryAt(machine: string): number | null
   protected abstract silentRetry: { clear(machine: string): void }
 
-  /** After every commit: a machine the commit left gone, failed or deleting loses its VM install (and a cleared ledger row's machine too). */
-  protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {
+  /** Reconcile machine grants, receiving attempts and idle retries after each commit. */
+  protected override afterOp(principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>, _params?: unknown) {
     const engine = this.boundEngine
-    if (!engine) return
-    const value = (frames.find((f) => f.t === "result") as { value?: { audit?: { machine?: unknown } } } | undefined)?.value
-    const machines = new Set([engine.currentState.changed?.machine, op === "cloud.abandoned_clear" ? value?.audit?.machine : undefined].filter((m): m is string => typeof m === "string"))
-    for (const m of machines) this.vmRevokes.reconcile(m, engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row, Date.now() + this.skewMs)
-    for (const m of machines) {
-      const st = engine.rows.get<MachineRow>(TABLE_MACHINE, m)?.row.status
-      if (st !== "running" && st !== "provisioning" && st !== "pausing" && this.silentRetryAt(m) !== null) this.silentRetry.clear(m)
-    }
+    if (engine) this.machineAuthorities.afterOp(engine.rows, engine.currentState.changed?.machine, principal, op, frames)
   }
   protected readonly config: CloudConfig
   protected readonly flights = new Map<string, Promise<void>>()
@@ -346,6 +342,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       const planDenied = (row.op === "create" || row.op === "start" || row.op === "resize" || row.op === "snapshot") && !row.cancel && !teamPlan(this.testUnset.has("CLOUD_ALLOWED_TEAMS") ? { ...this.config, allowedTeams: new Set() } : this.config, tag.team)
       const captureRecovery = row.op === "snapshot" && row.transport === "vm-api"
       const bindDenied = row.op === "create" && !row.cancel && !this.bindFileConfig()
+      this.machineAuthorities.beforeProvider(engine.rows, row.machine)
       let driver: GuardedCloudDriver | null = null
       let routingError: DriverError | undefined
       if ((!planDenied || captureRecovery) && !bindDenied) try {

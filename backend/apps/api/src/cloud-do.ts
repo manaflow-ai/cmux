@@ -1,6 +1,8 @@
 import { CloudNetworkObservation } from "./cloud-network-observation.ts"
 import { cloudVmReceiverPolicy } from "./cloud-vm-receiver-policy.ts"
 import { cloudVmReceiverLifecycle } from "./cloud-vm-receiver-lifecycle.ts"
+import { readVmReceiverPermit, sameVmReceiverPermit } from "./cloud-vm-receiver-authority.ts"
+import { VmReceiverGenerations } from "./cloud-vm-receiver-generations.ts"
 import { cloudDriverFor } from "./cloud-vm-api-driver.ts"
 import type { NativeLinkAuthority } from "./cloud-connect.ts"
 import { vmApiConnection } from "./cloud-vm-api-config.ts"
@@ -44,6 +46,10 @@ export class CloudDO extends CloudIdle {
       const result = await cloudVmReceiverPolicy({ team: entity, now: () => Date.now() + this.skewMs,
         connection: () => vmApiConnection(this.env), revision: () => String(this.boundEngine?.currentSeq ?? 0), http: (r) => fetch(r),
         rows: this.isBound(entity) ? this.bind(entity).rows : undefined,
+        generation: (machine, scope) => {
+          const current = new VmReceiverGenerations(this.sqlStore).current(machine, scope)
+          return current.phase === "starting" || current.phase === "ready" ? current.generation : null
+        },
         own: (user, install, grant, machine) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, machine),
         peers: (target) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).vmReceiverPeers(entity, target),
         allocation: async (row, signal) => {
@@ -274,11 +280,17 @@ export class CloudDO extends CloudIdle {
   }
 
   private nativeLinkAuthority(entity: string): NativeLinkAuthority {
+    const receiver = (machine: string) => readVmReceiverPermit({ team: entity, rows: this.isBound(entity) ? this.bind(entity).rows : undefined,
+      sql: this.sqlStore, now: () => Date.now() + this.skewMs,
+      own: (user, install, grant, id) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).vmNetworkIdentity(user, install, grant, entity, id)
+    }, machine)
     const team = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as {
       authorizeCloudDial(e: string, p: Principal, target: NativeDialTarget, proof: unknown, services: ReadonlyArray<string>): Promise<NativeDialReply>
       recheckCloudDial(e: string, p: Principal, permit: NativeDialPermit): Promise<boolean>
     }
     return {
+      receiver: (row) => receiver(row.id),
+      recheckReceiver: async (permit) => sameVmReceiverPermit(permit, await receiver(permit.machine)),
       authorize: async (row, p, proof, services) => {
         try {
           const connection = vmApiConnection(this.env)

@@ -323,10 +323,11 @@ pub struct CloudVmNetwork {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CloudVmNetworkPolicyView {
-    pub schema_version: IntLit<1>,
+    pub schema_version: IntLit<2>,
     pub machine: MachineId,
     pub host: HostId,
     pub epoch: i64,
+    pub receiver_generation: Option<String>,
     pub user: UserId,
     pub install: InstallId,
     pub team: TeamId,

@@ -66,3 +66,30 @@ it("refuses corrupt persisted state instead of forgetting a previous attempt", a
     expect(sql.exec<{ phase: string }>("SELECT phase FROM cloud_vm_receiver_generation WHERE machine = ?", machine)[0]?.phase).toBe("invalid")
   })
 })
+
+it("atomically closes a machine's attempt without allowing delayed retries to revive it", async () => {
+  await inDO(cloudStub("team_00000000000000952104"), async (owner) => {
+    const sql = Reflect.get(owner, "sqlStore") as SqlStore
+    const machine = "vm_00000000000000952104", scope = "e".repeat(64)
+    const store = () => new VmReceiverGenerations(sql)
+    const call = (request: ReceiverTransition) => store().apply(machine, scope, request, () => {})
+    const initial = call({ phase: "read" })
+    if (!initial.ok) throw new Error("missing initial generation")
+    const begin = { phase: "begin" as const, expected: initial.value.generation, attempt: "e".repeat(32) }
+    const first = call(begin)
+    if (!first.ok) throw new Error("missing receiving attempt")
+    expect(call({ phase: "ready", expected: first.value.generation })).toMatchObject({ ok: true, value: { phase: "ready" } })
+    expect(() => store().close(machine, () => { throw new Error("audit unavailable") })).toThrow("audit unavailable")
+    expect(call({ phase: "read" })).toMatchObject({ ok: true, value: { phase: "ready" } })
+    const events: ReceiverTransitionAudit[] = []
+    store().close(machine, (entry) => events.push(entry))
+    store().close(machine, (entry) => events.push(entry))
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ phase: "end", changed: true, outcome: "ok", generation: first.value.generation })
+    expect(call(begin)).toMatchObject({ ok: true, value: { generation: first.value.generation, phase: "stopped" } })
+    expect(call({ phase: "ready", expected: first.value.generation })).toMatchObject({ ok: false, code: "revision.conflict" })
+    const next = call({ phase: "begin", expected: first.value.generation, attempt: "f".repeat(32) })
+    expect(next.ok).toBe(true)
+    if (next.ok) expect(next.value.generation).not.toBe(first.value.generation)
+  })
+})

@@ -138,6 +138,57 @@ fn receiver_owner_superseded_failure_cannot_clear_current_authority() {
 }
 
 #[test]
+fn receiver_owner_retirement_drains_streams_and_cannot_be_reopened() {
+    let (owner, _) = owner();
+    let read = owner.begin().unwrap();
+    let started = read.started();
+    owner
+        .install(
+            read,
+            keys(),
+            policy(started, NOW),
+            ReceiverTime { unix_ms: NOW, monotonic: started },
+        )
+        .unwrap();
+    let lease = owner
+        .verifier()
+        .verify(fixture()["token"].as_str().unwrap(), &expected())
+        .unwrap()
+        .lease
+        .unwrap();
+    assert!(!owner.is_retired());
+    assert!(owner.retire(owner.begin().unwrap()));
+    assert!(owner.is_retired());
+    assert!(lease.deadline().is_none());
+    owner.invalidate();
+    assert!(owner.is_retired(), "transient invalidation reopened a retired owner");
+    assert!(owner.begin().is_err(), "retired generation prepared another read");
+}
+
+#[test]
+fn receiver_owner_retirement_requires_its_current_read_intent() {
+    let (owner, _) = owner();
+    let (other, _) = self::owner();
+    assert!(!owner.retire(other.begin().unwrap()));
+    assert!(!owner.is_retired());
+    assert!(!other.is_retired());
+    let older = owner.begin().unwrap();
+    let newer = owner.begin().unwrap();
+    let started = newer.started();
+    owner
+        .install(
+            newer,
+            keys(),
+            policy(started, NOW),
+            ReceiverTime { unix_ms: NOW, monotonic: started },
+        )
+        .unwrap();
+    assert!(!owner.retire(older));
+    assert!(!owner.is_retired());
+    assert!(owner.verifier().verify(fixture()["token"].as_str().unwrap(), &expected()).is_ok());
+}
+
+#[test]
 fn receiver_owner_keeps_original_jws_identity_and_single_use() {
     let (owner, _) = owner();
     let read = owner.begin().unwrap();

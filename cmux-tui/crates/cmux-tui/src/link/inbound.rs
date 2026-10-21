@@ -13,7 +13,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::{Path, PathBuf};
 
-use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello};
 use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_brain_identity};
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -103,7 +103,7 @@ where
     };
     // A paired peer carries no token. It reaches the daemon entry, and its
     // owner (decided here, from the key's pairing record) the owner session.
-    let (served, owner_requested) = match parse_line::<ServiceHello>(&hello) {
+    let (served, owner_requested) = match ServiceHello::parse(&hello) {
         Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) => {
             // A paired peer's stream carries no control-plane check.
             (

@@ -124,6 +124,9 @@ const mintFixture = async () => {
   const audit: Array<Record<string, unknown>> = []
   let denyFinalPolicy = false, policyReads = 0
   const authority: NativeLinkAuthority = {
+    receiver: async () => ({ machine: machine.id, generation: "a".repeat(64), scope: "b".repeat(64), expires_at: null,
+      identity: { user: USER, install: "inst_" + "3".repeat(20), grant: "grant_" + "3".repeat(20) } }),
+    recheckReceiver: async () => true,
     authorize: (_row, p, proof, services) => authorizeNativeDial(f.deps, p, target, proof, services),
     recheck: (p, permit) => recheckNativeDial(f.deps, p, permit)
   }

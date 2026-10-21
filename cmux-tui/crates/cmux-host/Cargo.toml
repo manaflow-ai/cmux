@@ -29,8 +29,8 @@ cmux-server-core = { path = "../cmux-server-core" }
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ring.workspace = true
 
 [dev-dependencies]
-ring.workspace = true
 proptest = { version = "1", default-features = false, features = ["std"] }
 tempfile = "3"

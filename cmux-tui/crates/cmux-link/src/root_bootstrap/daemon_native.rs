@@ -25,12 +25,16 @@ impl Active {
         let (done, finished) = UnixStream::pair()?;
         let task =
             std::thread::Builder::new().name("cmux-native-role".into()).spawn(move || {
-                let result = recipient(role, watch);
+                if recipient(role, watch).is_err() {
+                    // The recipient has already drained and reaped its child.
+                    // A failed attempt must not close the daemon's root control
+                    // channel: root retires its generation before another role.
+                    eprintln!("cmux link: Native receiving attempt stopped");
+                }
                 // Resources are gone before either signal. Make done observable
                 // BEFORE root can receive its ack and send the next role fd.
                 drop(finished);
-                let ack = receipt.write_all(&[1]);
-                result.and(ack)
+                receipt.write_all(&[1])
             })?;
         Ok(Self { stop, done, task: Some(task) })
     }

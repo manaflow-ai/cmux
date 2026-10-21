@@ -15,21 +15,29 @@ pub(super) struct ReceiverState {
     identity: Arc<()>,
     serial: u64,
     anchor: Option<ReceiverTime>,
+    retired: bool,
 }
 
 impl ReceiverState {
     pub(super) fn ready(&self) -> bool {
-        self.anchor.is_some()
+        !self.retired && self.anchor.is_some()
     }
     pub(super) fn sample(&self, now: Instant) -> Option<ReceiverTime> {
+        if self.retired {
+            return None;
+        }
         advance(self.anchor?, now)
     }
     fn current(&self, refresh: &Refresh) -> bool {
-        self.serial < u64::MAX
+        !self.retired
+            && self.serial < u64::MAX
             && self.serial == refresh.serial
             && Arc::ptr_eq(&self.identity, &refresh.owner)
     }
     fn next(&mut self) -> Option<u64> {
+        if self.retired {
+            return None;
+        }
         self.serial = self.serial.saturating_add(1);
         (self.serial < u64::MAX).then_some(self.serial)
     }
@@ -101,13 +109,27 @@ impl Owner {
         keys: Keyset,
         clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
     ) -> Result<Self, TokenRefused> {
-        let verifier = NativeTokenVerifier::new(
-            keys,
-            move || Some(ReceiverTime { unix_ms: 0, monotonic: clock()? }),
-            MAX_REPLAY,
-        )?;
+        Self::with_mode(keys, None, clock)
+    }
+
+    pub fn for_receiver(keys: Keyset, generation: String) -> Result<Self, TokenRefused> {
+        Self::with_mode(keys, Some(generation), || Some(Instant::now()))
+    }
+
+    fn with_mode(
+        keys: Keyset,
+        generation: Option<String>,
+        clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
+    ) -> Result<Self, TokenRefused> {
+        let clock = move || Some(ReceiverTime { unix_ms: 0, monotonic: clock()? });
+        let verifier = match generation {
+            Some(generation) => {
+                NativeTokenVerifier::new_for_receiver(keys, generation, clock, MAX_REPLAY)
+            }
+            None => NativeTokenVerifier::new(keys, clock, MAX_REPLAY),
+        }?;
         verifier.state.lock().map_err(|_| TokenRefused::Invalid)?.receiver =
-            Some(ReceiverState { identity: Arc::new(()), serial: 0, anchor: None });
+            Some(ReceiverState { identity: Arc::new(()), serial: 0, anchor: None, retired: false });
         Ok(Self { verifier: Arc::new(verifier) })
     }
 
@@ -204,6 +226,34 @@ impl Owner {
         let applied = cancel(&self.verifier, &refresh);
         refresh.done = true;
         applied
+    }
+
+    /// A current authenticated read ended this receiving generation. Neither
+    /// another read nor a retained verifier may reopen this process afterward.
+    /// Superseded or foreign read intents cannot retire this owner.
+    pub fn retire(&self, mut refresh: Refresh) -> bool {
+        let Ok(mut state) = self.verifier.state.lock() else { return false };
+        if !state.receiver.as_ref().is_some_and(|receiver| receiver.current(&refresh)) {
+            drop(state);
+            return false;
+        }
+        refresh.done = true;
+        if let Some(receiver) = state.receiver.as_mut() {
+            receiver.retired = true;
+        }
+        invalidate_state(&mut state);
+        let wake = reconcile_streams(&mut state, None);
+        drop(state);
+        wake_streams(wake);
+        true
+    }
+
+    /// A retired source needs a new process and private generation pin.
+    pub fn is_retired(&self) -> bool {
+        self.verifier
+            .state
+            .lock()
+            .map_or(true, |state| state.receiver.as_ref().is_none_or(|receiver| receiver.retired))
     }
 
     pub fn invalidate(&self) {

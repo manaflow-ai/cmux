@@ -27,17 +27,36 @@ const REQUEST: &[u8] = b"{\"op\":\"cloud.vm.network_policy\"}\n";
 pub struct AgentReceiver {
     binding: ReceiverBinding,
     owner: Owner,
+    generation: Option<String>,
 }
 
 impl AgentReceiver {
     pub fn new(binding: ReceiverBinding, original_keys: Keyset) -> Result<Self, String> {
-        Ok(Self { binding, owner: Owner::new(original_keys).map_err(|_| UNAVAILABLE)? })
+        Ok(Self {
+            binding,
+            owner: Owner::new(original_keys).map_err(|_| UNAVAILABLE)?,
+            generation: None,
+        })
+    }
+
+    pub fn for_receiver(
+        binding: ReceiverBinding,
+        original_keys: Keyset,
+        generation: String,
+    ) -> Result<Self, String> {
+        let owner =
+            Owner::for_receiver(original_keys, generation.clone()).map_err(|_| UNAVAILABLE)?;
+        Ok(Self { binding, owner, generation: Some(generation) })
     }
     pub fn verifier(&self) -> Arc<NativeTokenVerifier> {
         self.owner.verifier()
     }
     pub fn invalidate(&self) {
         self.owner.invalidate();
+    }
+    /// A terminal generation change requires replacement under a fresh root frame.
+    pub fn is_retired(&self) -> bool {
+        self.owner.is_retired()
     }
 
     /// Reserve intent before scheduling blocking I/O. Cancellation must
@@ -87,6 +106,12 @@ impl AgentReceiver {
         let snapshot =
             ReceiverSnapshot::from_public_reply(&bytes, &self.binding, started, Instant::now())?;
         if Instant::now() >= deadline {
+            return Err(UNAVAILABLE.into());
+        }
+        if self.generation.as_ref().is_some_and(|generation| {
+            snapshot.policy().receiver_generation.as_ref() != Some(generation)
+        }) {
+            self.owner.retire(refresh);
             return Err(UNAVAILABLE.into());
         }
         snapshot.install(&self.owner, refresh, Instant::now())?;

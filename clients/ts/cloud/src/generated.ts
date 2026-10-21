@@ -183,10 +183,11 @@ export type CloudVmNetwork = {
 }
 
 export type CloudVmNetworkPolicyView = {
-  readonly schema_version: 1
+  readonly schema_version: 2
   readonly machine: MachineId
   readonly host: HostId
   readonly epoch: number
+  readonly receiver_generation: string | null
   readonly user: UserId
   readonly install: InstallId
   readonly team: TeamId

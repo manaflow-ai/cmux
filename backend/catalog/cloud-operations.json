@@ -1080,7 +1080,7 @@
           "type": {
             "kind": "enum",
             "values": [
-              1
+              2
             ]
           }
         },
@@ -1103,6 +1103,17 @@
           "type": {
             "kind": "primitive",
             "name": "int64"
+          }
+        },
+        "receiver_generation": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
           }
         },
         "user": {
@@ -22144,7 +22155,7 @@
               "schema_version": {
                 "type": "number",
                 "enum": [
-                  1
+                  2
                 ]
               },
               "machine": {
@@ -22156,6 +22167,17 @@
               "epoch": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "receiver_generation": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "user": {
                 "$ref": "#/$defs/UserId"
@@ -22227,6 +22249,7 @@
               "machine",
               "host",
               "epoch",
+              "receiver_generation",
               "user",
               "install",
               "team",
