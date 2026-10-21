@@ -1,10 +1,6 @@
 /* The composer's Milkdown prompt (MarkdownField.tsx), drawn as the plain textarea it replaces
    (.acpmux-composer-field): 15px on 22px lines, no chrome. Formatting shows only where the
    user formats. Theme tokens only. */
-.acpmux-md-field,
-.acpmux-shell-field {
-  --acpmux-field-scroll-inset: calc(6px * var(--cmux-interface-scale, 1));
-}
 .acpmux-md-field {
   position: relative;
   /* Keep long drafts inside the composer. Eight lines matches the reference composer and
@@ -12,12 +8,9 @@
   max-height: calc(var(--text-body--line-height, 22px) * 8 + var(--cmux-control-height, 23px));
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
-     not shift anything): no chaining into the transcript, no bounce. The box sits the scroll inset
-     in from the card's top and right, its padding that much less, so the text stays where it was
-     and the scroller runs inside the card's rounded corner instead of on it. */
+     not shift anything): no chaining into the transcript, no bounce. */
   overscroll-behavior: contain;
-  margin: var(--acpmux-field-scroll-inset) var(--acpmux-field-scroll-inset) 0 0;
-  padding: calc(15px * var(--cmux-interface-scale, 1) - var(--acpmux-field-scroll-inset)) calc(16px * var(--cmux-interface-scale, 1) - var(--acpmux-field-scroll-inset)) calc(8px * var(--cmux-interface-scale, 1));
+  padding: calc(15px * var(--cmux-interface-scale, 1)) calc(16px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1));
   font-size: var(--text-title, 15px);
   line-height: var(--text-title--line-height, 22px);
   color: var(--agent-text);
@@ -25,8 +18,8 @@
 .acpmux-md-placeholder {
   position: absolute;
   left: calc(16px * var(--cmux-interface-scale, 1));
-  top: calc(15px * var(--cmux-interface-scale, 1) - var(--acpmux-field-scroll-inset));
-  right: calc(16px * var(--cmux-interface-scale, 1) - var(--acpmux-field-scroll-inset));
+  top: calc(15px * var(--cmux-interface-scale, 1));
+  right: calc(16px * var(--cmux-interface-scale, 1));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

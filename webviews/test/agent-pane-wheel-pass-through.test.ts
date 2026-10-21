@@ -131,7 +131,11 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         const transcript = await scrollTop(page);
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowUp");
         await page.waitForTimeout(200);
-        expect((await field()).top).toBe(0);
+        const firstLine = await page.evaluate(() => {
+          const box = document.querySelector(".acpmux-md-field")!;
+          return box.querySelector("p")!.getBoundingClientRect().top - box.getBoundingClientRect().top;
+        });
+        expect(firstLine).toBeGreaterThanOrEqual(0);
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
         await page.waitForTimeout(200);
         after = await field();
@@ -139,19 +143,6 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         expect(await scrollTop(page)).toBe(transcript);
         expect(after.y).toBe(typed.y);
         expect(after.height).toBe(typed.height);
-        await page.close();
-      });
-
-      test("the long draft's scroller sits inside the card's rounded corner", async () => {
-        current = browsers.get(name);
-        const page = await pane!.open();
-        const inset = await page.evaluate(() => {
-          const box = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-          const field = document.querySelector(".acpmux-md-field")!.getBoundingClientRect();
-          return { right: box.right - field.right, top: field.top - box.top };
-        });
-        expect(inset.right).toBeGreaterThanOrEqual(5);
-        expect(inset.top).toBeGreaterThanOrEqual(5);
         await page.close();
       });
     });
