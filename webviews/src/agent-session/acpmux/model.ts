@@ -296,7 +296,7 @@ export type AcpmuxFileDiff = {
 /// A Write whose old contents are unknown: its whole new text with no old text, still a fragment
 /// because its result neither confirmed a create nor carried the old text (acpmux claude_stdio
 /// `settle_write`: an overwrite without `originalFile`, an oversized one, no result yet, a cut-off
-/// adopted Write). Its lines are not added lines, so the turn's files leave it out (diff.ts
+/// adopted Write). Its lines are not added lines, so the turn's files leave its file out (diff.ts
 /// `turnFiles`) and the edited-files card lists its path without counts (`plainEditLabels`). A Write
 /// read from its input is known: direct.ts `inputDiffs` builds one only when the result said created.
 export const contentsUnknown = (diff: AcpmuxFileDiff) =>
@@ -640,7 +640,11 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
   items.forEach((item, index) => {
     if (!item.tool) return;
     const diffs = item.tool.diffs ?? [];
-    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
+    // A Write still waiting for its permission, or one that failed, wrote nothing.
+    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
+    const paths = diffs.length
+      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
+      : editedPaths(item.tool);
     if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
     for (const path of paths)
       if (!seen.has(path)) {
@@ -687,8 +691,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     if (edits.length && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap((item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [diff.path])) ?? []),
-      ).size;
-      return 14 + editedCardHeight(files, plainEditLabels(edits).length);
+      );
+      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.path));
+      return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
     if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;

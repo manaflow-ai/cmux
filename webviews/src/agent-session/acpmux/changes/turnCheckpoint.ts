@@ -136,12 +136,13 @@ export function changedByTools(
 /// The tool calls' files at an absolute path outside the repository at `root`, which no checkpoint
 /// of it holds. A relative path is the agent's, under its folder, so it stays with the checkpoint, and
 /// so does a file a checkpoint file already matches (`changedByTools`), such as /tmp/x for a
-/// repository under /private/tmp, so no file lists twice.
-function outsideRepository(
-  toolFiles: readonly TurnFile[],
+/// repository under /private/tmp, so no file lists twice. The edited-files card reads its paths
+/// without counts the same way.
+export function outsideRepository<File extends Pick<TurnFile, "path">>(
+  toolFiles: readonly File[],
   root: string | undefined,
-  checkpointFiles: readonly TurnFile[],
-): TurnFile[] {
+  checkpointFiles: readonly Pick<TurnFile, "path" | "displayPath">[],
+): File[] {
   const top = root?.replace(/\/+$/, "");
   if (top === undefined) return [];
   return toolFiles.filter(
@@ -190,12 +191,14 @@ export function turnDisplay(
 }
 
 /// The edited-files card's totals: the checkpoint's once it has loaded, else the tool calls'.
+/// `root`: the loaded checkpoint's repository.
 export function turnCounts(toolFiles: readonly TurnFile[], load: TurnCheckpointLoad | undefined) {
   const display =
     load?.state === "loaded" ? turnDisplay(translatorFor(currentLanguage()), [...toolFiles], load, false) : undefined;
   const files = display?.files ?? toolFiles;
   return {
     files,
+    root: load?.state === "loaded" ? load.changeSet.root : undefined,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     outside: files.some((file) => file.outside),

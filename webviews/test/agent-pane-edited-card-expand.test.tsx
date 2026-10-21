@@ -378,6 +378,46 @@ test("beside a Write of unknown old contents, a fragment Edit keeps its counts",
   expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
 });
 
+test("an Edit to a file a Write rewrote with unknown old contents lists without counts too", async () => {
+  // The Write replaced the whole file: what the turn changed in it is unknown, whatever the Edit says.
+  const row = activity("turn-12", [
+    await translatorWrite("write-7", NOTES, false),
+    await toolCall("edit-5", [
+      {
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "completed",
+        content: [{ type: "diff", path: NOTES, oldText: "step 1\n", newText: "step one\n" }],
+      },
+    ]),
+  ]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+});
+
+test("a Write of unknown old contents in the repository takes the checkpoint's counts once it loads", async () => {
+  const row = activity("turn-13", [await translatorWrite("write-8", NOTES, false)]);
+  const checkpoint: TurnCheckpointLoad = {
+    state: "loaded",
+    checkpointId: "checkpoint-3",
+    changeSet: {
+      scope: "lastTurn",
+      root: FOLDER,
+      files: [
+        { path: "notes.txt", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-old\n+new\n" },
+      ],
+    },
+  };
+  await renderCard(row, checkpoint);
+  // The checkpoint read the file before and after: its counts, listed once.
+  expect(text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(host.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
+});
+
 test("a Write of unknown old contents outside the repository still lists once the checkpoint loads", async () => {
   const row = activity("turn-10", [await translatorWrite("write-5", SETUP, false)]);
   await renderCard(row, emptyCheckpoint);
