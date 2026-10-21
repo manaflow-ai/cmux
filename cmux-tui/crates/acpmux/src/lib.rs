@@ -55,6 +55,7 @@ pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
 pub mod peer;
+pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;

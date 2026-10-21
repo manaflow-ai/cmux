@@ -395,7 +395,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const page = await openChat(false);
       const row = page.locator(".acpmux-queued", { hasText: "space thing" });
       await row.hover();
-      await row.locator(".acpmux-queued-action").first().click();
+      // A queued row shows Edit, Remove and Send now (#22805): click Send now by its name.
+      await row.getByRole("button", { name: "Send now", exact: true }).click();
       await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
       // The stopped turn has not ended yet: the row still shows.
       await page.waitForTimeout(500);
@@ -427,7 +428,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("a second steer in the same step leaves the first Steering until the agent reads both", async () => {
+    test("a second steer in the same step leaves the first unread until the agent reads both", async () => {
       const page = await openChat(true);
       send(["mux", "user_message", { text: "use the cache dir", promptId: "s-1", turnId: "turn-1", steer: true }]);
       send(["mux", "user_message", { text: "and keep the old path", promptId: "s-2", turnId: "turn-1", steer: true }]);
