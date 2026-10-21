@@ -106,7 +106,7 @@
   font-size: var(--text-detail);
   font-weight: 500;
 }
-/* Titles and a group's lead-in text start on the rows' text edge: the card's 1px border + 16px padding. */
+/* Titles start on the rows' text edge (the card's 1px border + 16px padding); a lead-in starts on its title. */
 :root[data-settings-look="refined"] .settings .density-help { margin-left: 17px; }
 
 :root[data-settings-look="refined"] .settings .rows {
