@@ -103,6 +103,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** General > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
+  web_updates?: WebUpdatesState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -178,6 +180,24 @@ export type IPhoneHostState = {
 export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
 
 /** The Computer Use card's state: the grants of the helper that runs (or would run). */
+/** A web update the app keeps: its commit and when that commit landed (unix seconds). */
+export type WebUpdateVersion = { commit: string; committed_at: number };
+
+/**
+ * General > Web UI (the app's WebUpdates): `active` is served now or from the next safe point (null:
+ * the built-in web UI), `pending` what the next safe point swaps in, `refusal` why the newest update
+ * was not taken.
+ */
+export type WebUpdatesState = {
+  channel: "every-merge" | "nightly" | "off";
+  phase: "idle" | "checking" | "downloading" | "failed";
+  active: WebUpdateVersion | null;
+  previous: WebUpdateVersion | null;
+  pending: "update" | "bundled" | null;
+  last_check: number | null;
+  refusal: "app_too_old" | "not_newer" | "untrusted" | "damaged" | "offline" | null;
+};
+
 export type ComputerUseState = {
   phase: ComputerUsePhase;
   accessibility: boolean | null;
@@ -402,6 +422,10 @@ export type SettingsOps = {
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: General > Web UI's Check Now (updates.web.check); the host lists follow the check. */
+  "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
+  /** Native: General > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
+  "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

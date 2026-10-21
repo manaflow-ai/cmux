@@ -465,6 +465,13 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** General > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
+  async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
+    const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
+    await this.refreshHost();
+    return reply.ok;
+  }
+
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);

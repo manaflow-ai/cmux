@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSettingsWindow
+import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
 /// Spaces (nil when this daemon has no profiles), saved machines, browser profiles, and the
@@ -44,6 +45,7 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            "web_updates": WebUpdates.shared.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),

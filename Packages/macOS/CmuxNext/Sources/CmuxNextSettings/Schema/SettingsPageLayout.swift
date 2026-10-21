@@ -15,6 +15,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only.
+        case webUpdates
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -98,7 +100,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
-            trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
+            // After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then Spaces.
+            trail: [.webUpdates, .spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme

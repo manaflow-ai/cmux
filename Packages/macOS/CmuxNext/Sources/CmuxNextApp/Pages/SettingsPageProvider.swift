@@ -101,27 +101,13 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists":
-            guard let hostLists else { throw PageError(code: "cmux.page.unavailable", message: "no host lists") }
-            return hostLists()
-        case "cmux.settings.accounts.state":
-            guard let accountsState else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
-            return accountsState()
-        case "cmux.settings.accounts.run":
-            guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
-            return try await accountsRun(params)
-        case "cmux.settings.agents.state":
-            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
-            return agents.pageState
-        case "cmux.settings.agents.run":
-            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
-            return try await agents.runPage(params)
-        case "cmux.settings.harnesses.state":
-            guard let harnessesState else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return harnessesState()
-        case "cmux.settings.harnesses.run":
-            guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return try await harnessesRun(params, context)
+        case "cmux.settings.host.lists": return try Self.available(hostLists, "host lists")()
+        case "cmux.settings.accounts.state": return try Self.available(accountsState, "accounts")()
+        case "cmux.settings.accounts.run": return try await Self.available(accountsRun, "accounts")(params)
+        case "cmux.settings.agents.state": return try Self.available(agents, "agents").pageState
+        case "cmux.settings.agents.run": return try await Self.available(agents, "agents").runPage(params)
+        case "cmux.settings.harnesses.state": return try Self.available(harnessesState, "harnesses")()
+        case "cmux.settings.harnesses.run": return try await Self.available(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -196,6 +182,12 @@ final class SettingsPageProvider: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
+    }
+
+    /// `value`, or `cmux.page.unavailable` when this page has none (tests without an app).
+    private static func available<Value>(_ value: Value?, _ name: String) throws -> Value {
+        guard let value else { throw PageError(code: "cmux.page.unavailable", message: "no \(name)") }
+        return value
     }
 
     /// `cmux.settings.changed`: one event per load that changed schema keys (any writer: this
