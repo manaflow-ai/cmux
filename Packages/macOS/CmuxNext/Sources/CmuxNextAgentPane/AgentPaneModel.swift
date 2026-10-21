@@ -301,6 +301,7 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
+        case .importCard(let act): return AgentPaneImportCards.shared.perform(act) ? AgentPaneReply.success() : Self.unsupported("importCards.act")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -345,7 +346,7 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
-        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

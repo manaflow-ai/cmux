@@ -1,8 +1,9 @@
 //! The lists against what the page sends (webviews/src/agent-session/acpmux),
 //! as AcpmuxPaneMethods.swift says they were made: every
 //! `this.request("...")` in direct.ts and sessionPages.ts, the literal method
-//! of each `typedRequest(send, "...", ...)` in direct.ts (the typed protocol
-//! client, #20576), `HANDOFF_OPS` (handoff/protocol.ts),
+//! of each `typedRequest(send, "...", ...)` and `this.typed("...", ...)` in
+//! direct.ts (the typed protocol client, #20576, #20894), `SIDE_SESSION_METHOD`
+//! (needsYou/asks.ts), `HANDOFF_OPS` (handoff/protocol.ts),
 //! `PERMISSION_GROUP_OPS` (permissions/protocol.ts), `FORK_OP`
 //! (operations.ts), `PREWARM_METHOD` (direct.ts), and the raw
 //! `session/cancel` notification. `file.search` (and the git reads, sent by a
@@ -80,6 +81,10 @@ fn the_allowlist_is_what_the_page_sends() {
     let direct = read(&dir, "direct.ts");
     let mut sent: BTreeSet<String> = quoted_after(&direct, "this.request(").into_iter().collect();
     sent.extend(typed_request_methods(&direct));
+    // The typed protocol client's method on the connection (`this.typed("...", params)`).
+    sent.extend(quoted_after(&direct, "this.typed("));
+    // `/btw` and Needs you's Ask about this send `SIDE_SESSION_METHOD` (needsYou/asks.ts).
+    sent.insert(constant(&read(&dir, "needsYou/asks.ts"), "SIDE_SESSION_METHOD"));
     sent.extend(quoted_after(&read(&dir, "sessionPages.ts"), "this.request("));
     sent.extend(object_values(&read(&dir, "handoff/protocol.ts"), "HANDOFF_OPS"));
     sent.extend(object_values(&read(&dir, "permissions/protocol.ts"), "PERMISSION_GROUP_OPS"));

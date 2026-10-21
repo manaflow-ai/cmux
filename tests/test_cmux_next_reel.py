@@ -170,7 +170,10 @@ class PublishTests(unittest.TestCase):
             log = tmp / "gh.jsonl"
             notes = {"build": "100", "items": [{"title": "Tabs keep their order", "author": "Ada", "pr": 11}]}
             out = tmp / "out"
-            env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log))
+            # The privacy check runs on text only (no OCR tool is compiled here) and
+            # with a made-up terms list instead of this machine's names.
+            env = dict(os.environ, PATH=f"{gh.parent}{os.pathsep}{os.environ.get('PATH', '')}", FAKE_GH_LOG=str(log),
+                       GITHUB_ACTIONS="true", PR_MEDIA_PRIVACY_OCR="none", PR_MEDIA_PRIVATE_TERMS='["glow-box"]')
             done = subprocess.run([sys.executable, str(SCRIPT), "--build", "100",
                                    "--notes", str(write(tmp / "notes.json", notes)), "--allow-unsigned",
                                    "--clips", str(write(tmp / "clips.json", {"11": str(tmp / "a.mp4")})),
