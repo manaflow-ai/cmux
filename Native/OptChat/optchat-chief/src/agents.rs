@@ -220,7 +220,14 @@ fn child(client: &RpcClient, name: &str) -> Result<SessionSummary, String> {
 /// The prompt's own answer, forwarded into the notification stream.
 const ANSWER: &str = "\u{0}answer";
 
-/// Sends a prompt and returns once acpmux accepted it (ran or queued it), not when its turn ends.
+/// A message to a child: steered into its running turn when its agent steers (acpmux queues it
+/// otherwise), so the child reads it now instead of when that turn ends.
+fn tell_params(session: &str, text: &str, prompt_id: &str) -> Value {
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "steer": true}}})
+}
+
+/// Sends a prompt and returns once acpmux accepted it (ran, steered or queued it), not when its
+/// turn ends.
 fn prompt_accepted(
     client: &RpcClient,
     notes: &Notes,
@@ -231,10 +238,7 @@ fn prompt_accepted(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_nanos());
     let prompt_id = format!("chief-cli-{}-{nanos}", std::process::id());
-    let answer = client.start(
-        "session/prompt",
-        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}}),
-    );
+    let answer = client.start("session/prompt", tell_params(session, text, &prompt_id));
     let forward = notes.0.clone();
     std::thread::spawn(move || {
         let params = match answer.recv() {
@@ -441,5 +445,21 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             ))
         }
         _ => Err(USAGE.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tell_params;
+
+    #[test]
+    fn a_message_to_a_child_steers_its_running_turn() {
+        let params = tell_params("s-1", "look at this", "chief-cli-1");
+        assert_eq!(params["_meta"]["acpmux"]["steer"], true, "{params}");
+        assert_eq!(
+            params["_meta"]["acpmux"]["promptId"], "chief-cli-1",
+            "{params}"
+        );
+        assert_eq!(params["prompt"][0]["text"], "look at this", "{params}");
     }
 }
