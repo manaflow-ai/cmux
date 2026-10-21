@@ -94,9 +94,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         super.init(window: window)
-        #if DEBUG
-        DebugWindowRecord.recordLaunch(window)
-        #endif
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
