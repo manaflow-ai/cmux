@@ -5774,7 +5774,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p next-in
-          gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+          scripts/ci/gh-quota-retry.sh gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
 
       - name: Import signing cert
@@ -6530,10 +6530,10 @@ jobs:
           # The tag itself: `commits/<name>` resolves the nightly-next branch,
           # which the promote job moves ahead during a build, and a skipped
           # republish leaves the feed without its previous item (cx-urd.67).
-          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
+          tag_object="$(scripts/ci/gh-quota-retry.sh gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$CHANNEL_RELEASE_TAG" --jq '.object.type + " " + .object.sha')"
           read -r tag_type current_sha <<< "$tag_object"
           if [ "$tag_type" = tag ]; then
-            current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
+            current_sha="$(scripts/ci/gh-quota-retry.sh gh api "repos/$GITHUB_REPOSITORY/git/tags/$current_sha" --jq .object.sha)"
           fi
           # The publication moved the tag to the resolved build commit.
           if [ "$current_sha" != "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" ]; then
@@ -6569,7 +6569,7 @@ jobs:
             feeds+=(--feed "$feed")
           done
           [ "${#feeds[@]}" -gt 0 ]
-          python3 scripts/ci/publish-release-assets.py \
+          scripts/ci/gh-quota-retry.sh python3 scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             "${deltas[@]}" --replace-feeds "${feeds[@]}"
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -6800,7 +6800,7 @@ jobs:
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30 # gh-quota-retry.sh may wait 15 min for the API quota
     permissions:
       contents: read
     steps:
@@ -6823,10 +6823,10 @@ jobs:
           FEED_BASE: ${{ needs.decide.outputs.feed_base }}
         run: |
           set -euo pipefail
-          object="$(gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG")"
+          object="$(scripts/ci/gh-quota-retry.sh gh api "repos/$REPOSITORY/git/ref/tags/$RELEASE_TAG")"
           actual="$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["object"]["sha"])' <<<"$object")"
           if [ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["type"])' <<<"$object")" = tag ]; then
-            actual="$(gh api "repos/$REPOSITORY/git/tags/$actual" --jq .object.sha)"
+            actual="$(scripts/ci/gh-quota-retry.sh gh api "repos/$REPOSITORY/git/tags/$actual" --jq .object.sha)"
           fi
           feed="$(mktemp)"
           curl -fsSL --retry 3 -A "cmux-release-notes/1" -o "$feed" "$FEED_BASE/appcast-arm64.xml"

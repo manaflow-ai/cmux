@@ -126,7 +126,12 @@ class GitHub:
                 raise RequestError(f"{method} curl exit {result.returncode}: {detail}")
             status = int(result.stdout)
             if not 200 <= status < 300:
-                raise RequestError(f"{method} HTTP {status}", status=status)
+                # Name a quota 403 so gh-quota-retry.sh waits for the reset
+                # (nightly-next run 39536149802: "POST HTTP 403").
+                detail = ""
+                if status in (403, 429) and output.exists() and "rate limit" in output.read_text(errors="replace").lower():
+                    detail = ": API rate limit exceeded"
+                raise RequestError(f"{method} HTTP {status}{detail}", status=status)
             body = output.read_text()
             if not body:
                 return None
