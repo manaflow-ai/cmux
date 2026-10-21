@@ -35,6 +35,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var downloadsInBackground = true
     /// Replaces the baked feed when set (``UpdateController/feedOverride``).
     var feedOverride: String?
+    /// The release ring whose `sparkle:channel` tags are accepted (``UpdateController/ring``).
+    var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
     /// The update a background check accepted, and its held install once it is ready.

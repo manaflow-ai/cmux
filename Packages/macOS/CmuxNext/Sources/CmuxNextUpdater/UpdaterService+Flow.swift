@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxUpdater
 import Network
 public import Foundation
 
@@ -145,6 +146,16 @@ extension UpdaterService {
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
         followNetwork()
         applyDownloadPolicy()
+    }
+
+    /// Follows `updates.channel`: which release ring's appcast items Sparkle and the probe offer.
+    /// Takes the setting's raw value (`stable`, `nightly`, `canary`, `dev`); anything else is Nightly.
+    public func follow(ring rawValue: String) {
+        let ring = UpdateRing(rawValue: rawValue) ?? .nightly
+        guard self.ring != ring else { return }
+        self.ring = ring
+        controller?.ring = ring
+        log.append("update ring \(ring.rawValue)")
     }
 
     /// Recomputes whether found updates download by themselves: the user's
