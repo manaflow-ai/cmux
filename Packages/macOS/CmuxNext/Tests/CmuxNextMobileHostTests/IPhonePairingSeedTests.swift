@@ -6,7 +6,7 @@ import Testing
 /// The test-only pairing seed (DEBUG builds): a rig pairs a simulator without the
 /// person-only prompt, only for the phones its file names.
 @Suite struct IPhonePairingSeedTests {
-    static let request = CnxPairRequest(phoneDeviceID: "AB12-phone", name: "cnx-e2e-ios26",
+    static let request = MobileHostPairRequest(phoneDeviceID: "AB12-phone", name: "cmux-mobile-e2e-ios26",
                                         identityKey: "04" + String(repeating: "aa", count: 64),
                                         approvalKey: "04" + String(repeating: "bb", count: 64))
 
@@ -19,7 +19,7 @@ import Testing
     @Test func onlyTheNamedPhoneIsTrusted() throws {
         let cases: [(String, Bool)] = [
             (#"{"devices":[{"id":"ab12-phone"}]}"#, true),
-            (#"{"devices":[{"name":"cnx-e2e-ios26"}]}"#, true),
+            (#"{"devices":[{"name":"cmux-mobile-e2e-ios26"}]}"#, true),
             (#"{"devices":[{"id":"ab12-phone","identityKey":"04\#(String(repeating: "aa", count: 64))"}]}"#, true),
             (#"{"devices":[{"id":"ab12-phone","identityKey":"04\#(String(repeating: "cc", count: 64))"}]}"#, false),
             (#"{"devices":[{"id":"other"}]}"#, false),

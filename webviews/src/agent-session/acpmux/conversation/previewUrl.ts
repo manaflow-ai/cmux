@@ -13,14 +13,17 @@
 import type { AcpmuxRow } from "../model";
 import { stripAnsi } from "./toolOutput";
 
-/// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css, and the unloaded
-/// placeholder in conversation.css); the page draws at four
-/// times its size, scaled down.
+/// Height of the card's thumbnail after the reader clicks Load preview (`.acpmux-turn-preview-frame`
+/// in styles.css); the page draws at four times its size, scaled down.
 export const PREVIEW_FRAME_HEIGHT = 180;
-/// Height of a gallery stage's live frame and of its placeholder before Load preview
-/// (`.acpmux-turn-preview-frame--live` in styles.css, `.acpmux-turn-preview-unloaded--live` in
-/// conversation.css), so loading the stage does not move the transcript.
+/// Height of a gallery stage's live frame after Load preview (`.acpmux-turn-preview-frame--live` in
+/// styles.css).
 export const GALLERY_FRAME_HEIGHT = 360;
+/// Height of an unloaded card: one compact row, no thumbnail box
+/// (`.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head` in conversation.css).
+export const PREVIEW_COMPACT_HEIGHT = 36;
+/// Height of a loaded card's head over its frame (`.acpmux-turn-preview-head` in styles.css).
+export const PREVIEW_HEAD_HEIGHT = 58;
 
 // The host ends the name (`localhost.evil.com` is not loopback, a sentence's closing dot is fine);
 // a colon after it must start a port.
@@ -69,6 +72,14 @@ export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): str
   ]);
 }
 
+/// The Debug toggle `agentPane.debug.turnPreviewCards` (off by default; the app sets
+/// `data-turn-preview-cards="on"` on `<html>`): a turn that started or mentioned a local page gets
+/// its preview card. Off, the address is only the reply's link (Leo 2026-10-20: a mentioned dev
+/// server is not worth a card nobody asked for).
+export function turnPreviewCardsOn(): boolean {
+  return typeof document !== "undefined" && document.documentElement.dataset.turnPreviewCards === "on";
+}
+
 /// What the card's frame loads after the click: the address the card shows (host, port, path and
 /// query as found; the fragment is the page's own and is not shown).
 export function previewFrameUrl(url: string): string {
@@ -95,7 +106,14 @@ export function isGalleryFrame(url: string): boolean {
   }
 }
 
-/// The height of a preview card's frame (and of its placeholder) for `url`.
+/// The height of a loaded preview card's frame for `url`.
 export function previewFrameHeight(url: string): number {
   return isGalleryFrame(url) ? GALLERY_FRAME_HEIGHT : PREVIEW_FRAME_HEIGHT;
+}
+
+/// A preview card's row height with the 6px card margin and 8px below it: the compact row until the
+/// reader clicks Load preview, then the head over the frame.
+export function previewCardHeight(url: string | undefined, loaded: boolean): number {
+  if (!loaded || !url) return PREVIEW_COMPACT_HEIGHT + 6 + 8;
+  return PREVIEW_HEAD_HEIGHT + previewFrameHeight(url) + 6 + 8;
 }
