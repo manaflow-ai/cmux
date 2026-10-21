@@ -66,6 +66,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
 }
 
 describe("editors", () => {
+  // It renders every Settings page in turn: about 4 s on a fast host, past bun's 5 s default on a
+  // loaded 4-core CI runner, and a test that times out mid-act() breaks every test after it.
   test("every schema row renders the editor for its kind", async () => {
     const failures: string[] = [];
     for (const category of categories) {
@@ -113,7 +115,7 @@ describe("editors", () => {
       page = null;
     }
     expect(failures).toEqual([]);
-  });
+  }, 60_000);
 
   test("the window material is a material choice, never a radius slider", async () => {
     page = await renderPage({ path: "/settings/appearance" });
