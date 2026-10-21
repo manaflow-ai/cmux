@@ -19,6 +19,8 @@ import CmuxNextWakeups
 public final class AppStoreModel {
     public enum Tab: String, Sendable, Hashable, CaseIterable {
         case discover
+        /// cmux's own features, each switched on and off by one setting (``AppFeature``).
+        case features
         case installed
     }
 
@@ -50,6 +52,8 @@ public final class AppStoreModel {
     public var lookOverride: AppSectionLook?
 
     public let client: AppsClient
+    /// The settings behind the Features tab; nil lists no features (tests, a store without settings).
+    @ObservationIgnored public var features: (any AppFeatureSettings)?
     /// Called after every page navigation (the titlebar arrows re-read
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
@@ -82,6 +86,32 @@ public final class AppStoreModel {
 
     private var allListings: [AppStoreListing] {
         client.apps.filter { !$0.manifest.isLocal && $0.available && $0.id != AppStoreListing.storeID }.map(AppStoreListing.init(record:))
+    }
+
+    /// The features the Features tab lists: the catalog's entries whose key has landed,
+    /// filtered by the search and the category (``featureCategory``).
+    public var featureListings: [AppFeature] {
+        guard let features else { return [] }
+        return AppFeature.catalog.filter { feature in
+            features.isAvailable(feature) && (featureCategory.map { feature.category == $0 } ?? true) && feature.matches(query)
+        }
+    }
+
+    /// The categories of the features that have landed, in catalog order.
+    public var featureCategories: [AppFeature.Category] {
+        guard let features else { return [] }
+        let present = Set(AppFeature.catalog.filter(features.isAvailable).map(\.category))
+        return AppFeature.Category.allCases.filter(present.contains)
+    }
+
+    /// The Features tab's category chip; nil shows all.
+    public var featureCategory: AppFeature.Category?
+
+    public func isOn(_ feature: AppFeature) -> Bool { features?.isOn(feature) ?? false }
+
+    /// Get (on) or Remove (off) from this page's button: a user gesture.
+    public func setFeature(_ feature: AppFeature, on: Bool) async throws {
+        try await features?.set(feature, on: on)
     }
 
     public var installedApps: [AppRecord] { client.apps.filter(\.installed) }
