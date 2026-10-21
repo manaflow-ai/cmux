@@ -71,6 +71,14 @@ public final class LaunchReveal {
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
     }
 
+    /// `view` has its data before its region (a terminal's frame from the last quit): it shows at
+    /// once, with no fade, while the region's other views stay held.
+    public func release(_ view: NSView) {
+        guard held.values.contains(where: { $0.contains(view) }) else { return }
+        for table in held.values { table.remove(view) }
+        view.alphaValue = 1
+    }
+
     /// Every region is ready (or will never be): nothing stays held.
     public func markAllReady() {
         deadlineTimer.cancel()

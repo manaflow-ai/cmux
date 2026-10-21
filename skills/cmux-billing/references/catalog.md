@@ -85,6 +85,13 @@ production key never has to list portal configurations. Staging webhook endpoint
 `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets
 are already in the `cmux-staging` Vercel project.
 
+Team billing uses a separate portal configuration pinned by
+`STRIPE_TEAM_PORTAL_CONFIGURATION_ID`. Its subscription-update feature is
+disabled, while cancellation, invoice history, and payment-method updates stay
+enabled. `web/scripts/stripe/provision-catalog.sh <test|live>` creates or updates
+that configuration and prints the id to set in the corresponding Vercel
+environments.
+
 ## Cloud VM allowance
 
 The paid allowance lives in `web/services/vms/machineSpec.ts` and

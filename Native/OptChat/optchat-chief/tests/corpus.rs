@@ -406,9 +406,10 @@ fn run_outbox(case: &Value) -> Result<Outcome, String> {
     )
 }
 
-/// The corpus's `policy` cases through optchat-chief's entry points: its
-/// settings file reader, its harness gate, and the shared turn-policy and
-/// spawn-floor rules its brain calls (brain/turns.rs, brain/approvals.rs).
+/// The corpus's `policy` cases: the shared settings reader, turn-policy and
+/// spawn-floor rules, and optchat-chief's harness gate. optchat-chief no
+/// longer reads `remote.autoApprove` (its Chief never asks, 2026-10-20); the
+/// shared rules stay for the other brains.
 fn policy_result(function: &str, args: &Value) -> Value {
     let flag = |key: &str| args[key].as_bool().unwrap();
     match function {
@@ -418,7 +419,11 @@ fn policy_result(function: &str, args: &Value) -> Value {
             if !args["settings"].is_null() {
                 std::fs::write(&path, args["settings"].to_string()).unwrap();
             }
-            json!(optchat_chief::chief_settings::ChiefSettings::load(&path).remote_auto_approve)
+            let value: Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or(Value::Null);
+            json!(cmux_chief::policy::remote_auto_approve(&value))
         }
         "turn_policy" => json!(cmux_chief::policy::turn_policy(
             flag("remote"),
