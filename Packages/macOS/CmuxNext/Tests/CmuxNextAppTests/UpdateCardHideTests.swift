@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextUpdateEverything
 import Foundation
 import Testing
 

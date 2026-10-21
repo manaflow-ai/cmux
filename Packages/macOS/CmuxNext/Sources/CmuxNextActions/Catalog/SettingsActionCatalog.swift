@@ -146,8 +146,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.applyUpdateIfAvailable", defaultValue: "Install Available Update", bundle: .module),
                 keywords: ["update", "install"], category: .settings, symbol: "arrow.down.circle.fill",
                 surfaces: [.palette, .menu], cliName: "settings install-available-update", mainMenu: .app
-            ),
-            updateEverything,
+            ), updateEverything, // SettingsActionCatalog+UpdateEverything.swift
             ActionDescriptor(
                 id: "palette.attemptUpdate",
                 title: String(localized: "action.palette.attemptUpdate", defaultValue: "Attempt Update", bundle: .module),
@@ -490,18 +489,5 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
-    }
-
-    /// Update Everything (cx-1mbnu): the app, every connected machine's cmux and agent CLIs, then
-    /// the threads. Only a person starts it: it restarts daemons, agents and the app.
-    private static var updateEverything: ActionDescriptor {
-        var descriptor = ActionDescriptor(
-            id: "updates.updateEverything",
-            title: String(localized: "action.updates.updateEverything", defaultValue: "Update Everything…", bundle: .module),
-            keywords: ["update", "upgrade", "machines", "agents", "claude", "codex", "daemon", "sparkle"], category: .settings,
-            symbol: "arrow.triangle.2.circlepath.circle", surfaces: [.palette, .menu], mainMenu: .app
-        )
-        descriptor.isPersonOnly = true
-        return descriptor
     }
 }

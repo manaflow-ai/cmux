@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextNowPlaying
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextUpdateEverything
 import CmuxNextTerminal
 import Foundation
 import Testing
