@@ -18,7 +18,9 @@ cmux cloud new-terminal-on-machine --target machine:vm-…   # another terminal 
 ```
 
 Creating a machine (`cmux cloud new-machine`) asks the person in the app first and
-needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it.
+needs the user's authorization; it answers with the new `machine_id`. Prefer an existing machine and another workspace on it:
+`cmux cloud list-machines --json` lists them (`machine_id`, `target`, `status`), so a
+setup script checks for its machine before it creates one.
 
 Everything after this runs in that machine terminal.
 

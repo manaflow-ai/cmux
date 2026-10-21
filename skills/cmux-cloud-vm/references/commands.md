@@ -24,11 +24,43 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
   `snapshot-machine` (`snapshot_id`, or `pending`), the file actions, `prepare-scp`
   and the network, firewall, domain and publication lists return `text` and their fields.
+  `list-machines` returns `machines` (see [Listing machines](#listing-machines)).
 - **Exit codes:** `0` success, `1` action failure, `2` usage, `3` app unreachable.
+
+## Listing machines
+
+`cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
+the one the sidebar's Cloud machines show, so an agent can check whether its machine
+already exists before it runs `new-machine`. It takes no target. Run by a person from
+the palette, it shows the Cloud sidebar instead.
+
+```bash
+cmux cloud list-machines --json
+```
+
+```json
+{"machines": [{"machine_id": "vm-…", "target": "machine:vm-…", "title": "api",
+               "status": "running", "owner": "team", "created_at": "2026-10-21T08:00:00Z"}],
+ "count": 1, "account": {"signed_in": true}}
+```
+
+- `status` is the machine's record: `provisioning`, `running`, `paused`, `failed` or
+  `unknown`. A paused machine reads `paused`, never `failed`.
+- `owner` is `team` when the list is the signed-in team's, else `personal`.
+- `created_at` is ISO 8601, or `null` when the server did not say.
+- `account` has `signed_in`. It has no `limits`: the app does not keep the plan's
+  `max_active_vms`, and a machine count is not an entitlement (`0` means provisioning
+  is closed on the plan, `null` means uncapped), so check the plan, not the count.
+- Signed out, it answers `signed_in: false` and no machines. Right after launch it waits
+  for the saved sign-in to restore first. Signed in with a list that has not loaded, it
+  loads it, and refuses if that fails rather than answering an empty list.
+- `cmux machine list` reads the daemon's machine catalog, which does not list Cloud
+  machines; use `cloud list-machines` for those.
 
 ## Machine actions
 
 ```bash
+cmux cloud list-machines                                    # the app's Cloud machines
 cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
 cmux cloud open-machine --target machine:vm-…
@@ -117,7 +149,8 @@ and `vm ls`. See [guest operations](guest.md).
 
 | Old verb | Closest supported path |
 | --- | --- |
-| `vm ls`, `vm route`, `vm tree`, `vm self`, `surface ls` | none on the Mac; `cmux self` and `cmux self peers` inside a machine |
+| `vm ls` | `cmux cloud list-machines` |
+| `vm route`, `vm tree`, `vm self`, `surface ls` | none on the Mac; `cmux self` and `cmux self peers` inside a machine |
 | `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (returns `machine_id`) |
 | `vm exec`, `vm run`, `vm dev`, `vm agent` | `cmux cloud exec --command …`, or open a terminal on the machine and use `cmux workspace current run -- <argv>` or `cmux agent <harness>` there |
 | `vm terminal send\|read\|wait\|wait-exit\|output\|close` from the Mac | the same work with `cmux terminal <term_…> write\|screen read\|screen wait\|process wait\|output read\|close` inside the machine |

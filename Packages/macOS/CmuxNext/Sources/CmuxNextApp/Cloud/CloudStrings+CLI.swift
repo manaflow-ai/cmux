@@ -17,4 +17,12 @@ extension CloudStrings {
                defaultValue: "This Cloud machine can't run a command for the CLI and return its output. Open a terminal on it with cmux cloud open-machine instead.",
                table: "Cloud", bundle: .module)
     }
+
+    /// `cloud list-machines` from a CLI or agent while signed in, when the machine list has not
+    /// loaded: an empty answer would read as "no machines" and start a second one.
+    static var machineListUnavailable: String {
+        String(localized: "cloud.cli.machineListUnavailable",
+               defaultValue: "The Cloud machine list hasn't loaded, so cmux can't say which machines exist. Try again, or run cmux cloud diagnostics.",
+               table: "Cloud", bundle: .module)
+    }
 }
