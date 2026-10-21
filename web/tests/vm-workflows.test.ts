@@ -1203,7 +1203,7 @@ describe("VM Effect workflows", () => {
       status: "provisioning",
     });
     let beginInput: { resourceReservation?: unknown } | undefined;
-    let createOptions: { memoryMb?: number; network?: unknown } | undefined;
+    let createOptions: { memoryMb?: number; network?: unknown; providerMetadata?: Record<string, unknown> } | undefined;
     const repo = {
       ...testWorkflowRepo({ vm: provisioning }),
       pendingSnapshotDeletions: () => Effect.succeed([]),
@@ -1213,6 +1213,7 @@ describe("VM Effect workflows", () => {
         memoryMb: 4096,
         diskMb: 16384,
       }),
+      ownedSnapshotRemoteAuthMode: () => Effect.succeed("client-grant" as const),
       beginCreate: (input: { resourceReservation?: unknown }) => {
         beginInput = input;
         return Effect.succeed({ inserted: true, vm: provisioning });
@@ -1253,6 +1254,7 @@ describe("VM Effect workflows", () => {
     });
     expect(createOptions?.memoryMb).toBe(4096);
     expect(createOptions?.network).toEqual({ id: "vpc-team", memberIngress: true });
+    expect(createOptions?.providerMetadata).toMatchObject({ cmuxRemoteAuth: "client-grant" });
   });
 
   test("resizes a running VM disk, records the change, and returns provider-confirmed stats", async () => {
