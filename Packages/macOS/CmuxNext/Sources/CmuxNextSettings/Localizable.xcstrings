@@ -105472,6 +105472,270 @@
         }
       }
     },
+    "settings.agents.restartChatsAfterUpdate": {
+      "comment": "Settings > Agents > Agent Chat: toggle whether chats move to a newly installed agent CLI version on their own.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart Chats Automatically After an Agent Update"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの更新後にチャットを自動で再起動"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats nach einem Agent-Update automatisch neu starten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redémarrer les discussions automatiquement après une mise à jour d’agent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تشغيل المحادثات تلقائيًا بعد تحديث الوكيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar los chats automáticamente tras una actualización del agente"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理更新後自動重新啟動聊天"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理更新后自动重启聊天"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 업데이트 후 채팅 자동 다시 시작"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatski ponovo pokreni razgovore nakon ažuriranja agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genstart chats automatisk efter en agentopdatering"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riavvia le chat automaticamente dopo un aggiornamento dell’agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមការជជែកឡើងវិញដោយស្វ័យប្រវត្តិ បន្ទាប់ពីភ្នាក់ងារធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start chatter på nytt automatisk etter en agentoppdatering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatycznie uruchamiaj czaty ponownie po aktualizacji agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reiniciar chats automaticamente após uma atualização do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматически перезапускать чаты после обновления агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีสตาร์ตแชทโดยอัตโนมัติหลังเอเจนต์อัปเดต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan güncellemesinden sonra sohbetleri otomatik olarak yeniden başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично перезапускати чати після оновлення агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động khởi động lại cuộc trò chuyện sau khi tác tử cập nhật"
+          }
+        }
+      }
+    },
+    "settings.agents.restartChatsAfterUpdate.help": {
+      "comment": "Help text under the Restart Chats Automatically After an Agent Update toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After Claude Code, Codex or another agent updates, every chat moves to the new version: an idle chat at once, a busy one when its turn ends. Off, each chat offers Restart Chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code、Codex などのエージェントが更新されると、すべてのチャットが新しいバージョンに移ります。待機中のチャットはすぐに、作業中のチャットはそのターンが終わったときに移ります。オフにすると、各チャットに「チャットを再起動」が表示されます。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach einem Update von Claude Code, Codex oder einem anderen Agenten wechselt jeder Chat zur neuen Version: ein untätiger Chat sofort, ein beschäftigter am Ende seines Zugs. Aus: Jeder Chat bietet „Chat neu starten“ an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après une mise à jour de Claude Code, Codex ou d’un autre agent, chaque discussion passe à la nouvelle version : une discussion inactive aussitôt, une discussion occupée à la fin de son tour. Désactivé, chaque discussion propose Redémarrer la discussion."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد تحديث Claude Code أو Codex أو وكيل آخر، تنتقل كل محادثة إلى الإصدار الجديد: المحادثة الخاملة فورًا، والمشغولة عند انتهاء دورها. عند الإيقاف، تعرض كل محادثة خيار إعادة تشغيل المحادثة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando Claude Code, Codex u otro agente se actualiza, cada chat pasa a la nueva versión: uno inactivo al momento y uno ocupado al terminar su turno. Desactivado, cada chat ofrece Reiniciar chat."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code、Codex 或其他代理更新後，每個聊天都會改用新版本：閒置的聊天立即改用，忙碌的聊天在其回合結束時改用。關閉時，每個聊天會提供「重新啟動聊天」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code、Codex 或其他代理更新后，每个聊天都会改用新版本：空闲的聊天立即改用，忙碌的聊天在其回合结束时改用。关闭时，每个聊天会提供“重启聊天”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex 또는 다른 에이전트가 업데이트되면 모든 채팅이 새 버전으로 옮겨 갑니다. 쉬고 있는 채팅은 바로, 작업 중인 채팅은 차례가 끝날 때 옮겨 갑니다. 끄면 각 채팅에 채팅 다시 시작이 표시됩니다."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon ažuriranja Claude Codea, Codexa ili drugog agenta, svaki razgovor prelazi na novu verziju: neaktivan odmah, zauzet kad završi svoj red. Isključeno, svaki razgovor nudi Ponovo pokreni razgovor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Claude Code, Codex eller en anden agent opdateres, skifter hver chat til den nye version: en ledig chat med det samme, en travl chat når dens tur slutter. Fra: Hver chat tilbyder Genstart chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo l’aggiornamento di Claude Code, Codex o di un altro agente, ogni chat passa alla nuova versione: una chat inattiva subito, una occupata alla fine del suo turno. Disattivato, ogni chat offre Riavvia chat."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពី Claude Code, Codex ឬភ្នាក់ងារផ្សេងទៀតធ្វើបច្ចុប្បន្នភាព ការជជែកនីមួយៗប្ដូរទៅកំណែថ្មី៖ ការជជែកទំនេរភ្លាមៗ ការជជែករវល់នៅពេលវេនរបស់វាចប់។ បើបិទ ការជជែកនីមួយៗផ្ដល់ជម្រើស ចាប់ផ្ដើមការជជែកឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når Claude Code, Codex eller en annen agent oppdateres, går hver chat over til den nye versjonen: en ledig chat med en gang, en opptatt chat når turen er ferdig. Av: Hver chat tilbyr Start chat på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po aktualizacji Claude Code, Codex lub innego agenta każdy czat przechodzi na nową wersję: bezczynny od razu, zajęty po zakończeniu swojej tury. Wyłączone: każdy czat proponuje Uruchom czat ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois que Claude Code, Codex ou outro agente é atualizado, cada chat passa para a nova versão: um chat ocioso na hora, um ocupado quando o turno termina. Desativado, cada chat oferece Reiniciar chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После обновления Claude Code, Codex или другого агента каждый чат переходит на новую версию: свободный сразу, занятый — когда закончится его ход. Если выключено, каждый чат предлагает «Перезапустить чат»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจาก Claude Code, Codex หรือเอเจนต์อื่นอัปเดต ทุกแชทจะย้ายไปใช้เวอร์ชันใหม่: แชทที่ว่างย้ายทันที แชทที่กำลังทำงานย้ายเมื่อจบรอบ หากปิด แต่ละแชทจะเสนอให้รีสตาร์ตแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex veya başka bir ajan güncellendikten sonra her sohbet yeni sürüme geçer: boştaki sohbet hemen, meşgul olan sırası bitince. Kapalıyken her sohbet Sohbeti Yeniden Başlat seçeneğini sunar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після оновлення Claude Code, Codex або іншого агента кожен чат переходить на нову версію: вільний одразу, зайнятий — коли закінчиться його хід. Якщо вимкнено, кожен чат пропонує «Перезапустити чат»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau khi Claude Code, Codex hoặc tác tử khác cập nhật, mọi cuộc trò chuyện chuyển sang phiên bản mới: cuộc rảnh chuyển ngay, cuộc đang bận chuyển khi lượt của nó kết thúc. Khi tắt, mỗi cuộc trò chuyện đưa ra Khởi động lại cuộc trò chuyện."
+          }
+        }
+      }
+    },
     "settings.agents.defaultPermissionMode": {
       "extractionState": "manual",
       "localizations": {

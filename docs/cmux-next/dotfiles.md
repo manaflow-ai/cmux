@@ -122,6 +122,21 @@ It's also Settings > Agents > Agent Chat > Permission Mode for New Chats, and
 change it without you confirming. Picking a mode in a chat sets the default
 too, so the latest choice wins: a pick in a chat, or a change to this setting.
 
+When an agent CLI (Claude Code, Codex) updates, from a chat's Update or from
+auto-update in Settings > Agents, every chat of that agent moves to the new
+version on its own: an idle chat restarts at once and resumes the same
+conversation, a busy one when its turn ends, and each chat notes "Updated to
+<version>". Turn that off to restart each chat yourself (Restart Chat):
+
+```jsonc
+{
+  "agents": {
+    // true (the default): chats restart on their own after an agent CLI update.
+    "restartChatsAfterUpdate": false,
+  },
+}
+```
+
 The model and reasoning effort a new chat starts with aren't in
 `cmux-next.json` yet. `acpmux defaults <harness> model=<id> effort=<level>`
 saves them (for example `acpmux defaults claude model=claude-opus-5-5
