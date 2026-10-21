@@ -112,6 +112,89 @@ chmod +x "$tmp/fake-push.sh"
 [[ "$(sed -n 4,5p "$tmp/args" | tr '\n' ' ')" == "settings-at actions-at " ]] \
   || fail "base-autofix-land.sh does not hand on both made-at commits: $(tr '\n' ' ' < "$tmp/args")"
 
+# What is built from the action exports (the docs shortcuts; the defaults snapshot, which also reads
+# the settings exports) is judged from the run's commit: a CmuxNextActions move during the run holds
+# it at the first push even though the exports made after that move land. base-autofix-land.sh then
+# makes it again on the tip from the tip's committed exports, which are the ones just landed. Before,
+# it waited for the next run, which held it the same way (the "keyboard-shortcuts docs freshness"
+# base red). A stand-in for base-autofix-repair.sh builds them from the checkout it runs in.
+shortcuts=web/data/cmux-shortcuts.generated.json
+snapshot=schemas/defaults/cmux-next.json
+cat > "$tmp/fake-repair.sh" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$1"
+env | grep '^CMUX_BASE_AUTOFIX_.*_CURRENT=' | sort >> "$FAKE_SEEN"
+if [[ "${CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT:-}" == 1 ]]; then
+  echo "shortcuts for $(cat plans/cmux-next/action-surfaces.json), $(cat Packages/macOS/CmuxNext/Sources/CmuxNextActions/Actions.swift)" \
+    > web/data/cmux-shortcuts.generated.json
+  echo "fixed: regenerated web/data/cmux-shortcuts.generated.json"
+  if [[ "${CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT:-}" == 1 ]]; then
+    echo "snapshot for $(cat plans/cmux-next/action-surfaces.json)" > schemas/defaults/cmux-next.json
+    echo "fixed: regenerated schemas/defaults/cmux-next.json"
+  fi
+fi
+FAKE
+chmod +x "$tmp/fake-repair.sh"
+# The base gains the files built from the exports and a defaults guard whose check-stamp says
+# whether the settings exports are current (FAKE_STAMP); the bot's repair builds them at its commit.
+setup_built() {
+  setup
+  lane_commit "built files" "$shortcuts" "shortcuts old" "$snapshot" "snapshot old" scripts/ci/defaults_guard.py \
+    'import os, sys; sys.exit(0 if sys.argv[1:2] != ["check-stamp"] or os.environ.get("FAKE_STAMP") == "current" else 1)'
+  rm -rf "$tmp/bot"
+  git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
+  base="$(git -C "$tmp/bot" rev-parse HEAD)"
+  (cd "$tmp/bot" && echo "surfaces new" > "$surfaces" && echo "md new" > "$md" \
+    && echo "shortcuts for surfaces new, action v1" > "$shortcuts" && echo "snapshot for surfaces new" > "$snapshot" \
+    && git commit -q -am "chore(next): base autofix at ${base:0:12}")
+  : > "$tmp/seen"
+}
+land_at() { # <actions made at> [env...]
+  local made="$1"; shift
+  (cd "$tmp/bot" && env FAKE_SEEN="$tmp/seen" CMUX_BASE_AUTOFIX_REPAIR="$tmp/fake-repair.sh" RUN_URL=https://example.invalid "$@" \
+    bash "$land_script" "$tmp/remote.git" feat "$base" "" "$made")
+}
+
+# 8. The run of 2026-10-21: CmuxNextActions moved during the run, the Mac job made the exports after
+#    it (T1). The exports land at the first push; the shortcuts and snapshot built at the run's
+#    commit wait there, and are made again on the tip from the exports that landed, and land too.
+setup_built
+lane_commit "lane edits an action" "$actions_src" "action v2"
+made="$(remote_tip)"
+land_at "$made" FAKE_STAMP=current > "$tmp/out" 2>&1 || fail "the files built from the exports did not land on the tip: $(cat "$tmp/out")"
+[[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "the action exports did not land"
+[[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] \
+  || fail "the shortcuts were not made on the tip from its exports: $(remote_show "$shortcuts")"
+[[ "$(remote_show "$snapshot")" == "snapshot for surfaces new" ]] || fail "the snapshot was not made on the tip: $(remote_show "$snapshot")"
+grep -qx "CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1" "$tmp/seen" || fail "the repair on the tip was not told the exports are current"
+
+# 9. The settings stamp is stale on the tip: the shortcuts land, the snapshot (it reads the settings
+#    exports too) waits, and the run fails so the next run repairs it.
+setup_built
+lane_commit "lane edits an action" "$actions_src" "action v2"
+made="$(remote_tip)"
+if land_at "$made" FAKE_STAMP=stale > "$tmp/out" 2>&1; then fail "a run whose snapshot waits passed: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v2" ]] || fail "the shortcuts did not land: $(remote_show "$shortcuts")"
+[[ "$(remote_show "$snapshot")" == "snapshot old" ]] || fail "the snapshot landed with stale settings exports"
+grep -qF "$snapshot" "$tmp/out" || fail "the run does not name the waiting snapshot: $(cat "$tmp/out")"
+
+# 10. The actions area moved after T1: the tip's exports are not known current, so nothing built
+#     from them is made there; it all waits and the run fails.
+setup_built
+lane_commit "lane edits an action" "$actions_src" "action v2"
+made="$(remote_tip)"
+lane_commit "lane edits it again" "$actions_src" "action v3"
+if land_at "$made" FAKE_STAMP=current > "$tmp/out" 2>&1; then fail "files built from stale exports passed: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from exports not known current"
+grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "the repair was told stale exports are current"
+
+# 11. Without ACTIONS_MADE_AT (no Mac exports in this run) nothing proves the tip's exports current.
+setup_built
+lane_commit "lane edits an action" "$actions_src" "action v2"
+if land_at "" FAKE_STAMP=current > "$tmp/out" 2>&1; then fail "files built from unproven exports passed"; fi
+[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from unproven exports"
+
 # base-autofix-action-exports.sh (the Mac job). A stand-in for regenerate-action-exports.sh writes
 # exports naming the action source of the commit it ran on and counts its runs; FAKE_MOVE pushes a
 # lane commit after each run (always, once, elsewhere) or makes it fail.
@@ -149,7 +232,7 @@ mac_run() { # <FAKE_MOVE>
 }
 mac_head_is_start() { [[ "$(git -C "$tmp/mac" rev-parse HEAD)" == "$start" ]] && [[ -z "$(git -C "$tmp/mac" status --porcelain)" ]]; }
 
-# 8. Nothing moved: one regeneration at the run's commit; only the files that differ from it go out.
+# 12. Nothing moved: one regeneration at the run's commit; only the files that differ from it go out.
 setup
 mac_clone
 mac_run none > "$tmp/out" 2>"$tmp/err" || fail "an unmoved regeneration failed: $(cat "$tmp/out" "$tmp/err")"
@@ -160,7 +243,7 @@ grep -qx "regenerated: $surfaces" "$tmp/out" || fail "the regenerated export is 
 [[ ! -e "$tmp/mac-out/$links" ]] || fail "an export the same as the run's commit was handed on"
 [[ ! -e "$tmp/prepared" ]] || fail "an unmoved regeneration prepared a checkout again"
 
-# 9. The actions area moved while the job waited for a runner: the first regeneration is already on
+# 13. The actions area moved while the job waited for a runner: the first regeneration is already on
 #    the newest tip, prepared for it, and the checkout is back at the run's commit afterwards.
 setup
 mac_clone
@@ -174,7 +257,7 @@ grep -qx "made at: $tip" "$tmp/out" || fail "the exports are not made at the new
 [[ "$(tail -1 "$tmp/prepared")" == "$start" ]] || fail "the run's commit was not prepared again for the steps after"
 mac_head_is_start || fail "the checkout is not back at the run's commit"
 
-# 10. The inputs moved once during the regeneration: it runs again on the newest tip.
+# 14. The inputs moved once during the regeneration: it runs again on the newest tip.
 setup
 mac_clone
 mac_run once > "$tmp/out" 2>"$tmp/err" || fail "a regeneration on the moved tip failed: $(cat "$tmp/out" "$tmp/err")"
@@ -183,14 +266,14 @@ grep -qx "made at: $(remote_tip)" "$tmp/out" || fail "the exports are not made a
 [[ "$(cat "$tmp/mac-out/$surfaces")" == "surfaces for action moved 1" ]] || fail "the export is not the newest tip's"
 mac_head_is_start || fail "the checkout is not back at the run's commit"
 
-# 11. Only the actions inputs count: a move elsewhere needs no second regeneration.
+# 15. Only the actions inputs count: a move elsewhere needs no second regeneration.
 setup
 mac_clone
 mac_run elsewhere > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past an unrelated move failed: $(cat "$tmp/out" "$tmp/err")"
 grep -qx "made at: $start" "$tmp/out" || fail "an unrelated move made it regenerate: $(cat "$tmp/out")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "an unrelated move ran the regeneration $(cat "$tmp/count") times"
 
-# 12. The inputs move under every regeneration: it stops after the tries, hands on nothing, fails.
+# 16. The inputs move under every regeneration: it stops after the tries, hands on nothing, fails.
 setup
 mac_clone
 if CMUX_BASE_AUTOFIX_ACTIONS_TRIES=3 mac_run always > "$tmp/out" 2>"$tmp/err"; then
@@ -202,11 +285,23 @@ grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "
 grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
 mac_head_is_start || fail "the checkout is not back at the run's commit"
 
-# 13. A failed regeneration fails the step and hands on nothing.
+# 17. A failed regeneration fails the step and hands on nothing.
 setup
 mac_clone
 if mac_run broken > "$tmp/out" 2>"$tmp/err"; then fail "a failed regeneration passed"; fi
 grep -q "::error::regenerating the action exports" "$tmp/err" || fail "a failed regeneration raises no error: $(cat "$tmp/err")"
 [[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "a failed regeneration handed on exports"
 
-echo "PASS: the action exports are made at the newest tip and land when nothing moved their inputs after that"
+# 18. A checkout of the tip that fails (a stale index.lock on a reused runner) fails the step: the
+#     exports regenerated on the old commit are never named as made at the tip.
+setup
+mac_clone
+lane_commit "lane edits an action" "$actions_src" "action v2"
+touch "$tmp/mac/.git/index.lock"
+if mac_run none > "$tmp/out" 2>"$tmp/err"; then fail "a failed checkout of the tip passed: $(cat "$tmp/out")"; fi
+grep -q "^made at:" "$tmp/out" && fail "a failed checkout still names a commit: $(cat "$tmp/out")"
+[[ ! -e "$tmp/count" ]] || fail "it regenerated after the checkout of the tip failed"
+grep -q "::error::cannot check out" "$tmp/err" || fail "a failed checkout raises no error: $(cat "$tmp/err")"
+rm -f "$tmp/mac/.git/index.lock"
+
+echo "PASS: the action exports are made at the newest tip and land when nothing moved their inputs after that; what is built from them is made again on the tip"
