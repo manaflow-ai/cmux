@@ -31,6 +31,11 @@ pub(super) fn acp_prompt_blocks(
         std::fs::create_dir_all(&dir).map_err(|e| {
             RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
         })?;
+        // The folder sits in the user's project; keep it out of their commits.
+        let ignore = dir.join(".gitignore");
+        if !ignore.exists() {
+            let _ = std::fs::write(&ignore, "*\n");
+        }
         let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
         let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
         use base64::Engine;
@@ -39,7 +44,7 @@ pub(super) fn acp_prompt_blocks(
             .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
         std::fs::write(&path, bytes)
             .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
-        let uri = format!("file://{}", path.display());
+        let uri = file_uri(&path);
         out.push(json!({
             "type": "text",
             "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
@@ -52,6 +57,15 @@ pub(super) fn acp_prompt_blocks(
         }));
     }
     Ok(out)
+}
+
+/// A `file://` URI for the saved file, percent-encoded so a project folder with
+/// spaces or non-ASCII letters still names a valid link (and a Windows path
+/// gets its drive form).
+fn file_uri(path: &std::path::Path) -> String {
+    reqwest::Url::from_file_path(path)
+        .map(String::from)
+        .unwrap_or_else(|()| format!("file://{}", path.display()))
 }
 
 impl Hub {

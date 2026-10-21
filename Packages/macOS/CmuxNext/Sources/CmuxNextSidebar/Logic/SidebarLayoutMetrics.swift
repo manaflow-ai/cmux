@@ -140,6 +140,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var sessionTree: SidebarSessionTreeState?
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
+    /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
+    /// Earlier under them. Nil (the tree off, or a filter) draws neither.
+    public var chatHistory: SidebarChatHistoryState?
 
     public init() {}
 }
@@ -161,6 +164,9 @@ nonisolated extension SidebarLayoutOptions {
             content.pullRequests = sessionTree.pullRequests[ws.id]
         }
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
+        // What the agent needs outranks the row's age and one-line status on the name's line; the
+        // row view words it (localized on the main actor, so the layout stays nonisolated).
+        if !minimal, let chip = ws.agentChip { (content.chip, content.time) = (chip, nil) }
         return content
     }
 

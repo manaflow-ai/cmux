@@ -154831,6 +154831,268 @@
           }
         }
       }
+    },
+    "settings.agents.subsessions.answerQuestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Sessions Answer Their Sub-sessions' Questions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح للجلسات بالإجابة عن أسئلة جلساتها الفرعية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli sesijama da odgovaraju na pitanja svojih podsesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad sessioner besvare deres undersessioners spørgsmål"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen dürfen Fragen ihrer Untersitzungen beantworten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que las sesiones respondan las preguntas de sus subsesiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les sessions à répondre aux questions de leurs sous-sessions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti alle sessioni di rispondere alle domande delle loro sottosessioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションがサブセッションの質問に答えることを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យវគ្គឆ្លើយសំណួររបស់វគ្គរងរបស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 하위 세션의 질문에 답하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La økter svare på spørsmålene fra underøktene sine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwalaj sesjom odpowiadać na pytania swoich podsesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que sessões respondam às perguntas de suas subsessões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить сеансам отвечать на вопросы своих вложенных сеансов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เซสชันตอบคำถามของเซสชันย่อยของตน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumların alt oturumlarının sorularını yanıtlamasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити сеансам відповідати на запитання своїх вкладених сеансів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép phiên trả lời câu hỏi của các phiên con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许会话回答其子会话的问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許工作階段回答其子工作階段的問題"
+          }
+        }
+      }
+    },
+    "settings.agents.subsessions.answerQuestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما يطرح وكيل في جلسة فرعية سؤالًا، يمكن للجلسة التي بدأتها أن تجيب، وتُظهر الإجابة من قدّمها. طلبات الأذونات تنتظرك دائمًا. عند الإيقاف: أنت وحدك من يجيب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada agent u podsesiji postavi pitanje, sesija koja ju je pokrenula može odgovoriti, a odgovor pokazuje ko ga je dao. Zahtjevi za dozvole uvijek čekaju na vas. Isključeno: odgovarate samo vi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en agent i en undersession stiller et spørgsmål, kan den session, der startede den, svare, og svaret viser, hvem der gav det. Anmodninger om tilladelse venter altid på dig. Fra: kun du svarer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stellt ein Agent in einer Untersitzung eine Frage, kann die Sitzung antworten, die sie gestartet hat, und die Antwort zeigt, von wem sie kommt. Berechtigungsanfragen warten immer auf dich. Aus: Nur du antwortest."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando un agente de una subsesión hace una pregunta, la sesión que la inició puede responder, y la respuesta muestra quién la dio. Las solicitudes de permiso siempre te esperan. Desactivado: solo respondes tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand un agent d'une sous-session pose une question, la session qui l'a démarrée peut répondre, et la réponse indique qui l'a donnée. Les demandes d'autorisation vous attendent toujours. Désactivé : vous seul répondez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando un agente in una sottosessione fa una domanda, la sessione che l'ha avviata può rispondere e la risposta mostra chi l'ha data. Le richieste di autorizzazione aspettano sempre te. Disattivato: rispondi solo tu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブセッションのエージェントが質問すると、そのサブセッションを開始したセッションが答えられ、回答には誰が答えたかが表示されます。権限のリクエストは常にあなたを待ちます。オフ:あなただけが答えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលភ្នាក់ងារក្នុងវគ្គរងសួរសំណួរ វគ្គដែលបានចាប់ផ្ដើមវាអាចឆ្លើយបាន ហើយចម្លើយបង្ហាញថាអ្នកណាជាអ្នកឆ្លើយ។ សំណើសិទ្ធិតែងតែរង់ចាំអ្នក។ បិទ៖ មានតែអ្នកទេដែលឆ្លើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 세션의 에이전트가 질문하면 그 하위 세션을 시작한 세션이 답할 수 있고, 답변에는 누가 답했는지 표시됩니다. 권한 요청은 항상 사용자를 기다립니다. 끄면 사용자만 답합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når en agent i en underøkt stiller et spørsmål, kan økten som startet den svare, og svaret viser hvem som ga det. Tillatelsesforespørsler venter alltid på deg. Av: bare du svarer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy agent w podsesji zada pytanie, sesja, która ją uruchomiła, może odpowiedzieć, a odpowiedź pokazuje, kto jej udzielił. Prośby o uprawnienia zawsze czekają na ciebie. Wyłączone: odpowiadasz tylko ty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando um agente em uma subsessão faz uma pergunta, a sessão que a iniciou pode responder, e a resposta mostra quem a deu. Pedidos de permissão sempre esperam por você. Desativado: só você responde."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Когда агент во вложенном сеансе задаёт вопрос, ответить может сеанс, который его запустил, и в ответе видно, кто его дал. Запросы разрешений всегда ждут вас. Выкл.: отвечаете только вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเอเจนต์ในเซสชันย่อยถามคำถาม เซสชันที่เริ่มเซสชันย่อยนั้นตอบได้ และคำตอบจะแสดงว่าใครเป็นผู้ตอบ คำขอสิทธิ์จะรอคุณเสมอ ปิด: มีเพียงคุณที่ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir alt oturumdaki ajan soru sorduğunda, onu başlatan oturum yanıtlayabilir ve yanıt kimin verdiğini gösterir. İzin istekleri her zaman sizi bekler. Kapalı: yalnızca siz yanıtlarsınız."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Коли агент у вкладеному сеансі ставить запитання, відповісти може сеанс, що його запустив, і у відповіді видно, хто її дав. Запити дозволів завжди чекають на вас. Вимк.: відповідаєте лише ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tác tử trong phiên con đặt câu hỏi, phiên đã bắt đầu nó có thể trả lời và câu trả lời cho biết ai đã trả lời. Yêu cầu quyền luôn chờ bạn. Tắt: chỉ bạn trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子会话中的智能体提问时，启动它的会话可以回答，回答会显示是谁给出的。权限请求始终等待你处理。关闭：只有你回答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子工作階段中的代理程式提問時，啟動它的工作階段可以回答，回答會顯示是誰給的。權限要求一律等你處理。關閉：只有你回答。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

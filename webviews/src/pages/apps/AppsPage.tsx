@@ -1,31 +1,52 @@
 // The App Store page (plans/cmux-next/react-pages.md 3.3; behavior of the Swift App Store in
 // CmuxNextApps/Store). It fills an app screen or a narrow tab: the grid adapts its columns, the
 // detail keeps a readable width, split stacks below 640 px. State lives in `AppsStore`.
-import { useSyncExternalStore, type KeyboardEvent } from "react";
+import { useRef, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { InstalledView } from "./InstalledView";
-import { categoryLabel, isRemovable, TierLabel } from "./model";
+import { categoryLabel, isRemovable, TierLabel, type StoreTab } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
+import { useUiDirection } from "../../ui/UiProvider";
 
 export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const tabRefs = useRef<Partial<Record<StoreTab, HTMLButtonElement>>>({});
   const { t } = strings;
+  const tabs: StoreTab[] = ["discover", "installed"];
+  const direction = useUiDirection() === "rtl" ? -1 : 1;
+  const moveTab = (event: KeyboardEvent<HTMLButtonElement>, tab: StoreTab) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const step = event.key === "ArrowRight" ? direction : event.key === "ArrowLeft" ? -direction : null;
+    if (event.key !== "Home" && event.key !== "End" && step === null) return;
+    const current = tabs.indexOf(tab);
+    const next =
+      event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + step! + tabs.length) % tabs.length;
+    const nextTab = tabs[next]!;
+    event.preventDefault();
+    store.setTab(nextTab);
+    tabRefs.current[nextTab]?.focus();
+  };
   return (
     <div className="apps-page">
       <header className="apps-toolbar">
         <div className="apps-tabs" role="tablist">
-          {(["discover", "installed"] as const).map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab}
               type="button"
               role="tab"
+              ref={(element) => {
+                tabRefs.current[tab] = element ?? undefined;
+              }}
+              tabIndex={snap.tab === tab ? 0 : -1}
               aria-selected={snap.tab === tab}
               className={`apps-tab${snap.tab === tab ? " selected" : ""}`}
               onClick={() => store.setTab(tab)}
+              onKeyDown={(event) => moveTab(event, tab)}
             >
               {t(tab === "discover" ? "store.tab.discover" : "store.tab.installed")}
             </button>

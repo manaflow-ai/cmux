@@ -351,6 +351,79 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The CI target graph on its own Linux job, so it never waits for the Mac exports job: the
+  # graph is made from the package manifest alone (base-autofix-repair.sh dumps it in the Swift 6.2
+  # container). 2026-10-21: a push added a test target without the graph and every PR's Tier
+  # routing was red for 90 minutes while autofix, which made it, waited for the Mac job. Autofix
+  # still makes the graph too; whichever lands second finds it current.
+  target-graph:
+    name: CI target graph
+    if: github.repository == 'manaflow-ai/cmux'
+    # A running one finishes and lands on the newest tip; a newer push replaces only a pending one,
+    # and that one makes the graph from the newer tip.
+    concurrency:
+      group: cmux-next-base-autofix-target-graph-${{ github.ref_name }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for feat-cmux-next; ephemeral Blacksmith VM
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The graph only, as base-autofix-land.sh makes a repair again on a moved tip: nothing from
+      # or built from the Mac exports, no formatting.
+      - name: Make the graph
+        env:
+          GRAPH: "true"
+          CMUX_BASE_AUTOFIX_AGAIN: "1"
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-repair.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/graph.txt"
+
+      - name: Commit the graph
+        id: commit
+        env:
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "The CI target graph is current at ${HEAD_SHA:0:12}." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git add -A
+          git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12}" \
+            -m "$(grep '^fixed: ' "$RUNNER_TEMP/graph.txt" | sed 's/^fixed: /- /')" \
+            -m "scripts/cmux-next/base-autofix.sh: $RUN_URL"
+          git show --stat --oneline HEAD | sed -n '1,20p' >> "$GITHUB_STEP_SUMMARY"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push the graph
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GRAPH: "true"
+          CMUX_BASE_AUTOFIX_AGAIN: "1"
+          TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
+          HEAD_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CMUX_BASE_AUTOFIX_REPAIR: scripts/cmux-next/base-autofix-repair.sh
+        run: |
+          set -euo pipefail
+          if [[ "$ENABLED" != true ]]; then
+            echo "Dry run (CMUX_NEXT_BASE_AUTOFIX is not 1): would push $(git rev-parse --short HEAD) to feat-cmux-next." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::add-mask::$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)"
+          scripts/cmux-next/base-autofix-land.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
   autofix:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
