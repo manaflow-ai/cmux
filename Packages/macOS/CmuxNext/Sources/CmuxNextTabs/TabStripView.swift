@@ -443,7 +443,7 @@ public final class TabStripView: NSView {
     }
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off".
-    var reduceMotion: Bool { !Motion.animatesMovement }
+    var reduceMotion: Bool { !Motion.tabs.animatesMovement }
 
     var viewportWidth: CGFloat { tabsClip.bounds.width }
 

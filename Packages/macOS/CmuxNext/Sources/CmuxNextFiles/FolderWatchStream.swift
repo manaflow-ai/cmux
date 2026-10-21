@@ -60,7 +60,9 @@ final class FolderWatchStream: @unchecked Sendable {
             guard parent == folderPath else { continue }
             items.append((trimmed as NSString).lastPathComponent)
         }
-        if rescan { continuation.yield(.rescan) } else if !items.isEmpty { continuation.yield(.items(items)) }
+        guard rescan || !items.isEmpty else { return }
+        // A full buffer drops its oldest change; the rescan after it covers whatever was lost.
+        if case .dropped = continuation.yield(rescan ? .rescan : .items(items)) { continuation.yield(.rescan) }
     }
 }
 

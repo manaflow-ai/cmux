@@ -28,7 +28,11 @@ struct ShownStream: Equatable {
 extension ProjectionCore {
     /// The rows `streams(_:state:)` would show, in order.
     private func visible(_ want: [HomeStreamRow]) -> [HomeStreamRow] {
-        want.filter { row in !row.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !shown.contains { $0.key == row.turn } }
+        // Whole messages (the default, user Oct 20): no stream bubble ever shows; each running
+        // reply is its author's typing dots (`replyTypists`) and each message comes whole (`.receive`).
+        guard replies == .streaming else { return [] }
+        // The first non-whitespace character ends the scan (trimming copied the whole reply every token).
+        return want.filter { row in row.text.unicodeScalars.contains { !CharacterSet.whitespacesAndNewlines.contains($0) } && !shown.contains { $0.key == row.turn } }
     }
 
     /// True when `streams(_:state:)` would act.
@@ -51,6 +55,7 @@ extension ProjectionCore {
             actions.append(.streamEnd(Self.streamID(live.turn), replacedBy: final))
         }
         shownStreams.removeAll { !wanted.contains($0.turn) }
+        streamMappers.keep(only: wanted)
         // The streams that stay must keep their order (new ones go below them); a reply that began
         // earlier than one on screen (a snapshot after a join) restarts the bubbles in order.
         let staying = rows.map(\.turn).filter { turn in shownStreams.contains { $0.turn == turn } }
@@ -76,6 +81,13 @@ extension ProjectionCore {
         return actions
     }
 
+    /// The authors of running replies whose dots must show (whole messages): HomeStore's live runs
+    /// already count as typing, an older owner's `conversation-draft` may not. A reply already posted is not running.
+    func replyTypists(_ want: [HomeStreamRow]) -> Set<ParticipantID> {
+        guard replies == .wholeMessages else { return [] }
+        return Set(want.filter { row in !shown.contains { $0.key == row.turn } }.map(\.author))
+    }
+
     static func streamID(_ turn: IdempotencyKey) -> StreamID { turn.rawValue }
 
     /// The posted reply as the transcript shows it (HomeMapping.id: no alias).
@@ -88,6 +100,16 @@ extension ProjectionCore {
     private func bubble(_ row: HomeStreamRow) -> Message {
         let item = TranscriptItem(key: row.turn, seq: nil, author: row.author, parts: [.text(row.text)],
                                   createdAt: Date(), delivery: .committed)
-        return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        guard HomeMapping.isAgent(row.author, summary) else {
+            return HomeMapping.message(item, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        }
+        // An agent's reply: the same parts as HomeMapping.parts(markdown: true), at the token's cost
+        // (HomeStreamMapper keeps the reply's rendered lines between tokens).
+        var bare = item
+        bare.parts = []
+        var message = HomeMapping.message(bare, aliases: aliases, me: me, summary: summary, media: media, links: links)
+        message.parts = streamMappers.mapper(row.turn).parts(row.text, links: links)
+        message.format = .markdown
+        return message
     }
 }

@@ -41,6 +41,23 @@ JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "
 # The fast tier reads the placement runner too, but runs only on feat-cmux-next PRs and pushes
 # and has its own fast-lane route, so the side-lane runs-on cases below cover JOBS only.
 PLACED_JOBS = (*JOBS, "fast-tier")
+# The jobs whose bot overflow (attempt 3+) reads the placement's free retry label. With no free
+# Blacksmith slot (an empty label) they take the owned side label: waiting behind the fleet is
+# acceptable, a Blacksmith queue is not (2026-10-20: 5+ hour waits on 12 vCPU). The GUI jobs keep
+# the Blacksmith fallback; the fleet's gui label is what they overflow from.
+RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
+
+
+def overflow(name: str, placed: bool = True) -> str:
+    """The label a bot attempt 3+ takes with no free Blacksmith slot.
+
+    A GUI job whose placement ran keeps the 6 vCPU escape from its gui label (it also covers a gui
+    label with no online runner); with no placement result it waits on the fleet's gui label, never
+    vars.MACOS_RUNNER_26 (12 vCPU, 5+ hour waits on 2026-10-20).
+    """
+    if name in RETRY_JOBS:
+        return SIDE
+    return FALLBACK if placed else GUI
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -213,6 +230,89 @@ class Decide(unittest.TestCase):
             self.assertEqual((lines["gui_runner"], lines["session_runner"]), (GUI, SESSION))
 
 
+LIGHT_SIDE = "glaeda-side-light-xcode-26.6"
+LIGHT = "glaeda-light-xcode-26.6"
+# The fleet dashboard at 2026-10-20 22:22Z: 133 jobs queued on the light side label's 3 online (all
+# busy) runners, while 51 of the std side label's 60 online runners sat idle.
+SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.json"
+
+
+class SpillToCompatiblePool(unittest.TestCase):
+    def setUp(self):
+        self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
+
+    def test_the_starved_light_snapshot_spills_to_the_idle_std_side_runners(self):
+        fleet = json.loads(SNAPSHOT.read_text())
+        runners = fleet["runners"]
+        self.assertEqual(fleet["pools"][LIGHT_SIDE]["queued"], 133)
+        self.assertEqual(placement.route_label(LIGHT_SIDE, runners), SIDE)
+        self.assertEqual(placement._online(LIGHT_SIDE, runners), 3)
+        self.assertEqual(placement.pool.live_owned_free(runners, [LIGHT_SIDE, SIDE]), {LIGHT_SIDE: 0, SIDE: 51})
+        owned, _, why = placement.decide(env(SIDE_LABEL=LIGHT_SIDE), runners)
+        self.assertEqual(owned, JOBS)
+        self.assertIn(SIDE, why)
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp) / "out"
+            fake = mock.Mock()
+            fake.runners.return_value = runners
+            with mock.patch.object(placement.pool, "GitHub", return_value=fake), \
+                    mock.patch.object(placement.cascade, "read", return_value=(None, None, None)):
+                placement.main(env(SIDE_LABEL=LIGHT_SIDE, ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                   GITHUB_OUTPUT=str(output)))
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(lines["runner"], SIDE)
+
+    def test_the_own_class_keeps_its_jobs_while_it_has_as_much_room(self):
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "ab"]
+        std = [runner("mini-a-glaeda-3"), runner("mini-b-glaeda-3", busy=True)]
+        self.assertEqual(placement.route_label(LIGHT_SIDE, light + std), LIGHT_SIDE)
+        # All busy everywhere: the larger online pool drains the queue faster.
+        busy = [{**item, "busy": True} for item in light + std + [runner("mini-c-glaeda-3")]]
+        self.assertEqual(placement.route_label(LIGHT_SIDE, busy), SIDE)
+        # Light offline and std offline: the owned pool label, as before.
+        self.assertEqual(placement.route_label(LIGHT_SIDE, [runner("light-a-glaeda", labels=(LIGHT,))]), LIGHT)
+
+    def test_a_std_job_never_takes_a_light_runner(self):
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abcd"]
+        std = [runner("mini-a-glaeda-3", busy=True)]
+        self.assertEqual(placement.compatible_labels(SIDE), (SIDE,))
+        self.assertEqual(placement.route_label(SIDE, light + std), SIDE)
+        self.assertEqual(placement.decide(env(), light + std)[0], ())
+
+    def test_compatibility_changes_only_the_class(self):
+        # Role, trust and fleet namespace never mix: only the class token widens.
+        cases = {
+            LIGHT_SIDE: (LIGHT_SIDE, SIDE),
+            "glaeda-aws-side-light-xcode-26.6": ("glaeda-aws-side-light-xcode-26.6", "glaeda-aws-side-std-xcode-26.6"),
+            # Trusted and promote pools are not ordinary owned pools: they never widen.
+            "glaeda-trusted-light-xcode-26.6": ("glaeda-trusted-light-xcode-26.6",),
+            "glaeda-promote-side-trusted-std-xcode-26.6": ("glaeda-promote-side-trusted-std-xcode-26.6",),
+            "glaeda-root-light-xcode-26.6": ("glaeda-root-light-xcode-26.6", "glaeda-root-std-xcode-26.6"),
+            SIDE: (SIDE,),
+            FALLBACK: (FALLBACK,),
+            "": (),
+        }
+        for label, expected in cases.items():
+            self.assertEqual(placement.compatible_labels(label), expected, label)
+            for wider in expected[1:]:
+                self.assertEqual(placement.pool._role_name(wider), placement.pool._role_name(label), wider)
+                self.assertEqual(wider.replace("-std-", "-light-"), label, wider)
+
+    def test_the_classes_are_the_pickers_classes_and_the_fleet_labels_classes(self):
+        # One class list: every class an owned label names (OWNED_LABEL, the label manifest the fleet
+        # registers) that the picker routes is in RUN_CLASSES, and the snapshot's live pools use no other.
+        fleet = json.loads(SNAPSHOT.read_text())
+        classes = {placement.pool.owned_class(label) for label in fleet["pools"] if placement.pool.persistent(label)}
+        self.assertEqual(classes, set(placement.pool.RUN_CLASSES))
+        self.assertEqual(placement.pool.RUN_CLASSES[-1], placement.pool.LIGHT_CLASS)
+
+    def test_a_side_route_is_only_a_side_label(self):
+        root = [runner("mini-a-glaeda", labels=(STD, "glaeda-root-std-xcode-26.6"))]
+        self.assertEqual(placement.side_route(LIGHT_SIDE, root), "")
+        self.assertEqual(placement.side_route(LIGHT, [runner("mini-a-glaeda-3")]), "")
+        self.assertEqual(placement.side_route(LIGHT_SIDE, None), "")
+
+
 class CmuxNextWiring(unittest.TestCase):
     PLACEMENT = "macos-placement"
 
@@ -279,10 +379,12 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
-                # The rescue's third attempt is the measured overflow route.
-                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")), FALLBACK)
+                # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
+                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
-                                                                 triggering_actor="github-actions[bot]")), FALLBACK)
+                                                                 triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
@@ -309,9 +411,9 @@ class CmuxNextWiring(unittest.TestCase):
                 live = self.context(runner=STD)
                 live["needs"][self.PLACEMENT]["outputs"]["session_runner"] = SESSION
                 self.assertEqual(evaluate(runs_on, live), SESSION if name in SESSION_JOBS else on(name, STD))
-                # The rescue's attempt 3 still drops the placement for Blacksmith.
+                # The rescue's attempt 3 still drops the placement's label.
                 live["github"].update(run_attempt="3", triggering_actor=bot)
-                self.assertEqual(evaluate(runs_on, live), FALLBACK)
+                self.assertEqual(evaluate(runs_on, live), overflow(name))
                 # No placement (a person's re-run): the session label only once CI_SESSION_LABEL is 1.
                 rerun = self.context("2")
                 rerun["needs"][self.PLACEMENT] = {"outputs": {}}
@@ -328,9 +430,19 @@ class CmuxNextWiring(unittest.TestCase):
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), overflow(name))
+                # A bot attempt 4+ follows a refusal on attempt 3 (owned_pool_rescue
+                # REFUSAL_RESCUE_ATTEMPT): it leaves the fleet, which may have lost that runner.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
                 self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
+                for attempt in ("4", "5"):
+                    unplaced = self.context(attempt, triggering_actor=bot)
+                    unplaced["needs"] = {}
+                    self.assertFalse(str(evaluate(runs_on, unplaced)).startswith("glaeda-"), (name, attempt))
+                # A free Blacksmith slot the placement found takes the overflow.
+                free = self.context("3", runner=STD, triggering_actor=bot)
+                free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
+                self.assertEqual(evaluate(runs_on, free), FALLBACK)
                 # A person's re-run stays minis-first at any attempt.
                 self.assertEqual(evaluate(runs_on, self.context("4", runner=STD)), on(name, STD))
 
@@ -351,24 +463,29 @@ class CmuxNextWiring(unittest.TestCase):
         push = self.context()
         push["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(gate, push))
+        # A dispatch on a working branch runs every tier, so its Mac jobs are placed too (#22303).
+        dispatch_on_a_branch = self.context()
+        dispatch_on_a_branch["github"].update(event_name="workflow_dispatch", ref="refs/heads/issue-22303-next-pr-ci")
+        dispatch_on_a_branch["inputs"] = {"same_tree_sha": ""}
+        self.assertTrue(evaluate(gate, dispatch_on_a_branch))
         other_owner = self.context()
         other_owner["github"]["repository_owner"] = "someone"
         owned_off = self.context()
         owned_off["vars"]["CI_PR_POOL_OWNED"] = "0"
-        dispatch_elsewhere = self.context()
-        dispatch_elsewhere["github"].update(event_name="workflow_dispatch", ref="refs/heads/main")
         no_mac_work = self.context()
         no_mac_work["needs"]["path_route"]["outputs"].update(native="false", macos="false")
         for why, context in {"fork": self.context(fork=True), "attempt 2": self.context("2"),
                              "attempt 3": self.context("3"), "another owner": other_owner,
-                             "owned pools off": owned_off, "dispatch off feat-cmux-next": dispatch_elsewhere,
+                             "owned pools off": owned_off,
                              "no Mac work on the path route": no_mac_work}.items():
             self.assertFalse(evaluate(gate, context), why)
         # Wherever a Mac job may take an owned label the placement runs, so its marker can upload:
         # every context above that skips it routes every Mac job to the fallback.
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
-            for why, context in {"fork": self.context(fork=True), "attempt 3": self.context("3", triggering_actor="github-actions[bot]"),
+            # A bot attempt 3 with no free Blacksmith slot (or, for a GUI job, no placement result)
+            # does wait on an owned label, unwatched: the rescue's watch ends at attempt 2.
+            for why, context in {"fork": self.context(fork=True),
                                  "another owner": other_owner, "owned pools off": owned_off}.items():
                 context["needs"] = {}  # the skipped placement has no outputs
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))

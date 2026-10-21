@@ -115,9 +115,9 @@ test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the
   expect(decodeURIComponent(segments[1]!)).toBe(id);
 });
 
-test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
+test("Shuffle Paintings is a tile that keeps appearance.background daily", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
-  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;
+  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Paintings"]')!;
   expect(tile).not.toBeNull();
   await act(async () => tile.click());
   await settle();
@@ -198,7 +198,7 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   await settle();
   expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).toBeNull();
   const row = picker.querySelector<HTMLElement>("[data-workspace-opacity]")!;
-  expect(row.textContent).toContain("Follows the work's own tint");
+  expect(row.textContent).toContain("Follows All Workspaces");
   const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
   await act(async () => {
     slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
@@ -218,11 +218,11 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
   expect(runs(page, "cmux.settings.set").length).toBe(0);
 
-  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use the Work's Own")!;
+  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use All Workspaces")!;
   await act(async () => reset.click());
   await settle();
   expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: null });
-  expect(row.textContent).toContain("Follows the work's own tint");
+  expect(row.textContent).toContain("Follows All Workspaces");
   page.unmount();
 });
 

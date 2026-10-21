@@ -226,7 +226,11 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
   generated config), and every agent's launch drops the model-plane endpoints
   and placeholder, so an own credential is never sent to CodeRouter (OpenCode
   sends `opencode auth login` keys to whatever `OPENAI_BASE_URL` and
-  `ANTHROPIC_BASE_URL` name). Image-only: older machines keep the old
+  `ANTHROPIC_BASE_URL` name). A machine whose control-plane-derived
+  `/etc/cmux/vm-kind` is `team` (or unavailable) always uses team mode:
+  teammates share the same Unix HOME and could otherwise read a personal
+  provider login. Use own sign-in only on an `owner` machine. Image-only:
+  older machines keep the old
   behavior until they are recreated.
 - Ghostty comes from a pinned community `.deb` for Ubuntu 24.04
   (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL` in the Dockerfile, verified against

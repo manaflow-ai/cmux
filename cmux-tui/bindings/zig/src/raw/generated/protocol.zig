@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913";
+pub const ir_sha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2994,6 +2994,11 @@ pub const TerminalResourcesResult = struct {
     missing: []const Id,
     sampled_at_ns: u64,
     terminals: []const TerminalResources,
+};
+
+pub const TerminalResumeCommandResult = struct {
+    command: wire.Nullable([]const u8),
+    terminal_id: []const u8,
 };
 
 pub const Tree = struct {
@@ -7434,6 +7439,25 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
     );
 }
 
+pub const ParkTabsRequest = struct {
+    surfaces: []const TabRef,
+};
+
+pub const ParkTabsResult = JsonValue;
+
+pub fn parkTabs(client: anytype, request: ParkTabsRequest) !wire.Decoded(ParkTabsResult) {
+    return client.callTyped(
+        ParkTabsResult,
+        .{
+            .name = "park-tabs",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-park-v1",
+        },
+        request,
+    );
+}
+
 pub const PasteImageRequest = struct {
     data: wire.Field([]const u8) = .absent,
     lease: []const u8,
@@ -9203,6 +9227,25 @@ pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "terminal-resources-v1",
+        },
+        request,
+    );
+}
+
+pub const TerminalResumeCommandRequest = struct {
+    command: wire.Field([]const u8) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequest) !wire.Decoded(TerminalResumeCommandResult) {
+    return client.callTyped(
+        TerminalResumeCommandResult,
+        .{
+            .name = "terminal-resume-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "resume-command",
         },
         request,
     );
@@ -11327,7 +11370,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 279;
+pub const command_count: usize = 281;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11507,6 +11550,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "park-tabs", .authority = "control", .since = 12, .capability = "tab-park-v1", .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "pin-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -11584,6 +11628,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
+    .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },

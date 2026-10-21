@@ -104,6 +104,9 @@ struct NewTabSuccession {
         if left.count == 1, arrived.count == 1, let provisional = left.first {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
+            // The selection goes with the cell, in the same apply: a selected stand-in never
+            // hands the pane to a neighbor for the frames until its creator hears the reply.
+            if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelectSurface = handed }
         }
         guard var succession = active[ObjectIdentifier(pane.pane)] else { return snapshot }
         guard ContinuousClock.now < succession.deadline else {

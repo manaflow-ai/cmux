@@ -36,8 +36,9 @@ public nonisolated struct ClassicMigrationSourceFinder: Sendable {
     /// The channel to read: this build's own when classic saved one, else
     /// the channel whose session file changed last.
     public func channel() -> String? {
+        // A channel whose session file is gone still counts by its `-previous` copy.
         let saved = Self.channels.compactMap { channel -> (String, Date)? in
-            modified(primary(channel)).map { (channel, $0) }
+            (modified(primary(channel)) ?? modified(previous(channel))).map { (channel, $0) }
         }
         if let own = ownChannel, saved.contains(where: { $0.0 == own }) { return own }
         return saved.max { $0.1 < $1.1 }?.0
@@ -47,7 +48,7 @@ public nonisolated struct ClassicMigrationSourceFinder: Sendable {
     /// the session file, its `-previous` copy, then the newest archive.
     public func candidates(channel: String? = nil) -> [(url: URL, bundleID: String)] {
         guard let channel = channel ?? self.channel() else { return [] }
-        var files = [primary(channel), folder.appendingPathComponent("session-\(channel)-previous.json")]
+        var files = [primary(channel), previous(channel)]
         let history = folder.appendingPathComponent("session-history", isDirectory: true)
         let prefix = "session-\(channel)-"
         let archived = ((try? FileManager.default.contentsOfDirectory(atPath: history.path)) ?? [])
@@ -72,6 +73,8 @@ public nonisolated struct ClassicMigrationSourceFinder: Sendable {
     private var folder: URL { support.appendingPathComponent("cmux", isDirectory: true) }
 
     private func primary(_ channel: String) -> URL { folder.appendingPathComponent("session-\(channel).json") }
+
+    private func previous(_ channel: String) -> URL { folder.appendingPathComponent("session-\(channel)-previous.json") }
 
     private func modified(_ url: URL) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date

@@ -66,3 +66,11 @@ test("the host's designSelection event reaches the page bridge", async () => {
   applyHostEvent({ kind: "designSelection", value: card });
   expect(got).toEqual([card]);
 });
+
+test("a removed highlight names both of its chips; a card is no removal", async () => {
+  const { designSelectionRemovals } = await import("../src/agent-session/acpmux/designSelection");
+  expect(designSelectionRemovals({ removed: "design-abc" })).toEqual(["design-abc", "design-abc-shot"]);
+  expect(designSelectionRemovals(card)).toEqual([]);
+  expect(designSelectionRemovals({ removed: "" })).toEqual([]);
+  expect(designSelectionRemovals(null)).toEqual([]);
+});

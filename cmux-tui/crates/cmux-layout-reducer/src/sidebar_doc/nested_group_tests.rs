@@ -333,7 +333,7 @@ fn repair_lifts_a_chain_that_is_too_deep_or_cycles() {
 }
 
 #[test]
-fn drag_does_not_nest_yet_and_a_dragged_tree_is_self() {
+fn drag_nests_a_group_within_the_depth_and_a_dragged_tree_is_self() {
     let mut doc = doc();
     three_levels(&mut doc);
     let sec = machine_section_id(A);
@@ -344,9 +344,12 @@ fn drag_does_not_nest_yet_and_a_dragged_tree_is_self() {
     ];
     let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
     let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
-    assert!(!table["g_project"].into, "the sidebar does not draw nested groups yet");
+    assert!(table["g_project"].into, "one-level group into a level-1 group");
+    assert!(table["g_branch"].into, "into a level-2 group makes level 3");
+    assert!(!table["g_leaf"].into, "into a level-3 group would make level 4");
     assert!(table["g_project"].before, "a group still lands beside a top-level group");
     let table = accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
+    assert!(!table["g_solo"].into, "a three-level tree fits under no group");
     for key in ["g_branch", "g_leaf"] {
         assert_eq!(table[key].refusal.as_deref(), Some("self"), "{key} is under the dragged tree");
     }

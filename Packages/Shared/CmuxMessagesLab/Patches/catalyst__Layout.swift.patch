@@ -40,7 +40,13 @@
      }
  }
  
-@@ -94,15 +117,21 @@
+@@ -90,19 +113,27 @@
+                 case "italic": traits.insert(.traitItalic)
+                 case "underline": a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+                 case "strikethrough": a.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
++                // cmux: a quoted excerpt (Reply to Selection, a Markdown `>` line) in the text's own colour at 66 %.
++                case "quote": a.addAttribute(.foregroundColor, value: color.withAlphaComponent(color.alphaComponent * 0.66), range: range)
+                 default: break
                  }
              }
              if r.mention != nil { traits.insert(.traitBold) }
@@ -63,7 +69,7 @@
          return a
      }
  
-@@ -219,6 +248,9 @@
+@@ -219,6 +250,9 @@
          /// above it (macOS 26): a mini card or thumbnail, a short stub, and
          /// "N Replies" when the thread has 2 or more replies.
          case threadPreview(ThreadPreview)
@@ -73,7 +79,7 @@
      }
      enum LabelColor: Hashable { case secondary, failure, link }
  }
-@@ -281,6 +313,9 @@
+@@ -281,6 +315,9 @@
      static let stubGap: CGFloat = 3.5, stubHeight: CGFloat = 12.5
      /// Space between the stub and the reply below.
      static let replyGap: CGFloat = 7
@@ -83,7 +89,7 @@
      /// Body bottom of the row above to the preview's top (measured 31.5).
      static let gap: CGFloat = 31.5
      var isThumbnail: Bool {
-@@ -301,7 +336,7 @@
+@@ -301,7 +338,7 @@
              p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
              let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
              p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
@@ -92,7 +98,7 @@
          } else {
              let (title, sub) = p.lines
              let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
-@@ -309,25 +344,41 @@
+@@ -309,25 +346,41 @@
          }
          return p
      }
@@ -150,7 +156,7 @@
      /// The widest text preview (outline outside): 383 pt at the 628 pt window (outside 225.0-608.5 pt
      /// measured; our outline's right edge is the bubbles' 608), with the bubble column at other widths.
      static func maxTextBoxWidth(width: CGFloat) -> CGFloat { Metrics(width: width).maxTextWidth + 24.6 }
-@@ -428,6 +479,13 @@
+@@ -428,6 +481,13 @@
      /// The message is marked markdown (Message.format): a long text part takes the markdown
      /// tiles only then (LongTextStore.layout).
      var markdownFormat: Bool = false
@@ -164,7 +170,7 @@
      /// The message format of this row (Message.format).
      var format: MessageFormat? { markdownFormat ? .markdown : nil }
      /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
-@@ -858,6 +916,8 @@
+@@ -858,6 +918,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -173,7 +179,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -989,6 +1049,19 @@
+@@ -989,6 +1051,19 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -193,7 +199,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,7 +1088,9 @@
+@@ -1015,7 +1090,9 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -204,7 +210,7 @@
                      rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                          width: width, estimated: measured.estimated))
                  }
-@@ -1024,7 +1099,8 @@
+@@ -1024,7 +1101,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -214,7 +220,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1043,17 +1119,23 @@
+@@ -1043,17 +1121,23 @@
              }
              prev = m; prevIndex = idx
          }
@@ -243,7 +249,7 @@
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
      }
-@@ -1118,6 +1200,8 @@
+@@ -1118,6 +1202,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -252,7 +258,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1229,7 @@
+@@ -1145,7 +1231,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -261,7 +267,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1248,7 @@
+@@ -1164,7 +1250,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -270,7 +276,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1298,8 @@
+@@ -1214,7 +1300,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -280,7 +286,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1340,8 @@
+@@ -1255,7 +1342,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

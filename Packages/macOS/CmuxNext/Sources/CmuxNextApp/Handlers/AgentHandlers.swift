@@ -307,6 +307,10 @@ enum AgentHandlers {
             guard path.hasPrefix("/") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
             guard let url = AgentPaneFileOpen.resolve(path) else { throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path)) }
             guard let pane = context.paneController(invocation) else { return }
+            // `cmux open` run from an agent chat: a quote from the file's viewer goes back to that chat.
+            if let session = invocation.callerAgentSession, let chat = context.services.agentTabs.tab(showing: session) {
+                context.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
+            }
             if let reason = context.services.viewers.openFile(url, in: pane, userChose: invocation.origin == .user) { throw ActionFailure(message: reason) }
             return
         }

@@ -193,8 +193,7 @@ Socket control and automation settings from Settings > Automation.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"password"` or `"allowAll"` or `"openAccess"` or `"fullOpenAccess"` or `"notifications"` or `"full"` | `"cmuxOnly"` | Socket control mode. Legacy aliases are accepted and normalized. |
-| `automation.socketPassword` | string or null | `""` | Password for password-mode socket access. Use null or an empty string to clear it. |
+| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"notifications"` | `"automation"` | Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized. |
 | `automation.claudeCodeIntegration` | boolean | `true` | Enable cmux integration hooks for Claude Code. |
 | `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
 | `automation.canonicalAgentScratch` | boolean | `false` | Use a cmux-owned scratch directory for native agent panels, organized per session. |

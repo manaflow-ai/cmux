@@ -7,6 +7,14 @@ import { SettingRow } from "./SettingRow";
 const FIRST_FRAME_ROWS = 24;
 
 /**
+ * Whether this document has drawn a category yet. The first one draws whole: the host shows it only
+ * once its first screen is in (paintGate.ts), and when the transition that adds the rest lost the
+ * race with the user's values, the first frame shown had 24 rows and a short page that then grew
+ * (test/settings-open-frames.test.ts). Opening another category later still draws 24 rows first.
+ */
+let drewFirstCategory = false;
+
+/**
  * Rows under their group titles, separated by spacing and hairlines; no fills. With `shown` (a
  * filter), rows and groups outside it collapse in place instead of unmounting.
  */
@@ -27,8 +35,9 @@ export function GroupList({
   // Opening a category draws the rows a window can show (and the focused one) at once and the
   // rest in a transition after that frame, so a 123-row category opens at the cost of 24 rows.
   const focusIndex = focus ? groups.flatMap((group) => group.rows).findIndex((row) => row.key === focus) : -1;
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(() => !drewFirstCategory);
   useEffect(() => {
+    drewFirstCategory = true;
     if (!all) startTransition(() => setAll(true));
   }, [all]);
   const limit = shown || all ? Number.POSITIVE_INFINITY : Math.max(FIRST_FRAME_ROWS, focusIndex + 1);

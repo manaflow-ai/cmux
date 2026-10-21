@@ -28,6 +28,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     // Receipts can outlive the acpmux configuration that prepared them.
     #[cfg(unix)]
     capabilities.push(agent_cli_job::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_intents::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -54,6 +58,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     capabilities.push(tab_restart::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(tab_park::CAPABILITY);
     #[cfg(unix)]
     capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
     #[cfg(unix)]
@@ -204,6 +210,7 @@ pub(super) fn advertised_capabilities(
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        RESUME_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -217,6 +224,7 @@ pub(super) fn advertised_capabilities(
         TAB_MARK_UNREAD_CAPABILITY,
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
+        WORKSPACE_CREATE_FOCUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,

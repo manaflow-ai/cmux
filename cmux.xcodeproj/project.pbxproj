@@ -70,6 +70,10 @@
 				bin,
 				cmux-cli-path,
 				cmux-cli-path/zsh/.zshenv,
+				cmux-cli-path/zsh-agent/.zlogin,
+				cmux-cli-path/zsh-agent/.zprofile,
+				cmux-cli-path/zsh-agent/.zshenv,
+				cmux-cli-path/zsh-agent/.zshrc,
 				cmux-themes,
 				cmux.entitlements,
 				coderouter-cli.json,
@@ -636,6 +640,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Xlinker",
+					"-objc_stubs_small",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -688,6 +694,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Xlinker",
+					"-objc_stubs_small",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;

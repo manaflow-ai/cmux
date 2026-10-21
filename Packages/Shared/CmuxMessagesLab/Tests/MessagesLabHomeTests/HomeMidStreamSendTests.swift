@@ -67,13 +67,20 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         defer { view.stop() }
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         let projection = view.projection
+        // The display frames: work the view schedules for the next frame runs at each frame's start
+        // (an offscreen window has no display link; the stream commits once per frame, HomeStreamPacer).
+        var pending: [() -> Void] = []
+        view.controller.nextFrame = { pending.append($0) }
         func frame() {
+            let due = pending
+            pending.removeAll()
+            for f in due { f() }
             projection.refresh()
             window.contentView?.layoutSubtreeIfNeeded()
             CATransaction.flush()
