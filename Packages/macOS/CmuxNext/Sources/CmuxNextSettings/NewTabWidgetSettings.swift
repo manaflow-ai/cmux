@@ -11,7 +11,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var projects = NewTabWidgetSettings.projectsDefault
     /// The chats that need the user, New Terminal, New Browser Tab and New Chat.
     public var actions = NewTabWidgetSettings.actionsDefault
-    /// The template's recent chats and Recently Closed.
+    /// The recent chats (Minimal shows no Recently Closed list; the palette reopens a closed tab).
     public var chats = NewTabWidgetSettings.chatsDefault
     /// The Search | Ask switch over the composer (Tab switches either way).
     public var modeSwitch = NewTabWidgetSettings.modeSwitchDefault

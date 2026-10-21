@@ -253,14 +253,14 @@ enum NewTabPage {
         }
     }
 
-    /// The style switch's pick and the edit mode's ✕ and drag, written as Settings would (a refused
-    /// write leaves the page as the file says); + opens App Store Features on New Tab.
+    /// The style switch's pick and the edit mode's ✕ and drag, written as Settings would (a refusal is
+    /// logged; the next New Tab shows what the file says); + opens App Store Features on New Tab.
     static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
         guard let settings = services.settings else { return }
         switch edit {
         case .template(let template): Task { await settings.saveNewTabTemplate(template) }
-        case .remove(let widget): Task { try? await settings.removeNewTabWidget(widget) }
-        case .order(let order): Task { try? await settings.setNewTabWidgetOrder(order) }
+        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
+        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
         case .add: services.apps.showStore(tab: .features, category: .newTab)
         }
     }

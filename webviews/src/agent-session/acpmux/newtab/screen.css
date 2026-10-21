@@ -964,6 +964,8 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   right: 12px;
   z-index: var(--layer-sticky, 10);
   display: flex;
+  /* Not the full width every other child of .nt-screen takes: a bar in the top right corner. */
+  width: auto;
   gap: 6px;
 }
 .nt-edit-button {

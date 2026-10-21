@@ -85,6 +85,8 @@ import Testing
         #expect(settings.fileRoot.value(at: NewTabWidgetSettings.orderPath) == .array([.string("chats"), .string("projects"), .string("actions")]))
         try await settings.setNewTabWidgetOrder(["projects", "actions", "chats"])
         #expect(settings.fileRoot.value(at: NewTabWidgetSettings.orderPath) == nil, "the default order leaves the file")
+        // A widget the page does not show (Quick Actions, off) keeps its place in the saved order.
+        #expect(NewTabWidgetSettings.reordered(["actions", "chats", "projects"], shown: ["projects", "chats"]) == ["actions", "projects", "chats"])
 
         // ✕ on a widget that is off by default takes its key out; on the greeting (on by default) writes false.
         try await settings.removeNewTabWidget("chats")

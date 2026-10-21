@@ -32,6 +32,14 @@ nonisolated extension NewTabWidgetSettings {
         return completed(order)
     }
 
+    /// `saved` with the widgets in `shown` put in `shown`'s order, in the places they held; the
+    /// others stay where they are.
+    static func reordered(_ saved: [String], shown: [String]) -> [String] {
+        let moved = shown.filter(movable.contains)
+        var next = moved.makeIterator()
+        return completed(completed(saved).map { moved.contains($0) ? (next.next() ?? $0) : $0 })
+    }
+
     /// `order`'s movable widgets, then the ones it leaves out in Settings' order.
     static func completed(_ order: [String]) -> [String] {
         let known = order.filter(movable.contains)
@@ -69,12 +77,22 @@ extension SettingsController {
         try await setSetting(descriptor, to: descriptor.defaultValue == .bool(true) ? .bool(false) : nil, by: .caller("page"))
     }
 
-    /// The New Tab page's drag in edit mode: the movable widgets in their new order (the default
-    /// order leaves the file).
-    public func setNewTabWidgetOrder(_ order: [String]) async throws {
-        let order = NewTabWidgetSettings.completed(order)
+    /// The New Tab page's drag in edit mode: the movable widgets it shows, in their new order. A
+    /// widget it does not show (off) keeps its place in the saved order; the default order leaves
+    /// the file.
+    public func setNewTabWidgetOrder(_ shown: [String]) async throws {
+        let order = NewTabWidgetSettings.reordered(snapshot.newTabWidgets.order, shown: shown)
         let value: JSONValue? = order == NewTabWidgetSettings.movable ? nil : .array(order.map(JSONValue.string))
         try await setSetting(at: NewTabWidgetSettings.orderPath, to: value, by: .caller("page"))
+    }
+
+    /// Runs a page's write, logging a refusal: the page already shows the edit, and the next New Tab
+    /// shows what the file says.
+    public func logged(_ what: String, _ write: () async throws -> Void) async {
+        do { try await write() } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                .error("\(what, privacy: .public) write failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// The New Tab page's style switch, saved as `tabs.newTabTemplate` through the schema as the

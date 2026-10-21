@@ -1125,11 +1125,14 @@ export function NewTabScreen(props: Props) {
               composer holds, centered, the environment card and the suggested actions card, then the
               recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
             <div className="nt-stage">
+              {/* Minimal keeps its greeting over the stage when widgets are on (Default has none). */}
+              {widgets.has("greeting") &&
+                frame("greeting", <p className="nt-greeting">{nt(greetingKey(new Date(at).getHours()))}</p>)}
               {stageRuns(order).map((run) =>
                 run[0] === "chats" ? (
                   frame("chats", playerAndLists)
                 ) : (
-                  <div key={run.join()} className="nt-stage-cards">
+                  <div key={run[0]} className="nt-stage-cards">
                     {run.map((widget) => widget !== "chats" && frame(widget, stageCard(widget)))}
                   </div>
                 ),

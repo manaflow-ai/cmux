@@ -31,17 +31,21 @@ type DragState = { widget: MovableWidget; over?: MovableWidget; after?: boolean 
 export function useWidgetEditing(onEdit: ((edit: WidgetEdit) => void) | undefined) {
   const [editing, setEditing] = useState(false);
   const [drag, setDrag] = useState<DragState | undefined>();
+  // A page that loses its edit mode (another layout) leaves it.
+  if (editing && !onEdit) setEditing(false);
   useEffect(() => {
-    if (!editing) return;
+    if (!editing || !onEdit) return;
     const listener = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      // An open menu, list or picker takes its own Escape first.
+      if (document.querySelector('[role="menu"], [role="listbox"], [role="dialog"], .ui-popup')) return;
       event.preventDefault();
       setEditing(false);
     };
     // ui-allow: Escape ends the edit mode wherever focus is on the page, as Done does.
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
-  }, [editing]);
+  }, [editing, onEdit]);
   return { editing: editing && !!onEdit, setEditing, drag, setDrag };
 }
 
@@ -82,6 +86,11 @@ export function WidgetFrame({
     } else if (movable && event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault();
       move(movedWidget(order, movable, event.key === "ArrowUp" ? -1 : 1));
+      // The move may draw the widget in another cards column (a new element): keep the keyboard on it.
+      const page = event.currentTarget.ownerDocument;
+      requestAnimationFrame(() =>
+        page.querySelector<HTMLElement>(`.nt-widget-frame[data-widget="${movable}"]`)?.focus(),
+      );
     }
   };
   const dragProps = movable
@@ -89,7 +98,8 @@ export function WidgetFrame({
         draggable: true,
         onDragStart: (event: DragEvent<HTMLDivElement>) => {
           event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", movable);
+          // Not text/plain: a drop on the composer must not type the widget's name.
+          event.dataTransfer.setData("application/x-cmux-widget", movable);
           setDrag({ widget: movable });
         },
         onDragOver: (event: DragEvent<HTMLDivElement>) => {
