@@ -439,7 +439,10 @@ impl Hub {
                         // (`hub/person.rs` (c)). Only the peer's own session
                         // in its own run, never one of this daemon's.
                         method::MUX_PERMISSION_PENDING
-                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                            if !params
+                                .get("personInstance")
+                                .and_then(Value::as_str)
+                                .is_some_and(|run| self.peer_ask_counts(&peer, &id, run)) =>
                         {
                             tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
                             return;
@@ -464,17 +467,17 @@ impl Hub {
         }
     }
 
-    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
-    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
-    /// peer listed as its own and that is not one of this daemon's, in the
-    /// daemon run the peer named at its handshake, which is not this run and
-    /// no other peer's. A prompt with this daemon's session or run would let
-    /// the peer show the person other text for one of this daemon's real
-    /// prompts, whose allow the app proves with this daemon's key.
-    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
-        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
-            return false;
-        };
+    /// Whether peer `peer` may put a pending ask for session `id` in daemon
+    /// run `instance` before this daemon's clients (`hub/person.rs` (c)): a
+    /// session the peer listed as its own and that is not one of this
+    /// daemon's, in the daemon run the peer named at its handshake, which is
+    /// not this run and no other peer's. A prompt with this daemon's session
+    /// or run would let the peer show the person other text for one of this
+    /// daemon's real prompts, whose allow the app proves with this daemon's
+    /// key. The one rule for every path a peer's asks take: its
+    /// `_acpmux/permission_pending` to watchers (above) and the detail of a
+    /// forwarded `_acpmux/info` or `_acpmux/attach` (`server/peer_forward.rs`).
+    pub fn peer_ask_counts(&self, peer: &str, id: &str, instance: &str) -> bool {
         let listed = self
             .remote_sessions
             .lock()
