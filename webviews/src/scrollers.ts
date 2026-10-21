@@ -149,7 +149,7 @@ export function monacoScrollerOptions(_style: ScrollerStyle): {
 export const MONACO_SCROLLER_CSS = `
 .monaco-editor:not([${SCROLLING_ATTRIBUTE}]) .monaco-scrollable-element > .scrollbar:not(:hover) > .slider:not(.active) {
   opacity: 0;
-  transition: opacity 0.4s;
+  transition: opacity var(--cmux-motion-large);
 }
 `;
 

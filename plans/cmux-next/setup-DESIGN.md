@@ -84,7 +84,15 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    evidence (`auth.check`, the agent's login files) leaves unknown is asked
    of an ACP harness itself, as `cmux harness login ID --status` does
    (`initialize` and `session/new`); `cmux harness doctor` runs a prompt
-   turn and stays the deep check. Outdated compares the installed version
+   turn and stays the deep check. Setup never reads the login keychain
+   itself, as the health check does not (cx-hh0vu), and does not start a
+   harness whose sign-in may be there: one whose profile env names a
+   Keychain item, Codex keeping its login in the keychain
+   (`cli_auth_credentials_store` `keyring` or `auto`), or a Claude Code
+   adapter. What any other harness reads when it starts is its own. One
+   whose unknown the check already explained (a provider key that is not
+   set) is not asked either; both keep `signed_in: null` with the reason
+   in `auth_detail`. Outdated compares the installed version
    with the newest one the daemon last read (`harness-health.json`), so
    setup asks no registry. A named id that is not configured is checked
    with the profile acpmux ships for it (`configured: false`). The result
@@ -93,7 +101,7 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    ```json
    {"schema_version": 1, "task": "harness", "state": "needs_user", "dry_run": false,
     "harnesses": [{"id": "gemini", "name": "gemini", "state": "needs_user",
-      "configured": true, "installed": true, "program": "/usr/local/bin/gemini",
+      "configured": true, "installed": true, "program": "gemini",
       "path": "/usr/local/bin/gemini", "version": "0.1.0", "signed_in": false,
       "auth_detail": "session/new failed (-32000): ...", "outdated": false,
       "latest": "0.1.0", "update": null, "problem": null,
@@ -104,8 +112,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    A harness is `ok` when it is installed and nothing says it is signed
    out (`signed_in` is `null` when cmux cannot see the sign-in, such as
    Claude Code's keychain login; its first chat asks if it must). Signed
-   out is `needs_user` with kind `oauth` and `cmux harness login ID`; a
-   missing CLI is `needs_user` with kind `install` and the profile's docs
+   out is `needs_user` with kind `oauth` and `cmux harness login ID`, or
+   the profile's own login command (`codex login`) for a harness not
+   configured yet; a missing CLI is `needs_user` with kind `install` and the profile's docs
    as `url`. The task state is `needs_user` when any harness is, and its
    `user_action` is the first one. It writes nothing: install and sign-in
    are the person's, and an update has no undo, so an outdated harness

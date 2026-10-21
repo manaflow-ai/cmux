@@ -665,13 +665,21 @@ pub(crate) async fn tail(
             // Subscribe before reading from the cursor, so an event written
             // in between arrives live; the seq check below drops repeats.
             client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            let v = client
-                .request(
-                    method::MUX_EVENTS,
-                    json!({"sessionId": id, "afterSeq": seq, "limit": 100000}),
-                )
-                .await?;
-            v.get("events").and_then(Value::as_array).cloned().unwrap_or_default()
+            // Page by page: the daemon ends a page at its byte limit (`hasMore`).
+            let (mut events, mut after) = (Vec::new(), seq);
+            loop {
+                let page = json!({"sessionId": id, "afterSeq": after, "limit": 100000});
+                let v = client.request(method::MUX_EVENTS, page).await?;
+                let batch = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
+                let newest = batch.last().and_then(|e| e.get("seq")).and_then(Value::as_u64);
+                events.extend(batch);
+                match newest {
+                    Some(seq) if v.get("hasMore") == Some(&json!(true)) && seq > after => {
+                        after = seq
+                    }
+                    _ => break events,
+                }
+            }
         }
         None => {
             let v =
