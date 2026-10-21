@@ -379,6 +379,13 @@ pub mod method {
     pub const MUX_PROCESS_LIST: &str = "_acpmux/process/list";
     pub const MUX_PROCESS_TAIL: &str = "_acpmux/process/tail";
     pub const MUX_PROCESS_KILL: &str = "_acpmux/process/kill";
+    /// Ctrl-B: move a chat's running work to the background, `{sessionId,
+    /// toolCallId?}` -> `{backgrounded}`. Claude Code only.
+    pub const MUX_PROCESS_BACKGROUND: &str = "_acpmux/process/background";
+    /// Worktree cleanup (`server/worktrees.rs`).
+    pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
+    pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";
+    pub const MUX_WORKTREE_RESTORE: &str = "_acpmux/worktree/restore";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";
     pub const MUX_SESSION_CHANGED: &str = "_acpmux/session_changed";

@@ -217,7 +217,15 @@ await requireBrowserLane("text-field-focus.test.ts", async () => {
             if (named) expect(ready).toBe("1");
             if (ready !== "1") return;
             if (open) {
-              await page.getByRole("button", { name: open, exact: true }).first().click();
+              // The model button opens its compact menu (Leo 2026-10-20), which has no search; the
+              // full picker with its search opens by its label, as automation and More models do.
+              await page.evaluate(
+                (label) =>
+                  (
+                    window as unknown as { cmuxAcpmuxDebug: { openMenu(label: string): Promise<unknown> } }
+                  ).cmuxAcpmuxDebug.openMenu(label),
+                open,
+              );
               await page.locator(field!).first().waitFor({ state: "visible" });
             }
             const name = `${entry}--${variant}${open ? `--${open.toLowerCase()}-open` : ""}--${colorScheme}`;
