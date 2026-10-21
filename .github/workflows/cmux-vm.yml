@@ -168,6 +168,21 @@ jobs:
       - name: Integration tests in workerd (fake upstream)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:workers
+      - name: Generated creation storage survives an older ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-generated-creation-compat.ts
+      - name: Snapshot capture storage survives an older ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-snapshot-capture-compat.ts
+      - name: Snapshot key fences survive the previous capture engine
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-snapshot-key-fence-compat.ts
+      - name: Fork capture intent survives the previous ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-fork-capture-compat.ts
+      - name: Pending history discovers slots from the previous writer
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-pending-history-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg
@@ -191,6 +206,7 @@ jobs:
   # Read-only: confirms the repository Cloudflare token works and can see
   # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.
   cloudflare-preflight:
+    environment: cloudflare-ops
     name: cloudflare preflight
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

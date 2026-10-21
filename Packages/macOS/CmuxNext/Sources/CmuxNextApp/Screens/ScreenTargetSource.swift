@@ -32,4 +32,9 @@ final class ScreenTargetSource: PaletteTargetSource {
             return next.targets(of: kind)
         }
     }
+
+    /// Descriptions belong to kinds `next` lists.
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        next.currentDescription(of: target)
+    }
 }

@@ -57,7 +57,9 @@ nonisolated enum FilePageActionCatalog: ActionCatalogGroup {
                               defaultValue: "Copy Settings from VS Code or Zed", bundle: .module),
                 keywords: ["editor", "import", "vscode", "zed", "cursor", "windsurf", "vscodium", "settings", "monaco"],
                 category: .settings, symbol: "square.and.arrow.down", surfaces: [.palette],
-                cliName: "settings import-editor-settings"
+                cliName: "settings import-editor-settings",
+                // App-wide like the other headless settings verbs: nothing to right-click.
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
         ]
     }

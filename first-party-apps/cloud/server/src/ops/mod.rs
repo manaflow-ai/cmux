@@ -17,6 +17,7 @@ use crate::api::{CloudError, ControlPlane, Ctx, Ledger, Origin, Request, codes, 
 use cmux_terminal_iface::OpenToken;
 use serde_json::Value;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// How an op is guarded before it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,9 +221,14 @@ pub struct Server<C> {
     edge: crate::ports::Edge,
     /// Host-only ops this server sent and their answers (crate::api::host).
     host: crate::api::host::HostRequests,
+    /// Process incarnation in epoch microseconds (JSON-safe through year 2255).
+    incarnation: u64,
 }
 
 impl<C> Server<C> {
+    pub(crate) fn incarnation(&self) -> u64 {
+        self.incarnation
+    }
     pub fn attach(&self) -> &crate::link::Attach {
         &self.attach
     }
@@ -249,6 +255,11 @@ impl<C: ControlPlane> Server<C> {
         attach: crate::link::Attach,
         edge: crate::ports::Edge,
     ) -> Self {
+        let incarnation = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+            .unwrap_or(1);
         Self {
             control_plane,
             projection: Projection::default(),
@@ -256,6 +267,7 @@ impl<C: ControlPlane> Server<C> {
             attach,
             edge,
             host: crate::api::host::HostRequests::default(),
+            incarnation,
         }
     }
 

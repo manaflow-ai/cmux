@@ -5,8 +5,8 @@
 //
 // - The arrow cursor over every chip, as the rest of the pane's controls (macOS), never the hand.
 // - A press shows its tone the moment the button goes down: the hover's ease does not delay it,
-//   and the chip does not move: its layout box stays put, and the press's small shrink
-//   (composerStates.css, the Claude app's chips) draws around the same centre.
+//   and the chip does not move: its layout box stays put, and it draws no shrink or dim (Leo
+//   2026-10-19: no mousedown and mouseup click feedback).
 // - A mouse click leaves no focus ring, on the chip or on the menu it opens, even right after
 //   typing (WebKit draws a programmatic focus as keyboard focus once a key was pressed).
 //   Keyboard focus on the same chip still shows its ring.
@@ -157,11 +157,14 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             const locator = page.locator(chip(name)).first();
             const read = () =>
               locator.evaluate((element) => {
-                // The layout box (offset size, the drawn box's centre): a press's shrink is a
-                // transform, which scales the drawn box around its centre and moves nothing.
+                // The layout box (offset size, the drawn box's centre), and the drawn box's
+                // transform and opacity, which a press leaves alone.
                 const box = element.getBoundingClientRect();
+                const style = getComputedStyle(element);
                 return {
-                  background: getComputedStyle(element).backgroundColor,
+                  background: style.backgroundColor,
+                  transform: style.transform,
+                  opacity: style.opacity,
                   centre: [box.x + box.width / 2, box.y + box.height / 2],
                   size: [(element as HTMLElement).offsetWidth, (element as HTMLElement).offsetHeight],
                 };
@@ -178,9 +181,8 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
             await page.keyboard.press("Escape");
             await page.mouse.move(1, 1);
             await page.waitForTimeout(200);
-            // The chip never moves under a press, whatever tone it shows (#21986). The shrink's drawn
-            // centre can land a subpixel off the unscaled one (a 51.5 px centre rounds either way),
-            // so a move is a whole pixel or more.
+            // The chip never moves under a press, whatever tone it shows (#21986). A drawn centre can
+            // land a subpixel off (a 51.5 px centre rounds either way), so a move is a whole pixel or more.
             const moved = (read: { centre: number[] }) =>
               Math.max(...read.centre.map((value, axis) => Math.abs(value - hover.centre[axis]!))) >= 1;
             expect({ name, size: pressed.size, moved: moved(pressed) }).toEqual({
@@ -189,6 +191,13 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               moved: false,
             });
             expect({ name, size: held.size, moved: moved(held) }).toEqual({ name, size: hover.size, moved: false });
+            // No shrink and no dim, pressed or held.
+            for (const each of [hover, pressed, held])
+              expect({ name, transform: each.transform, opacity: each.opacity }).toEqual({
+                name,
+                transform: "none",
+                opacity: "1",
+              });
             // Chromium leaves :active when focus moves into the model picker's search on the press;
             // the open chip keeps its wash. WebKit, the app's engine, holds it. A press that keeps the
             // hover tone (the quiet chips) has no separate pressed tone to compare.

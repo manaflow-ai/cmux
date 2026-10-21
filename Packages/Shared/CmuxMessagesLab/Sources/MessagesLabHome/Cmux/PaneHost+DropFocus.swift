@@ -26,3 +26,16 @@ extension ChatController {
         field.setSelectedRange(NSRange(location: (field.string as NSString).length, length: 0))
     }
 }
+
+extension ChatController {
+    /// Where an attachment enters the field's text: the caret's UTF-16 offset when the field
+    /// shows the draft's text and holds the keyboard (nil: the end).
+    func composeCaret() -> Int? {
+        guard let demo, let store else { return nil }
+        let tv = demo.compose.textView.view
+        // Only a field that holds the keyboard has a caret the person placed.
+        guard tv.string == store.state.ui.draft.text, tv.window?.firstResponder === tv else { return nil }
+        let sel = tv.selectedRange()
+        return sel.location == NSNotFound ? nil : sel.upperBound
+    }
+}

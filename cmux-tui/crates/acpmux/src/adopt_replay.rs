@@ -111,7 +111,7 @@ fn add(turns: &mut Vec<PastTurn>, step: Step, at: Option<u64>) {
 /// blocks; tool results and meta lines are not prompts) and `{"type":"assistant",...}` text blocks.
 fn claude_step(record: &Value) -> Option<Step> {
     let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
-    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") {
+    if flag("isSidechain") || flag("isMeta") || flag("isCompactSummary") || !from_person(record) {
         return None;
     }
     let content = record.pointer("/message/content")?;
@@ -133,6 +133,16 @@ fn claude_step(record: &Value) -> Option<Step> {
         }
         "assistant" => text_of(content).map(Step::Answer),
         _ => None,
+    }
+}
+
+/// Whether a Claude Code line came from the person: it has no `origin`, or its `origin.kind` is
+/// `human`. Claude Code also writes user lines itself (`task-notification` when a background task
+/// or subagent finishes, `peer` for another session's `<cross-session-message>`).
+pub(crate) fn from_person(record: &Value) -> bool {
+    match record.pointer("/origin/kind") {
+        None | Some(Value::Null) => true,
+        Some(kind) => kind.as_str() == Some("human"),
     }
 }
 

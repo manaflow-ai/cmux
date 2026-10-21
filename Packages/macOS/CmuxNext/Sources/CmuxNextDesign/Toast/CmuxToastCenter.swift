@@ -202,7 +202,7 @@ public final class CmuxToastCenter {
     }
 
     private func startTimer(_ serial: Int) {
-        guard let entry = entries[serial] else { return }
+        guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
         entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
             self?.end(serial, .timeout)
         }

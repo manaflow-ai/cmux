@@ -154,17 +154,7 @@ extension NSWindow {
 
     /// Whether every pixel of `image` is transparent (sampled at 64 x 64).
     static func isBlank(_ image: CGImage) -> Bool {
-        let side = 64
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: side, height: side, bitsPerComponent: 8,
-                                          bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            context.draw(image, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return true
-        }
-        guard drawn else { return true }
-        return !stride(from: 3, to: pixels.count, by: 4).contains { pixels[$0] > 0 }
+        image.isFullyTransparent
     }
 
     /// Writes the window as PNG to `url`: composited when the window server

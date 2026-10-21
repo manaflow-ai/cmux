@@ -12,20 +12,19 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelD
     /// Arrow keys in the panel move the pane's cursor (Finder steps through the folder).
     var onKey: ((NSEvent) -> Bool)?
 
-    nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        MainActor.assumeIsolated { urls.count }
+    // An isolated conformance (InferIsolatedConformances), as FileGridCollectionView's:
+    // QLPreviewPanel asks its data source and delegate on the main thread.
+    func numberOfPreviewItems(in panel: QLPreviewPanel?) -> Int {
+        urls.count
     }
 
-    nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
-        let url: URL? = MainActor.assumeIsolated { index < urls.count ? urls[index] : nil }
-        return url.map { $0 as NSURL }
+    func previewPanel(_ panel: QLPreviewPanel?, previewItemAt index: Int) -> (any QLPreviewItem)? {
+        urls.indices.contains(index) ? urls[index] as NSURL : nil
     }
 
-    nonisolated func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+    func previewPanel(_ panel: QLPreviewPanel?, handle event: NSEvent?) -> Bool {
         guard let event, event.type == .keyDown else { return false }
-        // QLPreviewPanel calls this on the main thread, and the event never leaves it.
-        nonisolated(unsafe) let mainEvent = event
-        return MainActor.assumeIsolated { onKey?(mainEvent) ?? false }
+        return onKey?(event) ?? false
     }
 
     /// Shows or hides the shared panel for `urls`.

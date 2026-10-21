@@ -134,7 +134,9 @@ extension PageFactory {
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .changelog)
         let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)")
+        // The island floats over the window's backdrop: a Chromium page cannot be transparent.
+        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
+                               options: PageEngineOptions(requiresWebKit: .transparentOverlay))
         native.anchor = { [weak page] in page }
         return page
     }

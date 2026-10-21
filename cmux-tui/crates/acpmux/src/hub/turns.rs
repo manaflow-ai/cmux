@@ -84,6 +84,9 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.run_prompt(session, blocks, client, steer, opts).await;
         };
@@ -928,6 +931,8 @@ impl Hub {
         }
         let old = {
             let mut m = session.meta.lock().unwrap();
+            // A chat renamed before it was titled asks no model for a title (`titles.rs`).
+            super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));

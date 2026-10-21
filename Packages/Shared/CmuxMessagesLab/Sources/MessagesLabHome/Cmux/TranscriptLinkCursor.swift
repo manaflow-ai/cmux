@@ -18,18 +18,22 @@ extension TranscriptDocumentView {
 
     // Not passed up the responder chain: the pane host's own hover (the field's attachments)
     // has its own tracking area.
-    override func mouseMoved(with event: NSEvent) { updateLinkCursor(event, always: false) }
+    override func mouseMoved(with event: NSEvent) {
+        updateLinkCursor(event, always: false)
+        controller?.onPointerMoved?(window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
 
     override func cursorUpdate(with event: NSEvent) { updateLinkCursor(event, always: true) }
 
     override func mouseExited(with event: NSEvent) {
         if overLink { overLink = false; NSCursor.arrow.set() }
+        controller?.onPointerMoved?(nil)
     }
 
     /// Whether the pointer is over a link now (the hand is set).
     private var overLink: Bool {
-        get { objc_getAssociatedObject(self, &linkHoverState) as? Bool ?? false }
-        set { objc_setAssociatedObject(self, &linkHoverState, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+        get { objc_getAssociatedObject(self, linkHoverStateKey.address) as? Bool ?? false }
+        set { objc_setAssociatedObject(self, linkHoverStateKey.address, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     /// Sets the hand over a link, else the arrow (`always`: on entering, else only when the
@@ -44,6 +48,9 @@ extension TranscriptDocumentView {
 }
 
 /// The associated-object key of ``TranscriptDocumentView``'s link-hover state (an extension
-/// cannot add a stored property to the vendored view). Only its address is used, never its
-/// value, so unsynchronized access is safe.
-nonisolated(unsafe) private var linkHoverState: UInt8 = 0
+/// cannot add a stored property to the vendored view). Only the address of this one
+/// immutable object is used, so there is no shared mutable state.
+private final class LinkHoverStateKey: Sendable {
+    var address: UnsafeRawPointer { UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque()) }
+}
+private let linkHoverStateKey = LinkHoverStateKey()

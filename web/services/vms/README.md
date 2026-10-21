@@ -326,6 +326,11 @@ Set these Vercel environment variables per production/staging environment:
   `CMUX_VM_ALLOW_FREE_PROVISIONING` is absent; prefer the clearly named allow switch for new
   deployments.
 - `CMUX_VM_FREESTYLE_ENABLED`, per-provider Freestyle create kill switch.
+- `CMUX_VM_DESKTOP_TRANSPORT`, which desktop a port open serves. Unset (the default) or any value
+  but `screen` keeps noVNC on 6901. `screen` makes 4180 the desktop (the cmux-screen host's
+  signaling WebSocket, opened as a `cmux://remote-view` tab) and 6901 an ordinary port. Leave it
+  unset: the image does not run the cmux-screen host yet (plans/cmux-next/remote-desktop-DESIGN.md,
+  migration steps M1 and M2).
 - `CMUX_CODEROUTER_EDGE_ORIGIN`, optional bare https origin guests dial for coderouter
   (`https://coderouter.dev` in production, the branch URL on a Vercel preview). Any other
   deployment without it (a dev backend, a local checkout) creates machines with no edge rule:
@@ -720,6 +725,8 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 ### The free limit is the paywall moment
 
 `vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans see it at the plan allowance (5 active machines, times paid seats on Team) or at an operator incident brake; then the message is operational "delete one" guidance, not a paywall.
+
+Running out of create credits is the same moment: every `402 vm_create_credits_insufficient` (create, fork, restore, Base open and reset) carries `upgradeRequired: true`, `upgradePlanId` (the next plan up: Pro for Free/Go, Max for Pro/Team/Founder's, null on Max) and `upgradeUrl` (that plan's cmux checkout with `cmux_source=vm_create_credits`, or `/pricing` on Max), built once by `vmCreateCreditsCheckoutExtra`. `tests/vm-create-credits-checkout.test.ts` pins it.
 
 ### Pricing is flat
 
