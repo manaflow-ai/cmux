@@ -119,7 +119,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       foot: ".nt-box .nt-pickers",
     },
   ];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
   const open = async (engine: string, stage: Stage, { rest = true } = {}) => {

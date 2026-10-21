@@ -47,7 +47,8 @@
 }
 
 .content {
-  padding: calc(26px * var(--settings-scale)) var(--page-edge) calc(56px * var(--settings-scale));
+  --content-pad-end: calc(56px * var(--settings-scale));
+  padding: calc(26px * var(--settings-scale)) var(--page-edge) var(--content-pad-end);
 }
 
 .column {
@@ -777,7 +778,8 @@
   }
 
   .content {
-    padding: 14px var(--page-edge) 40px;
+    --content-pad-end: 40px;
+    padding: 14px var(--page-edge) var(--content-pad-end);
     --content-fade-top: 12px;
   }
 }
