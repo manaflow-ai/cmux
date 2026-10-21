@@ -170,10 +170,18 @@ fn decoded_len(data: &str) -> usize {
 
 /// `_acpmux/file_put` for one of this daemon's chats: an unknown or purged one is refused.
 pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
-    let id = hub.resolve(crate::server::session_key(&params)?)?.id.clone();
-    tokio::task::spawn_blocking(move || put(&id, &params))
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || put(&id, &params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+    // A purge while the file was written may have deleted the folder before it: the file goes too.
+    if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+        let id = session.id.clone();
+        let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
+        return Err(RpcError::invalid_params("no such chat"));
+    }
+    Ok(answer)
 }
 
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.
@@ -276,6 +284,8 @@ mod tests {
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("keep.txt"), b"x").unwrap();
+        let outside_old = outside.join(named(now - 90 * day));
+        std::fs::create_dir_all(&outside_old).unwrap();
         #[cfg(unix)]
         {
             std::fs::create_dir_all(root.join("chat-d")).unwrap();
@@ -287,7 +297,7 @@ mod tests {
         assert!(!old.exists() && new.exists());
         assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
         assert!(other.exists() && v4.exists());
-        assert!(outside.join("keep.txt").exists());
+        assert!(outside.join("keep.txt").exists() && outside_old.exists());
         // Nothing past the cap is left: a second sweep deletes nothing.
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
         std::fs::remove_dir_all(&root).unwrap();

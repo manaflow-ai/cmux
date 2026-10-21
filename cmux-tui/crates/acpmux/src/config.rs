@@ -919,6 +919,7 @@ impl Config {
         }
     }
 
+    /// Family of a configured profile.
     pub fn family(&self, profile: &str) -> Option<String> {
         self.harnesses.get(profile).map(|p| derive_family(profile, p))
     }
