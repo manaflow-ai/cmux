@@ -133,6 +133,7 @@ export const L = {
   storeBenefitForkBody: "store.benefit.forkBody",
   storeSizes: "store.sizes",
   storeNoPlan: "store.noPlan",
+  storePlanFailed: "store.planFailed",
   storeMemory: "store.memory",
   storeIncluded: "store.included",
   storeGet: "store.get",

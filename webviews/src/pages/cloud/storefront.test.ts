@@ -93,6 +93,31 @@ describe("Cloud storefront", () => {
     unsubscribe();
   });
 
+  test("a failed plan read shows as failed, and Retry reads it again", async () => {
+    const provider = new MockCloudProvider();
+    provider.failNext = CloudOps.planGet;
+    const { store, unsubscribe } = await started(provider);
+    await flush();
+    expect(store.getSnapshot().plan).toBeUndefined();
+    expect(store.getSnapshot().planFailed).toBe(true);
+    await store.retryPlan();
+    expect(store.getSnapshot().plan).toBeDefined();
+    expect(store.getSnapshot().planFailed).toBe(false);
+    unsubscribe();
+  });
+
+  test("a create answered after a team switch does not open or select the old team's machine", async () => {
+    const provider = new MockCloudProvider({ unsupported: [] });
+    const { store, unsubscribe } = await started(provider);
+    store.openCreate(4096, true);
+    const created = store.submitCreate();
+    void store.selectTeam("team_acme");
+    await created;
+    await flush();
+    expect(store.getSnapshot().openWhenRunning).toBeUndefined();
+    unsubscribe();
+  });
+
   test("size hints grow with memory", () => {
     expect(tierHint(4096)).toBe(L.storeTierSmall);
     expect(tierHint(8192)).toBe(L.storeTierMedium);

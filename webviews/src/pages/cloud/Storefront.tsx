@@ -88,7 +88,14 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
             </h3>
             {plan && <Availability plan={plan} full={full} strings={strings} />}
           </header>
-          {!plan ? (
+          {!plan && state.planFailed ? (
+            <p className="cloud-muted cloud-store-no-plan" role="alert">
+              {t(L.storePlanFailed)}{" "}
+              <button type="button" className="cloud-link-button" onClick={() => void store.retryPlan()}>
+                {t(L.retry)}
+              </button>
+            </p>
+          ) : !plan ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.loading)}</p>
           ) : choices.length === 0 ? (
             <p className="cloud-muted cloud-store-no-plan">{t(L.storeNoPlan)}</p>

@@ -77,6 +77,8 @@ export interface CloudState {
   rows: MachineRow[];
   teams: CloudTeam[];
   plan?: CloudPlan;
+  /** The last plan read failed (not "not served"): the storefront says so and offers Retry. */
+  planFailed?: boolean;
   /** `cloud.migration.status` (contract 4). */
   migration?: MigrationStatus;
   /** "Later" hid the classic migration banner for this page session. */
@@ -129,6 +131,8 @@ export class CloudStore {
    * result (and closes its watch) when it changed, so an old account or team never writes state.
    */
   private session = 0;
+  /** Bumped by sign-in, sign-out and team switch (not by Retry): an answer from another account is dropped. */
+  private accountEpoch = 0;
   readonly detail: DetailReader;
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
@@ -303,6 +307,11 @@ export class CloudStore {
       this.set({ error: undefined, refusal: undefined, blocked: undefined });
   }
 
+  /** Storefront Retry after a failed plan read. */
+  retryPlan(): Promise<void> {
+    return this.account.readPlan(this.session);
+  }
+
   setView(view: CloudView): void {
     if (view !== this.state.view) this.set({ view });
   }
@@ -355,6 +364,7 @@ export class CloudStore {
       idempotency_key: draft.key,
     };
     const session = this.session;
+    const accountEpoch = this.accountEpoch;
     try {
       const result = await this.client!.call<MachineActionResult | null>(ACTION_RUN, {
         action: CloudOps.machineCreate,
@@ -369,9 +379,13 @@ export class CloudStore {
       // stay pending. A cleared log (sign-out, team switch) makes these no-ops.
       this.updateIntent(draft.key, { result_id: result?.machine?.id, replied: true, revision: revisionOf(result) });
       if (this.state.create?.key === draft.key) this.set({ create: undefined });
-      // Kept across a session restart (Retry while the sheet was open); sign-out and a team switch
-      // clear the wish with the rest of the account's state.
-      if (draft.openWhenRunning && result?.machine?.id && this.state.auth?.signedIn) {
+      // Kept across a Retry while the sheet was open; dropped when the account or team changed since.
+      if (
+        draft.openWhenRunning &&
+        result?.machine?.id &&
+        accountEpoch === this.accountEpoch &&
+        this.state.auth?.signedIn
+      ) {
         const id = result.machine.id;
         this.set({ openWhenRunning: id, view: "machines" });
         void this.select(id);
@@ -499,6 +513,7 @@ export class CloudStore {
   }
 
   private restartSession(): number {
+    this.accountEpoch += 1;
     this.endSession();
     return this.session;
   }
@@ -573,7 +588,11 @@ export class CloudStore {
 
   private setMirror(machines: CloudMachine[], revision: number, patch: Partial<CloudState> = {}): void {
     const pending = this.state.pending.filter((intent) => !settled(intent, machines, revision));
-    const gone = this.state.selection && !machines.some((machine) => machine.id === this.state.selection);
+    // The machine Get just created stays selected until its first event reaches the mirror.
+    const gone =
+      this.state.selection &&
+      this.state.selection !== this.state.openWhenRunning &&
+      !machines.some((machine) => machine.id === this.state.selection);
     if (gone) void this.detail.load(undefined);
     this.set({
       machines,
@@ -717,6 +736,7 @@ function signedOutState(): Partial<CloudState> {
     detail: undefined,
     create: undefined,
     openWhenRunning: undefined,
+    planFailed: undefined,
     error: undefined,
     loading: false,
   };
