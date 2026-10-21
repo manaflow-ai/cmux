@@ -73,6 +73,11 @@ public final class SidebarDocStore {
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The items `shown` had at the last `show` (a remote close is a placed item that left): `reshow` changes `shown`, not this.
     @ObservationIgnored var lastShownItems: [SidebarDocWorkspaceRef: String] = [:]
+    /// A live workspace the App is about to place itself (a new workspace's
+    /// `workspaces.newPlacement` slot): `show` does not adopt it at the end of
+    /// its section, which drew it there for a frame before the placement's own
+    /// adopt and move took it to its slot.
+    @ObservationIgnored public var placesItself: @MainActor (SidebarDocWorkspaceRef) -> Bool = { _ in false }
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?

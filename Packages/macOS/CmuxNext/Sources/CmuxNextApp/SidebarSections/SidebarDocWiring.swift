@@ -24,6 +24,13 @@ enum SidebarDocWiring {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
+        // A new workspace whose slot the window places (`WindowManager.pendingPlacements`) gets its adopt with that move.
+        store.placesItself = { [weak services] ref in
+            guard let services, !services.windows.pendingPlacements.isEmpty else { return false }
+            return services.windows.pendingPlacements.keys.contains { id in
+                services.machines.workspace(id: id)?.0.resourceID?.rawValue == ref.workspaceID
+            }
+        }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
         store.onUndoable = { [weak services] (title: String, origin: AnyObject?, undo: @escaping @MainActor () -> Void) in
