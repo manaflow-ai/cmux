@@ -11,7 +11,8 @@ import os
 /// so nothing else listens on its relay. The tab's own state reports a crash.
 @MainActor
 final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
-    private let tab: CEFTab
+    /// The CEF tab the page shows in; the focus applier gives it the keyboard like a browser tab.
+    let tab: CEFTab
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private var crashWatch: Task<Void, Never>?
@@ -90,5 +91,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         default:
             break
         }
+    }
+}
+
+extension TabContent {
+    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page in Chromium.
+    var childWindowTab: (any BrowserTab)? {
+        if case .browser(let entry) = self, entry.tab.presentation == .childWindow { return entry.tab }
+        guard case .page(let view) = self else { return nil }
+        return ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
     }
 }

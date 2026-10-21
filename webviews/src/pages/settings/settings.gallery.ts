@@ -206,11 +206,11 @@ Object.assign(variants, {
     },
     steps: [
       wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Daily"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
       wait("[data-appearance-bar] [data-undo]:not([disabled])"),
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
-    note: "Appearance's floating bar at the bottom right after picking Shuffle Daily: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {

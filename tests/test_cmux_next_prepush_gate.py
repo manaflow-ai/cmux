@@ -172,7 +172,7 @@ class PrePushGateTests(unittest.TestCase):
     def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
         # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
         before = self.remote_head()
-        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT.replace("this device", "this iPhone"))
+        self.write("cmux-next-ios/App/ChiefVoiceIntents.swift", INTENT.replace("this device", "this iPhone"))
         self.commit("intent text names the iPhone")
 
         result = self.push()
@@ -183,7 +183,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("90626-reserved-term", output)
 
     def test_push_with_device_neutral_app_intent_text_passes(self):
-        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT)
+        self.write("cmux-next-ios/App/ChiefVoiceIntents.swift", INTENT)
         self.commit("intent text for every device")
 
         result = self.push()
