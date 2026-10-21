@@ -175,11 +175,12 @@ const diffActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
       const hidden = await page.evaluate(() => document.body.dataset.filesHidden);
-      // Start a slide, then reverse it once it has run 50 ms (the measured input).
+      // Start a slide, then reverse it once it has run 50 ms (the measured input). A loaded runner's
+      // frame can outlast the slide; then the input toggles it back from rest, to the same target.
       await page.click("#files-toggle");
       await page.waitForFunction(() => {
-        const slide = document.querySelector("#files-sidebar")?.getAnimations()[0];
-        return Number(slide?.currentTime ?? 0) >= 50;
+        const panel = document.querySelector<HTMLElement>("#files-sidebar");
+        return !panel?.dataset.filesMotion || Number(panel.getAnimations()[0]?.currentTime ?? 0) >= 50;
       });
       const target = hidden === "true" ? "closed" : "open";
       return `document.querySelector("#files-sidebar")?.dataset.filesMotionTarget === ${js(target)}`;
