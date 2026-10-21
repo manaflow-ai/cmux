@@ -675,3 +675,227 @@ fn a_card_in_a_side_conversation_is_answered_there() {
     assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
     finish(&mut h);
 }
+
+// (f) Answers a person actually types (Leo, 2026-10-20: "allow", "allow...",
+// "ALLOW" from his phone left the turn waiting), and answers that reach
+// further than one request.
+
+#[test]
+fn a_typed_answer_is_read_loosely_and_never_swallows_a_real_message() {
+    use optchat_chief::approval::{Answer, Reply, Scope};
+    let allow = |scope| {
+        Some(Reply {
+            answer: Answer::Allow,
+            scope,
+        })
+    };
+    for text in [
+        "allow",
+        "Allow",
+        "ALLOW",
+        "allow...",
+        "Allow!",
+        " allowed ",
+        "yes",
+        "Y",
+        "ok",
+        "okay",
+        "👍",
+        "✅",
+        "approve",
+        "yes please",
+        "allow it",
+    ] {
+        assert_eq!(Reply::parse(text), allow(Scope::Oldest), "{text:?}");
+    }
+    for text in ["deny", "Deny.", "no", "nope", "👎", "❌", "reject"] {
+        assert_eq!(
+            Reply::parse(text).map(|r| (r.answer, r.scope)),
+            Some((Answer::Deny, Scope::Oldest)),
+            "{text:?}"
+        );
+    }
+    for text in [
+        "allow all",
+        "Allow them all",
+        "yes to all",
+        "approve everything",
+    ] {
+        assert_eq!(Reply::parse(text), allow(Scope::Pending), "{text:?}");
+    }
+    assert_eq!(
+        Reply::parse("deny all").map(|r| (r.answer, r.scope)),
+        Some((Answer::Deny, Scope::Pending))
+    );
+    for text in [
+        "allow for this turn",
+        "Allow for the rest of this turn",
+        "allow all for this turn",
+        "yes, this turn",
+    ] {
+        assert_eq!(Reply::parse(text), allow(Scope::Turn), "{text:?}");
+    }
+    let hour = 60 * 60 * 1000;
+    for (text, ms) in [
+        ("allow for 1h", hour),
+        ("allow for an hour", hour),
+        ("Allow for 2 hours", 2 * hour),
+        ("allow 30m", 30 * 60 * 1000),
+        ("allow for 15 min", 15 * 60 * 1000),
+    ] {
+        assert_eq!(Reply::parse(text), allow(Scope::For(ms)), "{text:?}");
+    }
+    // A window is at most a day.
+    assert_eq!(Reply::parse("allow for 100h"), allow(Scope::For(24 * hour)));
+    // Real messages stay messages.
+    for text in [
+        "hello?",
+        "allowance",
+        "yes, and also check the PR",
+        "no idea, look at CI",
+        "ok so what about the build",
+        "allow for",
+        "",
+    ] {
+        assert_eq!(Reply::parse(text), None, "{text:?}");
+    }
+}
+
+#[test]
+fn a_loose_allow_from_the_phone_answers_the_oldest_approval_and_says_so() {
+    let mut h = gated(started());
+    running(&mut h, true, "clean up");
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    h.brain
+        .step(permission("p2", "Bash", json!({"command": "cargo clean"})));
+    assert_eq!(approvals(&h).len(), 2);
+    deliver(&mut h, true, "ALLOW...");
+    assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
+    assert_eq!(answered(&h, "p2"), None, "one answer, the oldest request");
+    deliver(&mut h, true, "👍");
+    assert_eq!(answered(&h, "p2"), Some(Some("allow".into())));
+    let ops = format!("{:?}", h.owner.lock().unwrap().ops);
+    assert!(ops.contains("Allowed: run `rm -rf target`"), "{ops}");
+    assert!(ops.contains("Allowed: run `cargo clean`"), "{ops}");
+    finish(&mut h);
+}
+
+#[test]
+fn allow_all_answers_every_pending_approval() {
+    let mut h = gated(started());
+    running(&mut h, true, "clean up");
+    for (id, command) in [("p1", "ls"), ("p2", "pwd"), ("p3", "whoami")] {
+        h.brain
+            .step(permission(id, "Bash", json!({"command": command})));
+    }
+    deliver(&mut h, true, "allow all");
+    for id in ["p1", "p2", "p3"] {
+        assert_eq!(answered(&h, id), Some(Some("allow".into())), "{id}");
+    }
+    // The next request still asks: "all" is what was pending.
+    h.brain.step(permission(
+        "p4",
+        "Bash",
+        json!({"command": "rm -rf /tmp/x"}),
+    ));
+    assert_eq!(answered(&h, "p4"), None);
+    finish(&mut h);
+}
+
+#[test]
+fn allow_for_this_turn_lets_the_rest_of_the_turn_run_and_ends_with_it() {
+    let mut h = gated(default_script());
+    running(&mut h, true, "clean up");
+    h.brain
+        .step(permission("p1", "Bash", json!({"command": "ls"})));
+    deliver(&mut h, true, "allow for this turn");
+    assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
+    h.brain
+        .step(permission("p2", "Bash", json!({"command": "cargo clean"})));
+    assert_eq!(answered(&h, "p2"), Some(Some("allow".into())));
+    assert_eq!(approvals(&h).len(), 1, "one card for the whole turn");
+    finish(&mut h);
+
+    // The next turn asks again.
+    running(&mut h, true, "and again");
+    let session = h
+        .brain
+        .state()
+        .turn
+        .as_ref()
+        .and_then(|t| t.session_id.clone())
+        .unwrap();
+    h.brain.step(permission_in(
+        &session,
+        "p3",
+        "Bash",
+        json!({"command": "ls"}),
+    ));
+    assert_eq!(answered(&h, "p3"), None);
+    finish(&mut h);
+}
+
+#[test]
+fn allow_for_an_hour_covers_the_devices_later_turns_until_it_ends() {
+    let mut h = gated(default_script());
+    let now = Arc::new(std::sync::Mutex::new(1_000_000_000_000u64));
+    let clock = now.clone();
+    h.brain.set_clock(Arc::new(move || *clock.lock().unwrap()));
+    running(&mut h, true, "clean up");
+    h.brain
+        .step(permission("p1", "Bash", json!({"command": "ls"})));
+    deliver(&mut h, true, "allow for 1h");
+    assert_eq!(answered(&h, "p1"), Some(Some("allow".into())));
+    let ops = format!("{:?}", h.owner.lock().unwrap().ops);
+    assert!(ops.contains("Allowed for 1h: run `ls`"), "{ops}");
+    finish(&mut h);
+
+    let session = |h: &Harness| {
+        h.brain
+            .state()
+            .turn
+            .as_ref()
+            .and_then(|t| t.session_id.clone())
+            .unwrap()
+    };
+    // A later turn from the phone, within the hour: runs.
+    running(&mut h, true, "next");
+    let s = session(&h);
+    h.brain.step(permission_in(
+        &s,
+        "p2",
+        "Bash",
+        json!({"command": "cargo clean"}),
+    ));
+    assert_eq!(answered(&h, "p2"), Some(Some("allow".into())));
+    // After the hour: asks again.
+    *now.lock().unwrap() += 61 * 60 * 1000;
+    h.brain.step(permission_in(
+        &s,
+        "p3",
+        "Bash",
+        json!({"command": "cargo clean"}),
+    ));
+    assert_eq!(answered(&h, "p3"), None);
+    finish(&mut h);
+}
+
+#[test]
+fn the_chiefs_own_messages_read_as_what_they_say_never_as_tool_json() {
+    use optchat_chief::approval::describe;
+    assert_eq!(
+        describe(
+            "mcp__optchat__send",
+            Some(&json!({"text": "Here.", "attachments": ["/tmp/a.png"]}))
+        ),
+        "send you \u{201c}Here.\u{201d} with a file from this Mac"
+    );
+    assert_eq!(
+        describe("mcp__optchat__control", Some(&json!({"action": "status"}))),
+        "check on its subagents"
+    );
+}
