@@ -460,6 +460,7 @@ export function mergeToolItem(
       output:
         output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
       command: shellCommand(update.rawInput) ?? before?.command,
+      description: callDescription(update.rawInput) ?? before?.description,
       exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       startedAt: before?.startedAt ?? at,
       endedAt: before?.endedAt ?? (ended ? at : undefined),
@@ -473,6 +474,13 @@ export function mergeToolItem(
           : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
     },
   };
+}
+
+/// What a call says it does, in a few words: Claude Code's Bash `description` ("Run the web
+/// tests"), which a command row reads instead of its raw command line.
+export function callDescription(rawInput: any): string | undefined {
+  const description = rawInput?.description;
+  return typeof description === "string" && description.trim() ? description.trim() : undefined;
 }
 
 /// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An

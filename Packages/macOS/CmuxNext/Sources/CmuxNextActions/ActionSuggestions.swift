@@ -25,7 +25,7 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// Every density: the built-ins, then the user's custom ones (the App lists them).
     public static let densities = "densities"
-    /// The Home conversations a message can go to (Send Message To…, Send to…; Chiefs first).
+    /// The Home conversations a message can go to (Send Message To…, Send To…; Chiefs first).
     public static let homeRecipients = "homeRecipients"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
@@ -35,7 +35,7 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let paneTints = "paneTints"
     /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.
     public static let cloudTeams = "cloudTeams"
-    /// The machines a Chief can move to (Move Chief to…'s `target`), by machine id; a target that
+    /// The machines a Chief can move to (Move Chief To…'s `target`), by machine id; a target that
     /// cannot take the Chief yet says why in its title.
     public static let chiefMoveTargets = "chiefMoveTargets"
 }
