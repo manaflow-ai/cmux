@@ -18,8 +18,12 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn config() -> Config {
+    config_env(json!({}))
+}
+
+fn config_env(env: Value) -> Config {
     serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex", "env": env}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all"
     }))
@@ -27,7 +31,11 @@ fn config() -> Config {
 }
 
 fn hub() -> Arc<Hub> {
-    let mut cfg = config();
+    hub_env(json!({}))
+}
+
+fn hub_env(env: Value) -> Arc<Hub> {
+    let mut cfg = config_env(env);
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
@@ -261,4 +269,53 @@ async fn a_key_that_is_not_a_short_string_is_refused() {
             "{key}: {value}"
         );
     }
+}
+
+#[tokio::test]
+async fn a_correction_refused_while_the_chat_moves_replaces_nothing() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    c.busy(&session, None).await;
+    c.accepted(prompt(&session, "p-old", "order", "lane-a", Some("k"))).await;
+    // The move stops the running turn and freezes the queue as it is (`transfer_out.rs`).
+    c.call("_acpmux/transfer_begin", json!({"sessionId": session, "interrupt": true})).await;
+
+    let id = c
+        .send("session/prompt", prompt(&session, "p-new", "correction", "lane-a", Some("k")))
+        .await;
+    let refused = c.reply_to(id).await;
+    let message = refused.pointer("/error/message").and_then(Value::as_str).unwrap_or_default();
+    assert!(message.starts_with("transfer.moving"), "{refused}");
+    assert!(
+        c.records(&session, "queue_removed").await.is_empty(),
+        "a refused correction replaced a prompt"
+    );
+    let queue = hub.resolve(&session).unwrap().queue();
+    assert_eq!(queue.iter().map(|q| q.prompt_id.as_str()).collect::<Vec<_>>(), ["p-old"]);
+}
+
+#[tokio::test]
+async fn a_steered_correction_replaces_the_queued_order() {
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    let running = c.busy(&session, None).await;
+    let (old, _) = c.accepted(prompt(&session, "p-old", "order", "lane-a", Some("k"))).await;
+
+    let mut steer = prompt(&session, "p-new", "correction", "lane-a", Some("k"));
+    steer["_meta"]["acpmux"]["steer"] = json!(true);
+    let (_, accepted) = c.accepted(steer).await;
+    assert_eq!(accepted["steer"], true, "{accepted}");
+    assert_eq!(accepted["replaced"], 1, "{accepted}");
+    assert_eq!(accepted["replacedPromptIds"], json!(["p-old"]), "{accepted}");
+    let answered = c.reply_to(old).await;
+    assert_eq!(
+        answered.pointer("/result/_meta/acpmux/withdrawn"),
+        Some(&json!(true)),
+        "{answered}"
+    );
+
+    c.drain(&session, running).await;
+    assert!(!c.ran(&session, "p-old").await, "a replaced prompt ran");
 }
