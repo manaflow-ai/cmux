@@ -269,8 +269,10 @@ fn registered_caller_workspace(
     terminal: &str,
     socket: &SocketRoute<'_>,
 ) -> Result<String, Failure> {
-    let path = registered_caller_path(reader, route, terminal, socket)?;
-    Ok(path["workspace"].as_str().expect("caller path names its workspace").to_owned())
+    match registered_caller_path(reader, route, terminal, socket)?.remove("workspace") {
+        Some(Value::String(workspace)) => Ok(workspace),
+        _ => Err(not_in_a_workspace(terminal)),
+    }
 }
 
 /// The lookup found no placed `terminal`; any other miss (an unknown
@@ -526,20 +528,26 @@ fn caller_path_of(
         let mut params = route.clone();
         params.insert(selector.into(), Value::String(id));
         let snapshot = read(reader, operation, params)?;
-        id = snapshot.get(parent).and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
-            Failure::Resource(json!({
-                "code": "selector.not_found",
-                "message": format!(
-                    "the caller's terminal {terminal} is not in a workspace; name one: \
-                     cmux workspace <workspace> …"
-                ),
-                "details": {"terminal": terminal},
-                "retryable": false,
-            }))
-        })?;
+        id = snapshot
+            .get(parent)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .ok_or_else(|| not_in_a_workspace(terminal))?;
         path.insert(parent_scope.into(), Value::String(id.clone()));
     }
     Ok(path)
+}
+
+fn not_in_a_workspace(terminal: &str) -> Failure {
+    Failure::Resource(json!({
+        "code": "selector.not_found",
+        "message": format!(
+            "the caller's terminal {terminal} is not in a workspace; name one: \
+             cmux workspace <workspace> …"
+        ),
+        "details": {"terminal": terminal},
+        "retryable": false,
+    }))
 }
 
 /// `Some(id)` when `value` is not an id but the exact name of one record.
