@@ -19,7 +19,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { peerKindsFromStatus } from "./environments";
-import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
+import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -355,6 +355,7 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       oldText: typeof item.oldText === "string" ? item.oldText : undefined,
       newText: item.newText,
       line: lines.get(item.path),
+      ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
     }));
   return diffs.length ? diffs : undefined;
 }
@@ -2555,7 +2556,9 @@ export class AcpmuxDirectClient {
   async warmRecentProjects(limit = 3): Promise<void> {
     const ids: string[] = [];
     const seen = new Set<string>();
-    for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
+    // By real activity: warming moves `updatedAt`, so sorting on it would keep re-warming the same chats.
+    const recent = (session: Record<string, any>) => summaryActivityAt(session) ?? 0;
+    for (const session of [...this.sessions].sort((a, b) => recent(b) - recent(a))) {
       const cwd = typeof session.cwd === "string" ? session.cwd : "";
       // Never the home folder or a privacy-protected one (warmFolders.ts).
       if (!cwd || seen.has(cwd) || !isWarmableCwd(cwd)) continue;
@@ -3658,6 +3661,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    // A compaction the page leaves running, or noted as failed while it may go on (a forced
+    // Stop), went on past its last record (an account switch's runs between turns): the held
+    // events' first compaction row is it if that started on time; else one still running never
+    // said how it ended and is noted as failed, as the next turn's start would.
+    const heldCompaction = [...held.values()]
+      .filter((row) => row.kind === "compaction")
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
+    for (const row of this.rows.values())
+      if (
+        row.kind === "compaction" &&
+        !held.has(row.id) &&
+        (row.compaction?.state === "running" ||
+          (row.compaction?.inferred === true && this.compactionHeardAt.has(row.id)))
+      ) {
+        const heard = this.compactionHeardAt.get(row.id) ?? -Infinity;
+        if (heldCompaction && heldCompaction.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
+        else if (row.compaction?.state === "running")
+          this.rows.set(row.id, {
+            ...row,
+            version: row.version + 1,
+            compaction: { ...row.compaction, state: "failed", inferred: true },
+          });
+      }
     // A fork older than every held event is only in this page.
     const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
     Object.assign(this, live, { forkedAtSeq });
