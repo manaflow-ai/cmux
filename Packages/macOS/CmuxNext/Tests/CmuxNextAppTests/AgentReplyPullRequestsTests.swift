@@ -188,6 +188,15 @@ struct AgentReplyPullRequestsTests {
         #expect(query.contains("commits(last: 1)"))
         #expect(query.contains("files(first: 100)"))
         #expect(query.contains("labels(first: \(AgentPanePullRequest.maximumLabels))"))
+        // Every context carries the run it came from, on the head's rollup as well as the base's:
+        // `AgentPanePullRequest.identity` matches a head check against a base one by its workflow
+        // as well as its name, so trimming these fields would quietly degrade the match to the
+        // name alone and excuse a red of one workflow with a same-named red of another.
+        #expect(query.components(separatedBy: "checkSuite { workflowRun { databaseId workflow { databaseId name } } }").count == 3,
+                "the run fields belong to both rollups the query reads")
+        // And the base branch's tip is read beside the head's, which is what "also red on base"
+        // compares against.
+        #expect(query.contains("baseRef { target { ... on Commit { statusCheckRollup {"))
     }
 
     /// Replies full of links cannot grow the cache without bound: a batch records up to sixteen

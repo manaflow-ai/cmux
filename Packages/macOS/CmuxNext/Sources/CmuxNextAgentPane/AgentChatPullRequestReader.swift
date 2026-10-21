@@ -40,10 +40,18 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
 
     /// The pull request at `url`, a link ``AgentPaneReplyRequest/pullRequestURL(_:)`` rebuilt, so
     /// gh's argument is never anything but that URL. Runs in the home folder: no repository needed.
+    ///
+    /// Kept for the shape of that one read, which ``read(urls:)`` falls back to for a link on
+    /// another host, and for the test of it. No card takes this path: a card's link is read
+    /// through ``read(urls:)`` even when it is the only one, because that read is the only one of
+    /// the two that can see the base branch's checks.
     public func read(url: URL) async -> AgentPanePullRequest? {
         await read(arguments: ["pr", "view", url.absoluteString, "--json", AgentPanePullRequest.fields],
-                   in: environment["HOME"] ?? NSHomeDirectory())
+                   in: home)
     }
+
+    /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
+    private var home: String { environment["HOME"] ?? NSHomeDirectory() }
 
     /// The pull requests at `urls`, wherever their branches are checked out, by URL. github.com
     /// ones take one `gh api graphql` read per ``batchSize``, never one call per pull request;
@@ -65,8 +73,10 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             guard let data = await run(arguments, in: nil, anyExit: true) else { continue }
             answers.merge(Self.pullRequests(fromGraphQL: data, batch)) { $1 }
         }
+        // In the home folder, like ``read(url:)``: a link on another host names its pull request,
+        // so this needs no repository, and the App's own working folder is nobody's repository.
         for url in others {
-            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: nil) {
+            if let pullRequest = await read(arguments: ["pr", "view", url, "--json", AgentPanePullRequest.fields], in: home) {
                 answers[url] = pullRequest
             }
         }
@@ -102,9 +112,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
         // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
         // not be missing its branches, labels or files.
-        // A rollup's contexts carry the run they came from, because a cancelled run a newer run of
-        // the same workflow replaced still sits in this list and reads as a failure
-        // (``AgentPanePullRequest/latestRuns(_:)``).
+        // A rollup's contexts carry the run they came from, and both halves of that are read:
+        // ``AgentPanePullRequest/identity(_:)`` matches a head check against a base one by its
+        // workflow as well as its name, on both sides, and
+        // ``AgentPanePullRequest/latestRuns(_:)`` uses the run id on the base side, because a
+        // cancelled run a newer run of the same workflow replaced still sits in this list and
+        // reads as a failure. Trimming either field degrades the match to the name alone, which
+        // would excuse a red of one workflow with a same-named red of another.
         let contexts = """
             contexts(first: 100) { nodes { __typename \
             ... on CheckRun { name status conclusion detailsUrl \
