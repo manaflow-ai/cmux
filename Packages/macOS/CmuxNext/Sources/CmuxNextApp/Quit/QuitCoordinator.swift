@@ -165,6 +165,9 @@ final class QuitCoordinator {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
+                // Agent chats get their composer's chips, shell command and place back at the next
+                // launch (pages are asked at once, each within a second).
+                await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 // Browser tabs reopen at their recorded page (before any
