@@ -96,6 +96,7 @@ import {
   VmSnapshotNotFoundError,
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
+  VmSnapshotQuotaExceededError,
   VmUsageLimitExceededError,
   VmPlanBudgetExceededError,
   VmGoShapeError,
@@ -1098,7 +1099,7 @@ const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
 /** Enforce Go's fixed machine shape when a Go allocation is requested. */
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
   return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
-    ? Effect.fail(new VmGoShapeError()) : Effect.void;
+    ? Effect.fail(new VmGoShapeError({})) : Effect.void;
 }
 
 const MB_PER_GB = 1024;
@@ -2090,6 +2091,7 @@ function afterResponseOrNow<E>(
  * without finishing (the route budget is 600 s), so a retry may take it over.
  */
 export const SNAPSHOT_REQUEST_STALE_MS = 15 * 60 * 1000;
+export const VM_SNAPSHOT_LIMIT = 10;
 
 export function snapshotVm(input: {
   readonly userId: string;
@@ -2121,10 +2123,14 @@ export function snapshotVm(input: {
         idempotencyKey: key,
         name: input.name ?? null,
         staleBefore: new Date(Date.now() - SNAPSHOT_REQUEST_STALE_MS),
+        maxSnapshots: VM_SNAPSHOT_LIMIT,
       });
       if (begin.kind === "succeeded") return begin.snapshot;
       if (begin.kind === "in_progress") return yield* Effect.fail(new VmSnapshotInProgressError({ vmId: vm.id }));
       if (begin.kind === "conflict") return yield* Effect.fail(new VmSnapshotIdempotencyConflictError({ vmId: vm.id }));
+      if (begin.kind === "quota_exceeded") {
+        return yield* Effect.fail(new VmSnapshotQuotaExceededError({ vmId: vm.id, limit: begin.limit }));
+      }
     }
     const finish = repo.finishSnapshotRequest;
     const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
@@ -2994,6 +3000,7 @@ export function forkVm(input: {
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
+      idempotencyKey: `fork-${createHash("sha256").update(input.idempotencyKey ?? randomUUID()).digest("hex")}`,
       timing: input.timing,
       deferAfterResponse: input.deferAfterResponse,
     });
@@ -4942,7 +4949,7 @@ export function resizeVm(input: {
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
     if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
-      return yield* Effect.fail(new VmGoShapeError());
+      return yield* Effect.fail(new VmGoShapeError({}));
     }
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId)],
