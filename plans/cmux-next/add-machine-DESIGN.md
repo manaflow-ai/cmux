@@ -64,7 +64,7 @@ nothing is pushed there and no standalone daemon is started beside it.
 so the app and `doctor --fix` never pass `--reverse`. With it, this machine's address comes only
 from its tailnet name (never `$SSH_CONNECTION`, which behind NAT or a jump host names another
 machine); without a tailnet the step warns. A peer on the host that already points at this
-machine by URL host (tailnet name, short name, host name, IP, or its first label) counts, so no
+machine by URL host (tailnet name, short name, host name, IP, or a bare name equal to a first label) counts, so no
 duplicate is added.
 
 The final line is `{"report":{"name":..,"host":..,"ok":bool,"steps":[..]}}`. A machine is

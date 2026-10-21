@@ -36,7 +36,8 @@ public struct HostCLI: Sendable {
     public func candidates(probe: Bool) async -> Data? {
         let argv = [binary.path, "acp", "host", "candidates", "--json"] + (probe ? ["--probe"] : [])
         guard let result = try? await SSHProcessRunner.run(argv, environment: await Self.grouped(environment()),
-                                                           deadline: .seconds(probe ? 30 : 15), label: "host candidates"),
+                                                           deadline: .seconds(probe ? 30 : 15), label: "host candidates",
+                                                           stop: Self.stop),
               result.status == 0 else { return nil }
         return Data(result.stdout.utf8)
     }
@@ -64,13 +65,13 @@ public struct HostCLI: Sendable {
 
     /// The run's environment, asking it to lead its own process group (acpmux
     /// `lead_process_group_if_asked`), so ``stop(_:)`` reaches the ssh it starts.
-    static func grouped(_ environment: [String: String]) -> [String: String] {
+    nonisolated static func grouped(_ environment: [String: String]) -> [String: String] {
         environment.merging(["ACPMUX_PROCESS_GROUP": "1"]) { _, new in new }
     }
 
     /// SIGTERM to the run's process group when it leads one, so the ssh and scp it started stop with
     /// it; else to the process alone (never the app's own group).
-    static func stop(_ process: Process) {
+    nonisolated static func stop(_ process: Process) {
         let pid = process.processIdentifier
         guard pid > 0 else { return }
         kill(getpgid(pid) == pid ? -pid : pid, SIGTERM)

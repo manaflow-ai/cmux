@@ -289,12 +289,17 @@ fn here_names(dest: &str, local: &str, ts: Option<&tailnet::Status>) -> Vec<Stri
     names.into_iter().filter(|n| !n.is_empty()).map(|n| n.to_ascii_lowercase()).collect()
 }
 
-/// Whether a peer URL's host is one of `here`, also by its first label
-/// (`ssh://cosmic-gray.local` for `cosmic-gray`).
+/// Whether a peer URL's host is one of `here`. A bare name (no dots) also
+/// matches the first label of one (`ssh://cosmic-gray` for
+/// `cosmic-gray.tail9.ts.net`); a dotted name must match whole, so
+/// `ssh://cosmic.other.net` is not `cosmic`.
 fn points_here(url: &str, here: &[String]) -> bool {
+    let name = |s: &str| s.parse::<IpAddr>().is_err();
     ssh_url_host(url).is_some_and(|h| {
-        let first = h.split('.').next().unwrap_or(&h);
-        here.contains(&h) || (h.parse::<IpAddr>().is_err() && here.iter().any(|n| n == first))
+        here.contains(&h)
+            || (!h.contains('.')
+                && name(&h)
+                && here.iter().any(|n| name(n) && n.split('.').next() == Some(h.as_str())))
     })
 }
 

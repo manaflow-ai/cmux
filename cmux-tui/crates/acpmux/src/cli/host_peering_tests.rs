@@ -193,13 +193,23 @@ async fn peer_back_without_a_tailnet_warns_instead_of_guessing() {
 #[tokio::test]
 async fn peer_back_matches_an_existing_peer_by_its_url_host() {
     // Listed under another name at this machine's short host name.
-    for url in ["ssh://leo@cosmic", "ssh://cosmic-gray", "ssh://cosmic-gray.local:47812"] {
+    for url in ["ssh://leo@cosmic", "ssh://cosmic-gray", "ssh://COSMIC-GRAY.tail9.ts.net:47812"] {
         let fake = Fake::default();
         *fake.remote_peers.borrow_mut() =
             Some(vec![json!({"name": "cg", "url": url, "connected": true})]);
         let r = peer_back_with(&fake, &target(None), true).await;
         assert_eq!(r.state, StepState::Ok, "{url}: {}", r.detail);
         assert!(!fake.mutated_there(), "{url}: no second peer for the same machine");
+    }
+    // A dotted name elsewhere is another machine, even with this one's
+    // short name as its first label.
+    for url in ["ssh://cosmic.other.net", "ssh://cosmic-gray.local"] {
+        let fake = Fake::default();
+        *fake.remote_peers.borrow_mut() =
+            Some(vec![json!({"name": "cg", "url": url, "connected": true})]);
+        let r = peer_back_with(&fake, &target(None), true).await;
+        assert_eq!(r.state, StepState::Fixed, "{url}: {}", r.detail);
+        assert!(fake.mutated_there(), "{url}: this machine is added");
     }
 }
 

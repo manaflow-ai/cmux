@@ -14,8 +14,8 @@ public final class AddMachineCard {
         model = AddMachineModel(services: services)
     }
 
-    /// Opens Add Machine over `window`. A destination starts the add at once (the CLI, a script);
-    /// without one the card takes the keys for its field.
+    /// Opens Add Machine over `window`. A destination (the CLI, MCP, a script) only fills the field:
+    /// the add starts when the person presses Add. The card takes the keys for its field.
     public func open(destination: String? = nil, name: String? = nil, over window: NSWindow?) {
         model.begin(destination: destination, name: name)
         present(over: window)

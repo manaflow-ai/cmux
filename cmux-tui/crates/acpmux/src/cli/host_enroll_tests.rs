@@ -735,3 +735,35 @@ fn peer_back_is_skipped_unless_asked() {
     assert_eq!((r.step, r.state), (Step::PeerBack, StepState::Skip));
     assert!(r.detail.contains("--reverse"), "{}", r.detail);
 }
+
+#[test]
+fn a_daemon_started_through_the_acpmux_link_stays_ours() {
+    const ARGS: &str = "/home/leo/.local/bin/cmux-tui acp daemon run";
+    // A cmux session daemon's: another file than the link resolves to, or no link.
+    assert!(cmux_session_daemon(ARGS, Some(TUI_BIN), ""));
+    assert!(cmux_session_daemon(ARGS, Some(TUI_BIN), "/opt/acpmux/acpmux"));
+    assert!(cmux_session_daemon(ARGS, None, LOCAL_BIN));
+    // Enroll's own, started as ~/.local/bin/acpmux -> cmux-tui: the exe is
+    // the link's target (also after the file was replaced).
+    assert!(!cmux_session_daemon(ARGS, Some(TUI_BIN), TUI_BIN));
+    assert!(!cmux_session_daemon(ARGS, Some(&format!("{TUI_BIN} (deleted)")), TUI_BIN));
+    assert!(!cmux_session_daemon("/home/leo/.local/bin/acpmux daemon run", Some(LOCAL_BIN), ""));
+
+    // Through probe(): the link's daemon is repairable, not cmux's.
+    let build = crate::hub::BUILD;
+    let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
+    for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
+        let fake = Fake::new(|script, _| {
+            if script == PROBE {
+                out(probe_out(bins, Some((build, false))))
+            } else if script.starts_with("readlink /proc/7/exe") {
+                out(format!("{TUI_BIN}\n\0{ARGS}\n\0{link_target}\n"))
+            } else {
+                panic!("unexpected script: {script}")
+            }
+        });
+        let p = probe(&fake).unwrap();
+        assert_eq!(p.exe.as_deref(), Some(TUI_BIN));
+        assert_eq!(p.in_use().unwrap().app, !ours, "link target {link_target:?}");
+    }
+}

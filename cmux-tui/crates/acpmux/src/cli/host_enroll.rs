@@ -308,8 +308,11 @@ struct Probe {
     running: Option<Running>,
     /// The running daemon's executable, when the host names it.
     exe: Option<String>,
-    /// The running daemon runs as `cmux-tui acp …`: a cmux session daemon
-    /// started it (`cmux-tui/src/acp.rs`), outside launchd.
+    /// The running daemon runs as `cmux-tui acp …` from another file than
+    /// [`DAEMON_BIN`] resolves to: a cmux session daemon started it
+    /// (`cmux-tui/src/acp.rs`), outside launchd. One started through the
+    /// `~/.local/bin/acpmux` link to that cmux-tui (`host setup`, enroll's
+    /// daemon step) is not: its exe is the link's target.
     run_by_cmux_tui: bool,
     config: String,
 }
@@ -378,6 +381,15 @@ fn runs_as_cmux_tui_acp(args: &str) -> bool {
     words.next().is_some_and(is_cmux_tui) && words.next() == Some("acp")
 }
 
+/// Whether the running daemon is a cmux session daemon's `cmux-tui acp`:
+/// its command line says so, and its executable `exe` is not the file
+/// [`DAEMON_BIN`] resolves to (`daemon_bin`, `readlink -f`), which the
+/// standalone daemon runs. Linux names a replaced image `PATH (deleted)`.
+fn cmux_session_daemon(args: &str, exe: Option<&str>, daemon_bin: &str) -> bool {
+    let exe = exe.map(|e| e.strip_suffix(" (deleted)").unwrap_or(e));
+    runs_as_cmux_tui_acp(args) && (daemon_bin.is_empty() || exe != Some(daemon_bin))
+}
+
 impl Probe {
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
@@ -423,13 +435,15 @@ fn probe(r: &dyn Remote) -> Result<Probe> {
     let mut probe = parse_probe(&r.exec(PROBE, None)?.stdout);
     if let Some(pid) = probe.running.as_ref().map(|run| run.pid) {
         let script = format!(
-            "readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}; printf '\\0'; ps -o args= -p {pid} 2>/dev/null"
+            "readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}; printf '\\0'; ps -o args= -p {pid} 2>/dev/null; printf '\\0'; readlink -f {DAEMON_BIN} 2>/dev/null"
         );
         let stdout = r.exec(&script, None)?.stdout;
-        let (exe, args) = stdout.split_once('\0').unwrap_or((&stdout, ""));
-        let exe = exe.trim().to_owned();
+        let mut parts = stdout.split('\0');
+        let exe = parts.next().unwrap_or("").trim().to_owned();
+        let args = parts.next().unwrap_or("").trim();
+        let daemon_bin = parts.next().unwrap_or("").trim();
         probe.exe = exe.starts_with('/').then_some(exe);
-        probe.run_by_cmux_tui = runs_as_cmux_tui_acp(args.trim());
+        probe.run_by_cmux_tui = cmux_session_daemon(args, probe.exe.as_deref(), daemon_bin);
     }
     Ok(probe)
 }
