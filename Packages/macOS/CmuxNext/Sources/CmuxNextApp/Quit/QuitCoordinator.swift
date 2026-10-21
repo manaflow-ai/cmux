@@ -167,7 +167,7 @@ final class QuitCoordinator {
                 await services.remoteTerminals.saveSnapshots()
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
-                await services.agentTabs.wakeStateFile.save(services.agentTabs.relaunchWakeStates())
+                await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 // Browser tabs reopen at their recorded page (before any

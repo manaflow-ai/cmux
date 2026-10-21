@@ -23,11 +23,13 @@ struct AgentPaneRelaunchWakeTests {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = thisMac
-        tabs.wakeStateFile = AgentPaneWakeStateFile(file: file)
+        tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
         tabs.lookup = { key in records[key].map { ($0, tree) } }
         return tabs
     }
+
+    final class Asked { var count = 0 }
 
     static func ready(_ page: AgentPaneView) async throws -> [String: Any] {
         let reply = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
@@ -38,7 +40,7 @@ struct AgentPaneRelaunchWakeTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentPaneWakeStateFile.fileName)
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
         let records = [
             "tab_shown": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-shown", harness: "claude"),
             "tab_released": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-released", harness: "claude"),
@@ -55,13 +57,13 @@ struct AgentPaneRelaunchWakeTests {
         before.wakeStates["tab_released"] = releasedHeld
         // A tab that left every tree (closed elsewhere) keeps nothing.
         before.wakeStates["tab_gone"] = AgentPaneWakeState(shell: true, shellText: "rm -rf build")
-        before.wakeStateReader = { page, _ in page === shown ? shownHeld : nil }
+        before.relaunchWake.read = { page, _ in page === shown ? shownHeld : nil }
         // The quit's window step (every relaunch's quit goes through it).
-        await before.wakeStateFile.save(before.relaunchWakeStates())
+        await before.relaunchWake.save(before.relaunchWakeStates())
 
         // The next run: each tab's first page gets its chat's composer back with its handshake.
         let after = Self.run(file: file, records: records)
-        after.restoreWakeStates()
+        after.wakeStates = after.relaunchWake.take()
         #expect(after.wakeStates["tab_gone"] == nil, "a closed tab's composer was kept")
         let shownPage = try #require(after.view(for: "tab_shown"))
         let shownHandshake = try await Self.ready(shownPage)
@@ -79,7 +81,7 @@ struct AgentPaneRelaunchWakeTests {
 
         // Handed back once: a crash after this launch never brings back chips already sent.
         let third = Self.run(file: file, records: records)
-        third.restoreWakeStates()
+        third.wakeStates = third.relaunchWake.take()
         #expect(third.wakeStates.isEmpty)
     }
 
@@ -116,24 +118,24 @@ struct AgentPaneRelaunchWakeTests {
     @Test func aPageThatDoesNotAnswerKeepsItsState() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         let records = ["tab_slow": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-slow", harness: "claude")]
-        let tabs = Self.run(file: directory.appending(path: AgentPaneWakeStateFile.fileName), records: records)
+        let tabs = Self.run(file: directory.appending(path: AgentPaneRelaunchWake.fileName), records: records)
         let held = AgentPaneWakeState(shell: true, shellText: "cargo test")
         tabs.wakeStates["tab_slow"] = held
         let page = try #require(tabs.view(for: "tab_slow"))
         _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "reconnect"]))
-        var asked = 0
-        tabs.wakeStateReader = { _, _ in
-            asked += 1
+        let asked = Asked()
+        tabs.relaunchWake.read = { _, _ in
+            asked.count += 1
             return nil
         }
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that had not taken its state dropped it")
-        #expect(asked == 0, "a page that had not taken its state was asked for one")
+        #expect(asked.count == 0, "a page that had not taken its state was asked for one")
 
         // After its ready, a page that does not answer in time keeps the tab's kept state.
         _ = try await Self.ready(page)
         tabs.wakeStates["tab_slow"] = held
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that did not answer in time saved nothing over it")
-        #expect(asked == 1)
+        #expect(asked.count == 1)
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
@@ -141,8 +143,8 @@ struct AgentPaneRelaunchWakeTests {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: AgentPaneWakeStateFile.fileName)
-        let store = AgentPaneWakeStateFile(file: file)
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let store = AgentPaneRelaunchWake(file: file)
         await store.save(["tab_a": AgentPaneWakeState(shell: true, shellText: "ls")])
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
         await store.save(["tab_a": AgentPaneWakeState()])
