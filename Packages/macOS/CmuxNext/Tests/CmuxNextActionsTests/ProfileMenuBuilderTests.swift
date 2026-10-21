@@ -49,4 +49,17 @@ struct ProfileMenuBuilderTests {
         // A caller with no pet to show gets no row.
         #expect(!builder.make(profile: profile).items.contains { $0.identifier?.rawValue == "profileMenu.chiefPet" })
     }
+
+    /// Check for Updates… sits under Settings, as in the app menu (Austin 2026-10-20).
+    @Test func checkForUpdatesFollowsSettings() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("openSettings") {}
+        registry.bind("palette.checkForUpdates") {}
+        let menu = ProfileMenuBuilder(registry: registry).make(profile: ProfileMenuProfile(name: "Default"))
+        let settings = try #require(menu.items.firstIndex { $0.identifier?.rawValue == "cmux.action.openSettings" })
+        let updates = menu.items[settings + 1]
+        #expect(updates.identifier?.rawValue == "cmux.action.palette.checkForUpdates")
+        #expect(updates.title == "Check for Updates…")
+        #expect(ActionRegistry.menuRun(of: updates)?.id == "palette.checkForUpdates")
+    }
 }
