@@ -289,6 +289,10 @@ import Testing
         try await Task.sleep(for: .seconds(1))
         // A pane parks the page it stops showing hidden in the window (`PaneContentView.retire`);
         // WebKit then saves the page's fields into its history item (the state hibernation keeps).
+        // It saves them only when the page goes from shown to hidden: a host whose window is never
+        // on screen (a CI mini's console) gets the scroll back but not the fields, which
+        // scripts/cmux-next/bench_hibernation.py checks on a capture mini.
+        let shown = rig.window.occlusionState.contains(.visible)
         page.contentView.isHidden = true
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
@@ -301,7 +305,7 @@ import Testing
             if rig.window.contentView !== woken.contentView { rig.window.contentView = woken.contentView }
             let value = try? await woken.evaluate(state, world: .page)
             seen = String(describing: value)
-            return value == .string(#"["Ada","two\nlines",3000]"#)
+            return value == .string(shown ? #"["Ada","two\nlines",3000]"# : #"["","",3000]"#)
         }
     }
 

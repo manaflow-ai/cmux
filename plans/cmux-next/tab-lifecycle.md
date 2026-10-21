@@ -168,6 +168,12 @@ cmux.json:
 - A terminal surface shown after a pause can draw its last frame before the
   current one (no Ghostty "presented" signal yet); cold workspaces still
   attach at most one new surface per frame.
+- A WebKit page's form fields come back from hibernation only if WebKit saved them, which it
+  does when the page goes from shown to hidden. A page whose window was never on screen
+  wakes scrolled with empty fields (measured on CI minis, PR 23083), so
+  `aWokenPageHasItsScrollAndFormBack` checks the fields only when its window is on screen and
+  `bench_hibernation.py` checks them on a capture mini. Reading the fields at hibernation
+  and filling them in on wake would remove that dependence.
 - Camera, microphone and screen capture exemptions are not checked live
   (they need a permission prompt and a device on the test host).
 - The recorder misses: Chromium cross-origin iframes (out-of-process frames
