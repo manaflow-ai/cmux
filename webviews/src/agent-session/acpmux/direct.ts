@@ -915,6 +915,10 @@ export class AcpmuxDirectClient {
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
   private historyExhausted = false;
+  /// Bumped when the held transcript's older end moves on its own: a kept tail dropped because the
+  /// attach page did not continue it. An older page in flight from before belongs to a transcript
+  /// the chat no longer holds, so it is dropped instead of merged above the new one.
+  private historyEpoch = 0;
   /// An older page is on its way: the reader's scroll asks again on every frame near the top.
   private loadingOlder?: Promise<void>;
   /// While an older page folds, the first sequence number the pane held before it.
@@ -1260,7 +1264,9 @@ export class AcpmuxDirectClient {
     // After the replay, not before: a `session_changed` the tail holds would take the live state back.
     this.summary = { ...kept.summary, ...listed };
     this.turnOpen = listed?.status === "running";
-    // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history here.
+    // Only acpmux says what is pending (attach's `session.pending`): a replayed ask is history
+    // here. The marks it left on its own rows (an edit "awaiting permission") stand until the
+    // attach replays the page, as they do on a page whose decision it does not hold either.
     this.pendingPermission = undefined;
     this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
@@ -1743,14 +1749,19 @@ export class AcpmuxDirectClient {
     const page: EventRecord[] = result?.events ?? [];
     const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
     // The chat ran on past what one page holds while the reader was away, so the kept tail and
-    // this page do not meet: the tail goes (only the live events that landed since it was drawn
-    // stay), and the chat holds the page alone, as one read for the first time does. Keeping both
-    // would leave a hole in the middle of the transcript that no older page can fill.
+    // this page do not meet: the tail goes (only events this page holds or newer stay), and the
+    // chat holds the page alone, as one read for the first time does. Keeping both would leave a
+    // hole in the middle of the transcript that no older page can fill. Everything the dropped
+    // tail stood behind goes with it: where its history started, its fork point, its usage.
     if (keptThrough > 0 && oldest > keptThrough + 1) {
-      this.events = this.events.filter((event) => event.seq > keptThrough);
+      this.events = this.events.filter((event) => event.seq >= oldest);
       this.turnOpener = undefined;
       this.historyExhausted = false;
       this.usageFromSeq = Infinity;
+      this.forkedAtSeq = undefined;
+      this.usage = undefined;
+      // An older page already in flight was read for the transcript that just went.
+      this.historyEpoch += 1;
     }
     // A reconnect to the same session keeps its events, and open() fills the gap to the new page
     // (every kind, usage included): the client still holds what it held. A fresh attach (Infinity,
@@ -3528,14 +3539,18 @@ export class AcpmuxDirectClient {
       this.releaseSnapshots(hold);
     }
     try {
-      if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
+      // A refused detach of the chat being left (acpmux no longer resolves it) never stops the
+      // chat being opened.
+      if (previousSessionId)
+        await this.request("_acpmux/detach", { sessionId: previousSessionId }).catch(() => undefined);
       await this.attach(sessionId, generation, keptThrough);
     } catch (error) {
       // The chat could not be read: a tail drawn from this page's own memory must not stay on
-      // screen as if it were the chat, so the pane empties as it does without one.
+      // screen as if it were the chat, so the pane drops it and says it could not read the chat.
       if (keptThrough > 0 && generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
         forgetTail(sessionId);
         this.events = [];
+        this.queue = [];
         this.rebuild();
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
       }
@@ -3963,6 +3978,7 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
+    const epoch = this.historyEpoch;
     // The prompt drawn first: the open turn's opener when the held events start mid-turn.
     const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
     const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
@@ -3985,6 +4001,9 @@ export class AcpmuxDirectClient {
         kinds: ["transcript"],
       });
       if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      // The held transcript's older end moved while this read was out (a kept tail the attach
+      // page did not continue): these records sit above a transcript the chat no longer holds.
+      if (epoch !== this.historyEpoch) return;
       const page: EventRecord[] = result?.events ?? [];
       older = [...page, ...older];
       more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;

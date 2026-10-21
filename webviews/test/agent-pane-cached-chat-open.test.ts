@@ -17,8 +17,6 @@ import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
-const SESSION_A = "cached-open-a";
-const SESSION_B = "cached-open-b";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -80,6 +78,10 @@ const ASKING: Step = [
  * and `fail` refuses it.
  */
 class Daemon {
+  /// The two chats this run uses. Each test names its own, because the kept tails outlive a test
+  /// (they are the page's memory, module state), and a test must not draw another's chat.
+  readonly sessionA: string;
+  readonly sessionB: string;
   readyState = 0;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -91,13 +93,25 @@ class Daemon {
   readonly listedQueue = new Map<string, { promptId: string; prompt: string }[]>();
   hold?: string;
   fail?: string;
+  /// Refuses a detach, as acpmux does for a chat it no longer resolves.
+  refuseDetach = false;
   private held?: Message;
   private holding?: () => void;
   /** Resolves when the held attach has been asked for. */
   asked = new Promise<void>((resolve) => (this.holding = resolve));
   private attached = new Map<string, number>();
+  /// Holds the next older-history read of this chat (`_acpmux/events` with a `beforeSeq`).
+  holdOlder?: string;
+  private heldOlder?: Message;
+  private holdingOlder?: () => void;
+  /** Resolves when the held older-history read has been asked for. */
+  askedOlder = new Promise<void>((resolve) => (this.holdingOlder = resolve));
+  /// The older records this chat answers for a read before its page.
+  readonly older = new Map<string, Page>();
 
-  constructor() {
+  constructor(name: string) {
+    this.sessionA = `${name}-a`;
+    this.sessionB = `${name}-b`;
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
@@ -113,6 +127,16 @@ class Daemon {
       this.held = message;
       this.hold = undefined;
       this.holding?.();
+      return;
+    }
+    if (
+      message.method === "_acpmux/events" &&
+      message.params?.beforeSeq !== undefined &&
+      sessionId === this.holdOlder
+    ) {
+      this.heldOlder = message;
+      this.holdOlder = undefined;
+      this.holdingOlder?.();
       return;
     }
     queueMicrotask(() => this.answer(message));
@@ -141,6 +165,14 @@ class Daemon {
     if (message) this.answer(message);
   }
 
+  /** Answers the older-history read held back. */
+  releaseOlder(): void {
+    const message = this.heldOlder;
+    this.heldOlder = undefined;
+    this.askedOlder = new Promise<void>((resolve) => (this.holdingOlder = resolve));
+    if (message) this.answer(message);
+  }
+
   private summary(sessionId: string) {
     return {
       sessionId,
@@ -164,6 +196,12 @@ class Daemon {
 
   private answer(message: Message): void {
     const sessionId = String(message.params?.sessionId ?? "");
+    if (message.method === "_acpmux/detach" && this.refuseDetach) {
+      this.onmessage?.({
+        data: JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: "no such session" } }),
+      });
+      return;
+    }
     if (message.method === "_acpmux/attach" && sessionId === this.fail) {
       this.fail = undefined;
       this.onmessage?.({
@@ -175,7 +213,7 @@ class Daemon {
     if (message.method === "initialize")
       result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
     else if (message.method === "_acpmux/watch")
-      result = { sessions: [this.summary(SESSION_A), this.summary(SESSION_B)] };
+      result = { sessions: [this.summary(this.sessionA), this.summary(this.sessionB)] };
     else if (message.method === "_acpmux/attach") {
       const page = this.page(sessionId);
       const records = events(sessionId, page);
@@ -185,12 +223,16 @@ class Daemon {
         events: records,
         hasMore: page.hasMore === true,
       };
-    } else if (message.method === "_acpmux/events") result = { events: [], hasMore: false, lastSeq: 0 };
+    } else if (message.method === "_acpmux/events") {
+      const older = message.params?.beforeSeq !== undefined ? this.older.get(sessionId) : undefined;
+      const records = older ? events(sessionId, older) : [];
+      result = { events: records, hasMore: older?.hasMore === true, lastSeq: records.at(-1)?.seq ?? 0 };
+    }
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) });
   }
 }
 
-/** A client on `daemon`, selected on chat A, and every snapshot it draws. */
+/** A client on `daemon`, selected on its chat A, and every snapshot it draws. */
 const paneOn = async (daemon: Daemon) => {
   const drawn: AcpmuxSnapshot[] = [];
   const client = await AcpmuxDirectClient.connect(
@@ -199,7 +241,7 @@ const paneOn = async (daemon: Daemon) => {
       transport: "acpmux-websocket",
       endpoint: "ws://cached.invalid/",
       token: "t",
-      sessionId: SESSION_A,
+      sessionId: daemon.sessionA,
     },
     (snapshot) => {
       if (snapshot.type === "snapshot") drawn.push(snapshot);
@@ -217,20 +259,21 @@ const text = (snapshot: AcpmuxSnapshot) =>
     .replace(/\s+/g, " ");
 
 test("the frame a switch back lands on draws the chat, before its attach answers", async () => {
-  const daemon = new Daemon();
-  daemon.pages.set(SESSION_A, [{ events: [prompt("Look at the retry path"), reply(SESSION_A, "Retry added.")] }]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+  const daemon = new Daemon("frame-back");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at the retry path"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   const { client, drawn, last } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
+    await client.select(B);
     expect(text(last())).toContain("Docs updated.");
     // Chat A again, with acpmux slow to answer its attach.
-    daemon.hold = SESSION_A;
-    const back = client.select(SESSION_A);
+    daemon.hold = A;
+    const back = client.select(A);
     await daemon.asked;
     // Drawn from the tail A's visit left, with A's attach still in flight.
     expect(text(last())).toContain("Retry added.");
-    expect(last().sessionId).toBe(SESSION_A);
+    expect(last().sessionId).toBe(A);
     const beforeAttach = drawn.length;
     daemon.release();
     await back;
@@ -242,22 +285,23 @@ test("the frame a switch back lands on draws the chat, before its attach answers
 });
 
 test("a chat that ran on past one attach page comes back without a hole in its transcript", async () => {
-  const daemon = new Daemon();
-  const tail: Step[] = [prompt("Turn one"), TURN_STARTED, reply(SESSION_A, "Turn one done."), TURN_DONE];
-  daemon.pages.set(SESSION_A, [
+  const daemon = new Daemon("gap");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  const tail: Step[] = [prompt("Turn one"), TURN_STARTED, reply(A, "Turn one done."), TURN_DONE];
+  daemon.pages.set(A, [
     { events: tail },
     // While the reader was away the chat ran on, and acpmux's page starts far past the kept tail.
     {
-      events: [prompt("Turn ninety"), TURN_STARTED, reply(SESSION_A, "Turn ninety done."), TURN_DONE],
+      events: [prompt("Turn ninety"), TURN_STARTED, reply(A, "Turn ninety done."), TURN_DONE],
       from: 900,
       hasMore: true,
     },
   ]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   const { client, last } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
-    await client.select(SESSION_A);
+    await client.select(B);
+    await client.select(A);
     const seqs = client.sessionEvents().map((event) => event.seq);
     expect(seqs).toEqual([900, 901, 902, 903]);
     expect(text(last())).toContain("Turn ninety done.");
@@ -269,19 +313,58 @@ test("a chat that ran on past one attach page comes back without a hole in its t
   }
 });
 
+test("an older-history read in flight when the tail is dropped does not put the hole back", async () => {
+  const daemon = new Daemon("older-in-flight");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [
+    // The reader's visit starts mid-transcript, so the transcript offers older history.
+    { events: [prompt("Turn ten"), TURN_STARTED, reply(A, "Turn ten done."), TURN_DONE], from: 10, hasMore: true },
+    {
+      events: [prompt("Turn ninety"), TURN_STARTED, reply(A, "Turn ninety done."), TURN_DONE],
+      from: 900,
+      hasMore: true,
+    },
+  ]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  daemon.older.set(A, { events: [prompt("Turn nine"), TURN_STARTED, reply(A, "Turn nine done."), TURN_DONE], from: 6 });
+  const { client, last } = await paneOn(daemon);
+  try {
+    await client.select(B);
+    daemon.hold = A;
+    daemon.holdOlder = A;
+    const back = client.select(A);
+    await daemon.asked;
+    // The transcript asks for older history off the kept tail while the attach is still out.
+    const older = client.loadOlder();
+    await daemon.askedOlder;
+    // The attach answers with a page far past the tail, so the tail goes.
+    daemon.release();
+    await back;
+    // Only then does the older read land: it belongs to the transcript that just went.
+    daemon.releaseOlder();
+    await older;
+    expect(client.sessionEvents().map((event) => event.seq)).toEqual([900, 901, 902, 903]);
+    expect(text(last())).not.toContain("Turn nine done.");
+    expect(text(last())).not.toContain("Turn ten done.");
+  } finally {
+    client.close();
+  }
+});
+
 test("a chat that did not move keeps the history its visit had loaded", async () => {
-  const daemon = new Daemon();
-  const tail: Step[] = [prompt("Turn one"), TURN_STARTED, reply(SESSION_A, "Turn one done."), TURN_DONE];
-  daemon.pages.set(SESSION_A, [
+  const daemon = new Daemon("kept-history");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  const tail: Step[] = [prompt("Turn one"), TURN_STARTED, reply(A, "Turn one done."), TURN_DONE];
+  daemon.pages.set(A, [
     { events: tail },
     // acpmux answers the same chat again, as the page it holds (its newest records).
     { events: tail.slice(-2), from: 3 },
   ]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   const { client } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
-    await client.select(SESSION_A);
+    await client.select(B);
+    await client.select(A);
     expect(client.sessionEvents().map((event) => event.seq)).toEqual([1, 2, 3, 4]);
   } finally {
     client.close();
@@ -289,8 +372,9 @@ test("a chat that did not move keeps the history its visit had loaded", async ()
 });
 
 test("an ask answered while away does not come back as a card", async () => {
-  const daemon = new Daemon();
-  daemon.pages.set(SESSION_A, [
+  const daemon = new Daemon("ask-answered");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [
     { events: [prompt("Edit it"), TURN_STARTED, ASKING] },
     // It was allowed from somewhere else meanwhile, so acpmux's page carries the decision.
     {
@@ -303,13 +387,13 @@ test("an ask answered while away does not come back as a card", async () => {
       ],
     },
   ]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   const { client, last } = await paneOn(daemon);
   try {
     expect(last().permission?.permissionId).toBe("p1");
-    await client.select(SESSION_B);
-    daemon.hold = SESSION_A;
-    const back = client.select(SESSION_A);
+    await client.select(B);
+    daemon.hold = A;
+    const back = client.select(A);
     await daemon.asked;
     // The frame back: the chat is drawn, and nothing is waiting for an answer.
     expect(text(last())).toContain("Edit it");
@@ -323,22 +407,23 @@ test("an ask answered while away does not come back as a card", async () => {
 });
 
 test("a turn that ended while away does not come back as a running turn", async () => {
-  const daemon = new Daemon();
-  daemon.pages.set(SESSION_A, [
-    { events: [prompt("Run it"), TURN_STARTED, reply(SESSION_A, "Running.")] },
-    { events: [prompt("Run it"), TURN_STARTED, reply(SESSION_A, "Running."), TURN_DONE] },
+  const daemon = new Daemon("turn-ended");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [
+    { events: [prompt("Run it"), TURN_STARTED, reply(A, "Running.")] },
+    { events: [prompt("Run it"), TURN_STARTED, reply(A, "Running."), TURN_DONE] },
   ]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
-  daemon.status.set(SESSION_A, "running");
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  daemon.status.set(A, "running");
   const { client, last } = await paneOn(daemon);
   try {
     expect(last().isWorking).toBe(true);
-    await client.select(SESSION_B);
+    await client.select(B);
     // The turn finished while the reader was away: acpmux says so in its session list.
-    daemon.status.set(SESSION_A, "idle");
-    daemon.changed(SESSION_A);
-    daemon.hold = SESSION_A;
-    const back = client.select(SESSION_A);
+    daemon.status.set(A, "idle");
+    daemon.changed(A);
+    daemon.hold = A;
+    const back = client.select(A);
     await daemon.asked;
     expect(text(last())).toContain("Running.");
     expect(last().isWorking).toBe(false);
@@ -351,15 +436,16 @@ test("a turn that ended while away does not come back as a running turn", async 
 });
 
 test("a chat still running when the reader comes back draws as working at once", async () => {
-  const daemon = new Daemon();
-  daemon.pages.set(SESSION_A, [{ events: [prompt("Run it"), TURN_STARTED, reply(SESSION_A, "Running.")] }]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
-  daemon.status.set(SESSION_A, "running");
+  const daemon = new Daemon("still-running");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Run it"), TURN_STARTED, reply(A, "Running.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  daemon.status.set(A, "running");
   const { client, last } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
-    daemon.hold = SESSION_A;
-    const back = client.select(SESSION_A);
+    await client.select(B);
+    daemon.hold = A;
+    const back = client.select(A);
     await daemon.asked;
     expect(last().isWorking).toBe(true);
     daemon.release();
@@ -370,22 +456,23 @@ test("a chat still running when the reader comes back draws as working at once",
 });
 
 test("a queued prompt keeps its whole text on the frame back", async () => {
-  const daemon = new Daemon();
+  const daemon = new Daemon("queued-text");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
   const whole = `Rewrite the uploader's retry path ${"and the tests that cover it ".repeat(8)}`;
-  daemon.pages.set(SESSION_A, [
+  daemon.pages.set(A, [
     {
       events: [prompt("Edit it"), ["mux", "queued", { promptId: "q1", text: whole }]],
       queue: [{ promptId: "q1", prompt: whole }],
     },
   ]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   // acpmux's session list carries only a preview of a queued prompt.
-  daemon.listedQueue.set(SESSION_A, [{ promptId: "q1", prompt: `${whole.slice(0, 40)}…` }]);
+  daemon.listedQueue.set(A, [{ promptId: "q1", prompt: `${whole.slice(0, 40)}…` }]);
   const { client, last } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
-    daemon.hold = SESSION_A;
-    const back = client.select(SESSION_A);
+    await client.select(B);
+    daemon.hold = A;
+    const back = client.select(A);
     await daemon.asked;
     expect(last().queue.map((entry) => entry.prompt)).toEqual([whole]);
     daemon.release();
@@ -395,15 +482,33 @@ test("a queued prompt keeps its whole text on the frame back", async () => {
   }
 });
 
-test("a chat whose attach fails does not stay on screen as if it had been read", async () => {
-  const daemon = new Daemon();
-  daemon.pages.set(SESSION_A, [{ events: [prompt("Look at it"), reply(SESSION_A, "Retry added.")] }]);
-  daemon.pages.set(SESSION_B, [{ events: [prompt("Docs"), reply(SESSION_B, "Docs updated.")] }]);
+test("a refused detach of the chat being left does not stop the chat being opened", async () => {
+  const daemon = new Daemon("detach-refused");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
   const { client, last } = await paneOn(daemon);
   try {
-    await client.select(SESSION_B);
-    daemon.fail = SESSION_A;
-    await expect(client.select(SESSION_A)).rejects.toThrow();
+    await client.select(B);
+    // acpmux no longer resolves the chat being left (it was archived from elsewhere).
+    daemon.refuseDetach = true;
+    expect(await client.select(A)).toBe(A);
+    expect(text(last())).toContain("Retry added.");
+  } finally {
+    client.close();
+  }
+});
+
+test("a chat whose attach fails does not stay on screen as if it had been read", async () => {
+  const daemon = new Daemon("attach-failed");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    await client.select(B);
+    daemon.fail = A;
+    await expect(client.select(A)).rejects.toThrow();
     expect(text(last())).not.toContain("Retry added.");
     expect(client.sessionEvents()).toEqual([]);
   } finally {
