@@ -385,7 +385,13 @@ impl Brain {
         }
         if reply.answer == Answer::Allow {
             match reply.scope {
-                Scope::Turn => self.turn_allowed = true,
+                // Only an answer to the running turn's own request covers the turn,
+                // never one to a subagent's card left over from earlier.
+                Scope::Turn => {
+                    if answered.iter().any(|pending| pending.child.is_none()) {
+                        self.turn_allowed = true;
+                    }
+                }
                 Scope::For(ms) => self.allow_until = Some((self.clock)().saturating_add(ms)),
                 Scope::Oldest | Scope::Pending => {}
             }

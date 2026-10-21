@@ -180,12 +180,18 @@ impl Reply {
                         "m" | "min" | "mins" | "minute" | "minutes" => 60 * 1000,
                         _ => return None,
                     };
-                    scope = Scope::For(count.saturating_mul(unit_ms).min(MAX_WINDOW_MS));
+                    // "1h 30m" adds up.
+                    let before = match scope {
+                        Scope::For(ms) => ms,
+                        _ => 0,
+                    };
+                    let ms = before.saturating_add(count.saturating_mul(unit_ms));
+                    scope = Scope::For(ms.min(MAX_WINDOW_MS));
                     dangling_for = false;
                 }
             }
         }
-        if dangling_for {
+        if dangling_for || scope == Scope::For(0) {
             return None;
         }
         // Deny reaches only what is pending.
