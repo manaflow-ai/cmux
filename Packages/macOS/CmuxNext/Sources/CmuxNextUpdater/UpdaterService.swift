@@ -199,6 +199,10 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
+            // The nightly feed lists each build's deltas minutes after its DMG
+            // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
+            // waits once instead of downloading the full DMG.
+            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
             self.controller = controller
         } else {
             #if DEBUG
