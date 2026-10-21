@@ -85,7 +85,10 @@ def run_package_step(package: str, attempts: list[tuple[str, int]], ghosttykit: 
         fixture = root / "attempts.json"
         fixture.write_text(json.dumps(attempts))
         swift = root / "swift"
+        # The binary-module guard's `swift package resolve` and `swift --version`
+        # (swiftpm-binary-module-guard.sh) are not test attempts.
         swift.write_text("#!/usr/bin/env python3\nimport json, os, pathlib, sys\n"
+                         "if sys.argv[1:2] in (['package'], ['--version']): sys.exit(0)\n"
                          "root = pathlib.Path(os.environ['FIXTURE_ROOT'])\n"
                          "counter = root / 'calls'\n"
                          "count = int(counter.read_text()) if counter.exists() else 0\n"
