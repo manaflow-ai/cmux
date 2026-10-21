@@ -495,7 +495,7 @@ class WebviewsChecksGate(unittest.TestCase):
         spec.loader.exec_module(self.module)
 
     def findings(self, by_check: dict[str, str], message: str) -> str:
-        files = {"webviews/package.json": "{}\n"}
+        files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}
         for check in self.module.CHECKS:
             files[f"webviews/findings/{check}"] = by_check.get(check, "")
         return commit(self.repo, files, message)
@@ -532,7 +532,7 @@ class WebviewsChecksGate(unittest.TestCase):
     def test_a_base_red_the_pull_request_adds_nothing_to_passes(self):
         red = "  test/a.test.ts: 3 fixed waits, baseline 2\n"
         base = self.findings({"check:fixed-waits": red}, "red base")
-        self.findings({"check:fixed-waits": red, "check:browser-lanes": ""}, "the merge, same red")
+        self.findings({"check:fixed-waits": red}, "the merge, same red")
         result = self.gate(base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("fails on the base", result.stdout)
