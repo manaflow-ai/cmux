@@ -189,6 +189,9 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
+deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
+(default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
