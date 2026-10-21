@@ -147,6 +147,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
 
+      - name: Validate the PR capture check
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_pr_capture_check.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
