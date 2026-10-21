@@ -4,16 +4,20 @@
 /// host knows a dropped or pasted file's path, `chat.attach.dropped`; the page does not), else to
 /// the copy the chat's host saves (`chat.upload`).
 import { liftInlineImages } from "./inlineImages";
+import { pastedTextBlocks } from "./pastedText";
+
+import type { StringKey } from "./i18n";
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "link" | "audio";
+  /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
+  kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
   name: string;
   mimeType: string;
   size: number;
   /** Base64 image, PDF or audio bytes, without the data: prefix. */
   data?: string;
-  /** A text file's contents. */
+  /** A text file's contents, or a pasted chip's text. */
   text?: string;
   /** The PDF page count when its catalog can be counted cheaply. */
   pageCount?: number;
@@ -30,7 +34,7 @@ export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported"
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
 export type PromptBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; _meta?: { cmux: { pasted: true } } }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
@@ -287,13 +291,15 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
+/// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
+/// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
 export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
+  blocks.push(...pastedTextBlocks(attachments));
   for (const attachment of attachments)
     if (attachment.kind === "image" && attachment.data)
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
@@ -396,6 +402,13 @@ export function audioAttachment(
     size,
     data: audio.data,
   };
+}
+
+/// The notice for a recording that goes no further than its transcript: the host left it out
+/// (`DictationUpdate.audioOmitted`), or `audioAttachment` refused it past `MAX_AUDIO_BYTES`
+/// (`tooLarge`). The byte cap only backs up the host's two-minute stop, so both read the same.
+export function recordingLeftOutNotice(reason: "tooLong" | "tooLarge" | "narrowband"): StringKey {
+  return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";
 }
 
 /** Counts PDF page objects without parsing or rendering the document. */

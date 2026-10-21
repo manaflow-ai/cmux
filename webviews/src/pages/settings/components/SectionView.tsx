@@ -13,6 +13,7 @@ import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
 import { MobileCard } from "./MobileCard";
+import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { DENSITY_ROWS } from "../density";
 import { DensityCard } from "./DensityCard";
@@ -43,6 +44,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   mobile: () => <MobileCard />,
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
+  importSuggestions: () => <ImportSuggestionsCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

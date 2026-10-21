@@ -960,7 +960,7 @@ async fn dispatch_request(
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
-            let max_bytes = Some(events::page_bytes(&params));
+            let max_bytes = Some(crate::hub::page_bytes(&params));
             let detail = hub.session_detail(&s);
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).

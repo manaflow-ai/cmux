@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextSettings
 
 // Creation (new machine, new cloud workspace), sign in/out, team picker,
 // and diagnostics.
@@ -10,7 +11,7 @@ extension CloudHandlers {
         bind("newCloudMachine", registry, reason: reason) { invocation in
             // The new machine's progress shows in the window at once; its
             // first workspace opens there when its daemon is ready.
-            let creation = creationFlow(context, startedByPerson: invocation.origin == .user).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
+            let creation = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: invocation.allowsViewChange ? context.services.windows.active?.state : nil, existing: nil)
             reportCreatedMachine(creation, context)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
@@ -22,7 +23,7 @@ extension CloudHandlers {
                 // A new machine, or one still on its way: show its progress
                 // now. An ended app link connects again on this gesture.
                 if let target, target.appLink != nil { target.connect(origin: connectOrigin(for: invocation)) }
-                creationFlow(context, startedByPerson: invocation.origin == .user).start(in: window, existing: target)
+                creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession).start(in: window, existing: target)
                 return
             }
             run("new cloud workspace", context) {
@@ -35,12 +36,12 @@ extension CloudHandlers {
     /// `startedByPerson`: true only for an action invoked with origin user;
     /// any other create (a Retry or Dismiss button of the progress view,
     /// which carries no gesture origin) asks the person first.
-    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false) -> CloudCreationFlow {
+    static func creationFlow(_ context: AppActionContext, startedByPerson: Bool = false, askedBy: String? = nil) -> CloudCreationFlow {
         let cloud = context.services.cloud
         let windows = context.services.windows
         return CloudCreationFlow(
             creations: cloud.creations,
-            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson) },
+            create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy) },
             open: { session in try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
@@ -90,32 +91,61 @@ extension CloudHandlers {
         registry.choiceState = { action, target in
             action == "openTeamPicker" ? cloud.auth.teamID : otherState?(action, target)
         }
-        bind("cloudDiagnostics", registry, reason: { nil }) { _ in
-            run("cloud diagnostics", context) {
-                CloudPresenter.show(CloudStrings.diagnosticsTitle, await diagnostics(context), copyable: true, in: window(context))
+        bind("cloudDiagnostics", registry, reason: { nil }) { invocation in
+            // A person sees one readable line with the report behind Copy
+            // details; a CLI or MCP caller gets both as the run's result and
+            // nothing shows in the window.
+            let byPerson = invocation.origin == .user
+            // task-owner: the action run; a capturing caller awaits it through the registry.
+            let task: ActionResultWork = Task { @MainActor in
+                let report = await diagnostics(context)
+                if byPerson { CloudPresenter.show(CloudStrings.diagnosticsTitle, summary: report.summary, details: report.details, in: window(context)) }
+                return .success(["summary": .string(report.summary), "details": .string(report.details)])
             }
+            context.services.registry.track(result: task)
         }
     }
 
-    /// Account, backend, tunnel, and per-machine link state. No secrets.
-    static func diagnostics(_ context: AppActionContext) async -> String {
-        let cloud = context.services.cloud
-        var lines = [
-            "backend: \(cloud.configuration.apiBaseURL.absoluteString) (\(cloud.configuration.backend))",
-            "signed in: \(cloud.isSignedIn)" + (cloud.auth.user?.primaryEmail.map { " as \($0)" } ?? ""),
-            "team: \(cloud.auth.teamID ?? "none")",
-            "unavailable: \(cloud.unavailableReason ?? "no")",
-            "last error: \(cloud.lastError ?? "none")",
-        ]
-        for session in context.services.machines.cloud {
-            let pid = await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server")
-            lines.append("\(session.machineID) \(session.machine.title): \(session.effectiveStatus.rawValue), stage \(session.stage.name), "
-                + "daemon \(session.daemon.store.connectionState), link pid \(pid), workspaces \(session.daemon.store.workspaces.count)")
-            if let compat = context.services.machines.compatibility(of: session.daemon) {
-                lines.append("  cmux-tui \(compat.versionLabel): \(compat.level.rawValue)"
-                    + (compat.level == .current ? "" : "; \(CloudStrings.compatibility(compat))"))
+    /// The Cloud diagnostics: a one-line summary for a person, and the
+    /// account, backend and per-machine link state as JSON. No secrets.
+    struct Diagnostics {
+        var summary: String
+        var details: String
+    }
+
+    static func diagnostics(_ context: AppActionContext) async -> Diagnostics {
+        let cloud = context.services.cloud, machines = context.services.machines
+        var rows: [CmuxNextSettings.JSONValue] = []
+        for session in machines.cloud {
+            var row = AppControl.cloudMachineRow(session, machines)
+            row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
+            rows.append(.object(row))
+        }
+        let report: CmuxNextSettings.JSONValue = .object([
+            "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
+            "backend_kind": .string(String(describing: cloud.configuration.backend)),
+            "signed_in": .bool(cloud.isSignedIn),
+            "email": cloud.auth.user?.primaryEmail.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "team_id": cloud.auth.teamID.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "unavailable": cloud.unavailableReason.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "last_error": cloud.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "machines": .array(rows),
+        ])
+        let details = (try? DeterministicJSON().string(report.foundationObject, pretty: true)) ?? ""
+        return Diagnostics(summary: diagnosticsSummary(context), details: details)
+    }
+
+    /// The first thing that needs the person, else that all is well.
+    private static func diagnosticsSummary(_ context: AppActionContext) -> String {
+        let cloud = context.services.cloud, machines = context.services.machines
+        if let reason = cloud.unavailableReason { return reason }
+        guard cloud.isSignedIn else { return CloudStrings.signInFirst }
+        for session in machines.cloud {
+            if let failure = session.stage.failure { return "\(session.machine.title): \(failure)" }
+            if let compat = machines.compatibility(of: session.daemon), compat.level != .current {
+                return "\(session.machine.title): \(CloudStrings.compatibility(compat))"
             }
         }
-        return lines.joined(separator: "\n")
+        return CloudStrings.diagnosticsAllWell(cloud.auth.user?.primaryEmail ?? cloud.auth.teamID ?? "")
     }
 }
