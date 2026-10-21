@@ -42,11 +42,6 @@ echo 'format ok'
 FIX_FORMAT = """#!/bin/sh
 for f in $(grep -rl 'BAD_FORMAT' src test 2>/dev/null); do sed 's/BAD_FORMAT/good_format/' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; done
 """
-# Logs every `git worktree add`, then runs the real git: a lint tree is a full checkout (913 MB on cmux).
-GIT_SHIM = """#!/bin/sh
-case "$*" in *"worktree add"*) echo "$*" >> "$GIT_SHIM_LOG" ;; esac
-exec "$REAL_GIT" "$@"
-"""
 FAKE_ESLINT = """#!/bin/sh
 status=0
 fix=0
@@ -68,6 +63,7 @@ def load_lint(repo):
     import importlib.util
     spec = importlib.util.spec_from_file_location("web_lint_prepush", repo / "scripts/web_lint_prepush.py")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up
     spec.loader.exec_module(module)
     return module
 
@@ -160,32 +156,44 @@ class WebLintPrePushTests(unittest.TestCase):
                               env={**self.env, **env}, text=True, capture_output=True)
 
     def logged_trees(self):
-        """Run with git shimmed so every `git worktree add` is logged; returns (env, log path)."""
-        shim = self.root / "shim"
-        shim.mkdir(exist_ok=True)
-        (shim / "git").write_text(GIT_SHIM)
-        (shim / "git").chmod(0o755)
-        log = self.root / "worktree-add.log"
-        return {"PATH": f"{shim}{os.pathsep}{self.env['PATH']}", "GIT_SHIM_LOG": str(log),
-                "REAL_GIT": shutil.which("git", path=self.env["PATH"])}, log
+        """GIT_TRACE for the run, which every git under the hook inherits (a PATH shim would not: git puts
+        its exec-path first for hooks); returns (env, a reader of the `git worktree add` calls). A lint tree
+        is a full checkout, 913 MB on cmux."""
+        log = self.root / "git-trace.log"
+
+        def trees():
+            lines = log.read_text().splitlines() if log.exists() else []
+            return [line for line in lines if "built-in: git" in line and " worktree add " in line]
+        return {"GIT_TRACE": str(log)}, trees
 
     def test_a_push_with_nothing_to_lint_builds_no_lint_tree(self):
         # A dirty checkout and a Swift-only push: the plan is empty, so no full checkout is written.
         self.write("Sources/App.swift", "let a = 1\n")
         self.commit("swift only")
         self.write("notes.txt", "untracked\n")
-        env, log = self.logged_trees()
+        env, trees = self.logged_trees()
 
         result = self.push(**env)
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertFalse(log.exists() and log.read_text().strip(), log.read_text() if log.exists() else "")
+        self.assertEqual(trees(), [])
+
+    def test_the_trace_sees_a_lint_tree_when_one_is_needed(self):
+        self.write("webviews/src/app.ts", "export const app = 5;\n")
+        self.commit("web change")
+        self.write("notes.txt", "untracked\n")
+        env, trees = self.logged_trees()
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(trees()), 1)
 
     def test_a_dry_run_builds_no_lint_tree(self):
         self.write("webviews/src/app.ts", "export const app = 4;\n")
         self.commit("web change")
         self.write("notes.txt", "untracked\n")
-        env, log = self.logged_trees()
+        env, trees = self.logged_trees()
         head = self.git("rev-parse", "HEAD").stdout.strip()
 
         result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--dry-run", "--base", "HEAD~1",
@@ -194,7 +202,7 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("webviews: sh check-lanes.sh && sh check-format.sh", result.stdout)
-        self.assertFalse(log.exists() and log.read_text().strip())
+        self.assertEqual(trees(), [])
 
     def remote_head(self):
         return subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"],
