@@ -58,7 +58,12 @@ async function rowsOf(history: ReturnType<typeof record>): Promise<AcpmuxRow[]> 
 }
 
 /// A client attached to `history`, its attach page the newest `page` events; `loadOlder` reads the rest.
-async function clientOf(history: ReturnType<typeof record>, page = history.length, status = "running") {
+async function clientOf(
+  history: ReturnType<typeof record>,
+  page = history.length,
+  status = "running",
+  held: string[] = [],
+) {
   let socket: any;
   const session = {
     sessionId: CHAT,
@@ -98,7 +103,7 @@ async function clientOf(history: ReturnType<typeof record>, page = history.lengt
       readyState: 1,
       send(raw: string) {
         const message = JSON.parse(raw);
-        if (message.id !== undefined)
+        if (message.id !== undefined && !held.includes(message.method))
           queueMicrotask(() =>
             socket.onmessage?.({
               data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
@@ -123,7 +128,9 @@ async function clientOf(history: ReturnType<typeof record>, page = history.lengt
     for (const event of events)
       socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
   };
-  return { client, rows: () => rows, push };
+  /// The socket closes, as when acpmux restarts or the network drops.
+  const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
+  return { client, rows: () => rows, push, drop };
 }
 
 /// Leo's prompt runs 55s; he sends a message now; acpmux stops that turn and runs his message next.
@@ -539,14 +546,27 @@ test("Stop, then Send now before the cancel lands: the turn reads stopped", asyn
   readsStopped(rows());
 });
 
-test("a Send now that fails with a turn error leaves the turn ended", async () => {
-  const rows = await rowsOf(
-    record([
-      ...sentNow,
-      cancelAt(55),
-      ["mux", "dequeued", { promptId: "p-2" }, 55],
-      ["mux", "turn_error", { promptId: "p-2", turnId: "turn-2", error: "the agent exited" }, 55],
-    ]),
-  );
-  readsStopped(rows);
+test("a Send now whose request the dropped socket fails still continues the turn", async () => {
+  // A closed socket fails every request in flight (`native.timed_out`); acpmux still holds the
+  // prompt and runs it once the pane reattaches, so the turn it ended stays one with it.
+  const scope = globalThis as Record<string, unknown>;
+  const hadWindow = "window" in scope;
+  if (!hadWindow) scope.window = globalThis;
+  const head = record(sentNow.slice(0, 5));
+  const { client, rows, push, drop } = await clientOf(head, head.length, "running", ["session/prompt"]);
+  try {
+    const sent = client.send("also check the logout path", [], "p-2").catch(() => undefined);
+    push(
+      record([...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]])
+        .slice(head.length)
+        .map((event, index) => ({ ...event, seq: head.length + 1 + index })),
+    );
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+    drop();
+    await sent;
+    expect(rows().find((row) => row.kind === "turnSummary")?.continued).toBe(true);
+  } finally {
+    client.close();
+    if (!hadWindow) delete scope.window;
+  }
 });
