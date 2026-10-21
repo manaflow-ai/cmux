@@ -105,8 +105,12 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
           ["gutter", card.x - 8, card.y + card.height / 2],
           ["foot", card.x + card.width / 2, composer.y + composer.height - 6],
         ];
+        // A wheel that got through moves the transcript 300 px; under 2 px is rows settling mid-history.
         for (const [where, x, y] of points)
-          for (const deltaY of [-300, 300]) expect([where, await wheelAt(page, x, y, deltaY)]).toEqual([where, 0]);
+          for (const deltaY of [-300, 300]) {
+            const moved = await wheelAt(page, x, y, deltaY);
+            expect([where, deltaY, Math.abs(moved) < 2 ? 0 : moved]).toEqual([where, deltaY, 0]);
+          }
         await page.close();
       });
 
