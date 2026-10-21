@@ -14,7 +14,7 @@ nonisolated enum AgentTranscriptText {
     }
 
     /// The newest bytes of a transcript read: one bounded read however long the session ran.
-    static let readBytes = 16 * 1024 * 1024
+    static let readBytes = 4 * 1024 * 1024
     /// Longer lines are tool payloads (images, file dumps), skipped unparsed.
     static let maxLineBytes = 256 * 1024
     /// Lines kept per session, newest kept.
@@ -103,6 +103,11 @@ nonisolated enum AgentTranscriptText {
         return data
     }
 
+    /// Entries the harness writes itself, not what was said (a prompt of pasted HTML still counts).
+    static let claudeWrappers = ["<command-", "<local-command-", "<system-reminder>", "<user-prompt-submit-hook>", "<bash-",
+                                 "<task-notification>", "<command-message>"]
+    static let codexWrappers = ["<environment_context>", "<user_instructions>", "<permissions", "<turn_aborted>", "# AGENTS.md"]
+
     /// A Claude Code line's user or assistant text. Wrapped entries (`<command-name>`,
     /// `<system-reminder>`, …) are the harness's own and are skipped.
     static func claudeTexts(_ object: [String: Any]) -> [String] {
@@ -116,7 +121,7 @@ nonisolated enum AgentTranscriptText {
         } else {
             texts = []
         }
-        return texts.filter { !$0.hasPrefix("<") }
+        return texts.filter { text in !claudeWrappers.contains { text.hasPrefix($0) } }
     }
 
     /// A Codex rollout line's user or assistant message text; the injected
@@ -127,7 +132,7 @@ nonisolated enum AgentTranscriptText {
               let blocks = payload["content"] as? [[String: Any]] else { return [] }
         return blocks.compactMap { block -> String? in
             guard let type = block["type"] as? String, type == "input_text" || type == "output_text",
-                  let text = block["text"] as? String, !text.hasPrefix("<"), !text.hasPrefix("# AGENTS.md") else { return nil }
+                  let text = block["text"] as? String, !codexWrappers.contains(where: { text.hasPrefix($0) }) else { return nil }
             return text
         }
     }

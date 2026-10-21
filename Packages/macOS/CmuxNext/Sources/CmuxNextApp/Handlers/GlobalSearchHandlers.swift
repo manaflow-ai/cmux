@@ -56,7 +56,8 @@ enum GlobalSearchHandlers {
                         } : nil
                         let source = GlobalSearchCorpus.Source(
                             tabID: tab.id, title: title(of: tab, in: workspace), terminal: terminal,
-                            agent: isTerminal && daemon.isLocal ? agentSession(of: tab) : nil)
+                            agent: isTerminal && daemon.isLocal ? agentSession(of: tab) : nil,
+                            disconnected: isTerminal && terminal == nil)
                         result.append(GlobalSearchPage.Tab(source: source, located: LocatedTab(tab: tab, pane: pane, workspace: workspace)))
                     }
                 }

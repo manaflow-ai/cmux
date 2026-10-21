@@ -23,34 +23,37 @@ enum GlobalSearchPage {
     /// The page, reading `tabs` once as it opens; `query` is its starting text.
     static func page(query: String, tabs: [Tab], reveal: @escaping Reveal) -> PalettePageSpec {
         let sources = tabs.map(\.source)
-        let corpus = Task { await GlobalSearchCorpus.load(sources) }
+        let corpus = CorpusHolder(Task { await GlobalSearchCorpus.load(sources) })
         let byTab = Dictionary(tabs.map { ($0.source.tabID, $0) }, uniquingKeysWith: { first, _ in first })
         return PalettePageSpec(
             id: pageID, title: GlobalSearchStrings.title, placeholder: GlobalSearchStrings.placeholder, symbol: "magnifyingglass",
             providers: [], initialQuery: query,
             // The page is left: a read still running has no one to answer.
-            onCancel: { corpus.cancel() },
+            onCancel: { corpus.release() },
             queryResults: { query in
                 let words = GlobalSearchCorpus.words(query)
                 guard !words.isEmpty else { return [notice(GlobalSearchStrings.prompt, id: "prompt")] }
-                let loaded = await corpus.value
+                guard let task = corpus.task else { return [] }
+                let loaded = await task.value
                 let found = await loaded.hits(words)
+                // The palette keeps a closed page until its next open: a chosen row lets the text go.
                 return items(found.hits, limited: found.limited, unreadable: loaded.unreadable, words: words, byTab: byTab,
-                             reveal: reveal)
+                             reveal: reveal, done: { corpus.release() })
             },
             filtersByQuery: false)
     }
 
     static func items(_ hits: [GlobalSearchCorpus.Hit], limited: Bool, unreadable: Int, words: [String],
-                      byTab: [String: Tab], reveal: @escaping Reveal) -> [PaletteItem] {
-        var rows = hits.compactMap { hit in byTab[hit.tabID].map { item(hit, words: words, in: $0, reveal: reveal) } }
+                      byTab: [String: Tab], reveal: @escaping Reveal, done: @escaping @MainActor () -> Void) -> [PaletteItem] {
+        var rows = hits.compactMap { hit in byTab[hit.tabID].map { item(hit, words: words, in: $0, reveal: reveal, done: done) } }
         if rows.isEmpty { rows.append(notice(GlobalSearchStrings.noMatches, id: "none")) }
         if limited { rows.append(notice(GlobalSearchStrings.limited(GlobalSearchCorpus.limit), id: "limited")) }
         if unreadable > 0 { rows.append(notice(GlobalSearchStrings.unreadable(unreadable), id: "unreadable")) }
         return rows
     }
 
-    private static func item(_ hit: GlobalSearchCorpus.Hit, words: [String], in tab: Tab, reveal: @escaping Reveal) -> PaletteItem {
+    private static func item(_ hit: GlobalSearchCorpus.Hit, words: [String], in tab: Tab, reveal: @escaping Reveal,
+                             done: @escaping @MainActor () -> Void) -> PaletteItem {
         let located = tab.located
         let line = hit.line
         // Find runs only where the line is terminal text; a transcript line may be nowhere on screen.
@@ -60,6 +63,7 @@ enum GlobalSearchPage {
         var secondary: [PaletteCommand] = []
         if let line {
             secondary.append(PaletteCommand(id: "copyLine", title: GlobalSearchStrings.copyLine, symbol: "doc.on.doc", effect: .perform {
+                done()
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(line, forType: .string)
             }))
@@ -71,7 +75,10 @@ enum GlobalSearchPage {
             accessory: hit.count > 1 ? GlobalSearchStrings.matches(hit.count) : nil,
             symbol: symbol(hit, kind: located.tab.kind),
             primary: PaletteCommand(id: "show", title: GlobalSearchStrings.show, symbol: "return",
-                                    effect: .perform { reveal(located, needle) }),
+                                    effect: .perform {
+                                        done()
+                                        reveal(located, needle)
+                                    }),
             secondary: secondary)
     }
 
@@ -87,6 +94,22 @@ enum GlobalSearchPage {
     private static func notice(_ text: String, id: String) -> PaletteItem {
         PaletteItem(id: "globalSearch.notice.\(id)", title: text, symbol: "info.circle", isEnabled: false, primary:
             PaletteCommand(id: "none", title: text, effect: .performKeepingOpen {}))
+    }
+}
+
+/// The page's text, until the page is left or a row is chosen.
+@MainActor
+final class CorpusHolder {
+    private(set) var task: Task<GlobalSearchCorpus, Never>?
+
+    init(_ task: Task<GlobalSearchCorpus, Never>) {
+        self.task = task
+    }
+
+    /// Stops a read still running and drops the text.
+    func release() {
+        task?.cancel()
+        task = nil
     }
 }
 

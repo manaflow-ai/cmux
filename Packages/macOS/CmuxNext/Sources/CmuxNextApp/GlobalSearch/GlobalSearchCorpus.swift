@@ -13,6 +13,8 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         let title: String
         let terminal: TerminalTextSearch.Target?
         let agent: AgentTranscriptText.Session?
+        /// A terminal whose daemon is not connected: searched by title, counted as not read.
+        var disconnected = false
     }
 
     /// Where a content match was found.
@@ -112,7 +114,7 @@ nonisolated struct GlobalSearchCorpus: Sendable {
         let documents = zip(sources, texts.0).map { source, texts in
             Document(tabID: source.tabID, title: source.title, loweredTitle: source.title.lowercased(), texts: texts)
         }
-        return GlobalSearchCorpus(documents: documents, unreadable: texts.1)
+        return GlobalSearchCorpus(documents: documents, unreadable: texts.1 + sources.count(where: \.disconnected))
     }
 
     /// The tabs matching every word, at most `limit`: a word may match the

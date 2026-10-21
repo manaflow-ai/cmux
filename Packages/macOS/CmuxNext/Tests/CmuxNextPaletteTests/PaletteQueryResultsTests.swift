@@ -41,23 +41,27 @@ struct PaletteQueryResultsTests {
     @Test func anOlderQueryNeverReplacesTheNewerOnesRows() async {
         let palette = Self.palette()
         defer { palette.hide() }
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        let (done, finish) = AsyncStream<Void>.makeStream()
+        // The slow answer ignores cancellation, so only the palette's own check can drop it.
+        final class Gate { var resume: CheckedContinuation<Void, Never>?; var answered = false }
+        let gate = Gate()
         palette.model.reset(to: PalettePageSpec(id: "live", title: "Live", placeholder: "", providers: [], queryResults: { query in
             if query == "slow" {
-                for await _ in gate { break }
-                finish.yield()
+                await withCheckedContinuation { gate.resume = $0 }
+                gate.answered = true
                 return [Self.row("old", "slow answer")]
             }
             return query.isEmpty ? [] : [Self.row("new", "\(query) answer")]
         }, filtersByQuery: false))
         await palette.model.settle()
         palette.model.send(.setQuery("slow"))
+        await Task.yield()
         palette.model.send(.setQuery("slower"))
         await palette.model.settle()
         #expect(palette.model.rows.map(\.item.id) == ["new"])
-        open.yield()
-        for await _ in done { break }
+        while gate.resume == nil { await Task.yield() }
+        gate.resume?.resume()
+        while !gate.answered { await Task.yield() }
+        await Task.yield()
         await palette.model.settle()
         #expect(palette.model.rows.map(\.item.id) == ["new"])
     }

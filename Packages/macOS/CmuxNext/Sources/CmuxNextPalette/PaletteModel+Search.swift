@@ -183,6 +183,8 @@ extension PaletteModel {
         let searchID = searchGeneration
         let query = state.query
         searchTask?.cancel()
+        // The search field's spinner while the page looks (Search All Windows reads every terminal first).
+        if state === current { isLoading = true }
         searchTask = Task { [weak self, weak state] in
             let items = await results(query)
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
@@ -198,7 +200,12 @@ extension PaletteModel {
                     sections.append(PaletteResultSection(section: item.section, rows: [row]))
                 }
             }
+            if state === self.current { self.isLoading = false }
             self.deliver(sections, to: state, generation: generation)
+            if self.pendingClose {
+                self.pendingClose = false
+                self.handle(.closeItem)
+            }
         }
     }
 
