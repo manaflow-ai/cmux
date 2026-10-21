@@ -13,8 +13,8 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
-        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
+        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return failedInstallCard ?? pulledWatch.card }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return failedInstallCard ?? pulledWatch.card }
         return card
     }
 
@@ -45,6 +45,8 @@ extension UpdaterService {
         if action == .cancelPendingInstall {
             log.append("quit: install on quit is off, cancelling the staged update")
             _ = cancelStaged()
+        } else if case .ready = flow.phase {
+            recordInstallStarted()
         }
         return action
     }
@@ -66,16 +68,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
-            if let failure = installPreflightFailure() {
-                failInstall(failure)
-                return
-            }
-            recordBeforeInstall()
-            willInstallStaged?()
-            installStaged()
-            #if DEBUG
-            UpdateHarness.mark("install_handed_to_sparkle")
-            #endif
+            installNewestStaged()
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -102,6 +95,7 @@ extension UpdaterService {
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
         followStagedUpdate(phase)
+        followStagedFreshness(phase)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -111,6 +105,7 @@ extension UpdaterService {
             // sheet opens with Retry and Download Manually, so the click never ends in silence.
             // A staged update that ends without a click (a background failure) opens nothing.
             log.append("install ended without a relaunch")
+            recordInstallFailure()
             installAbandoned?()
             presentUpdateUI?()
             #if DEBUG
@@ -143,6 +138,7 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil) {
         if let ring { follow(ring: ring) }
         downloadSetting = (downloadAutomatically, metered)
+        if checkInterval > 0 { stagedRecheckInterval = checkInterval }
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)

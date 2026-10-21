@@ -68,23 +68,12 @@ import Testing
                           "sparkle:version": "101", "sparkle:shortVersionString": "1.0.1"],
         ]))
         let box = ChoiceBox()
-        harness.controller.driver.showUpdateFound(with: item, state: try Self.state(stage: .installing), reply: { choice in
+        harness.controller.driver.showUpdateFound(with: item, state: .forTests(stage: .installing), reply: { choice in
             MainActor.assumeIsolated { box.choice = choice }
         })
         #expect(box.choice == nil, "the resumed installer was told to install and relaunch now")
         #expect(harness.controller.stagedUpdate?.versionString == "101")
         #expect(harness.controller.cancelStagedUpdate())
         #expect(box.choice == .skip, "cancelling the held installer did not reach Sparkle")
-    }
-
-    /// A real `SPUUserUpdateState` (its initializer is Sparkle-private; it decodes from a coder).
-    static func state(stage: SPUUserUpdateStage, userInitiated: Bool = false) throws -> SPUUserUpdateState {
-        let archiver = NSKeyedArchiver(requiringSecureCoding: false)
-        archiver.encode(stage.rawValue, forKey: "SPUUserUpdateStateStage")
-        archiver.encode(userInitiated, forKey: "SPUUserUpdateStateUserInitiated")
-        archiver.finishEncoding()
-        let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiver.encodedData)
-        unarchiver.requiresSecureCoding = false
-        return try #require(SPUUserUpdateState(coder: unarchiver))
     }
 }

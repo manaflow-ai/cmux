@@ -73,22 +73,41 @@ nonisolated public struct WhatsNewLastUpdateStore: Sendable {
         }
     }
 
-    /// The record for `build`, or nil. A record for another build (a
-    /// staged update that never installed, or an older one) is removed.
-    public func take(for build: String) -> WhatsNewLastUpdate? {
+    /// What a launch of `build` reads in the record the previous launch left.
+    public enum Taken: Equatable, Sendable {
+        /// This launch is the update the record describes.
+        case installed(WhatsNewLastUpdate)
+        /// The previous launch of this same build started installing the update, and the
+        /// app was not replaced.
+        case didNotInstall(WhatsNewLastUpdate)
+    }
+
+    /// The record as a launch of `build` reads it, or nil. Any other record (an update that
+    /// only waited, an older one, an unreadable one) is removed.
+    public func take(running build: String) -> Taken? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data), record.toBuild == build else {
-            clear()
-            return nil
+        if let record = try? decoder.decode(WhatsNewLastUpdate.self, from: data) {
+            if record.toBuild == build { return .installed(record) }
+            if record.fromBuild == build, record.installStartedAt != nil { return .didNotInstall(record) }
         }
-        return record
+        clear()
+        return nil
     }
 
     /// Removes the record.
     public func clear() {
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Removes the record only when it is still `record` (a newer update may have replaced it).
+    public func clear(ifStill record: WhatsNewLastUpdate) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard (try? decoder.decode(WhatsNewLastUpdate.self, from: data)) == record else { return }
+        clear()
     }
 
     /// The user saw the update to `build` (page opened or card closed):

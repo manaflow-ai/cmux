@@ -106,12 +106,14 @@ public final class UpdateController {
                   isDevLikeBundle: isDevLikeBundle,
                   isDisabledByPolicy: isDisabledByPolicy,
                   updaterFactory: { driver, hostBundle in
-                      SPUUpdater(
+                      let updater = CmuxSPUUpdater(
                           hostBundle: hostBundle,
                           applicationBundle: hostBundle,
                           userDriver: driver,
                           delegate: driver
                       )
+                      updater.hostDriver = driver
+                      return updater
                   })
     }
 

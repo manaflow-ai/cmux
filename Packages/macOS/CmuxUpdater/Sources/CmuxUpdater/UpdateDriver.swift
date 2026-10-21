@@ -113,6 +113,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             setState(.idle)
             return reply(.dismiss)
         }
+        if installsInBackground, state.stage == .installing {
+            // Sparkle resumed an installer still waiting from an earlier check (one just
+            // cancelled for a newer build, if its helper has not exited yet). Install here
+            // relaunches at once, so it waits staged for the click like any other.
+            log.append("background install: Sparkle resumed the waiting installer of \(appcastItem.versionString); holding it")
+            backgroundItem = appcastItem
+            return stageInBackground(reply)
+        }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)

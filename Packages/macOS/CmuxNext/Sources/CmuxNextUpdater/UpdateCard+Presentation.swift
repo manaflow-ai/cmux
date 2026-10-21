@@ -67,6 +67,9 @@ extension UpdateCard {
                                           detail: reason.isEmpty ? nil : reason,
                                           actions: kept == nil ? [.waitForFix] : [.waitForFix, .rollBack],
                                           lines: [kept.map(UpdaterStrings.pulledKept) ?? UpdaterStrings.pulledNothingKept])
+        case .installFailed(let version, let reason):
+            return UpdateCardPresentation(symbol: "exclamationmark.triangle", title: UpdaterStrings.installFailed(version),
+                                          detail: reason, actions: [.retry, .downloadManually])
         }
     }
 
@@ -91,6 +94,7 @@ extension UpdateCard {
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
         case .pulled: "pulled"
+        case .installFailed: "install_failed"
         }
     }
 }

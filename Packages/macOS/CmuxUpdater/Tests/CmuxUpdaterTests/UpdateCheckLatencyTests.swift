@@ -57,8 +57,7 @@ private final class AcknowledgementCounter {
                 "sparkle:shortVersionString": "0.64.17",
             ],
         ])!
-        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
-        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        let sparkleState = SPUUserUpdateState.forTests()
 
         harness.controller.driver.showUpdateFound(with: item, state: sparkleState, reply: { _ in })
 

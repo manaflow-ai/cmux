@@ -171,7 +171,7 @@ public final class PulledBuildWatch {
         case .waitForFix:
             waitingBuild = pulled.build
             defaults.set(pulled.build, forKey: Self.waitingKey)
-        case .update, .releaseNotes, .retry, .details:
+        case .update, .releaseNotes, .retry, .details, .downloadManually:
             break
         }
     }

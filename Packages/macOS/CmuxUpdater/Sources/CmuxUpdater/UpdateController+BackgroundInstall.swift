@@ -15,9 +15,9 @@ extension UpdateController {
         driver.stagedItem
     }
 
-    /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
-    /// through Sparkle's own silent driver, not this app's driver (the update harness's
-    /// `background` run, and what a scheduled check does).
+    /// Sparkle's scheduled background check, now (the update harness's `background` run, and
+    /// what a scheduled check does). With background installs it always reaches this app's
+    /// driver, never Sparkle's silent one (``CmuxSPUUpdater``).
     public func checkInBackground() {
         guard !updater.sessionInProgress else {
             // Sparkle ignores a check while a session runs (the launch probe): run it after.
@@ -29,11 +29,11 @@ extension UpdateController {
         updater.checkForUpdatesInBackground()
     }
 
-    /// Installs the staged update and relaunches. The update is staged either by this app's driver
-    /// (its held ready reply) or by Sparkle's own silent driver: with `SUAutomaticallyUpdate` on
-    /// (a preference the shipped NIGHTLY app shares with this one), a scheduled check never reaches
-    /// this app's driver; it downloads, then hands over Sparkle's immediate-install handler through
-    /// `willInstallUpdateOnQuit`. Both look the same ("Update ready"), so both must install. If the
+    /// Installs the staged update and relaunches. The update is staged by this app's driver (its
+    /// held ready reply), or by Sparkle's own silent driver in a host without background installs
+    /// (`SUAutomaticallyUpdate`, a preference the shipped NIGHTLY app shares with this one), which
+    /// hands over only its immediate-install handler through `willInstallUpdateOnQuit`. Both look
+    /// the same ("Update ready"), so both must install. If the
     /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {

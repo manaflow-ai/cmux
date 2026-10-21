@@ -23,11 +23,22 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var automaticUpdates: Bool
     public var notes: UpdateReadyNotes
 
+    /// - Parameter updatedTo: the version this launch updated to, when the next update staged
+    ///   before the "cmux Updated!" card was seen: the card says the restart worked.
     public init(version: String?, isInstalling: Bool, automaticUpdates: Bool, notes: UpdateReadyNotes,
-                changelog: UpdateChangelog? = nil) {
+                changelog: UpdateChangelog? = nil, updatedTo: String? = nil) {
+        let staged = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
         // While the click installs, the card says so in its title too, not only on its disabled button.
-        title = isInstalling ? UpdaterStrings.installingUpdate : UpdaterStrings.readyToInstall
-        detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
+        if isInstalling {
+            title = UpdaterStrings.installingUpdate
+            detail = staged
+        } else if let updatedTo {
+            title = UpdaterStrings.updatedTo(updatedTo)
+            detail = UpdaterStrings.nextUpdate(staged ?? UpdaterStrings.readyToInstall)
+        } else {
+            title = UpdaterStrings.readyToInstall
+            detail = staged
+        }
         seeAllTitle = UpdaterStrings.seeAllChanges
         buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate
         self.isInstalling = isInstalling

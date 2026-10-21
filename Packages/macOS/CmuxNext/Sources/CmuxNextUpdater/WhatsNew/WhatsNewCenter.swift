@@ -69,9 +69,14 @@ public final class WhatsNewCenter {
     @discardableResult
     public func load() -> Task<Void, Never> {
         if let loadTask { return loadTask }
-        // The record names this build only when this launch is the update it
-        // describes; any other record is stale and removed.
-        lastUpdate = currentBuild.isEmpty ? nil : lastUpdates?.take(for: currentBuild)
+        // The record names this build when this launch is the update it describes, or when
+        // this build's previous launch started installing it and the app was not replaced;
+        // any other record is stale and removed.
+        switch currentBuild.isEmpty ? nil : lastUpdates?.take(running: currentBuild) {
+        case .installed(let record): lastUpdate = record
+        case .didNotInstall(let record): failedInstall = record
+        case nil: break
+        }
         guard let current else {
             // A version the tracker cannot order (a DEV build): only the record counts.
             isUpdated = lastUpdate != nil
@@ -135,6 +140,13 @@ public final class WhatsNewCenter {
     private func markRecordSeen() {
         lastUpdate = nil
         lastUpdates?.clear(ifFor: currentBuild)
+    }
+
+    /// The failed install's card was closed or retried: it goes, from memory and from disk.
+    public func dismissFailedInstall() {
+        guard let failedInstall else { return }
+        self.failedInstall = nil
+        lastUpdates?.clear(ifStill: failedInstall)
     }
 
     /// The "cmux Updated!" card's x: this version is seen (one seen state).

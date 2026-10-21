@@ -25,6 +25,10 @@ nonisolated public enum UpdateCard: Equatable, Sendable {
     /// The running build was pulled off the feed (``PulledBuildWatch``): why, and the kept
     /// build's version when a rollback to it would run.
     case pulled(reason: String, rollbackVersion: String?)
+    /// The previous launch of this build started installing `version` and the app was not
+    /// replaced (``WhatsNewCenter/failedInstall``): why, with Try Again and Download Manually,
+    /// instead of "Restart to Update" again.
+    case installFailed(version: String, reason: String)
 }
 
 /// What a notice card's button does. The raw value is the card action id.
@@ -41,6 +45,8 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
     case rollBack = "roll_back"
     /// A pulled build: keep it until the fix installs (the default).
     case waitForFix = "wait_for_fix"
+    /// An install that did not take: the channel's installer in the browser.
+    case downloadManually = "download_manually"
 
     public var title: String {
         switch self {
@@ -50,6 +56,7 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         case .details: UpdaterStrings.details
         case .rollBack: UpdaterStrings.pulledRollBack
         case .waitForFix: UpdaterStrings.pulledWait
+        case .downloadManually: UpdaterStrings.downloadManually
         }
     }
 

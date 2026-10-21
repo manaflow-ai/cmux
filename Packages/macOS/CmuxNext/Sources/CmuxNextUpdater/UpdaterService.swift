@@ -133,8 +133,20 @@ public final class UpdaterService {
     /// Checks the feed again after a staged update was cancelled for a newer one: a check the
     /// person sees (they clicked install) or a background one (replaced by tests).
     @ObservationIgnored var recheck: (_ userAsked: Bool) -> Void = { _ in }
-    /// The install click's decision while it reads the feed first (``installNewestStaged()``).
-    @ObservationIgnored var installDecision: Task<Void, Never>?
+    /// The install click's decision while it reads the feed first (``installNewestStaged()``);
+    /// the staged card reads Installing… meanwhile.
+    var installDecision: Task<Void, Never>?
+    /// While an update is staged: the next re-read of the feed (one-shot, re-armed after each),
+    /// Sparkle's check interval, and when the feed was last re-read for it.
+    @ObservationIgnored let stagedRecheckTimer: DemandTimer
+    @ObservationIgnored var stagedRecheckInterval: TimeInterval = 60 * 60
+    @ObservationIgnored var stagedCheckedAt: Date?
+    /// The install click's deadline for the feed's answer.
+    @ObservationIgnored let installProbeTimer: DemandTimer
+    /// The update record's pending background write; the click's write waits for it.
+    @ObservationIgnored var recordWrite: Task<Void, Never>?
+    /// Opens Download Manually's link in the default browser (replaced by tests).
+    @ObservationIgnored var openExternalURL: ((URL) -> Void)?
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
@@ -187,6 +199,8 @@ public final class UpdaterService {
         self.now = now
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
+        stagedRecheckTimer = DemandTimer(owner: "UpdaterService.stagedRecheck", clock: clock)
+        installProbeTimer = DemandTimer(owner: "UpdaterService.installProbe", clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -222,6 +236,15 @@ public final class UpdaterService {
             installStaged = { [weak controller] in controller?.installStagedUpdate() }
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() ?? false }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
+            recheck = { [weak controller] userAsked in
+                guard let controller else { return }
+                if userAsked {
+                    controller.model.setOverrideState(nil)
+                    controller.checkForUpdates()
+                } else {
+                    controller.checkInBackground()
+                }
+            }
             stagedBuild = { [weak controller] in controller?.stagedUpdate?.versionString }
         }
         restorePinnedTestFeed()

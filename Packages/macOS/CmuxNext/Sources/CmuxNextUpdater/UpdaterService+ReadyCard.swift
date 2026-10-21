@@ -16,11 +16,15 @@ extension UpdaterService {
         guard let pill = footerPill ?? askedWhileStaged else { return nil }
         // An install the person followed on the notice card stays there (``UpdateCard/installing``).
         if pill == .installing, flow.card(downloadsAutomatically: true) == .installing { return nil }
+        // An install that did not take keeps the slot (the notice card says why) until Try Again or its x.
+        if pill == .ready, failedInstallCard != nil { return nil }
         if pill == .ready, case .ready(let version) = flow.phase,
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)
-        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled, automaticUpdates: automaticUpdates, notes: notes,
-                               changelog: stagedChangelog)
+        // The "cmux Updated!" card waits behind this one: this card says the restart worked.
+        let updatedTo = whatsNew.showsUpdatedCard ? whatsNew.lastUpdate.map { UpdateChangelog.cardVersion($0.toVersion) } : nil
+        return UpdateReadyCard(version: stagedVersion, isInstalling: !pill.isEnabled || installDecision != nil, automaticUpdates: automaticUpdates,
+                               notes: notes, changelog: stagedChangelog, updatedTo: updatedTo)
     }
 
     /// The staged update's pill when the user asked to check while it waits.

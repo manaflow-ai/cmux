@@ -77,6 +77,9 @@ nonisolated enum UpdaterStrings {
     }
 
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
+    /// The staged card right after an update installed: the restart worked, and the next one waits.
+    static func updatedTo(_ version: String) -> String { format("updater.card.updatedTo", "Updated to %@", version) }
+    static func nextUpdate(_ detail: String) -> String { format("updater.card.nextUpdate", "Next: %@", detail) }
     static var automaticUpdates: String { text("updater.card.automaticUpdates", "Automatic Updates") }
     static var seeAllChanges: String { text("updater.card.seeAllChanges", "See all changes") }
     static func downloadedHeadline(_ version: String) -> String {
@@ -138,6 +141,11 @@ nonisolated enum UpdaterStrings {
         text("updater.pulled.nothingKept", "The fixed build installs by itself as soon as it is published.")
     }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
+    // An install the previous launch started that did not replace the app.
+    static func installFailed(_ version: String) -> String { format("updater.notice.installFailed", "Update to %@ Didn't Install", version) }
+    static var installFailedReason: String {
+        text("updater.notice.installFailedReason", "The installer didn't replace cmux, so this version is still running.")
+    }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
     // The update changelog (cx-lntk)
     static func versionDate(_ version: String, _ date: String) -> String {
