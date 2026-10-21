@@ -37,7 +37,7 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     var read: @Sendable (String) -> Data?
     /// A folder's entry names, or nil (the AppIcon set's images).
     var list: @Sendable (String) -> [String]?
-    private let validator: ChatRootValidator
+    private var validator: ChatRootValidator
 
     struct File: Equatable, Sendable {
         var size: Int
@@ -71,6 +71,14 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
         let name = (base as NSString).lastPathComponent
         return (assetCatalogs + ["\(name)/Assets.xcassets"]).map { "\(base)/\($0)/AppIcon.appiconset" }
+    }
+
+    /// A copy for one answer: each folder on the way to its paths is checked once
+    /// (``ChatRootValidator/batch()``), not once per candidate file.
+    func batched() -> AgentPaneProjectIcon {
+        var copy = self
+        copy.validator = validator.batch()
+        return copy
     }
 
     /// True when `path` may be looked at: refused neither by its spelling nor by what it reaches.
@@ -189,16 +197,22 @@ actor AgentPaneProjectIcons {
     /// GitHub owner's avatar; and the manifest's language mark, which the page draws only without an
     /// icon. Both nil keep the page's letters.
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
+        let reader = self.reader.batched()
+        let repos = self.repos.batched()
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
         let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
         let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))
-        if let src = icon(for: folder) ?? root.flatMap({ icon(for: $0) }) { return (src, glyph) }
+        if let src = icon(for: folder, reader: reader) ?? root.flatMap({ icon(for: $0, reader: reader) }) { return (src, glyph) }
         guard let owner = repo?.github?.split(separator: "/").first.map(String.init) else { return (nil, glyph) }
         return (await avatars.avatar(for: owner), glyph)
     }
 
     /// The first candidate that is an image; a cached answer stands until its file changes.
     func icon(for folder: String) -> String? {
+        icon(for: folder, reader: reader.batched())
+    }
+
+    private func icon(for folder: String, reader: AgentPaneProjectIcon) -> String? {
         for picked in reader.files(in: folder) {
             if let known = cache[picked.path], known.file == picked.file {
                 if let url = known.url { return url }
