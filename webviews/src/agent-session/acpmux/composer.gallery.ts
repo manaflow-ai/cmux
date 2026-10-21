@@ -363,14 +363,14 @@ export default agentPaneEntry({
     },
     // Leo's nightly (2026-10-20): a Claude chat on a second Claude profile (claude-sr2) whose
     // acpmux list names its models by id, on Claude Code's own level, with fast mode offered. The
-    // chip names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
+    // button names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
     "footer-profile-ids": {
       note: "A chat on a second Claude profile whose models carry only their ids, on the agent's default level: the footer names the model by its catalog short name (Opus 5.5) and the level it resolves to (Medium).",
       snapshot: profileIdsChat(),
       play: async (ctx) => {
         const text = (selector: string) => ctx.document.querySelector(selector)?.textContent?.trim() ?? "";
         await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
-        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button") === "Medium");
+        await ctx.waitFor(() => text(`.acpmux-composer-foot ${MODEL_DETAIL}`) === "Medium");
         await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
         await ctx.waitFor(() =>
           ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
