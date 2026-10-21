@@ -179,6 +179,9 @@ await requireBrowserLane("agent-pane-use-tools.test.ts", async () => {
     const page = await context.newPage();
     await page.goto(url());
     await page.getByText("The notes are tidy.").waitFor();
+    // A chat with no summary content keeps the card closed until the header's button opens it. At
+    // this width the card is a popover: a press or Escape in its menus must not close it.
+    await page.getByRole("button", { name: "Chat summary" }).click();
     await page.getByRole("complementary", { name: "Chat summary" }).waitFor({ timeout: 5_000 });
     return { context, page };
   };
@@ -204,6 +207,8 @@ await requireBrowserLane("agent-pane-use-tools.test.ts", async () => {
     await add(page).click({ timeout: 5_000 });
     await page.getByRole("menuitem", { name: "Attach files or folders" }).waitFor({ timeout: 5_000 });
     await page.keyboard.press("Escape");
+    // Escape closed the + menu only: the summary popover stays.
+    await page.getByRole("complementary", { name: "Chat summary" }).waitFor({ timeout: 5_000 });
     await useTools(page);
     const groups = await page.locator(".acpmux-tools-menu [role=group]").evaluateAll((nodes) =>
       nodes.map((node) => ({
