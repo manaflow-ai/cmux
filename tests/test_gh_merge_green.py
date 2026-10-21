@@ -396,7 +396,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, reviews=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, reviews=None, reviews_final=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -482,6 +482,8 @@ class InstalledHelperRegression(unittest.TestCase):
         env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
         if reviews is not None:
             env["GH_MERGE_GREEN_REVIEWS"] = reviews
+        if reviews_final is not None:
+            env["GH_MERGE_GREEN_REVIEWS_FINAL"] = reviews_final
         if terminate_after is None:
             return subprocess.run(argv, env=env, capture_output=True, text=True)
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
@@ -1044,6 +1046,21 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("no SHIP review receipt", result.stderr)
+
+    def test_a_block_posted_during_the_wait_refuses_before_the_override_comment(self):
+        """The receipt is read again right before the merge, ahead of the merge-override and
+        merge-source-trust comments: a BLOCK posted while the gate waited stops the merge and
+        leaves no override on the record for a merge that never happened."""
+        during = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                 (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews_final=during)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
 
     def test_the_receipt_is_named_when_the_head_merges(self):
         with tempfile.TemporaryDirectory() as directory:

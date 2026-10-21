@@ -99,6 +99,39 @@ class ReceiptRules(unittest.TestCase):
         self.assertEqual(receipt.receipt(pr([comment(f"Review (subagent): shipit at {HEAD[:12]}")]), HEAD), "")
 
 
+class NewestReviewSaysWait(unittest.TestCase):
+    """A SHIP receipt on the head does not merge when the newest review-like comment on any head says wait,
+    as next-autoland's review_state() judges it (review of cmux#23067)."""
+    LATER = "2026-10-21T06:00:00Z"
+
+    def refused(self, *later_comments, reviews=()):
+        found = receipt.decide(pr([comment(SHIP), *later_comments], reviews), HEAD)
+        self.assertEqual(found[0], "", found)
+        return found[1]
+
+    def test_a_newer_hold_refuses(self):
+        why = self.refused(comment("Hold: do not merge until #1 lands", at=self.LATER))
+        self.assertIn("Hold", why)
+
+    def test_a_newer_review_block_without_a_sha_refuses(self):
+        self.refused(comment("Review (codex): BLOCK, the socket path leaks", at=self.LATER))
+
+    def test_a_newer_verdict_block_refuses(self):
+        self.refused(comment("Verdict: BLOCK\nthe wait loop never ends", at=self.LATER))
+
+    def test_newer_changes_requested_on_an_earlier_commit_refuses(self):
+        why = self.refused(reviews=[review("CHANGES_REQUESTED", oid=OTHER, at=self.LATER)])
+        self.assertIn("changes requested", why)
+
+    def test_a_tool_comment_starting_with_a_marker_is_not_a_review(self):
+        tool = comment("<!-- base-red-watch -->\nReview: BLOCK on base", at=self.LATER)
+        self.assertIn("SHIP", receipt.decide(pr([comment(SHIP), tool]), HEAD)[0])
+
+    def test_an_older_hold_does_not_refuse_a_newer_receipt(self):
+        hold = comment("Hold: do not merge until #1 lands", at="2026-10-21T04:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([hold, comment(SHIP)]), HEAD)[0])
+
+
 class Command(unittest.TestCase):
     def run_main(self, payload, sha=HEAD):
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
@@ -118,6 +151,14 @@ class Command(unittest.TestCase):
         status, _, err = self.run_main(pr())
         self.assertEqual(status, 1)
         self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD[:12]}", err)
+        # A base merge makes a new head, which needs its own receipt.
+        self.assertIn("merge-main.sh", err)
+        self.assertIn("update-branch", err)
+
+    def test_a_newest_review_that_says_wait_refuses(self):
+        status, _, err = self.run_main(pr([comment(SHIP), comment("Hold: waiting on #1", at="2026-10-21T06:00:00Z")]))
+        self.assertEqual(status, 1)
+        self.assertIn("the newest review says wait", err)
 
     def test_a_moved_head_refuses(self):
         status, _, err = self.run_main(pr([comment(SHIP)], head=OTHER))
@@ -134,7 +175,8 @@ class Command(unittest.TestCase):
         self.assertEqual(receipt.read_pr("manaflow-ai/cmux", "42", run=run)["headRefOid"], HEAD)
         self.assertEqual(len(calls), 1)
         query = " ".join(calls[0])
-        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:100)", "comments(last:100)"):
+        # next-autoland's windows, so the two tools judge the same reviews and comments.
+        for field in ("__typename", "authorAssociation", "commit{oid}", "reviews(last:30)", "comments(last:40)"):
             self.assertIn(field, query)
 
     def test_a_rate_limited_read_exits_3(self):
