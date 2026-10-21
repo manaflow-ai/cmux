@@ -1,11 +1,12 @@
 public import CmuxNextActions
 public import CmuxNextAgentActivity
+import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextHome
 public import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// The sidebar's Chief item (the `chief` built-in) and its subagent rows
 /// (`SidebarTransientItem.chiefSubagents`): Leo 2026-10-20, talk to the Chief from the left side
@@ -63,7 +64,7 @@ public final class ChiefSidebar {
     /// item info.
     public internal(set) var status = Status()
     /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems` reads the layout):
-    /// the subagent fold applies only then.
+    /// the subagent fold applies only then, and the App Store's Chief in Sidebar card is on.
     public internal(set) var isPlaced = false
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
@@ -117,6 +118,18 @@ public final class ChiefSidebar {
             guard mode == .messages, let self, let registry else { return nil }
             return ChiefPaneTools(chief: self, registry: registry)
         }
+        // The App Store's Chief in Sidebar card: Get is Add to Sidebar, Remove takes every Chief item out.
+        let chief = SidebarBuiltIn.chief.rawValue
+        SettingsAppFeatures.sidebarItems = .init(names: [chief], isShown: { [weak self] in $0 == chief && self?.isPlaced == true },
+                                                 set: { [weak registry] name, on in Self.setPlaced(name, on, registry: registry) })
+    }
+
+    /// Runs Add to Sidebar (the top rows) or Remove Everywhere for built-in `name` as the person's edit.
+    static func setPlaced(_ name: String, _ on: Bool, registry: ActionRegistry?) -> Bool {
+        guard let registry else { return false }
+        let invocation = on ? ActionInvocation(arguments: ["item": .string(name)], origin: .user)
+            : ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: name), origin: .user)
+        return registry.perform(on ? "sidebar.item.add" : "sidebar.item.removeEverywhere", invocation: invocation)
     }
 
     /// Runs a click on a subagent row; false for any other item.

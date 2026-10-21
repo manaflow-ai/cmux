@@ -1136,6 +1136,8 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        // The turn answers its messages itself: no receipt after its end.
+        self.desk.take_if(|d| d.turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
@@ -1223,11 +1225,9 @@ impl Brain {
             text
         };
         let text = match &denial_stopped {
-            Some(what) if !quiet => {
+            Some((what, why)) if !quiet => {
                 (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
-                format!(
-                    "I stopped: I kept trying to {what}, and a turn another person started may not do that."
-                )
+                format!("I stopped: I kept trying to {what}, and {}.", why.reason())
             }
             _ => text,
         };
