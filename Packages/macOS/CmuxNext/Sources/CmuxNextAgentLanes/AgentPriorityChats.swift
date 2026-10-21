@@ -1,6 +1,6 @@
 public import CmuxNextAgentActivity
 public import CmuxNextSidebar
-import Foundation
+public import Foundation
 import os
 
 /// The chats the Priority view ranks (every lane of this Mac's acpmux and the Chief home's) and
