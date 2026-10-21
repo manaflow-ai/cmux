@@ -1,10 +1,11 @@
 //! Approvals of a remote-origin turn's local effects (README "Remote-origin
-//! messages"). The turn session runs with acpmux policy `ask`; each
-//! permission request it raises is either one of the memory tools (answered
-//! at once: reading the memory has no local effect) or shown in the Chief
-//! chat and answered by the next `allow` or `deny` a person of the
-//! conversation sends. Every answer goes to the trace with the approving
-//! device.
+//! messages"). The turn session runs with acpmux policy `ask`. The memory
+//! tools and the Chief's own tools never raise a permission request: the
+//! session's `permissions.allow` lists them (`own_tools`), and the tools
+//! socket refuses the calls of them a gated turn may not make
+//! (brain/own_tools.rs). Every other request is shown in the Chief chat and
+//! answered by the next `allow` or `deny` a person of the conversation
+//! sends. Every answer goes to the trace with the approving device.
 
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
