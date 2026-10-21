@@ -1,6 +1,6 @@
 use super::*;
 use cmux_link::elapsed::Elapsed;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[tokio::test]
 async fn receiver_elapsed_deadline_wakes_without_an_active_clock_timer() {
