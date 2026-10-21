@@ -123,6 +123,7 @@ Five everyday commands, three groups for the rest:
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
+| `capabilities [--json]` | The protocol capability ids this build serves (`acpmux-v1`, `queue-edit-v1`, ...), with no daemon running. |
 | `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
@@ -944,7 +945,7 @@ Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv` and `listen`. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
@@ -988,6 +989,13 @@ for the import only when it must (see above), at most 3 s. `daemon run --ready-f
 to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
+
+`initialize` (`_meta.acpmux.capabilities`) and `_acpmux/status` (`capabilities`) list the
+protocol surfaces this build serves by stable id, as cmux-tui's `identify` does: `acpmux-v1` for
+the base a chat client needs, then one id per surface such as `queue-edit-v1` or
+`permission-groups-v1` (`src/capabilities.rs` names the methods each covers). An id never
+changes meaning; a changed contract gets a new one. `acpmux capabilities --json` prints the same
+list with no daemon running, which the cmux app bundle records for its web pages.
 
 Any other method that names a `sessionId` is forwarded to the agent unchanged, so vendor
 extensions keep working.
