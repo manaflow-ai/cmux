@@ -215,7 +215,7 @@ The `minimal` template, the default, shows a short greeting and the composer, wh
 
 ```json
 {
-  "tabs": { "newTabWidgets": { "chats": true, "modeSwitch": true } }
+  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
 }
 ```
 
@@ -225,10 +225,9 @@ The `minimal` template, the default, shows a short greeting and the composer, wh
 | `projects` | `false` | A card of this Mac and its recent projects. |
 | `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
 | `chats` | `false` | The recent chats, as rows under the composer. |
-| `modeSwitch` | `false` | The Search and Ask switch over the composer. Tab switches modes either way. |
 | `styleDots` | `false` | The template dots under the page. |
 
-With every widget off the page still does everything: type a URL or a prompt, press Tab to switch between asking and searching, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
+With every widget off the page still does everything: type an address, a question or search words and press Return (the first suggestion is what Return does; Down picks another), and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 

@@ -294,20 +294,20 @@ export default agentPaneEntry({
     // and the composer, with chats on this Mac it does not list. `minimal-default` is a host that
     // sends no template (the app's unset key); `minimal-widgets` turns the stage's widgets on.
     "minimal-default": {
-      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats, Search | Ask switch or template dots: those are widgets, off by default.",
+      note: "Minimal, New Tab's default layout: a quiet greeting over the composer, which keeps its folder and machine, model, effort, mic and Send. No project card, quick actions, chats or template dots: those are widgets, off by default.",
       ready: newTab({ template: undefined }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
-        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-mode-track, .nt-style");
+        const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-style");
         if (extra) throw new Error(`the minimal page shows ${extra.className}`);
       },
     },
     "minimal-widgets": {
-      note: "Minimal with the project card, quick actions, recent chats, the Search | Ask switch and the template dots turned on in Settings: Default's stage around the same composer.",
+      note: "Minimal with the project card, quick actions, recent chats and the template dots turned on in Settings: Default's stage around the same composer.",
       ready: newTab({
         template: "minimal",
-        pageWidgets: ["greeting", "projects", "actions", "chats", "modeSwitch", "styleDots"],
+        pageWidgets: ["greeting", "projects", "actions", "chats", "styleDots"],
       }),
       snapshot: noChat(manySessions(12)),
       play: async (ctx: PlayContext) => {

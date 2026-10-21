@@ -196,7 +196,7 @@ final class AppServices {
     let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
-    /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
+    /// The new tab screen's last agent and model, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
     /// Home's first-run Switching card: Hide memory and the Mission Control check.

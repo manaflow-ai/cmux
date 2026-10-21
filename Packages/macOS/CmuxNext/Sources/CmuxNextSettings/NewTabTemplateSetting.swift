@@ -4,7 +4,7 @@ public nonisolated enum NewTabTemplate: String, Sendable, Hashable, CaseIterable
     /// A greeting and the composer; the rest are widgets the user turns on (`tabs.newTabWidgets`,
     /// Leo 2026-10-20: "only do the composer for the default"). What an unset key shows.
     case minimal
-    /// One rounded field with the Search | Ask switch, the project and agent chips under it, and
+    /// One rounded field, the project and agent chips under it, and
     /// three tall chat cards (u2851).
     case cards
     /// The one-field screen with agent rows, chat cards and Tools.

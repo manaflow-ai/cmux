@@ -1,5 +1,5 @@
 /// Which new tab design the page shows (Debug Settings `newTab.layout`):
-/// `b` the Search | Ask screen, `a` the Terminal | Browser | Agent page,
+/// `b` the one-field screen (Return opens, asks or searches), `a` the Terminal | Browser | Agent page,
 /// kept until B passes dogfood (plans/cmux-next/new-tab.md, decision Q6).
 public nonisolated enum AgentPaneNewTabLayout: String, CaseIterable, Codable, Sendable {
     case a, b

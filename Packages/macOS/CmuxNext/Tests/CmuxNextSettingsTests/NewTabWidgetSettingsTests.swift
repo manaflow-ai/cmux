@@ -19,10 +19,21 @@ struct NewTabWidgetSettingsTests {
     @Test func eachWidgetTurnsOnAndTheGreetingOff() {
         let snapshot = Self.parse([
             "greeting": .bool(false), "projects": .bool(true), "actions": .bool(true),
-            "chats": .bool(true), "modeSwitch": .bool(true), "styleDots": .bool(true),
+            "chats": .bool(true), "styleDots": .bool(true),
         ])
-        #expect(snapshot.newTabWidgets.ids == ["projects", "actions", "chats", "modeSwitch", "styleDots"])
+        #expect(snapshot.newTabWidgets.ids == ["projects", "actions", "chats", "styleDots"])
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
+    }
+
+    /// New Tab picks open, ask or search itself (#22816): the Search | Ask switch's key is retired,
+    /// so an old file's value is dropped quietly and Settings has no row for it.
+    @Test func theRetiredModeSwitchKeyIsIgnored() {
+        let snapshot = Self.parse(["modeSwitch": .bool(true)])
+        #expect(snapshot.newTabWidgets.ids == ["greeting"])
+        #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
+        #expect(snapshot.retiredKeys == ["tabs.newTabWidgets.modeSwitch"])
+        #expect(SettingsSchema.descriptor(for: ["tabs", "newTabWidgets", "modeSwitch"]) == nil)
+        #expect(!SettingsSchema.agentSettableKeys.contains("tabs.newTabWidgets.modeSwitch"))
     }
 
     @Test func aBadValueKeepsItsDefaultAndSaysWhy() {
@@ -34,7 +45,7 @@ struct NewTabWidgetSettingsTests {
     @Test func settingsListsEveryWidgetWithTheNewTabRowsAndAgentsMaySetThem() throws {
         let template = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabTemplate"]))
         let defaults: [String: Bool] = [
-            "greeting": true, "projects": false, "actions": false, "chats": false, "modeSwitch": false, "styleDots": false,
+            "greeting": true, "projects": false, "actions": false, "chats": false, "styleDots": false,
         ]
         for (name, value) in defaults {
             let descriptor = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabWidgets", name]), "\(name)")

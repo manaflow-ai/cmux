@@ -42,8 +42,8 @@ const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
   // turns on (pageWidgets.ts); with the project card, the actions or the chats on, the page takes
   // Default's stage around them. What an unset template shows (shownTemplate).
   minimal: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },
-  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask
-  // switch in it, the project and the agent's chips in a row under it, then three chat cards.
+  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
+  // the agent's chips in a row under it, then three chat cards.
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
   // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's
   // actions live in the palette and the pane's toolbar, not on the page.

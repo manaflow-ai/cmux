@@ -5,7 +5,7 @@
 // drew: they are there to compare against.
 
 /// Every widget, in Settings' order.
-export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "modeSwitch", "styleDots"] as const;
+export const PAGE_WIDGETS = ["greeting", "projects", "actions", "chats", "styleDots"] as const;
 export type PageWidget = (typeof PAGE_WIDGETS)[number];
 export type PageWidgets = ReadonlySet<PageWidget>;
 

@@ -13,8 +13,6 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     public var actions = NewTabWidgetSettings.actionsDefault
     /// The template's recent chats and Recently Closed.
     public var chats = NewTabWidgetSettings.chatsDefault
-    /// The Search | Ask switch over the composer (Tab switches either way).
-    public var modeSwitch = NewTabWidgetSettings.modeSwitchDefault
     /// The template dots under the page.
     public var styleDots = NewTabWidgetSettings.styleDotsDefault
 
@@ -23,7 +21,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     /// The widgets on, by the page's names, in Settings' order.
     public var ids: [String] {
         [("greeting", greeting), ("projects", projects), ("actions", actions), ("chats", chats),
-         ("modeSwitch", modeSwitch), ("styleDots", styleDots)].compactMap { $0.1 ? $0.0 : nil }
+         ("styleDots", styleDots)].compactMap { $0.1 ? $0.0 : nil }
     }
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -33,7 +31,6 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
         if let value = reader.bool("projects") { settings.projects = value }
         if let value = reader.bool("actions") { settings.actions = value }
         if let value = reader.bool("chats") { settings.chats = value }
-        if let value = reader.bool("modeSwitch") { settings.modeSwitch = value }
         if let value = reader.bool("styleDots") { settings.styleDots = value }
         diagnostics += reader.diagnostics
         return settings

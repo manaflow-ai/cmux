@@ -744,8 +744,6 @@ export function NewTabScreen(props: Props) {
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !split;
-  // The Search | Ask switch is a widget (off by default); Tab flips the mode without it.
-  const modeShown = widgets.has("modeSwitch");
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (

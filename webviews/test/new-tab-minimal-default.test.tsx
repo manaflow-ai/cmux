@@ -1,9 +1,8 @@
 // New Tab opens on Minimal (Leo 2026-10-20: "only do the composer for the default"), a layout of
 // its own beside the others: a quiet greeting and the composer, which keeps its project strip. The
-// project card, the quick actions, the recent chats, the Search | Ask switch and the template dots
-// are Minimal's widgets (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns
-// them on; Tab still switches Search and Ask without the switch. The other layouts draw what they
-// always drew.
+// project card, the quick actions, the recent chats and the template dots are Minimal's widgets
+// (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts), off until the user turns them on. The other
+// layouts draw what they always drew.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -113,7 +112,6 @@ const parts = () => ({
   projects: host.querySelectorAll(".nt-env").length,
   actions: host.querySelectorAll(".nt-suggest, .nt-create").length,
   chats: host.querySelectorAll(".nt-cards, .nt-all, .nt-closed").length,
-  modeSwitch: host.querySelectorAll(".nt-mode-track").length,
   strip: host.querySelectorAll(".acpmux-composer-strip").length,
 });
 
@@ -133,18 +131,10 @@ test("Minimal is the greeting and the composer, with its project strip", async (
       projects: 0,
       actions: 0,
       chats: 0,
-      modeSwitch: 0,
       strip: 1,
     });
-    // Without the switch Tab still flips Search | Ask: the placeholder says which, and a screen
-    // reader still hears the hint the field points at.
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    expect(field.placeholder).toBe("Ask anything or type a URL");
-    expect(host.querySelector(`#${field.getAttribute("aria-describedby")}`)?.textContent).toBe("Tab to switch");
-    await act(async () => {
-      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
-    });
-    expect(field.placeholder).toBe("Search the web or type a URL");
+    // No Search | Ask switch on any page (#22816): Return does what the text reads as.
+    expect(host.querySelector(".nt-mode")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -153,7 +143,7 @@ test("Minimal is the greeting and the composer, with its project strip", async (
 test("Minimal's widgets turned on take Default's stage around the composer", async () => {
   let root = await render("minimal", [...PAGE_WIDGETS]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1, modeSwitch: 1 });
+    expect(parts()).toMatchObject({ minimal: false, stage: 1, projects: 1 });
     expect(parts().actions).toBeGreaterThan(0);
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
@@ -161,7 +151,7 @@ test("Minimal's widgets turned on take Default's stage around the composer", asy
   }
   root = await render("minimal", ["chats"]);
   try {
-    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0, modeSwitch: 0 });
+    expect(parts()).toMatchObject({ minimal: false, greeting: null, stage: 1, projects: 0, actions: 0 });
     expect(parts().chats).toBeGreaterThan(0);
   } finally {
     await act(async () => root.unmount());
