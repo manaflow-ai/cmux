@@ -129,6 +129,23 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
+    /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
+    /// notifications, so cached motion values re-read and a shown card goes at once.
+    public var calmMode: CalmMode = .off {
+        didSet {
+            guard calmMode != oldValue else { return }
+            let center = NotificationCenter.default
+            center.post(name: Motion.speedDidChange, object: nil)
+            center.post(name: Motion.reduceMotionDidChange, object: nil)
+            center.post(name: Self.hoverCardsDidChange, object: nil)
+            ThemeStore.shared.repaintAll()
+        }
+    }
+    /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
+    public var showsHoverCards: Bool { hoverCardsEnabled && calmMode.showsHoverEffects }
+    /// The pointer paints a hover fill on tabs, sidebar rows and chrome buttons (off in calm mode).
+    public var showsHoverFills: Bool { calmMode.showsHoverEffects }
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay

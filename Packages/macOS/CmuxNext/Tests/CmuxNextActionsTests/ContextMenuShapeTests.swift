@@ -116,7 +116,24 @@ struct ContextMenuShapeTests {
         let row = rows(.workspaceRow)
         let more = try #require(submenu("More", in: row))
         #expect(submenu("Group", in: more) == nil)
-        #expect(ids(submenu("New", in: more) ?? []).contains("saveLayoutTemplate"))
+        #expect(ids(more).contains("saveLayoutTemplate"))
+    }
+
+    /// More is one submenu, not a stack of them (Leo 2026-10-20: flatten "More ›"): its short
+    /// folders (New, Appearance, Copy, Tools, Close) read as its sections; only a folder longer
+    /// than `inlineFolderLimit` (Options) stays a submenu in it.
+    @Test func moreShowsItsShortFoldersAsSections() throws {
+        for context in [ActionMenuContext.workspaceRow, .tab, .pane] {
+            let more = try #require(submenu("More", in: rows(context)), "\(context) has More")
+            for folder in more where folder.id == nil && !folder.isSeparator {
+                let count = ids(folder.children ?? []).count
+                #expect(count > ContextMenuEssentials.inlineFolderLimit, "\(context): More › \(folder.title) has \(count) rows; it should be a section")
+            }
+        }
+        let more = try #require(submenu("More", in: rows(.workspaceRow)))
+        for id: ActionID in ["workspace.copyPath", "revealWorkspaceInFinder", "palette.closeOtherWorkspaces", "workspace.newAbove"] {
+            #expect(more.contains { $0.id == id }, "\(id) is a row of More itself")
+        }
     }
 
     /// The sidebar's Sort submenu is called Sort; a section's menu names what each Hide hides.
