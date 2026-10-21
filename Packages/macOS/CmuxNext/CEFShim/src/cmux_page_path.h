@@ -156,6 +156,26 @@ inline bool ResolvePagePath(const std::string& root, const std::string& url_path
   return true;
 }
 
+// Whether the URL path of a cmux-page:// request is under one of the page's
+// dynamic prefixes (PageDescriptor.dynamicPrefixes): its first non-empty
+// component, percent-decoded, is one of them. The page host answers such a
+// path (cmux_shim_page_resource_respond); the folder never serves it, also
+// when a file of that name exists. A bad escape is not dynamic (a 404).
+inline bool IsDynamicPagePath(const std::string& url_path, const std::vector<std::string>& prefixes) {
+  if (prefixes.empty()) return false;
+  std::string decoded;
+  if (!page_detail::PercentDecode(url_path, &decoded)) return false;
+  size_t start = 0;
+  while (start < decoded.size() && decoded[start] == '/') ++start;
+  size_t end = decoded.find('/', start);
+  const std::string first = decoded.substr(start, end == std::string::npos ? std::string::npos : end - start);
+  if (first.empty()) return false;
+  for (const auto& prefix : prefixes) {
+    if (first == prefix) return true;
+  }
+  return false;
+}
+
 // Whether a request may load a page's files: a main-frame navigation, or a
 // request from a frame of the same cmux-page origin (a child frame being
 // navigated is judged by its parent). Normal web pages can neither embed

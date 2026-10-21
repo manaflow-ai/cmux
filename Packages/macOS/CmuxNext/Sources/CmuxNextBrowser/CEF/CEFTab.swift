@@ -89,6 +89,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public var pageThemeSurface: SurfaceKind? {
         didSet { if pageThemeSurface != oldValue { applyPageBackground() } }
     }
+    /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
+    /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
+    @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
