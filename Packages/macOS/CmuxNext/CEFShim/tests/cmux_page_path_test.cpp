@@ -227,6 +227,15 @@ int main() {
   Expect(!cmux_shim::IsDynamicPagePath("/asset%zz/x", prefixes), "not dynamic bad escape");
   Expect(!cmux_shim::IsDynamicPagePath("/asset/x", {}), "not dynamic without prefixes");
 
+  // Local network prompts: granted only for a cmux page and only for the
+  // local network kinds.
+  Expect(cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.home-channels", 1u << 27), "grant loopback to Home");
+  Expect(cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.agent", (1u << 25) | (1u << 26)), "grant local network to agent");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("https://example.com", 1u << 27), "no grant to a web page");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://com.example.app", 1u << 27), "no grant to an app page");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
+  Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
+
   std::string cleanup = "rm -rf '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";
