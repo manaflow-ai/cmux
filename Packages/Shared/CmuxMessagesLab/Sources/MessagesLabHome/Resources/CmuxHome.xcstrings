@@ -3613,6 +3613,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 件のコマンドを実行しました"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3625,6 +3631,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានដំណើរការពាក្យបញ្ជា %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3637,6 +3649,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "명령 %lld개 실행함"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3751,6 +3769,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "รันแล้ว %lld คำสั่ง"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3811,6 +3835,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã chạy %lld lệnh"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3823,6 +3853,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "运行了 %lld 个命令"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -3835,6 +3871,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "執行了 %lld 個指令"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4045,6 +4087,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 件のファイルを読みました"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4057,6 +4105,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានអានឯកសារ %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4069,6 +4123,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "파일 %lld개 읽음"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4183,6 +4243,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "อ่าน %lld ไฟล์"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4243,6 +4309,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã đọc %lld tệp"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4255,6 +4327,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "读取了 %lld 个文件"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4267,6 +4345,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "讀取了 %lld 個檔案"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4477,6 +4561,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 件のファイルを編集しました"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4489,6 +4579,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានកែសម្រួលឯកសារ %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4501,6 +4597,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "파일 %lld개 편집함"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4615,6 +4717,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "แก้ไข %lld ไฟล์แล้ว"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4675,6 +4783,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã chỉnh sửa %lld tệp"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4687,6 +4801,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "编辑了 %lld 个文件"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4699,6 +4819,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "編輯了 %lld 個檔案"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4909,6 +5035,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 回検索しました"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4921,6 +5053,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "បានដំណើរការការស្វែងរក %lld"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -4933,6 +5071,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "검색 %lld회 실행함"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5047,6 +5191,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ค้นหาแล้ว %lld ครั้ง"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5107,6 +5257,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Đã chạy %lld lượt tìm kiếm"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5119,6 +5275,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "运行了 %lld 次搜索"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5131,6 +5293,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "執行了 %lld 次搜尋"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5341,6 +5509,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個のステップ"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5353,6 +5527,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ជំហាន"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5365,6 +5545,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld단계"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5479,6 +5665,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ขั้นตอน"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5539,6 +5731,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld bước"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5551,6 +5749,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 个步骤"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5563,6 +5767,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld 個步驟"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5773,6 +5983,12 @@
         "ja": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "他 %lld 個のステップ"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5785,6 +6001,12 @@
         "km": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ជំហានទៀត"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5797,6 +6019,12 @@
         "ko": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld단계 더"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5911,6 +6139,12 @@
         "th": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "อีก %lld ขั้นตอน"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5971,6 +6205,12 @@
         "vi": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "thêm %lld bước"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5983,6 +6223,12 @@
         "zh-Hans": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "另外 %lld 个步骤"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
@@ -5995,6 +6241,12 @@
         "zh-Hant": {
           "variations": {
             "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "另外 %lld 個步驟"
+                }
+              },
               "other": {
                 "stringUnit": {
                   "state": "needs_review",
