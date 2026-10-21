@@ -674,10 +674,14 @@ async fn dispatch_request(
             // daemon's harnesses. Asked for a peer too, the request went round
             // the peer mesh without end, each hop holding a whole catalog for
             // up to 600 s (huge-blue and cosmic-gray, 2026-10-21: ~1 GB an hour).
-            let peers =
-                if conn.origin == Origin::Peer { Vec::new() } else { hub.connected_peers() };
+            // A link without the peer token is served as a Web client, so a
+            // daemon asking says so (`peers: false`); it only takes harnesses
+            // away, so it is honoured from any client.
+            let own_only = conn.origin == Origin::Peer
+                || params.get("peers").and_then(Value::as_bool) == Some(false);
+            let peers = if own_only { Vec::new() } else { hub.connected_peers() };
             for peer in peers {
-                if let Ok(remote) = peer.request("_acpmux/models", json!({})).await
+                if let Ok(remote) = peer.request("_acpmux/models", json!({"peers": false})).await
                     && let Some(hs) = remote.get("harnesses").and_then(Value::as_array)
                 {
                     for h in hs {
