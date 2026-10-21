@@ -101,6 +101,11 @@ pub struct SessionMeta {
     pub agent_info: Option<Value>,
     #[serde(default)]
     pub agent_capabilities: Option<Value>,
+    /// The agent took prompts mid-turn at its last start (`_meta.steering.supported`). Kept so a
+    /// session the daemon adopts after a restart (`hub/hosts.rs`), which never initializes its
+    /// agent again, still steers instead of stopping the turn for every prompt sent now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steering: bool,
     #[serde(default)]
     pub modes: Option<Value>,
     #[serde(default)]
