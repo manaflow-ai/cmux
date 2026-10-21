@@ -21,4 +21,18 @@ struct CmuxToastDetailTests {
             #expect(try #require(view.messageLabel).themedToolTip == nil)
         }
     }
+
+    /// A message of three lines (the Stop all toast with a refusal and a note) keeps room above and
+    /// below it on the glass; a one-line toast keeps the height its buttons give it.
+    @Test func aThreeLineMessageKeepsRoomAboveAndBelow() throws {
+        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Stopped all agents: a1 and a3\n1 could not be stopped\na1 is still starting; it stops as soon as it starts.",
+                                                  action: CmuxToast.Action(title: "Restart")))
+        view.layoutSubtreeIfNeeded()
+        let label = try #require(view.messageLabel)
+        #expect(view.fittingSize.height >= label.intrinsicContentSize.height + 2 * CmuxToastView.messageInset)
+
+        let one = CmuxToastView(toast: CmuxToast(id: "u", message: "Stopped all agents: a1 and a3", action: CmuxToast.Action(title: "Restart")))
+        one.layoutSubtreeIfNeeded()
+        #expect(one.fittingSize.height <= CmuxToastButton.closeSide + 2 + 2)
+    }
 }
