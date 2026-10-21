@@ -1,7 +1,7 @@
 //! `acpmux host update`: bring ssh peers to this build (or the one for
 //! their target in `--binary-dir`), check the restarted daemon answers with
-//! it, and roll back what does not. The scripts it runs and the unit
-//! migration live in the parent module (`hosts.rs`).
+//! it, and roll back what does not. The scripts it runs live in the parent
+//! module (`hosts.rs`), the unit migration in `host_migrate.rs`.
 
 use super::{
     DAEMON_UNIT, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote, connect_peer,
