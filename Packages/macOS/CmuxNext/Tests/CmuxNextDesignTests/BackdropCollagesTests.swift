@@ -90,6 +90,20 @@ import UniformTypeIdentifiers
         #expect(collages.list().isEmpty)
     }
 
+    /// A collage never saves without one of its pictures: one layer that cannot be read refuses
+    /// the whole collage instead of saving the rest as if nothing was dropped.
+    @Test func oneUnreadablePictureRefusesTheCollage() throws {
+        let pictures = try Self.folder(), collages = BackdropCollages(folder: try Self.folder())
+        let red = pictures.appendingPathComponent("red.png")
+        try Self.png(1, to: red)
+        let partly = BackdropCollage(name: "", layers: [
+            .init(source: "file:\(red.path)", x: 0, y: 0, width: 0.5, height: 1),
+            .init(source: "file:/nowhere/gone.png", x: 0.5, y: 0, width: 0.5, height: 1),
+        ])
+        #expect(throws: BackdropCollages.SaveError.noPictures) { try collages.save(partly) }
+        #expect(collages.list().isEmpty)
+    }
+
     @Test func theCatalogListsCollagesAfterYourImages() throws {
         let backgrounds = try Self.folder()
         let pictures = try Self.folder()

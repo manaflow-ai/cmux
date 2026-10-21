@@ -78,6 +78,19 @@ import Testing
         } catch let error as PageError {
             #expect(error.code == "cmux.settings.backdrop.collage.invalid")
         }
+        // A layer is a picture the picker offers: one of your images, a painting or a macOS
+        // wallpaper, never any file by path (the page would read it back as the collage's drawing).
+        let elsewhere = try BackdropCollagesFixture.folder().appendingPathComponent("Elsewhere.png")
+        try BackdropCollagesFixture.png(to: elsewhere)
+        for source in ["file:\(elsewhere.path)", "system:/System/Library/Desktop Pictures/../../../\(elsewhere.path)"] {
+            let layer: JSONValue = ["source": .string(source), "x": 0, "y": 0, "width": 1, "height": 1, "opacity": 1, "cornerRadius": 0]
+            do {
+                _ = try await call("collage.save", ["collage": ["name": "Elsewhere", "fill": "#000000", "layers": [layer]]])
+                Issue.record("a collage drew \(source)")
+            } catch let error as PageError {
+                #expect(error.code == "cmux.settings.backdrop.collage.invalid")
+            }
+        }
         current = .collage(id: id)
         await #expect(throws: PageError.self) { try await call("collage.delete", ["id": .string(id)]) }
         current = nil
@@ -117,6 +130,12 @@ import Testing
 
 /// A small PNG for the page tests.
 enum BackdropCollagesFixture {
+    static func folder() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-elsewhere-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     static func png(to url: URL) throws {
         let context = try #require(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
                                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
