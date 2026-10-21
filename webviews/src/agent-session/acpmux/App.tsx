@@ -457,6 +457,34 @@ function emptySnapshot(): AcpmuxSnapshot {
   };
 }
 
+/// The latest snapshot, kept for a reload of the page (`cachedSnapshot`). A streaming reply sends
+/// one a display frame, and serializing the whole transcript each frame took main-thread time that
+/// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
+/// or unloads, so a reload still finds the latest one.
+const SNAPSHOT_SAVE_MS = 250;
+const snapshotSave: { next?: AcpmuxSnapshot; timer?: ReturnType<typeof setTimeout>; hooked?: boolean } = {};
+function writeSnapshot(): void {
+  clearTimeout(snapshotSave.timer);
+  snapshotSave.timer = undefined;
+  const next = snapshotSave.next;
+  snapshotSave.next = undefined;
+  if (!next) return;
+  try {
+    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
+  } catch {
+    // Painting remains live when storage is unavailable or full.
+  }
+}
+export function saveSnapshot(next: AcpmuxSnapshot): void {
+  snapshotSave.next = next;
+  if (!snapshotSave.hooked && typeof window !== "undefined") {
+    snapshotSave.hooked = true;
+    window.addEventListener("pagehide", writeSnapshot);
+    document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && writeSnapshot());
+  }
+  snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
+}
+
 function cachedSnapshot(): AcpmuxSnapshot {
   try {
     const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
@@ -4791,11 +4819,7 @@ function AcpmuxPane() {
         harnessSwitch.reconcile(next);
         rowsRef.current = next.rows;
         snapshotRef.current = next;
-        try {
-          sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
-        } catch {
-          // Painting remains live when storage is unavailable or full.
-        }
+        saveSnapshot(next);
         setSnapshot(next);
       },
       applyTheme(theme) {
