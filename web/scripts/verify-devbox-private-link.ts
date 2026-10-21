@@ -4,7 +4,7 @@
  * Verify an image through the same private carrier as the Mac app. Local daemon
  * readiness alone misses a stale client, VPC routing, or enrollment failure.
  *
- * bun scripts/verify-devbox-private-link.ts <snapshot-id> <cmux-tui-client>
+ * bun scripts/verify-devbox-private-link.ts <snapshot-id> <cmux-tui-client> [--client-grant]
  *
  * Requires FREESTYLE_API_KEY. Creates an isolated VM, VPC, and temporary tunnel;
  * deletes all three, including on failure. Never modifies existing machines.
@@ -71,7 +71,7 @@ function connectArgs(
 }
 
 /** Verify private enrollment and reconnect using exclusively probe-owned resources. */
-function verify(image: string, client: string) {
+function verify(image: string, client: string, requestedAuth: "trusted-carrier" | "client-grant") {
   return Effect.gen(function* () {
     const rawProbe = yield* command(client, ["remote-probe", "--json"], "Client probe failed");
     const probe = yield* Effect.try(() => JSON.parse(rawProbe));
@@ -91,7 +91,12 @@ function verify(image: string, client: string) {
       (value) => cleanup(`VPC ${value.id}`, () => networking.deleteNetwork(value.id)),
     );
     const vm = yield* Effect.acquireRelease(
-      attempt("Create diagnostic VM failed", () => provider.create({ image, network: { id: network.id }, displayName: slug })),
+      attempt("Create diagnostic VM failed", () => provider.create({
+        image,
+        network: { id: network.id },
+        displayName: slug,
+        providerMetadata: { cmuxRemoteAuth: requestedAuth },
+      })),
       (value) => cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)),
     );
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
@@ -159,9 +164,9 @@ function verify(image: string, client: string) {
   });
 }
 
-const [image, client] = process.argv.slice(2);
-if (!image || !client || !/^sh-[a-zA-Z0-9]+$/.test(image)) {
-  console.error("Usage: bun scripts/verify-devbox-private-link.ts <snapshot-id> <cmux-tui-client>");
+const [image, client, mode] = process.argv.slice(2);
+if (!image || !client || !/^sh-[a-zA-Z0-9]+$/.test(image) || (mode !== undefined && mode !== "--client-grant")) {
+  console.error("Usage: bun scripts/verify-devbox-private-link.ts <snapshot-id> <cmux-tui-client> [--client-grant]");
   process.exit(1);
 }
 const controller = new AbortController();
@@ -169,7 +174,11 @@ const interrupt = () => controller.abort();
 process.once("SIGINT", interrupt);
 process.once("SIGTERM", interrupt);
 try {
-  await Effect.runPromise(Effect.scoped(verify(image, path.resolve(client))), { signal: controller.signal });
+  await Effect.runPromise(Effect.scoped(verify(
+    image,
+    path.resolve(client),
+    mode === "--client-grant" ? "client-grant" : "trusted-carrier",
+  )), { signal: controller.signal });
 } catch (error: unknown) {
   console.error(String(error));
   process.exitCode = 1;
