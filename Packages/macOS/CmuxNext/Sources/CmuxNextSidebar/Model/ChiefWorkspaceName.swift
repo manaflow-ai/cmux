@@ -16,6 +16,9 @@ public nonisolated enum ChiefWorkspaceName {
         let trimmed = rest.trimmingCharacters(in: .whitespaces)
         return trimmed.isEmpty ? nil : trimmed
     }
+
+    /// Who started a Chief subagent's workspace, as its hover card and right-click menu say it.
+    @MainActor public static var startedBy: String { Strings.startedByChief }
 }
 
 public nonisolated extension MachineID {
