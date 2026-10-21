@@ -62,7 +62,7 @@ when that window shows it, and centers it over the window otherwise.
 | Palette | the "Search" row in the `?` scope list and the root's Search In rows; the `search` keyword plus Tab |
 | CLI | `cmux palette open --arg scope=search --focus` |
 | MCP / headless | `palette.query {scope: "search", query}` returns the ranked rows without UI; `palette.run` runs one |
-| Shortcut | none by default (Cmd-P and Cmd-Shift-P already exist); bind `palette.open` with `scope: search` in cmux.json |
+| Shortcut | Cmd-Shift-A (`search.chats`, Search Everything); Cmd-P lists only open items |
 
 ## 4. Settings
 

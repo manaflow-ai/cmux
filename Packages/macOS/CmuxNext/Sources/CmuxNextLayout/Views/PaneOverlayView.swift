@@ -221,8 +221,8 @@ final class PaneOverlayView: NSView {
         }
         Motion.feedback.transaction(animated ? .focus : nil) {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
-            dimLayer.opacity = Float(dim)
         }
+        Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
         applyAttention(mark, animated: animated)
         applyColors()
     }
