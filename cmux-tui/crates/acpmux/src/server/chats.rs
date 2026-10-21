@@ -81,6 +81,10 @@ pub(super) async fn route(
     if let Some(reply) = super::subsessions::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    // So do the forum methods (`forum.rs`): this daemon's own log.
+    if let Some(reply) = super::forum::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // So do the process methods (`processes.rs`).
     // And the worktree cleanup methods (`worktrees.rs`).
     if let Some(reply) = super::worktrees::dispatch(hub, conn, m, &params).await {

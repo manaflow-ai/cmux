@@ -253,6 +253,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/ack",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/announce",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/rules",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/set_tools",
       "params": true,
       "result": true

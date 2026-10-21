@@ -994,6 +994,7 @@ mod chats;
 pub mod conn_auth;
 mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
