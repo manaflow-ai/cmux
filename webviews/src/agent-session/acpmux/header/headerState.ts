@@ -42,6 +42,9 @@ export interface HeaderState {
   readonly browserOpensPreview: boolean;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
+  /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
+  /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
+  readonly moves: readonly string[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
@@ -60,6 +63,7 @@ let current: HeaderState = {
   floatingChat: false,
   sessionRail: false,
   browserOpensPreview: true,
+  moves: [],
   version: 0,
 };
 const listeners = new Set<() => void>();
@@ -74,6 +78,7 @@ export function setHeaderState(value: unknown): void {
     sessionRail?: unknown;
     browserOpensPreview?: unknown;
     pullRequest?: unknown;
+    moves?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -87,6 +92,7 @@ export function setHeaderState(value: unknown): void {
     browserOpensPreview:
       typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
+    moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;

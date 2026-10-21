@@ -211,8 +211,9 @@ type Props = {
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: ConnectKind): void;
-  /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext).
+  /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
   onOffload?(kind: OffloadKind): void;
+  offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// This Mac's name for the location row.
@@ -277,6 +278,7 @@ export function Composer({
   onBrowseFolder,
   onConnect,
   onOffload,
+  offloads,
   onRefreshMachines,
   localName,
   environments,
@@ -1255,6 +1257,7 @@ export function Composer({
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
+      {...(offloads ? { offloads } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}

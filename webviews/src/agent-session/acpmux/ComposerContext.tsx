@@ -38,6 +38,7 @@ type Location = { id: string; label: string; detail?: string; repo?: ProjectRepo
 type Computer = Location & { kind: EnvironmentKind; connected?: boolean };
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
+const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
 /// computer, and the branch at the end. New chats can choose a local or Cloud computer and one of
@@ -63,6 +64,7 @@ export function ComposerContext({
   onBrowseFolder,
   onConnect,
   onOffload,
+  offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
 }: {
@@ -96,9 +98,12 @@ export function ComposerContext({
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: ConnectKind): void;
   /// A started chat's one move, in the environment picker: Move to Cloud for a chat on this Mac,
-  /// Bring Back Local for one on a Cloud machine (the tab menu's same actions). None for an SSH
-  /// machine's chat, or when the host passes none (the floating chat).
+  /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
+  /// `offloads` lists them. None when the host passes none (the floating chat).
   onOffload?(kind: OffloadKind): void;
+  /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
+  /// picker offers only these, whatever the machine's kind.
+  offloads?: readonly OffloadKind[];
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder and New Worktree controls step aside.
   saved?: SavedEnvironmentRows;
@@ -195,14 +200,7 @@ export function ComposerContext({
     }
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
-  const offload: OffloadKind | undefined =
-    started && environments && onOffload
-      ? currentComputer?.kind === "local"
-        ? "move"
-        : currentComputer?.kind === "cloud"
-          ? "bringBack"
-          : undefined
-      : undefined;
+  const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   const computerDisabled = readOnly && !offload && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;

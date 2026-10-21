@@ -5668,7 +5668,12 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
+  // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
+  const offloads = useMemo(
+    () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
+    [moves],
+  );
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -6647,8 +6652,12 @@ function AcpmuxPane() {
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
             // The floating chat has no tab to move.
-            {...(quick ? {} : { onOffload: offloadChat })}
-            onRefreshMachines={() => void directClient.current?.refreshPeers()}
+            {...(quick ? {} : { onOffload: offloadChat, offloads })}
+            // The list opened: the machines' status and the chat's moves are read again.
+            onRefreshMachines={() => {
+              void directClient.current?.refreshPeers();
+              refreshTabState();
+            }}
             // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
             // panel lists them before its first prompt (cx-hkat).
             projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}

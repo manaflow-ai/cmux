@@ -332,6 +332,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         environments: true,
         started: true,
         onOffload: () => undefined,
+        offloads: ["move"],
         summary: {
           sessionId: "gallery-started-local",
           harness: "claude",
@@ -346,12 +347,13 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "started-bring-back": {
-      note: "Preview, a started Cloud chat: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
+      note: "Preview, a started Cloud chat a move from this Mac put there: the picker shows its machine and Bring Back Local, which merges the machine's changes into the folder here.",
       props: {
         ...baseProps,
         environments: true,
         started: true,
         onOffload: () => undefined,
+        offloads: ["bringBack"],
         summary: {
           sessionId: "gallery-started-cloud",
           harness: "claude",
