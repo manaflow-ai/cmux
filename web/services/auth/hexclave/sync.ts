@@ -136,8 +136,10 @@ export async function syncHexclaveTeam(
 ): Promise<HexclaveSyncResult> {
   const result = await dependencies.store.reconcileTeam(teamId, () => dependencies.source.getTeam(teamId));
   const gone = result.team === null;
-  if (gone) await dependencies.revokeTeamAccess({ teamId });
-  await settleAll(result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)));
+  await settleAll([
+    ...(gone ? [() => dependencies.revokeTeamAccess({ teamId })] : []),
+    ...result.memberIds.map((userId) => () => dependencies.invalidateUser(userId)),
+  ]);
   return { entity: "team", id: teamId, gone, revokedTeamIds: gone ? [teamId] : [] };
 }
 

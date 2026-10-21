@@ -197,11 +197,29 @@ Three layouts were mocked (gallery in Home's right pane,
 
 | Slice | Work | Done when |
 | --- | --- | --- |
-| 1 (landed) | design + teardown + mocks; nested groups in the sidebar document (Rust); group "New Workspace" inherits the host (R6); failing-first tests | reducer tests R1-R4 and `GroupSpawnHostTests` red before, green after, on the fleet |
-| 2 | Swift: render nested groups from doc rows (indent, collapse per group), "New Subgroup" in group menu, capability gate | tagged app shows host > project > branch |
-| 3 | `remote.group.new` action (palette, `+` menu, CLI, MCP, 21 locales) | one action from nothing to a usable remote group on a Mac mini |
-| 4 | header health line and reconnect menu; offline refusal message | killing the host listener shows Offline, restoring it reconnects |
-| 5 | Chief "Move Chief to…" lists remote groups | Chief moves from this Mac to a mini from that menu |
+| 1 (landed) | design + teardown + mocks; nested groups in the sidebar document (Rust); group "New Workspace" inherits the host (R6) | reducer tests R1-R4 and `GroupSpawnHostTests` red before, green after |
+| 2 | the list draws nested groups: `SidebarGroup.parent/depth`, `SidebarRow.depth` (one gutter per level, `SidebarListView.frame(for:)`), a collapsed group hides its subtree, a filter keeps the path to a match; the projection lists each nested group with its own members; drag acceptance nests a group within 3 levels | `SidebarNestedGroupLayoutTests`, `SidebarDocNestedGroupProjectionTests`, Rust `drag_nests_a_group_within_the_depth…` |
+| 3 | "New Subgroup" (`workspaceGroup.newSubgroup`: group menu, palette, CLI `workspace-group new-subgroup`, MCP; `SidebarDocSubgroupPlan` refuses past 3 levels) | `WorkspaceSubgroupActionTests`, `SidebarDocSubgroupPlanTests` |
+| 4 | "New Remote Group…" (`remote.newGroup`: palette, sidebar background menu, CLI `remote new-group <host>`, MCP): connects the host as `remote.connect` does and marks its machine section `host_group`, which keeps its header in one list | Rust `host_group_tests`, `SidebarHostGroupLayoutTests`, `RemoteGroupActionTests` |
+| 5 | a remote group's header names every state (Connected, Connecting…, Reconnecting…, Offline, Unreachable…); "Remove Remote Group" (`remote.removeGroup`, header menu of a remote group only) unmarks it without disconnecting; SSH hosts keep their Reconnect/Disconnect/Forget menu | `HostGroupHeaderStatusTests`, `RemoteGroupRemoveActionTests`, `SidebarDocHostGroupPlanTests` |
+| 6 (landed) | "Move Chief to…" (`chief.moveTo`, palette; `cmux chief move --to` and the Chief's MCP `move` tool are the CLI and MCP): This Mac (`local:<home>`), SSH remote groups (`ssh:<destination>`), paired servers greyed out "not supported yet", cmux Cloud (`cloud` / `cloud:staging`, from the app's auth; one entry, Cloud VMs are not targets) greyed out until signed in, offline hosts greyed out. Dry run report, confirm, move, then `move reach` on the target; the Cloud token goes through a 0600 file in a 0700 folder, deleted after | `ChiefMoveTargetsTests`, `ChiefMovePlanTests`, `ChiefMoveTargetHomeTests`, `ChiefMoveActionTests`, `CmuxDialogDisabledOptionTests` |
+
+### 8.1 Interface offered to a284 (Chief move)
+
+A Chief move target is a remote group: the document's machine sections with `host_group: true`
+(`SidebarDocRecords.sections[…].hostGroup`), each named by its daemon session (`sec_m_<session>`),
+with the machine's name, kind (ssh, server, cloud) and live status from `MachineRegistry`. This Mac
+is always a target. a284's "Move Chief to…" menu lists those; the move itself (save the turn, stop,
+start on the target, resume) stays a284's.
+
+### 8.2 Known gaps after slice 5
+
+- Paired servers and Cloud machines got a Reconnect row (`machine.reconnect`) after slice 5.
+- "Offline since HH:MM" shows as "Offline": the machine model has no offline time yet.
+- New Remote Group takes SSH destinations (aliases, tailnet names); a tailnet host found by
+  `cmux host list` and a Cloud machine become remote groups only through their own connect today.
+- A group dragged into a group in the classic (non-document) sidebar path is not supported; the
+  document path is the one shipped.
 
 ## 9. Open items
 

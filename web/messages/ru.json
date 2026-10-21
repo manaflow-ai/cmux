@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "обязательно: эта машина используется совместно командой" },
   "agentHarness": {
     "title": "Обнаружена конфигурация harness",
     "selectionNotice": "Выбор провайдера не запускает и не включает эти harness.",

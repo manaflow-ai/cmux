@@ -42,6 +42,7 @@ STATIC_PREFIXES = (
     ".github/workflows/ios-internal-nightly.yml",
     ".github/workflows/ios-internal-nightly-trigger.yml",
     "scripts/ci/ios_internal_builder.py",
+    "scripts/cmux-next/check-app-store-rules.py",
 )
 
 

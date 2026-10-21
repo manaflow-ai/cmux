@@ -127,17 +127,27 @@ def powermetrics(seconds: float):
     return found
 
 
-def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
+def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False):
     """Energy, CPU and wakeups of every owned process over `seconds`."""
     start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
     started = time.monotonic()
     pm_result = {}
     pm = threading.Thread(target=lambda: pm_result.update(powermetrics(seconds) or {}), daemon=True)
     pm.start()
+    sampler = None
     if during:
         during(seconds)
-    else:
+    elif not sample_idle:
         time.sleep(seconds)  # test script: the measured window
+    else:
+        # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
+        # inside the window. The app's energy rises for a while, then drops, so a sample after the
+        # window shows it idle. Kept only when the window ends above the guard.
+        time.sleep(seconds / 2)  # test script: first half of the measured window
+        sample_path = os.path.abspath(f"app-{label}.sample")
+        sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(seconds / 2)  # test script: second half of the measured window
     pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
     kinds: dict[str, dict] = {}
@@ -163,11 +173,13 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
     app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
-    if not during and app_mw > IDLE_APP_MW_GUARD:
-        # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
-        out = os.path.abspath(f"app-{label}.sample")
-        subprocess.run(["sample", str(app_pid), "10", "-mayDie", "-file", out], capture_output=True, timeout=60)
-        print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {out}", flush=True)
+    if sampler:
+        sampler.wait(timeout=60)
+        if app_mw > IDLE_APP_MW_GUARD:
+            # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
+            print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {sample_path}", flush=True)
+        else:
+            os.remove(sample_path) if os.path.exists(sample_path) else None
     return result
 
 
@@ -275,6 +287,8 @@ def main():
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
+    parser.add_argument("--sample-idle", action="store_true",
+                        help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
     scenarios = args.scenarios.split(",")
@@ -307,7 +321,7 @@ def main():
 
     def settle_measure(label: str, during=None, settle: float | None = None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
-        results.append(measure(pid, args.app, label, args.measure, during))
+        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle))
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={powermetrics(1) is not None}", flush=True)

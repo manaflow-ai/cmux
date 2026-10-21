@@ -65,7 +65,10 @@ public nonisolated struct OmnibarPresentation: Equatable, Sendable {
             }
             return .input(symbol: search)
         case .focused:
-            return state.pageURL == nil ? .input(symbol: search) : .page(focused: true)
+            // A focusing press keeps the label until its release: dropping it
+            // moves the field under the still-down pointer.
+            let pressing = state.mouse?.pressed == true && state.mouse?.selectAllOnRelease == true
+            return state.pageURL == nil ? .input(symbol: search) : .page(focused: !pressing)
         case .idle, .committing:
             return state.fieldText.isEmpty || state.retainedText != nil ? .input(symbol: search) : .page(focused: false)
         }

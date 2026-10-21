@@ -141,7 +141,7 @@ class ValidateTests(unittest.TestCase):
         # Conductor-quality notes (2026-10-20): a highlight is written for people, never a commit
         # subject ("fix(sidebar): ...", "sidebar: ..."), and its summary is whole sentences.
         problems = self.problems("bad/commit-style.json")
-        self.assertMentions(problems, "entries[0].title", "entries[0].summary", "reads like a commit subject",
+        self.assertMentions(problems, "entries[0] (commit).title", "entries[0] (commit).summary", "reads like a commit subject",
                             "does not end a sentence")
 
 

@@ -15,6 +15,11 @@ pub use crate::sidebar_layout::{Alignment, ArrangementLayout, Look, Region};
 pub type SectionId = String;
 pub type ItemId = String;
 
+/// `Item::extra` key: a group member pinned inside its group.
+pub const PINNED_IN_GROUP_KEY: &str = "pinned";
+/// `Item::extra` key: where a top-level item pinned to the Pinned band goes
+/// back on Unpin (`{"section": id, "after": id or null}`).
+pub const UNPIN_TO_KEY: &str = "unpin_to";
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -196,6 +201,11 @@ pub struct Section {
     pub order: String,
     #[serde(default)]
     pub keeps_closed: bool,
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice
+    /// 4): it draws its header, the host's name and status, even when the
+    /// sidebar is one list. Only a machine section can be one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -232,6 +242,8 @@ struct SectionWire {
     #[serde(default)]
     keeps_closed: bool,
     #[serde(default)]
+    host_group: bool,
+    #[serde(default)]
     extra: Map<String, Value>,
 }
 
@@ -254,6 +266,7 @@ impl From<SectionWire> for Section {
             room: wire.room,
             order: wire.order,
             keeps_closed: wire.keeps_closed,
+            host_group: wire.host_group,
             extra: wire.extra,
         }
     }
@@ -282,6 +295,7 @@ impl Section {
             room: None,
             order: String::new(),
             keeps_closed,
+            host_group: false,
             extra: Map::new(),
         }
     }
@@ -423,6 +437,13 @@ impl Item {
         Item::new(&workspace_item_id(&reference), section, Body::Workspace { reference })
     }
 
+    /// Whether this group member is pinned inside its group
+    /// (`extra.pinned`): it lists first among the group's members.
+    pub fn pinned_in_group(&self) -> bool {
+        self.parent.is_some()
+            && self.extra.get(PINNED_IN_GROUP_KEY).and_then(Value::as_bool) == Some(true)
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -549,6 +570,8 @@ pub struct SectionPatch {
     pub keeps_closed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll: Option<Scroll>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.

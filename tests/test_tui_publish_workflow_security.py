@@ -349,16 +349,10 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert len(fetching) >= 2
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
-    # A pull request's merge tree has no publisher of its own: a same-repository
-    # PR's probe dispatches one; a fork PR's never does. The scheduled DEV run
-    # (a workflow_dispatch with dev_daily) dispatches its cold tree too.
-    dispatch_gate = (
-        "${{ (github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository || "
-        "github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}"
-    )
-    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
-    assert "github.event_name == 'pull_request' && '0'" not in next_workflow
+    # Checked-out pull-request and dispatched revisions never acquire a write
+    # token or start the publisher. A cold tree fails closed until trusted
+    # default-branch controls publish it.
+    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes)
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
     assert "HEAD^1" in pin

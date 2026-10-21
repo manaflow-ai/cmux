@@ -1,13 +1,13 @@
 import AppKit
 import CmuxNextPages
 
-/// The markdown page's right-click menu: WebKit's desktop default (Copy on a selection), plus Reset
-/// Column Widths when the right-click was on a table (the page reports it through
-/// `cmux.markdown.contextTable` before the menu opens; MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+/// The markdown page's table rows: Reset Column Widths, added after the selection rows when the
+/// right-click was on a table (the page reports it through `cmux.markdown.contextTable` before the
+/// menu opens; MARKDOWN-TABLE-WIDTHS-DESIGN.md). ``ViewerSelectionMenu`` has already reduced the menu
+/// to the desktop default.
 extension FilePageService {
     static func tableMenu(provider: FilePageProvider, page: PageWebView) -> @MainActor (NSMenu) -> Void {
         { [weak provider, weak page] menu in
-            PageWebView.keepDefaultMenuItems(in: menu)
             guard provider?.contextTable != nil else { return }
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             menu.addItem(PageWebView.menuItem(resetColumnWidthsTitle) {

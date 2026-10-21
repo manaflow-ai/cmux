@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
-import { Check } from "../conversation/icons";
+import { Check, ChevronDown } from "../conversation/icons";
 import { useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
 import {
@@ -57,29 +57,94 @@ function inputForKey(key: string): CardInput | undefined {
 const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 
 /// An agent's question (Claude Code AskUserQuestion, Codex user input, an interactive ACP
-/// permission, the Chief) as a card: numbered options, checkmarks for multi-select, a preview of
-/// the highlighted option, an inline Other answer, Submit and Skip. Bare keys work while focus is
-/// inside the card; it never takes focus on arrival, and Escape hands the keyboard back to the
-/// composer. Only a person's click or key sends an answer.
-export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
+/// permission, the Chief) as a card, like the Claude app's (Leo 2026-10-19): a "Needs your input"
+/// pill that folds it, the question as its header, radio or checkbox options with their
+/// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit.
+/// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
+/// nothing else has it or the composer is empty. ⌘↩ submits, and one click on the last
+/// single-choice question sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
+/// it hands the keyboard back to the composer and keeps every answer given so far, so the next Esc
+/// is the composer's (on an empty prompt, the press that stops a turn). The card leaves the key to
+/// the pane's own listeners, except in the floating chat, where an Esc nobody claimed hides the
+/// panel. In the Other field it only leaves the field. Skip
+/// declines. A reply acpmux refuses shows its error on the card, which takes input again for a
+/// retry. Only a person's click or key sends an answer.
+export function QuestionCard({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
   if (question.state.kind === "answered")
     return <AnsweredQuestion question={question} answer={question.state.answer} />;
   if (question.state.kind === "cancelled") return <CancelledQuestion question={question} />;
-  return <PendingQuestion question={question} onReply={onReply} />;
+  // Keyed by the ask: a new ask starts unfolded with fresh choices.
+  return <PendingAsk key={question.id} question={question} onReply={onReply} />;
+}
+
+/// Hands the host a reply. A promise that rejects means the reply was refused and the ask stays.
+type ReplyHandler = (reply: QuestionReply) => void | Promise<unknown>;
+
+/// The pill over a pending card. Folding hides the card but keeps it mounted, so the person's
+/// picks and Other text survive; the ask stays pending until answered or skipped.
+function PendingAsk({ question, onReply }: { question: AgentQuestion; onReply: ReplyHandler }) {
+  const t = useT();
+  const cardId = useId();
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="acpmux-question-ask">
+      <button
+        type="button"
+        className="acpmux-question-status"
+        aria-expanded={open}
+        aria-controls={cardId}
+        onClick={() => setOpen((shown) => !shown)}
+      >
+        <span className="acpmux-question-status-dot" aria-hidden="true" />
+        {t("question.needsInput")}
+        <ChevronDown size={12} strokeWidth={1.6} className="acpmux-question-status-chevron" />
+      </button>
+      <PendingQuestion id={cardId} hidden={!open} question={question} onReply={onReply} />
+    </div>
+  );
+}
+
+/// The prompt's typed text, without the placeholder MarkdownField keeps beside the editor.
+const composerText = (composer: Element) => composer.querySelector(".acpmux-md-root")?.textContent?.trim() ?? "";
+
+/// Whether a card that just arrived may take the keyboard: nothing in the page has it, or the
+/// composer has it, and either way the composer holds no draft. A half-written (or restored)
+/// prompt keeps it, so a typed digit or Enter never answers the ask by surprise.
+function keyboardIsIdle(document: Document): boolean {
+  const active = document.activeElement;
+  if (!active || active === document.body) {
+    const composer = document.querySelector(".acpmux-composer-prompt");
+    const shell = document.querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
+    return (!composer || composerText(composer) === "") && !shell?.value.trim();
+  }
+  const composer = active.closest(".acpmux-composer-prompt");
+  return composer !== null && composerText(composer) === "";
 }
 
 // The rows are buttons with radio or checkbox roles (a radiogroup or group), not native inputs:
 // one roving tab stop and the reducer's keys drive them, and the Other row turns into a text field
 // in place. aria-checked carries the choice.
-function PendingQuestion({ question, onReply }: { question: AgentQuestion; onReply(reply: QuestionReply): void }) {
+function PendingQuestion({
+  id,
+  hidden,
+  question,
+  onReply,
+}: {
+  id: string;
+  hidden: boolean;
+  question: AgentQuestion;
+  onReply: ReplyHandler;
+}) {
   const t = useT();
   const legendId = useId();
   const previewId = useId();
   const group = useRef<HTMLFieldSetElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
   // The ask a person already answered: the owner clears it a moment later, and until then a
-  // second click or key must not answer it again.
+  // second click or key must not answer it again. A refused reply clears it for a retry.
   const [sentFor, setSentFor] = useState<string | undefined>();
+  // Why the last reply was refused (the host's message, when it gave one), shown until the next try.
+  const [refused, setRefused] = useState<{ reason?: string } | undefined>();
   // A new snapshot of the same ask keeps the person's choices; another ask starts fresh.
   let state = stored;
   if (stored.question !== question) {
@@ -93,7 +158,26 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
   const send = (sentReply: QuestionReply | undefined) => {
     if (!sentReply || sent) return;
     setSentFor(question.id);
-    onReply(sentReply);
+    setRefused(undefined);
+    const askId = question.id;
+    Promise.resolve(onReply(sentReply)).catch((error: unknown) => {
+      // The ask stays pending: say why on the card and take input again.
+      setSentFor((current) => (current === askId ? undefined : current));
+      setRefused({ reason: error instanceof Error && error.message ? error.message : undefined });
+    });
+  };
+  /// Gives the keyboard back: the composer claims an idle keyboard on this event (composerFocus.ts).
+  const resign = () => {
+    const card = group.current;
+    const focused = card?.ownerDocument.activeElement;
+    if (focused instanceof HTMLElement && card?.contains(focused)) focused.blur();
+    const view = card?.ownerDocument.defaultView ?? window;
+    view.dispatchEvent(new view.Event(COMPOSER_READY_EVENT));
+  };
+  const skip = () => {
+    if (sent) return;
+    send(declineReply(question));
+    resign();
   };
   const apply = (effect: CardEffect, next: CardState, input: CardInput, keyboardInList: boolean) => {
     const card = group.current;
@@ -106,11 +190,7 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
       return;
     }
     if (effect.type === "resign") {
-      const focused = card?.ownerDocument.activeElement;
-      if (focused instanceof HTMLElement && card?.contains(focused)) focused.blur();
-      // The composer claims an idle keyboard on this event (composerFocus.ts).
-      const view = card?.ownerDocument.defaultView ?? window;
-      view.dispatchEvent(new view.Event(COMPOSER_READY_EVENT));
+      resign();
       return;
     }
     if (!card) return;
@@ -131,10 +211,19 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
     apply(step.effect, step.state, input, inList || focused === card);
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.isComposing) return;
+    if (event.defaultPrevented || event.isComposing) return;
+    // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
+    // answers like Enter: the highlighted row, then Submit once every item has an answer.
+    if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      event.preventDefault();
+      if (!event.repeat) dispatch(canSubmit(state) ? { type: "submit" } : { type: "confirm" });
+      return;
+    }
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement;
+    const inOther = target.closest(".acpmux-question-other") !== null;
     // In the Other field, typing is text: only Enter and Escape act.
-    if (target.closest(".acpmux-question-other")) {
+    if (inOther) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
     } else if (
       target.closest(".acpmux-question-actions, .acpmux-question-tabs") &&
@@ -145,8 +234,18 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
     if (event.shiftKey) return;
     const input = inputForKey(event.key);
     if (!input) return;
+    // Escape never answers. Outside the Other field it hands the keyboard to the composer (in one
+    // press, even with an Other answer left open) and keeps every answer. The key is left to the
+    // pane's own listeners, except in the floating chat: there an Esc nobody claimed hides the
+    // panel (paneSurface.ts useEscapeToDismiss, QuickComposerPanel.cancelOperation).
+    if (input.type === "escape" && !inOther) {
+      if (target.closest('[data-surface="quick"]')) event.preventDefault();
+      if (!event.repeat) resign();
+      return;
+    }
     event.preventDefault();
     if (event.repeat && !REPEATS.has(event.key)) return;
+    // In the Other field the reducer's Escape only leaves the field.
     dispatch(input);
   };
   // The keys reach the card from its focused rows, field and buttons, so it listens natively
@@ -158,6 +257,16 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
     // ui-allow: the keys are the shared AgentQuestionCardState inputs (number keys, a roving highlight, items), which no src/ui widget offers; the Mac card answers the same keys.
     element.addEventListener("keydown", onKeyDown);
     return () => element.removeEventListener("keydown", onKeyDown);
+  });
+  // A new ask takes an idle keyboard, so its keys work without a click first. Only on arrival:
+  // later snapshots of the same ask leave focus where the person put it.
+  const arrived = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const card = group.current;
+    if (!card || arrived.current === question.id) return;
+    arrived.current = question.id;
+    if (hidden || !keyboardIsIdle(card.ownerDocument)) return;
+    card.querySelector<HTMLElement>(`[data-row="${highlightedRow(state)}"]`)?.focus();
   });
   const goToItem = (index: number) => {
     let next = state;
@@ -180,17 +289,17 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
   return (
     <fieldset
       ref={group}
+      id={id}
+      hidden={hidden}
       className="acpmux-question"
       aria-labelledby={legendId}
       aria-busy={sent || undefined}
       data-preview={showPreview || undefined}
     >
       <legend id={legendId} className="acpmux-question-head">
-        <span className="acpmux-question-meta">
-          {item.header && <span className="acpmux-question-chip">{item.header}</span>}
-          <span className="acpmux-question-agent">{t("question.asking", { agent })}</span>
-        </span>
+        <span className="acpmux-hidden-label">{t("question.asking", { agent })}</span>
         <span className="acpmux-question-prompt">{item.prompt}</span>
+        {item.header && <span className="acpmux-question-chip">{item.header}</span>}
       </legend>
       {state.question.items.length > 1 && (
         <div className="acpmux-question-tabs">
@@ -230,13 +339,10 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
                 tabIndex={row === highlighted ? 0 : -1}
                 onClick={() => dispatch({ type: "click", row })}
               >
-                {key ? <Keycap>{key}</Keycap> : <span className="acpmux-question-keyspace" />}
+                <ChoiceMark multi={multi} chosen={chosen} />
                 <span className="acpmux-question-text">
                   <span className="acpmux-question-label">{option.label}</span>
                   {option.detail && <span className="acpmux-question-detail">{option.detail}</span>}
-                </span>
-                <span className="acpmux-question-mark" data-multi={multi || undefined}>
-                  {chosen && <Check size={14} strokeWidth={1.6} />}
                 </span>
               </button>
             );
@@ -265,23 +371,26 @@ function PendingQuestion({ question, onReply }: { question: AgentQuestion; onRep
           </section>
         )}
       </div>
+      {refused && (
+        <p className="acpmux-question-error" role="alert">
+          {t("question.replyFailed")}
+          {refused.reason && " "}
+          {refused.reason && <span className="acpmux-question-error-reason">{refused.reason}</span>}
+        </p>
+      )}
       <div className="acpmux-question-actions">
-        <button
-          type="button"
-          className="acpmux-question-skip"
-          disabled={sent}
-          onClick={() => send(declineReply(question))}
-        >
+        <button type="button" className="acpmux-question-skip" disabled={sent} onClick={skip}>
           {t("question.skip")}
         </button>
         <button
           type="button"
           className="acpmux-question-submit"
+          aria-keyshortcuts="Meta+Enter"
           disabled={!ready}
           onClick={() => dispatch({ type: "submit" })}
         >
           {t("question.submit")}
-          <Keycap>↩</Keycap>
+          <Keycap>⌘↩</Keycap>
         </button>
       </div>
     </fieldset>
@@ -316,7 +425,7 @@ function OtherRow({
   if (editing)
     return (
       <div className="acpmux-question-row acpmux-question-other" data-row-editing="true" data-highlighted>
-        {key ? <Keycap>{key}</Keycap> : <span className="acpmux-question-keyspace" />}
+        <ChoiceMark multi={multi} chosen={multi ? draft.trim() !== "" : true} />
         <input
           type="text"
           aria-label={t("question.other")}
@@ -342,15 +451,27 @@ function OtherRow({
       tabIndex={highlighted ? 0 : -1}
       onClick={onChoose}
     >
-      {key ? <Keycap>{key}</Keycap> : <span className="acpmux-question-keyspace" />}
+      <ChoiceMark multi={multi} chosen={chosen} />
       <span className="acpmux-question-text">
         <span className="acpmux-question-label">{t("question.other")}</span>
         {chosen && <span className="acpmux-question-detail">{draft.trim()}</span>}
       </span>
-      <span className="acpmux-question-mark" data-multi={multi || undefined}>
-        {chosen && <Check size={14} strokeWidth={1.6} />}
-      </span>
     </button>
+  );
+}
+
+/// A row's radio button, or its checkbox when the item takes several answers. Decoration: the row
+/// carries the role and aria-checked (the Other field, which has neither, still shows its mark).
+function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
+  return (
+    <span
+      className="acpmux-question-mark"
+      data-multi={multi || undefined}
+      data-chosen={chosen || undefined}
+      aria-hidden="true"
+    >
+      {multi && chosen && <Check size={11} strokeWidth={2} />}
+    </span>
   );
 }
 

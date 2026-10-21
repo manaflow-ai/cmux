@@ -18,7 +18,7 @@ final class SidebarCardSlotMotion: MotionAnimating {
     private let policy: @MainActor () -> MotionPolicy
 
     /// - Parameter policy: The motion settings, read at each change (`Motion.policy`).
-    init(policy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+    init(policy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         self.policy = policy
     }
 

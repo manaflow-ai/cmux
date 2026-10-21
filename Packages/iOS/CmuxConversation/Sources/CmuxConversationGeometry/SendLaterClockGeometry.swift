@@ -6,6 +6,7 @@ import Foundation
 /// hand cut out of it. The package has no keyframes; ChatKit turns the hands
 /// in code, so they point at the scheduled time here and sweep to a new time
 /// when it changes. Coordinates are top-left origin.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum SendLaterClockGeometry {
     /// Document size of the reference layer tree.
     public static let size: CGFloat = 15

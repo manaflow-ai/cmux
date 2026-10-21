@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "påkrevd: denne maskinen deles med teamet" },
   "agentHarness": {
     "title": "Oppdaget harness-konfigurasjon",
     "selectionNotice": "Valg av leverandør starter eller aktiverer ikke disse harnessene.",

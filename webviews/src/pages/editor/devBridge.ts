@@ -21,6 +21,8 @@ import {
 } from "./host";
 import { DEV_DISPATCHER } from "./devKeys";
 import { EMPTY } from "./strings";
+// Bun's types also declare import.meta.hot (with argument-less listeners); these listeners are Vite's.
+import type { ViteHotContext } from "vite/types/hot.d.ts";
 
 type Envelope = {
   t: string;
@@ -145,8 +147,8 @@ addEventListener(
 
 // The file watcher: the server reports a change of a watched file; the page gets its new text.
 if (import.meta.hot) {
-  import.meta.hot.on("cmux-editor:look", (look: unknown) => emit(EDITOR_LOOK, look));
-  import.meta.hot.on("cmux-editor:content", async (changed: { file: string }) => {
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-editor:look", (look: unknown) => emit(EDITOR_LOOK, look));
+  (import.meta.hot as unknown as ViteHotContext).on("cmux-editor:content", async (changed: { file: string }) => {
     if (!file || changed.file !== file) return;
     const { body } = await op("cmux.editor.read", {});
     emit(EDITOR_CHANGES, body.deleted ? { path: file, hash: null, deleted: true } : { path: file, ...body });

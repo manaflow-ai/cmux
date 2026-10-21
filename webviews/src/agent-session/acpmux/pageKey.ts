@@ -25,6 +25,7 @@ export function installPageKey(doc: Document = document): () => void {
   view.addEventListener("blur", away);
   doc.addEventListener("visibilitychange", check);
   doc.addEventListener("pointerdown", key, true);
+  // ui-allow: a key press only marks the page key; it handles no key.
   doc.addEventListener("keydown", key, true);
   return () => {
     view.removeEventListener("focus", key);

@@ -22,6 +22,75 @@ impl<'a> Printer<'a> {
         Self { json, out }
     }
 
+    pub fn overlay_policy(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let policy: cmux_vm_client::types::DeviceOverlayPolicy = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!("device {}", policy.device_id.as_str()))?;
+        self.line(&format!("ACL version {}", policy.acl_version))?;
+        self.line(&format!("policy {}", policy.policy_digest.as_str()))?;
+        if policy.peers.is_empty() {
+            return self.line("no permitted device peers");
+        }
+        for peer in policy.peers {
+            for (direction, allowed) in [("inbound", peer.inbound), ("outbound", peer.outbound)] {
+                for rule in allowed {
+                    let port = rule
+                        .port
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "*".into());
+                    self.line(&format!(
+                        "{} {direction} {}:{port}",
+                        peer.device_id.as_str(),
+                        rule.protocol
+                    ))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn overlay_server(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let server: cmux_vm_client::types::OverlayServer = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} {}",
+            server.id.as_str(),
+            server.name.escape_debug()
+        ))
+    }
+
+    pub fn overlay_server_code(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let grant: cmux_vm_client::types::OverlayServerCode = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        self.line(&format!(
+            "{} reserved {} expires {}",
+            grant.code.as_str(),
+            grant.device_id.as_str(),
+            grant.expires_at.escape_debug()
+        ))
+    }
+
+    pub fn overlay_server_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let list: cmux_vm_client::types::OverlayServerList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        for server in list.items {
+            self.line(&format!(
+                "{} {}",
+                server.id.as_str(),
+                server.name.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
     pub fn vm(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);

@@ -42,6 +42,8 @@ final class HomeHostView: NSView {
     private var isWorking = false
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
+    /// Where attachments open and their right-click menu (the transcript holds it weakly).
+    private var fileActions: HomeFileActions?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -80,30 +82,56 @@ final class HomeHostView: NSView {
                 self?.settingsView.setHost(place: host.place, switchTo: host.switchTo)
             }
         }
-        settingsView.onShowMemory = { [weak services] in
-            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
-        }
-        settingsView.onRename = { [weak service] name in
-            guard let connection = service?.connection else { return }
-            // task-owner: one op; ends with its reply
-            Task {
-                let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
-                _ = try? await CmuxNextDaemon.ConversationClient(connection).op(
-                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
+        // Show Memory: this conversation's Chief (a named local Chief, or a
+        // cloud Chief's paired server), not only the default one.
+        settingsView.onShowMemory = { [weak self, weak services] in
+            var invocation = ActionInvocation(origin: .user)
+            if let control = self?.control {
+                if let machine = control.server?.machineID {
+                    invocation.arguments["server"] = .string(machine)
+                } else if let chief = control.named {
+                    invocation.arguments["chief"] = .string(chief)
+                }
             }
+            _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
-        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor for the toggle
-            Task { @MainActor in self?.toggleChiefSettings() }
+        settingsView.checkHarness = { [weak services] id in (try? await services?.agentHarnesses.doctor(id: id))?["ok"]?.boolValue == true }
+        settingsView.onRename = { [weak service] name in
+            // One op; the daemon refusing it (or no daemon, or one without the op) is false, and the card says so.
+            guard let connection = service?.connection else { return false }
+            let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
+            return (try? await CmuxNextDaemon.ConversationClient(connection).op(
+                CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))) != nil
+        }
+        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] note in
+            // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
+            Task { @MainActor [target = (note.object as? NSWindow).map(ObjectIdentifier.init)] in if let self, HomeChiefSettingsPopover.answersToggle(for: target, in: self.window) { self.toggleChiefSettings() } }
         }
         // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
         let registry = services.registry
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
-        transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
+        // folder in a Files tab); right-click has Open With (HomeFileActions).
+        let fileActions = HomeFileActions(services: services)
+        self.fileActions = fileActions
+        transcript.fileHost = fileActions
+        transcript.onAppLink = { [weak services, weak fileActions] url in
+            if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
+            if let services { CmuxAppLinks.open(url, services: services) }
+        }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
-        transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
+        // Beside the pane showing this chat (the Home dock's: the first pane on its right), never the focused pane.
+        transcript.onOpenLink = { [weak self] url, other in
+            if let self { LinkRouter.shared.open(url, otherTarget: other, from: self) } else { LinkRouter.shared.open(url, otherTarget: other) }
+        }
+        // A link pressed and moved: dragged into the layout's drop zones, a split or a pane opens it (LinkDragSession).
+        transcript.onDragLink = { [weak services] url, point in services?.linkDrags.begin(url, screenPoint: point) ?? false }
+        // Forward… on a bubble: Send to… with its text (the palette asks where).
+        transcript.onForward = { text in
+            _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+        }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
@@ -150,6 +178,7 @@ final class HomeHostView: NSView {
             let id: ActionID = switch action {
             case .openTerminal: Self.openTerminalAction
             case .startAgent: Self.startAgentAction
+            case .togglePet: "home.toggleChiefPet"
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
@@ -332,8 +361,7 @@ final class HomeHostView: NSView {
             guard let self, control.brainHome == home else { return }
             let picture = avatar.picture.flatMap(NSImage.init(data:))
             let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
-            transcript.avatarPicture = picture
-            transcript.avatarText = text
+            transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
             settingsView.setAvatar(picture: picture, text: text)
         }
     }

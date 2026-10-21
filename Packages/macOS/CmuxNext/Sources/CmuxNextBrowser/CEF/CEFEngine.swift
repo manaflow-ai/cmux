@@ -243,6 +243,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.builtInAdBlockerSetting = newValue }
     }
 
+    /// The managed preference domain Chromium reads Chrome enterprise policies
+    /// from (`com.google.Chrome`), asked once when Chromium starts; nil reads none.
+    public var chromePolicyID: @MainActor () -> String? {
+        get { CEFRuntime.shared.chromePolicyIDSetting }
+        set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
+    }
+
     /// What modified link clicks do (cmux.json `browser.links.*`;
     /// process-wide, read on each request).
     public var linkClicks: BrowserLinkClickMapping {

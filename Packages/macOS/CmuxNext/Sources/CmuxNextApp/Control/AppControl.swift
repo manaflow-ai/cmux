@@ -42,6 +42,7 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
@@ -75,10 +76,9 @@ final class AppControl {
         // Diagnostics for tagged DEV builds; a release build registers no debug.* method
         // (ControlRouter drops them too: Configuration.allowsDebugMethods).
         #if DEBUG
-        let probe = frameProbe
-        service.router.register(DebugWindowsControl.methods(services))
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
-            .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
+            .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
             .mainActor("debug.motion") { [weak services] call in .value(DebugMotion.handle(call.params, services)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
@@ -235,6 +235,11 @@ final class AppControl {
             .mainActor("debug.agent_cursor.demo") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursorDemo.handle(call.params, services: services))
+            },
+            // A click on an agent cursor's name tag, as the person's (the tag is a link).
+            .mainActor("debug.agent_cursor.click_tag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }

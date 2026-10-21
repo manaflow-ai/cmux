@@ -1,9 +1,10 @@
 // The update surfaces of the What's New system (cx-urd.61, Lawrence picked card A and popover A,
 // 2026-10-11), in the same tokens and type steps as the changelog page:
 //  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
-//    sidebar card (Leo 2026-10-13), a quiet eyebrow with the short version ("Updated to nightly
-//    3845050"), the update's top changes listed one line each (u2441, gallery #01 "Compact list",
-//    2026-10-19; else "What's new in this build"), the count of the changes not listed and one
+//    sidebar card (Leo 2026-10-13), a quiet eyebrow with the version and date in words ("Updated to
+//    Nightly · Oct 20", the full build in its tooltip; Lawrence 2026-10-20), the top change as the
+//    headline and the next ones as bullets (2026-10-20: "not descriptive enough at all"; the release
+//    gate fails a build with none, so "What's new in this build" is a last resort), the count of the changes not listed and one
 //    button on one row. The x shows only on hover or keyboard focus. A change title has no
 //    tooltip, even cut off (Leo 2026-10-19: no hover preview on change titles). Share cmux is the
 //    palette's (app.shareCmux).
@@ -30,6 +31,27 @@ export function cardVersion(version: string): string {
   return match ? `nightly ${match[1]!.slice(0, 7)}` : version;
 }
 
+/** The Updated card's version in words (2026-10-20, Lawrence: "not descriptive enough at all"):
+ * "Nightly · Oct 20" for a nightly, "1.2.0 · Oct 20" for a release; the date is the build's, in the
+ * page's language. The raw build stays in the eyebrow's tooltip. */
+export function cardLabel(version: string, date: string | null | undefined, strings: Strings): string {
+  const name = /^[^-]+-nightly\.\d+$/.test(version) ? strings.t("updates.card.nightly") : version;
+  const day = date ? readableDay(date, strings.language) : null;
+  return day ? `${name} · ${day}` : name;
+}
+
+/** "2026-10-20" as "Oct 20" in `language`; null when it is not a date. */
+function readableDay(date: string, language: string): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return null;
+  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  try {
+    return new Intl.DateTimeFormat(language, { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
+  } catch {
+    return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" }).format(day);
+  }
+}
+
 export function UpdatedCard({
   data,
   strings,
@@ -42,8 +64,9 @@ export function UpdatedCard({
   const titleId = useId();
   return (
     <section className="wn-card" aria-labelledby={titleId}>
-      <div className="wn-card-eyebrow" id={titleId}>
-        {strings.format("updates.card.updatedTo", cardVersion(data.version))}
+      {/* tooltip-allow: the eyebrow says the version in words; the tooltip names the full build. */}
+      <div className="wn-card-eyebrow" id={titleId} title={data.version}>
+        {strings.format("updates.card.updatedTo", cardLabel(data.version, data.date, strings))}
       </div>
       {actions.dismiss && (
         <button
@@ -58,14 +81,13 @@ export function UpdatedCard({
           </svg>
         </button>
       )}
-      {data.items.length > 0 ? (
+      <div className="wn-card-headline">{data.items[0]?.title ?? strings.t("updates.card.whatsNewInBuild")}</div>
+      {data.items.length > 1 && (
         <ul className="wn-card-changes">
-          {data.items.map((item) => (
+          {data.items.slice(1).map((item) => (
             <li key={item.id}>{item.title}</li>
           ))}
         </ul>
-      ) : (
-        <div className="wn-card-headline">{strings.t("updates.card.whatsNewInBuild")}</div>
       )}
       <div className="wn-card-actions">
         {data.items.length > 0 && data.moreCount > 0 && (

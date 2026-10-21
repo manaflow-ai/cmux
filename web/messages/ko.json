@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "필수: 이 머신은 팀과 공유됩니다" },
   "agentHarness": {
     "title": "감지된 하네스 구성",
     "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
