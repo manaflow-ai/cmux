@@ -68,6 +68,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
+    /// true: the page lists only its own connection's chats, not the store every page shares
+    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    public var privateChatLists: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -91,6 +94,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 
@@ -109,6 +113,10 @@ extension AgentPaneNewTab {
         if local {
             page.host = AgentPaneModel.localMachineDisplayName
             page.warm = Self.warmed
+        } else {
+            // Another machine's page lists its own chats, never the ones this Mac's pages share
+            // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
+            page.privateChatLists = true
         }
         return page
     }

@@ -6,6 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
+    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
+    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
+    static var rowTrailingTrim: CGFloat { Metrics.space4 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
