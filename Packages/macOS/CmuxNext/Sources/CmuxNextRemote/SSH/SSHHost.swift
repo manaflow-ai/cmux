@@ -40,7 +40,7 @@ public struct SSHHost: Hashable, Sendable {
         self.remoteBinary = remoteBinary
         self.remoteStateDir = remoteStateDir
         self.remoteMuxSocket = remoteMuxSocket
-        name = Self.displayName(label)
+        self.name = Self.displayName(label)
     }
 
     /// The same machine under `name` (nil goes back to the host's name).
