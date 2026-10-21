@@ -59,12 +59,17 @@ public final class WindowMaterialView: NSView {
     private var loadedTexture: BackdropTexture?
     /// The appearance the art loaded for: a dynamic Apple picture or shipped video has one of each.
     private var loadedDark = false
+    /// The desktop's ``DesktopWallpaperWatch/generation`` the Desktop Wallpaper art loaded for.
+    private var loadedDesktopGeneration = 0
     /// The last `apply`, run again when the appearance flips under art that follows it.
     private var applied: (backdrop: WindowBackdrop, tint: NSColor)?
     /// A video wallpaper over the art (its poster), playing while seen (``BackdropVideoView``).
     public let videoView: BackdropVideoView
     private var artImage: NSImage?
     private let images: BackdropImageStore
+    /// The desktop picture: its color leans the tint (`appearance.wallpaperTint`), and the
+    /// Desktop Wallpaper art reloads when it changes.
+    private let wallpaper: DesktopWallpaperWatch
     /// Loads the art the last `apply` asked for when it was not decoded yet.
     private var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
@@ -84,8 +89,11 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
+    /// - Parameter wallpaper: The desktop picture the tint and the Desktop Wallpaper art follow.
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+                wallpaper: DesktopWallpaperWatch = .shared) {
         self.images = images
+        self.wallpaper = wallpaper
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
@@ -113,6 +121,7 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.layer?.opacity = 0
         addSubview(inactiveTintView)
         setAccessibilityElement(false)
+        wallpaper.register(self)
     }
 
     @available(*, unavailable)
@@ -159,6 +168,8 @@ public final class WindowMaterialView: NSView {
 
     override public func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        // The app's appearance has flipped by now; macOS's own notice can come before it does.
+        wallpaper.appearanceDidChange()
         // A dynamic Apple picture or a shipped video has a light and a dark file.
         if let applied, applied.backdrop.selection?.followsAppearance == true { apply(applied.backdrop, tint: applied.tint) }
     }
@@ -304,11 +315,15 @@ public final class WindowMaterialView: NSView {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let shown = backdrop.selection ?? backdrop.art.map(BackdropSelection.art)
         let flipped = shown?.followsAppearance == true && loadedDark != dark
-        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped {
+        // The desktop moved on (a new picture, a Space with its own): the Desktop Wallpaper reloads.
+        let desktopMoved = shown == .desktop && loadedDesktopGeneration != wallpaper.generation
+        if loadedSelection != backdrop.selection || loadedArt != backdrop.art || loadedTexture != backdrop.texture || flipped || desktopMoved {
             loadedSelection = backdrop.selection
             loadedArt = backdrop.art
             loadedTexture = backdrop.texture
             loadedDark = dark
+            loadedDesktopGeneration = wallpaper.generation
+            if shown == .desktop { images.forgetDesktopPicture(olderThan: wallpaper.generation) }
             artLoad?.cancel()
             artLoad = nil
             let texture = backdrop.texture
@@ -347,7 +362,10 @@ public final class WindowMaterialView: NSView {
         // Frosted over art blurs the art itself (and a video over it), by the material's radius.
         applyArtBlur(backdrop.artBlurRadius)
         let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
-        let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
+        // Where the desktop shows through, the tint takes its picture's hue (appearance.wallpaperTint).
+        let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: DesignSettings.shared.wallpaperTint,
+                                        material: backdrop.material, shown: shown)
+        let color = tunedTint(leaned, tuning: backdrop.tuning).withAlphaComponent(alpha)
         tintAlpha = alpha
         washColor = material == .opaque ? nil : color.withAlphaComponent(1).cgColor
         let glass = materialView as? GlassPanelView
@@ -368,6 +386,15 @@ public final class WindowMaterialView: NSView {
             }
         }
         updateInactiveTint()
+    }
+
+    /// The desktop picture or its color changed (``DesktopWallpaperWatch``), or
+    /// `appearance.wallpaperTint` did: a view that shows the desktop applies its backdrop again.
+    func desktopWallpaperDidChange() {
+        guard let applied else { return }
+        let shown = applied.backdrop.selection ?? applied.backdrop.art.map(BackdropSelection.art)
+        guard shown == nil || shown == .desktop else { return }
+        apply(applied.backdrop, tint: applied.tint)
     }
 
     private func showArt(_ image: NSImage?) {

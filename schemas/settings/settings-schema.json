@@ -361,7 +361,8 @@
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
-              "appearance.inactiveWindowDim"
+              "appearance.inactiveWindowDim",
+              "appearance.wallpaperTint"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -789,6 +790,7 @@
             "key" : "settings.group.subsessions",
             "rows" : [
               "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
               "agents.subsessions.maxDepth"
             ],
@@ -4878,6 +4880,56 @@
       "title" : {
         "key" : "settings.agents.subsessions.enabled",
         "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.answerQuestions.help",
+        "text" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.answerQuestions",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "question",
+        "answer",
+        "coordinator",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "answerQuestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.answerQuestions",
+        "text" : "Let Sessions Answer Their Sub-sessions' Questions"
       },
       "validation" : "portable"
     },
@@ -11420,6 +11472,58 @@
       "title" : {
         "key" : "settings.appearance.inactiveWindowDim",
         "text" : "Dim Inactive Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.wallpaperTint.help",
+        "text" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.wallpaperTint",
+      "keywords" : [
+        "wallpaper",
+        "desktop",
+        "tint",
+        "tinting",
+        "glass",
+        "color",
+        "colour",
+        "space",
+        "background"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "wallpaperTint"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.wallpaperTint",
+        "text" : "Tint with Desktop Wallpaper"
       },
       "validation" : "portable"
     },
