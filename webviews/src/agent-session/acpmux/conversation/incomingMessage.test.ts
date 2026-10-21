@@ -149,3 +149,19 @@ test("numeric entities decode", () => {
   );
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
 });
+
+// Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
+// names every sender once, and the text is the prompt as the agent got it.
+test("an agent_digest is one card from its senders", () => {
+  const text = "2 messages from other agents arrived while you were busy.\n\n[agent message 1 of 2] from lane-a\nhi";
+  const digest = (...from: string[]) => ({
+    _meta: { provenance: { kind: "agent_digest", messages: from.map((f, i) => ({ promptId: `p${i}`, from: f })) } },
+  });
+  expect(incomingPrompt(text, digest("lane-a", "lane-b", "lane-a"))).toEqual({
+    kind: "message",
+    message: { name: "lane-a, lane-b", text, raw: text },
+  });
+  expect(incomingPrompt(text, digest("a", "b", "c", "d", "e"))).toMatchObject({ message: { name: "a, b, c +2" } });
+  // No sender named: the person's prompt, as before.
+  expect(incomingPrompt(text, digest())).toBeUndefined();
+});

@@ -33,6 +33,22 @@ export function incomingPrompt(
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
+  // hub/digest.rs `agent_digest`): one card from their senders, every message in it as sent.
+  if (provenance?.kind === "agent_digest" && Array.isArray(provenance.messages)) {
+    const senders = [
+      ...new Set(
+        provenance.messages
+          .map((m) => (m as { from?: unknown } | null)?.from)
+          .filter((from): from is string => typeof from === "string" && from.trim() !== "")
+          .map((from) => from.trim()),
+      ),
+    ];
+    if (senders.length > 0) {
+      const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
+      return { kind: "message", message: { name, text: text.trim(), raw: text } };
+    }
+  }
   if (provenance?.kind === "agent_message" && typeof provenance.from === "string" && provenance.from) {
     const name =
       typeof provenance.fromName === "string" && provenance.fromName.trim()
