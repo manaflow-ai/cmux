@@ -1,10 +1,11 @@
 // The chat's pull requests above the composer (cx-ncc.81, Claude desktop's PR bars): each one a
 // `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
 // title and state, each a chip as wide as its text, its title cut off only when the composer's
-// column is full (then the full name and title are a hover away), with its dismiss button inside. The chat folder's pull request, which the header chip follows live, shows its
-// live state and title. The newest two show and the rest wait behind Show more; a dismissed bar
-// stays hidden for this chat (the page's storage, so a reload keeps it hidden).
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+// column is full, with its dismiss button inside. The chat folder's pull request, which the header
+// chip follows live, shows its live state and title. The newest two show and the rest wait behind
+// Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
+// hidden).
+import { useEffect, useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -52,17 +53,6 @@ function shown(
   return { state: pr.state, title: pr.title ?? "", labeled: pr.state !== "open" };
 }
 
-/// The bar's full name and title as its tooltip, only while its text is cut off: the bar shows
-/// its text, so a bar that fits has none (test/tooltip-rules.ts).
-function titleWhenCutOff(event: PointerEvent<HTMLElement>, full: string) {
-  const bar = event.currentTarget;
-  const cut = [...bar.querySelectorAll<HTMLElement>(".acpmux-pr-dock__repo, .acpmux-pr-dock__title")].some(
-    (text) => text.scrollWidth > text.clientWidth,
-  );
-  if (cut) bar.title = full;
-  else bar.removeAttribute("title");
-}
-
 /// Mount keyed by the chat: dismissals and Show more belong to one chat.
 export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[]; sessionId?: string }) {
   const t = useT();
@@ -102,12 +92,7 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
         const badge = BADGES[state];
         return (
           <div key={pr.url} className="acpmux-pr-dock__chip">
-            <a
-              className="acpmux-pr-dock__bar"
-              href={pr.url}
-              data-state={state}
-              onPointerEnter={(event) => titleWhenCutOff(event, `${pr.repo}#${pr.number} ${title}`.trim())}
-            >
+            <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state}>
               <Icon name="git.pullrequest" size={13} />
               <span className="acpmux-pr-dock__number">#{pr.number}</span>
               <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
