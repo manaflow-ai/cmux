@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 const DELAY_MS: &str = "400";
 const RECHECK_MS: &str = "100";
 /// Well past the delay: a daemon that should stop has stopped by then.
+#[cfg(target_os = "macos")]
 const STOPS_WITHIN: Duration = Duration::from_secs(20);
 /// Many delays long: a daemon that should keep serving is still up.
 const KEEPS_FOR: Duration = Duration::from_secs(4);
