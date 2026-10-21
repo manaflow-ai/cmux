@@ -208,7 +208,7 @@ final class SidebarRegionView: NSView {
     }
 
     /// Icon + label width of every item of an inline section; the profile
-    /// control's avatar + chevron width where the line has room for it.
+    /// control's avatar + name width where the line has room for it.
     private static func labelWidths(_ content: Content, width: CGFloat) -> [LayoutItemID: CGFloat] {
         var widths: [LayoutItemID: CGFloat] = [:]
         let font = SidebarStyle.titleFont
@@ -219,8 +219,8 @@ final class SidebarRegionView: NSView {
             for item in section.items {
                 let info = content.infos[item.id] ?? .fallback(for: item)
                 // The profile control alone on an inline line (the default footer) is one chip,
-                // avatar and chevron, whether or not the item asks for a label (#14893; no name,
-                // Lawrence 2026-10-20); without room, or beside other items, it keeps its look.
+                // avatar, name and chevron, whether or not the item asks for a label (Leo
+                // 2026-10-20, #14893); without room, or beside other items, it keeps its look.
                 if info.avatar != nil, section.arrangement.layout == .inline, section.items.count == 1 {
                     widths[item.id] = SidebarItemRowView.profileChipWidth(rowHeight: content.metrics.rowHeight, available: line)
                 } else if item.showsLabel {

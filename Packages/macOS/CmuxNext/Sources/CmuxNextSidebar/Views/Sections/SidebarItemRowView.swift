@@ -134,7 +134,7 @@ class SidebarItemRowView: NSView {
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
         // An icon names itself (and its shortcut) in its tooltip; a tile's
         // caption can truncate, so it keeps the full title.
-        // The profile chip never draws its name, so it keeps the profile's.
+        // The profile chip's name can truncate too, so it keeps the profile's.
         themedToolTip = style.isIconOnly || (info.avatar != nil && style == .chip) ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         applyAvatar()

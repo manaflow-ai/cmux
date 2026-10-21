@@ -5,14 +5,13 @@ import CmuxNextIcons
 // The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): an
 // item whose info carries an avatar draws `avatarView` (the profile's
 // initial or picture in a circle) instead of its glyph. Where the footer has
-// room it is one chip, the avatar and a trailing chevron (#14893); the name
-// shows only in its tooltip and menu (Lawrence 2026-10-20: "should not show
-// name down here, only icon"). In a narrow sidebar, the avatar alone.
+// room it is one chip, avatar, name and a trailing chevron (Leo 2026-10-20,
+// after the legacy footer redesign #14893); in a narrow sidebar, the avatar alone.
 extension SidebarItemRowView {
     /// The item draws the profile control.
     var showsAvatar: Bool { info.avatar != nil && (style.isIconOnly || style == .chip) }
 
-    /// The profile control as a chip: the avatar and the chevron.
+    /// The profile control as a chip: the avatar, the name, the chevron.
     var isProfileChip: Bool { showsAvatar && style == .chip }
 
     /// Shows the avatar or the glyph after a configure; the profile control
@@ -45,8 +44,14 @@ extension SidebarItemRowView {
             let chevronX = snap(bounds.width - Metrics.space2 - cs)
             icon.image = NSImage.icon(symbol: Self.profileChevronSymbol, size: cs)
             icon.frame = NSRect(x: chevronX, y: snap((bounds.height - cs) / 2), width: cs, height: cs)
-            // The name is the tooltip and the menu's, never drawn here.
-            title.frame = .zero
+            let font = SidebarStyle.titleFont
+            title.font = font
+            let th = ceil(title.intrinsicContentSize.height)
+            let textX = pad + d + Metrics.space2
+            let textWidth = chevronX - Metrics.space1 - textX
+            // The avatar and chevron alone where the name has no room (#14893).
+            title.frame = textWidth < font.pointSize * 3 ? .zero
+                : NSRect(x: textX, y: (bounds.height - th) / 2, width: textWidth, height: th)
         } else {
             avatarView.frame = bounds
             title.frame = .zero
@@ -66,16 +71,21 @@ extension SidebarItemRowView {
     static let profileChevronSymbol = "chevron.up"
     static var profileChevronSide: CGFloat { (SidebarStyle.titleFont.pointSize * 0.75).rounded() }
 
-    /// Width of the profile chip on a line `available` points wide: the
-    /// avatar and the chevron, where they fit beside the Search button, its
-    /// gaps and room for the spaces dots after it; nil where they do not: the
-    /// avatar alone.
+    /// The widest the profile chip grows.
+    static let profileChipMaxWidth: CGFloat = 220
+
+    /// Width of the profile chip on a line `available` points wide: it fills
+    /// the line's free width (#14893), less the Search button, its gaps and
+    /// room for the spaces dots after it, up to `profileChipMaxWidth`. The
+    /// name truncates as the line narrows, then the chip drops to the avatar
+    /// and chevron; nil where even those do not fit: the avatar alone.
     static func profileChipWidth(rowHeight: CGFloat, available: CGFloat) -> CGFloat? {
         let pad = profileChipPadding(rowHeight: rowHeight)
         // Search is sized as `SidebarFooterBand.placeSearch` sizes it.
         let search = max(SidebarFooterBand.searchButtonMinSide, Metrics.sidebarRowHeight)
         let reserve = search + Metrics.space2 * 2 + rowHeight * 2
-        let compact = (pad + SidebarStyle.avatarDiameter + Metrics.space2 + profileChevronSide + Metrics.space2).rounded(.up)
-        return available - reserve >= compact ? compact : nil
+        let width = min(profileChipMaxWidth, available - reserve).rounded(.down)
+        let compact = pad + SidebarStyle.avatarDiameter + Metrics.space2 + profileChevronSide + Metrics.space2
+        return width >= compact ? width : nil
     }
 }
