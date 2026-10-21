@@ -28,6 +28,7 @@ const keys = [
   "cancelAnimationFrame",
   "localStorage",
   "KeyboardEvent",
+  "InputEvent",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -35,7 +36,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -56,6 +60,7 @@ beforeAll(() => {
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
     KeyboardEvent: window.KeyboardEvent,
+    InputEvent: window.InputEvent,
   });
   host = window.document.getElementById("root")!;
 });
@@ -146,7 +151,12 @@ async function press(snapshot: AcpmuxSnapshot, command: boolean): Promise<(boole
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
   await act(async () => {
     field.dispatchEvent(
-      new window.KeyboardEvent("keydown", { key: "Enter", metaKey: command, bubbles: true, cancelable: true }),
+      new window.KeyboardEvent("keydown", {
+        key: "Enter",
+        metaKey: command,
+        bubbles: true,
+        cancelable: true,
+      }),
     );
   });
   return steers;
@@ -185,7 +195,14 @@ test("with only an attachment staged, Return steers it and ⌘Return queues it",
       return true;
     },
   });
-  const note = { id: "a", kind: "text" as const, name: "notes.txt", mimeType: "text/plain", size: 5, text: "notes" };
+  const note = {
+    id: "a",
+    kind: "text" as const,
+    name: "notes.txt",
+    mimeType: "text/plain",
+    size: 5,
+    text: "notes",
+  };
   await act(async () => handle!.restore("", [note]));
   expect(shown()).toBe("↵ steer · ⌘↵ queue");
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
@@ -193,7 +210,12 @@ test("with only an attachment staged, Return steers it and ⌘Return queues it",
     await act(async () => handle!.restore("", [note]));
     await act(async () => {
       field.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "Enter", metaKey, bubbles: true, cancelable: true }),
+        new window.KeyboardEvent("keydown", {
+          key: "Enter",
+          metaKey,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
     });
   }
@@ -213,4 +235,55 @@ test("an idle chat keeps the usual placeholder", async () => {
 test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
   await render(started({ isWorking: true }), {});
   expect(shown()).toBe("Do anything");
+});
+
+// Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and
+// Return added a line instead of sending. macOS Dictation (like an IME) ends its text with the
+// Return key as keyCode 229, which every key handler leaves to the input method, and WebKit then
+// inserts the paragraph. Return never adds a line in the composer (Shift-Return does): the
+// paragraph input sends instead.
+test("a Return the input method passed on as a new paragraph sends, never adds a line", async () => {
+  const sent: { text: string; steer?: boolean }[] = [];
+  let handle: ComposerHandle | null = null;
+  await render(
+    steering({
+      isWorking: true,
+      queue: [
+        { id: "q1", prompt: "one" },
+        { id: "q2", prompt: "two" },
+        { id: "q3", prompt: "three" },
+      ],
+    }),
+    undefined,
+    {
+      handle: (value) => void (handle = value),
+      onSend: (text, _attachments, steer) => {
+        sent.push({ text, steer });
+        return true;
+      },
+    },
+  );
+  await act(async () => handle!.restore("What is Spotlight?", []));
+  const field = host.querySelector<HTMLElement>("[role=combobox]")!;
+  let inserted = true;
+  await act(async () => {
+    field.dispatchEvent(
+      new window.KeyboardEvent("keydown", {
+        key: "Enter",
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    const paragraph = new window.InputEvent("beforeinput", {
+      inputType: "insertParagraph",
+      bubbles: true,
+      cancelable: true,
+    });
+    inserted = field.dispatchEvent(paragraph);
+  });
+  expect({ sent, inserted }).toEqual({
+    sent: [{ text: "What is Spotlight?", steer: true }],
+    inserted: false,
+  });
 });
