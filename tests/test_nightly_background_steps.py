@@ -54,11 +54,20 @@ class BackgroundStepTests(unittest.TestCase):
         shutil.copy(CHECKER, self.ws / "scripts/ci" / CHECKER.name)
         self.runner_temp = self.tmp / "runner-temp"
         self.runner_temp.mkdir()
+        self.path = os.environ["PATH"]
+        if shutil.which("ditto") is None:
+            # This test runs on Linux, where cp -c is not clonefile(2) and
+            # ditto, the step's fallback copy, does not exist.
+            shim = self.tmp / "bin"
+            shim.mkdir()
+            (shim / "ditto").write_text('#!/bin/sh\nexec cp -a "$1" "$2"\n')
+            (shim / "ditto").chmod(0o755)
+            self.path = f"{shim}{os.pathsep}{self.path}"
 
     def run_step(self, job: str, name: str) -> subprocess.CompletedProcess:
         # Each step is its own shell, as on the runner: the background job
         # outlives the step that started it.
-        env = {**os.environ, "RUNNER_TEMP": str(self.runner_temp)}
+        env = {**os.environ, "PATH": self.path, "RUNNER_TEMP": str(self.runner_temp)}
         return subprocess.run(["bash", "-e", "-c", step(job, name)["run"]], cwd=self.ws, env=env,
                               text=True, capture_output=True, timeout=60)
 

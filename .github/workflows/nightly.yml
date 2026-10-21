@@ -2811,8 +2811,11 @@ jobs:
           mkdir -p "$state/snapshot"
           # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
           app="build-universal/Build/Products/Release/cmux.app"
-          cp -cR "$app" "$state/snapshot/cmux.app" 2>/dev/null \
-            || { rm -rf "$state/snapshot/cmux.app"; ditto "$app" "$state/snapshot/cmux.app"; }
+          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
+            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
+            rm -rf "$state/snapshot/cmux.app"
+            ditto "$app" "$state/snapshot/cmux.app"
+          fi
           mkfifo "$state/status.fifo"
           (
             status=0
