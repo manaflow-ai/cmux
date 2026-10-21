@@ -50,6 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -86,7 +87,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, type ComposerAttachment } from "./attachments";
+import { audioAttachment, linkAttachment, type ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -164,7 +165,7 @@ import {
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
-import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
+import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
@@ -218,7 +219,7 @@ import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
-import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
+import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
@@ -2503,12 +2504,17 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
+  // The latest prompt shows its action row always, as Claude Code desktop's (UserBubble.tsx).
+  let lastPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && !lastPromptId; index -= 1)
+    if (rows[index]!.kind === "user" && !rows[index]!.failed && !rows[index]!.queued) lastPromptId = rows[index]!.id;
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
+      node.toggleAttribute("data-last-prompt", node.dataset.rowId === lastPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId]);
+  }, [lastTurnId, lastPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
@@ -3045,6 +3051,9 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
+  // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
+  const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
+  const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -3684,6 +3693,7 @@ function AcpmuxPane() {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
         forkAny,
+        promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
       ...(stableEditSeqs.size > 0 && {
@@ -3736,6 +3746,7 @@ function AcpmuxPane() {
       forkable,
       forkSeq,
       forkAny,
+      stablePromptSeqs,
       stableEditSeqs,
       connected,
       hunkReview,
@@ -4625,6 +4636,8 @@ function AcpmuxPane() {
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
             if (!mock) {
               rememberRecentFolders(next);
+              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+              publishSessions(next);
               // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
               publishWarmNewTab(
                 next,
@@ -5321,6 +5334,15 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // Sources' +: the host's panel picks files and folders on this computer, which the composer holds
+  // as links for the next prompt (resource_link blocks: the agent reads them where they are).
+  const attachLinks = async () => {
+    const picked = await callNative<{ items?: { path?: unknown; folder?: unknown }[] } | null>("chat.attach.choose");
+    for (const item of picked?.items ?? [])
+      if (typeof item.path === "string" && item.path.startsWith("/"))
+        composerHandle.current?.attach(linkAttachment(item.path, item.folder === true));
+    composerHandle.current?.focus();
+  };
   // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
   // every click, whatever the header's Terminal and Browser buttons do.
   const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
@@ -5579,13 +5601,24 @@ function AcpmuxPane() {
   // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
   const warmSessions = useWarmNewTabSessions();
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
+  // list any page received, drawn on its first frame and updated in place when another page hears a
+  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
+  // whose daemon is down list this page's own (`sharesChatList`).
+  const newTabSessions = useSharedSessions(
+    carriedSessions ?? composerSnapshot.sessions,
+    sharesChatList(newTab, composerSnapshot),
+  );
   const newTabSnapshot = useMemo(
-    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
-    [composerSnapshot, carriedSessions],
+    () =>
+      newTabSessions === composerSnapshot.sessions
+        ? composerSnapshot
+        : { ...composerSnapshot, sessions: newTabSessions },
+    [composerSnapshot, newTabSessions],
   );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
-    !carriedSessions &&
+    newTabSessions.length === 0 &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
     composerSnapshot.connection !== "disconnected" &&
@@ -5600,14 +5633,14 @@ function AcpmuxPane() {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
-    for (const session of composerSnapshot.sessions) {
+    for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
@@ -6324,6 +6357,9 @@ function AcpmuxPane() {
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
+            // The picks are this computer's files: only a chat whose folder is here (not a peer's or
+            // another host's) and not Quick Chat.
+            onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -6442,7 +6478,7 @@ function AcpmuxPane() {
           ) : showNewTab ? (
             <NewTabPage
               key={newTabGeneration}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
@@ -6501,6 +6537,7 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"

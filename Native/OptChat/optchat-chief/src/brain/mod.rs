@@ -260,8 +260,7 @@ pub enum Input {
     },
     /// Once a minute while subagents work: stuck detection (control.rs).
     SubTick,
-    /// Changes a per-Chief setting (`chief_settings`); refused for
-    /// `remote.autoApprove` on during a remote-origin turn.
+    /// Changes a per-Chief setting (`chief_settings`).
     Setting {
         key: String,
         value: String,
@@ -663,25 +662,15 @@ pub struct Brain {
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
-    /// The running turn has a remote origin (a paired device's message, or
-    /// a remote turn it supersedes): the strictest origin wins until it ends.
-    turn_remote: bool,
-    /// The running turn runs with policy `ask` (`turn_why` says why).
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// Why the running turn asks before its local effects (None: it doesn't).
-    turn_why: Option<crate::approval::Why>,
-    /// Requests a person or a stop denied in the running turn
-    /// (`approval::signature`): the same request again is denied at once,
-    /// never asked twice.
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
     turn_denied: Vec<String>,
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
-    /// A remote-origin turn was stopped for a newer message: the turn that
-    /// answers both keeps its origin.
-    remote_taint: bool,
-    /// The running turn's permission requests waiting for a person.
-    approvals: VecDeque<crate::approval::Pending>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -799,13 +788,9 @@ impl Brain {
             keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
-            turn_remote: false,
             turn_ask: false,
-            turn_why: None,
             turn_denied: Vec::new(),
             repeat_denials: 0,
-            remote_taint: false,
-            approvals: VecDeque::new(),
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -1354,23 +1339,13 @@ impl Brain {
         }
     }
 
-    /// Whether `remote.autoApprove` is on.
-    pub fn remote_auto_approve(&self) -> bool {
-        self.chief.remote_auto_approve
-    }
-
-    /// Changes a per-Chief setting and saves it. An approval gate can be
-    /// loosened (`remote.autoApprove` on, `remote.ask` or `home.ask` off)
-    /// only when no remote-origin work is running, settling or queued: never
-    /// by a paired device, nor by a command a remote turn runs (an approved
-    /// shell command reaches the host the same way). Tightening one is
-    /// always allowed.
+    /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
-        if key == crate::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;
             next.cloud_auto_pause_idle_secs = secs;
@@ -1415,47 +1390,9 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        use crate::chief_settings::{HOME_ASK, REMOTE_ASK};
-        if key != REMOTE_AUTO_APPROVE && key != REMOTE_ASK && key != HOME_ASK {
-            return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_ASK}, {HOME_ASK}, {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
-            ));
-        }
-        let on = parse_bool(value)?;
-        // Loosening a gate: autoApprove on, or an ask gate off.
-        let loosens = if key == REMOTE_AUTO_APPROVE { on } else { !on };
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if loosens
-            && (self.turn_ask
-                || self.turn_remote
-                || self.remote_taint
-                || remote_queued
-                || self.ask_child_live())
-        {
-            (self.log)(&format!("refused: {key} = {on} during remote-origin work"));
-            return Err(format!(
-                "refused: {key} can be set to {on} only from the Mac, outside a turn that asks or a paired device started"
-            ));
-        }
-        let mut next = self.chief;
-        match key {
-            REMOTE_ASK => next.remote_ask = on,
-            HOME_ASK => next.home_ask = on,
-            _ => next.remote_auto_approve = on,
-        }
-        next.save(&self.settings.settings_file)
-            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
-        self.chief = next;
-        (self.log)(&format!("setting {key} = {on}"));
-        Ok(format!("{key} = {on}"))
+        Err(format!(
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+        ))
     }
 
     fn queue(&mut self, text: String, source: Source) {

@@ -275,21 +275,25 @@ public final class FilesPaneView: NSView {
 
     // MARK: Quick Look (responder chain)
 
-    override nonisolated public func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    override nonisolated public func acceptsPreviewPanelControl(_ panel: QLPreviewPanel?) -> Bool { true }
 
-    // QLPreviewPanel calls these on the main thread (it is an AppKit panel).
-    override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = quickLook
-            panel.delegate = quickLook
-            quickLook.onKey = { [weak self] event in self?.handleQuickLookKey(event) ?? false }
-        }
+    // QLPreviewPanel calls these on the main thread (it is an AppKit panel); off main (never
+    // seen) the change hops there instead of trapping.
+    override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, true) }; return }
+        MainActor.assumeIsolated { attachQuickLook(panel, true) } // main-proof: checked Thread.isMainThread above
     }
 
-    override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = nil
-            panel.delegate = nil
-        }
+    override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attachQuickLook(panel, false) }; return }
+        MainActor.assumeIsolated { attachQuickLook(panel, false) } // main-proof: checked Thread.isMainThread above
+    }
+
+    private func attachQuickLook(_ panel: QLPreviewPanel, _ on: Bool) {
+        panel.dataSource = on ? quickLook : nil
+        panel.delegate = on ? quickLook : nil
+        if on { quickLook.onKey = { [weak self] event in self?.handleQuickLookKey(event) ?? false } }
     }
 }

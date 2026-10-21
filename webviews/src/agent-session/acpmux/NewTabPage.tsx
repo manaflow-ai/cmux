@@ -105,6 +105,9 @@ export type NewTabHost = {
   pageWidgets?: PageWidget[];
   /// The weather widget's last reading (`tabs.newTabWidgets.weather`, newtab/ambient.ts).
   weather?: NewTabWeather;
+  /// The page lists only its own connection's chats, not the store every page shares (Debug
+  /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
+  privateChatLists?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -155,6 +158,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
     ...(weather ? { weather } : {}),
+    ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
   };
 }
 

@@ -71,6 +71,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
     /// nil while it is off or before the first reading. The page dims one older than its refresh.
     public var weather: AgentPaneNewTabWeather?
+    /// true: the page lists only its own connection's chats, not the store every page shares
+    /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
+    public var privateChatLists: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -94,6 +97,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.inputToken = nil
         // nil follows the Debug Settings toggle, read as each page context is made.
         self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
+        self.privateChatLists = AgentPaneTunables.newTabPrivateChatLists.value ? true : nil
     }
 }
 
@@ -112,6 +116,10 @@ extension AgentPaneNewTab {
         if local {
             page.host = AgentPaneModel.localMachineDisplayName
             page.warm = Self.warmed
+        } else {
+            // Another machine's page lists its own chats, never the ones this Mac's pages share
+            // (webviews newtab/chatStore.ts), not even before its handshake names its origin.
+            page.privateChatLists = true
         }
         return page
     }
