@@ -564,54 +564,23 @@ button.acpmux-chat-inspector-port:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-/* Subagents: one row of avatars; running ones breathe. */
-.acpmux-chat-inspector-avatars {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  min-height: 34px;
-  padding: 2px 8px;
-  box-sizing: border-box;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: default;
+/* Subagents (SubagentsSection.tsx): the running ones' lines, "Show more" under them, then the one
+   row of the ended ones, which opens into their lines. */
+.acpmux-chat-inspector-subagents__more {
+  margin-top: 2px;
 }
-.acpmux-chat-inspector-avatars:hover {
-  background: var(--acpmux-menu-hover);
-}
-.acpmux-chat-inspector-avatars:focus-visible {
-  outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
-}
-.acpmux-chat-inspector-avatars__stack {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.acpmux-chat-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
-  margin-left: -6px;
-}
-.acpmux-chat-inspector-avatars__more {
-  flex: none;
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended {
+  margin-top: 2px;
   color: var(--agent-muted);
-  font-size: var(--text-detail);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-chat-inspector-avatars .cv-subagent-avatar[data-state="running"] {
-    animation: acpmux-chat-inspector-breathe 2.4s ease-in-out infinite;
-  }
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended:hover {
+  color: var(--agent-text);
 }
-@keyframes acpmux-chat-inspector-breathe {
-  50% {
-    opacity: 0.62;
-  }
+.acpmux-chat-inspector-subagents > .acpmux-chat-inspector-subagents__ended > svg {
+  flex: none;
 }
 .acpmux-chat-inspector-subagents__list {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .acpmux-chat-inspector-menu {
   min-width: 180px;

@@ -478,6 +478,35 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head .acpmux-lineage__icon {
   color: var(--agent-accent);
 }
+/* A line's hover card (the Inspector's Subagents): its name, then its state, time and what it does
+   now, then its task, dim; a failed one's state in the danger color. */
+.acpmux-agent-card__popup {
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+.acpmux-agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.acpmux-agent-card__name {
+  color: var(--agent-text, var(--cmux-text));
+  overflow-wrap: anywhere;
+}
+.acpmux-agent-card__state,
+.acpmux-agent-card__task {
+  color: var(--agent-muted, var(--cmux-text-secondary));
+}
+.acpmux-agent-card__state[data-status="failed"] {
+  color: var(--agent-danger);
+}
+.acpmux-agent-card__task {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* ---------- Where a subagent ended (SubagentDoneLine.tsx) ---------- */
 /* A tool row like a background task's end; a failure in the danger color. */

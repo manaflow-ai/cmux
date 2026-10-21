@@ -1,8 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default) as the real ChatInspector renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
-// open, its Changes with line breakdowns, failing checks and owners, its subagents' list open with
-// the chats its agent started, its finished tasks open (a background Bash only the transcript knows
+// open, its Changes with line breakdowns, failing checks and owners, its running subagents and
+// chats named one per line with the ended ones folded into one row (and that row open), a busy
+// chat's seventeen running past "Show more", its finished tasks open (a background Bash only the transcript knows
 // among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
@@ -162,6 +163,27 @@ const full: Props = {
   remoteControl: { on: false, set: () => undefined },
 };
 
+/// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
+/// run (one waits on the person), ninety-four ended and one failed.
+const busyAgents: Subagent[] = Array.from({ length: 107 }, (_, index) => ({
+  id: `busy-${index}`,
+  parent: null,
+  name: `${NAMES[index % NAMES.length]} ${Math.floor(index / NAMES.length) + 1}`,
+  task: "Land one piece of the session panel",
+  state: index < 12 ? "running" : index === 12 ? "failed" : "completed",
+  startedAt: started - (index + 1) * 60_000,
+  ...(index < 12 ? { action: index % 2 ? "Running bun test" : "Reading SubagentsSection.tsx" } : {}),
+  ...(index >= 12 ? { endedAt: started - index * 50_000 } : {}),
+}));
+const LANES = ["summary-panel", "priority-view", "lane-host", "machine-hygiene", "paired-approvals"];
+const busySessions: StartedSession[] = LANES.map((title, index) => ({
+  sessionId: `lane-${index}`,
+  title,
+  state: index === 1 ? "waiting" : "running",
+  createdAt: started - (index + 1) * 300_000,
+}));
+const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
+
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
@@ -181,11 +203,12 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/ServersSection.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
     "agent-session/acpmux/inspector/TasksSection.tsx",
+    "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
   load: async () => GalleryInspector,
   variants: {
     full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
+      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, three running subagents and two running chats named one per line with the 40 done · 1 failed row under them, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
     },
     "context-connectors-open": {
@@ -202,11 +225,23 @@ export default componentEntry<Props>({
       },
     },
     "subagents-open": {
-      note: "A click on the avatar row opens the list of the chat's subagents and the chats it started: Active, then Done.",
+      note: "A click on the ended row (40 done · 1 failed) opens their lines, the failed one first; each opens its subagent or chat.",
       props: full,
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /Show 46 subagents/ });
+        await ctx.click({ role: "button", name: /40 done · 1 failed/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
+      },
+    },
+    "subagents-busy": {
+      note: "A busy coordinator: the first five of seventeen running subagents and chats, the one waiting on the person first, then Show 12 more and the 94 done · 1 failed row.",
+      props: busy,
+    },
+    "subagents-busy-more": {
+      note: "Show 12 more opens every running line; Show less folds them back to five.",
+      props: busy,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /Show 12 more/ });
+        await ctx.waitFor(() => /Show less/.test(text(ctx)));
       },
     },
     "tasks-finished": {

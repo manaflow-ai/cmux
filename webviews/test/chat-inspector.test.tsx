@@ -521,11 +521,20 @@ const subagent = (index: number, state: string): Subagent => ({
   startedAt: index,
 });
 
-test("Subagents is one avatar row with live counts that opens into the list", async () => {
+/// The Subagents lines in order: each one's name and its state.
+const lines = (element: Element) =>
+  [...element.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")].map((line) => [
+    line.querySelector(".acpmux-summary-agent__name")?.textContent,
+    line.querySelector(".acpmux-summary-agent__state")?.textContent,
+  ]);
+const endedRow = (element: Element) =>
+  element.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-subagents__ended");
+
+test("Subagents names each running one on its line, and folds the ended ones into one row that opens", async () => {
   const container = installDom(true);
   const agents = [
     ...[0, 1, 2].map((index) => subagent(index, "running")),
-    ...Array.from({ length: 40 }, (_, index) => subagent(3 + index, "completed")),
+    ...Array.from({ length: 40 }, (_, index) => subagent(3 + index, index === 5 ? "failed" : "completed")),
   ];
   const shown: string[] = [];
   await act(async () => {
@@ -533,18 +542,61 @@ test("Subagents is one avatar row with live counts that opens into the list", as
     root.render(<ChatInspector agents={agents} onOpenSubagent={(id) => shown.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("3 running · 40 done");
-  const row = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!;
-  expect(row.getAttribute("aria-label")).toBe("Show 43 subagents");
-  expect(row.getAttribute("aria-expanded")).toBe("false");
-  // Eight avatars, the running ones first, then "+35".
-  expect(row.querySelectorAll(".acpmux-chat-inspector-avatars__stack > *")).toHaveLength(8);
-  expect(row.querySelector(".acpmux-chat-inspector-avatars__more")?.textContent).toBe("+35");
+  expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
+  // No row of identical avatars and no "+N": the running ones by name, oldest first.
+  expect(subagents.querySelector(".cv-subagent-avatar")).toBeNull();
+  expect(subagents.textContent).not.toMatch(/\+\d/);
+  expect(lines(subagents)).toEqual([
+    ["Agent 0", "Running"],
+    ["Agent 1", "Running"],
+    ["Agent 2", "Running"],
+  ]);
+  // Each running line is one step of the shared running wave.
+  expect(
+    [...subagents.querySelectorAll<HTMLElement>(".acpmux-wave-item")].map((icon) =>
+      icon.style.getPropertyValue("--wave-index"),
+    ),
+  ).toEqual(["0", "1", "2"]);
+  await click(subagents.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")[1]!);
+  expect(shown).toEqual(["agent-1"]);
+  // The ended ones are one row, folded.
+  const ended = endedRow(subagents)!;
+  expect(ended.textContent).toBe("39 done · 1 failed");
+  expect(ended.getAttribute("aria-expanded")).toBe("false");
+  expect(lines(subagents)).toHaveLength(3);
+  await click(ended);
+  expect(ended.getAttribute("aria-expanded")).toBe("true");
+  const list = subagents.querySelector(".acpmux-chat-inspector-subagents__list")!;
+  // The failed one first, then the done ones, newest first; each opens its subagent.
+  expect(lines(list).slice(0, 3)).toEqual([
+    ["Agent 8", "Failed"],
+    ["Agent 42", "Done"],
+    ["Agent 41", "Done"],
+  ]);
+  expect(lines(list)).toHaveLength(40);
+  await click(list.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
+  expect(shown).toEqual(["agent-1", "agent-8"]);
+  await click(ended);
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
-  await click(row);
-  expect(row.getAttribute("aria-expanded")).toBe("true");
-  expect(row.getAttribute("aria-label")).toBe("Hide subagents");
-  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).not.toBeNull();
+});
+
+test("past five running lines, Show more opens the rest and Show less folds them back", async () => {
+  const container = installDom(true);
+  const agents = Array.from({ length: 8 }, (_, index) => subagent(index, "running"));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector agents={agents} onOpenSubagent={noop} />);
+  });
+  const subagents = section(container, "subagents")!;
+  expect(lines(subagents)).toHaveLength(5);
+  expect(endedRow(subagents)).toBeNull();
+  const more = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-subagents__more")!;
+  expect(more.textContent).toBe("Show 3 more");
+  await click(more);
+  expect(lines(subagents)).toHaveLength(8);
+  expect(more.textContent).toBe("Show less");
+  await click(more);
+  expect(lines(subagents)).toHaveLength(5);
 });
 
 const started = (
@@ -586,34 +638,26 @@ test("the chats the agent started are listed under Subagents, counted with them,
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
-  const row = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!;
-  expect(row.getAttribute("aria-label")).toBe("Show 7 subagents");
-  // Every avatar, the running and waiting ones first: the subagent's and the chats'.
-  const avatars = [...row.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-avatars__stack > *")];
-  expect(avatars.map((avatar) => avatar.dataset.state)).toEqual([
-    "running",
-    "running",
-    "running",
-    "running",
-    "failed",
-    "completed",
-    "completed",
-  ]);
-  await click(row);
-  // Active: the running subagent, then the chats waiting on the person and running; Done: the rest.
-  const lists = [...subagents.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-subagents__list section")];
-  expect(lists.map((list) => list.getAttribute("aria-label"))).toEqual(["Active · 4", "Done · 3"]);
-  expect(sessionRows(lists[0]!)).toEqual([
+  // Running: the chat waiting on the person first, then the subagent and the running chats.
+  expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
+    ["Agent 0", "Running"],
     ["Port the history page", "Running"],
     ["Migrate the settings store", "Running"],
   ]);
-  expect(sessionRows(lists[1]!)).toEqual([
+  await click(subagents.querySelectorAll<HTMLButtonElement>("button.acpmux-agent-line__button")[2]!);
+  expect(opened).toEqual(["c5"]);
+  // Ended: one row, which opens into the failed chat, then the done ones.
+  expect(endedRow(subagents)!.textContent).toBe("2 done · 1 failed");
+  await click(endedRow(subagents)!);
+  const list = subagents.querySelector(".acpmux-chat-inspector-subagents__list")!;
+  expect(lines(list)).toEqual([
     ["Fix the flaky drag test", "Failed"],
+    ["Agent 1", "Done"],
     ["Draft the release notes", "Done"],
   ]);
-  await click(lists[0]!.querySelectorAll<HTMLButtonElement>("button.acpmux-summary-session")[1]!);
-  expect(opened).toEqual(["c5"]);
+  await click(list.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
+  expect(opened).toEqual(["c5", "c4"]);
 });
 
 test("with only started chats Subagents is still drawn, and the running line's count lands on it", async () => {
@@ -640,17 +684,9 @@ test("with only started chats Subagents is still drawn, and the running line's c
   expect(panel(container)).not.toBeNull();
   const subagents = section(container, "subagents")!;
   expect(inspectorState().sections.subagents).toBe(true);
-  expect(subagents.querySelector("button.acpmux-chat-inspector-avatars")?.getAttribute("aria-label")).toBe(
-    "Show 2 subagents",
-  );
-  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!);
-  // No "No active subagents" while a chat it started runs.
-  expect(
-    [...subagents.querySelectorAll(".acpmux-chat-inspector-subagents__list section")].map((list) =>
-      list.getAttribute("aria-label"),
-    ),
-  ).toEqual(["Active · 1", "Done · 1"]);
-  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-summary-session")!);
+  expect(lines(subagents)).toEqual([["Migrate the settings store", "Running"]]);
+  expect(endedRow(subagents)!.textContent).toBe("1 done");
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["c1"]);
 });
 
@@ -704,11 +740,11 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("1 running · 1 done");
-  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!);
-  expect(sessionRows(subagents)).toEqual([
+  await click(endedRow(subagents)!);
+  expect(lines(subagents)).toEqual([
     ["Run the e2e suite", "Running"],
     ["Draft the release notes", "Done"],
   ]);
-  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-summary-session")!);
+  await click(subagents.querySelector<HTMLButtonElement>("button.acpmux-agent-line__button")!);
   expect(opened).toEqual(["vm-sub"]);
 });
