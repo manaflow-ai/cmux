@@ -119,6 +119,13 @@ if sys.argv[1:2] == ["check-stamp"]:
         return subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True).stdout.strip()
     source = show("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift")
     sys.exit(0 if show("schemas/settings-export/settings-schema.sources.sha256") == f"stamp for {source}" else 1)
+# source-stamp --ref R: the stamp R's settings sources give.
+if sys.argv[1:2] == ["source-stamp"]:
+    ref = sys.argv[sys.argv.index("--ref") + 1]
+    source = subprocess.run(["git", "show", f"{ref}:Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    print(f"stamp for {source}")
+    sys.exit(0)
 r = pathlib.Path(".")
 out = r.joinpath("schemas/settings/settings-schema.json").read_text() + r.joinpath("Flags.swift").read_text()
 r.joinpath("schemas/defaults/cmux-next.json").write_text(out)
@@ -157,12 +164,14 @@ for f in "${settings_files[@]}"; do
 done
 grep -q "schemas/settings/settings-schema.json" "$tmp/out" || fail "the run does not name the held export: $(cat "$tmp/out")"
 
-# 8. The base workflow lands its repair through base-autofix-push.sh, so the runs here are the
-#    path feat-cmux-next takes.
+# 8. The base workflow lands its repair through base-autofix-land.sh, which pushes with
+#    base-autofix-push.sh, so the runs here are the path feat-cmux-next takes.
 workflow="$here/../../../.github/workflows/cmux-next-base-autofix.yml"
 # shellcheck disable=SC2016 # the workflow's own text
-grep -qF 'scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA"' "$workflow" \
-  || fail "the Push the repairs step does not land the repair with base-autofix-push.sh"
+grep -qF 'scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA"' "$workflow" \
+  || fail "the Push the repairs step does not land the repair with base-autofix-land.sh"
+grep -qF 'base-autofix-push.sh' "$here/../base-autofix-land.sh" \
+  || fail "base-autofix-land.sh does not push with base-autofix-push.sh"
 
 # 9. A newer commit wrote one repaired file: only that file waits, the rest lands, and the run
 #    fails, so the next run still diffs from an older successful one.
@@ -366,6 +375,36 @@ fi
 [[ "$(remote_tip)" == "$moved" ]] || fail "exports landed although what moved after they were made was unreadable"
 grep -q "cannot read" "$tmp/out" || fail "the run does not say why: $(cat "$tmp/out")"
 
+# 21d. The settings exports' inputs are what their stamp hashes: a move of a settings-area path that
+#      is no stamp input (here a note beside the sources) leaves exports whose stamp the tip's sources
+#      still give exactly right, so they land, and the run passes. Before it they waited on every run.
+setup_next
+repair_only "${settings_set[@]}"
+(cd "$tmp/bot" && echo "stamp for setting v1" > schemas/settings-export/settings-schema.sources.sha256 && git commit -q -a --amend --no-edit)
+lane_commit "lane adds a note" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NOTES.md "a note"
+moved="$(remote_tip)"
+run > "$tmp/out" 2>&1 || fail "exports whose stamp inputs did not move were held: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the exports are not on top of the moved tip"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema new" ]] || fail "the schema did not land: $(remote_show schemas/settings/settings-schema.json)"
+[[ "$(remote_show schemas/settings-export/settings-schema.sources.sha256)" == "stamp for setting v1" ]] || fail "the stamp did not land"
+
+# 21e. The same exports wait when the move changed the regeneration itself: what it writes may differ.
+setup_next
+repair_only "${settings_set[@]}"
+(cd "$tmp/bot" && echo "stamp for setting v1" > schemas/settings-export/settings-schema.sources.sha256 && git commit -q -a --amend --no-edit)
+lane_commit "lane edits the regeneration" scripts/cmux-next/regenerate-settings-exports.sh "# v2"
+moved="$(remote_tip)"
+if run > "$tmp/out" 2>&1; then fail "exports made by an older regeneration passed the run: $(cat "$tmp/out")"; fi
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "exports made by an older regeneration landed"
+
+# 21f. A real source move still holds them: the tip's sources no longer give their stamp.
+setup_next
+repair_only "${settings_set[@]}"
+(cd "$tmp/bot" && echo "stamp for setting v1" > schemas/settings-export/settings-schema.sources.sha256 && git commit -q -a --amend --no-edit)
+lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2"
+if run > "$tmp/out" 2>&1; then fail "exports whose stamp the tip does not give passed the run: $(cat "$tmp/out")"; fi
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema old" ]] || fail "exports whose sources moved landed"
+
 # base-autofix-settings-exports.sh (the Mac job): regenerates on the newest tip while the inputs
 # move, at most CMUX_BASE_AUTOFIX_SETTINGS_TRIES times, and says which commit it made them at.
 regen_script="$here/../base-autofix-settings-exports.sh"
@@ -388,6 +427,7 @@ case "$FAKE_MOVE" in
   always | once) [[ "$FAKE_MOVE" == always || "$n" == 1 ]] || exit 0
     file=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift text="setting v$((n + 1))" ;;
   elsewhere) file=README.md text="readme $n" ;;
+  notes) file=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/NOTES.md text="note $n" ;;
   *) exit 0 ;;
 esac
 (cd "$FAKE_LANE" && git pull -q --ff-only origin feat && echo "$text" > "$file" && git add -A \
@@ -427,6 +467,14 @@ start="$(remote_tip)"
 regen elsewhere > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past an unrelated move failed: $(cat "$tmp/out" "$tmp/err")"
 grep -qx "made at: $start" "$tmp/out" || fail "an unrelated move made it regenerate: $(cat "$tmp/out")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "an unrelated move ran the regeneration $(cat "$tmp/count") times"
+
+# 24b. A settings-area move that is no stamp input (a note beside the sources) needs no second
+#      regeneration either: the tip's sources give the stamp the export was made with.
+setup_next
+start="$(remote_tip)"
+regen notes > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past a note failed: $(cat "$tmp/out" "$tmp/err")"
+grep -qx "made at: $start" "$tmp/out" || fail "a note beside the sources made it regenerate: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "a note beside the sources ran the regeneration $(cat "$tmp/count") times"
 
 # 25. (c) The inputs move under every regeneration: it stops after the tries, hands on no export,
 #     fails, and says so.

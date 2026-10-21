@@ -355,8 +355,10 @@
 }
 
 /* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
-/* Beside the chat and its composer; a narrow pane gives it the whole width. */
+/* Beside the chat and its composer; a narrow pane gives it the whole width. It slides in from the
+   pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
+  --ui-enter-distance: 100%;
   flex: 0 0 clamp(320px, 46%, 760px);
   min-width: 0;
   display: flex;
