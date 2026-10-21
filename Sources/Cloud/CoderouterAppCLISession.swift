@@ -277,7 +277,7 @@ enum CoderouterAppCLISession {
         ) else { return }
         for entry in entries {
             let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            if let modified, now.timeIntervalSince(modified) > staleSessionAge {
+            if let modified, now.timeIntervalSince(modified) > staleAge {
                 try? fileManager.removeItem(at: entry)
             }
         }
