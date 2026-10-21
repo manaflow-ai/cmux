@@ -149,3 +149,27 @@ test("the relative time words a prompt's age in the pane's language", async () =
   // Ahead of the minute clock: still "now", never "in 1 minute".
   expect(relativeTime(now + 30_000, now, "en")).toBe("now");
 });
+
+test("a prompt with no words draws no empty bubble: a sent image shows from its bytes", async () => {
+  // Leo, 2026-10-21 (item 13): a prompt sent as an image alone, refused before acpmux took it,
+  // drew as an empty grey bubble. Its row has the image's bytes from the send (direct.ts), not an
+  // acpmux id to read it back by.
+  const src = "data:image/png;base64,iVBO";
+  await draw(
+    {
+      id: "local-p-3",
+      version: 1,
+      at: Date.now(),
+      kind: "user",
+      text: "",
+      failed: true,
+      images: [{ id: "img-1", mimeType: "image/png", name: "image.png", src, local: true }],
+    },
+    {},
+  );
+  expect(host.querySelector(".cv-user__bubble")).toBeNull();
+  expect(host.querySelector<HTMLImageElement>("img.cv-user__image")?.getAttribute("src")).toBe(src);
+  // Nothing at all to show: still no empty bubble.
+  await draw({ id: "local-p-4", version: 1, at: Date.now(), kind: "user", text: "", failed: true }, {});
+  expect(host.querySelector(".cv-user__bubble")).toBeNull();
+});

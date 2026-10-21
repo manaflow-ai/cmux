@@ -153,6 +153,47 @@ test("a refused send stays as its failed row, naming the hop, for Retry, Edit or
   }
 });
 
+test("a prompt sent as an image alone shows its image on its row from the send on, and keeps it when refused", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  class RefusingHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) =>
+        method === "session/prompt"
+          ? Promise.reject(Object.assign(new Error("answer the trust question first"), { code: "trust.pending" }))
+          : answer(method, params);
+    }
+  }
+  type ImageRow = Row & { images?: { id: string; mimeType: string; src?: string }[] };
+  let rows: ImageRow[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as ImageRow[]),
+    undefined,
+    () => new RefusingHost() as unknown as WebSocket,
+  );
+  const image = {
+    id: "img-1",
+    kind: "image" as const,
+    name: "image.png",
+    mimeType: "image/png",
+    size: 4,
+    data: "iVBO",
+  };
+  try {
+    await client.send("", [image]).catch(() => undefined);
+    const row = rows.find((entry) => entry.kind === "user" && entry.failed);
+    // The bubble has no words to draw; the row draws the image the person sent, from its bytes.
+    expect(row?.text ?? "").toBe("");
+    expect(row?.images).toEqual([expect.objectContaining({ id: "img-1", src: "data:image/png;base64,iVBO" })]);
+  } finally {
+    client.close?.();
+  }
+});
+
 test("a prompt the connection dropped before acpmux took it goes back to its sender, not to a row", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
