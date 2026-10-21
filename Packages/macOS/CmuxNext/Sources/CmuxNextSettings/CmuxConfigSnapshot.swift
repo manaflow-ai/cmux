@@ -226,6 +226,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    /// `agents.trust.*`: which folders start an agent without the trust question; the acpmux daemon reads the same file.
+    public var trust = TrustSettings()
     /// `mobile.*`: whether the app runs its iPhone host.
     public var mobile = MobileSettings()
     /// `announcements.*`: the cmux announcement cards (R114).
@@ -377,6 +379,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.take(AppThemeSetting().parse(root), \.appTheme)
         snapshot.take(ChromeThemeSetting().parse(root), \.chromeTheme)
