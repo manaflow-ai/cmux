@@ -974,6 +974,8 @@ let package = Package(
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
