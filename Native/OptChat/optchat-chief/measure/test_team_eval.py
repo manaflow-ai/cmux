@@ -329,8 +329,16 @@ class CampaignOutcomeTests(unittest.TestCase):
             self.campaign_with("", 0, worker=["m1", "typo"])
 
     def test_a_listed_but_offline_worker_stops_the_campaign_before_any_reservation(self):
-        with self.assertRaises(SystemExit):
+        with self.assertRaises(SystemExit) as e:
             self.campaign_with("", 0, worker=["m1"], workers={"m1": {"last_seen": "2026-09-25T00:00:00Z"}})
+        self.assertIn("not live", str(e.exception))
+        self.assertEqual(open(self.calls).read(), "workers\n")
+
+    def test_a_worker_seen_with_a_short_fraction_is_live(self):
+        from datetime import datetime, timezone
+        seen = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") + ".73317Z"
+        self.campaign_with("cmux-ci: controller HTTP 400: no", 1, worker=["m1"], workers={"m1": {"last_seen": seen}})
+        self.assertIn("--target-worker m1", open(self.calls).read())
 
     def test_no_worker_means_no_target(self):
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1)

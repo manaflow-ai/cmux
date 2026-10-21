@@ -733,7 +733,9 @@ def campaign(opts):
 
         def live(w):
             seen = known.get(w, {}).get("last_seen", "")
-            return bool(seen) and datetime.fromisoformat(seen.replace("Z", "+00:00")) > recent
+            # Go drops trailing zeros from the fraction; Python 3.9 parses only 3 or 6 digits.
+            seen = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], seen.replace("Z", "+00:00"))
+            return bool(seen) and datetime.fromisoformat(seen) > recent
 
         down = [w for w in opts.worker if not live(w)]
         if down:
