@@ -600,7 +600,8 @@ async fn dispatch_request(
                 .collect();
             let limit =
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
-            let warmed = hub.warm_sessions(&requested, limit).await;
+            let web = super::trust_gate::for_web(conn.origin, &params);
+            let warmed = hub.warm_sessions(&requested, limit, web).await;
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
@@ -613,6 +614,7 @@ async fn dispatch_request(
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
+                trust_web: super::trust_gate::for_web(conn.origin, &params),
             })
             .await
         }
