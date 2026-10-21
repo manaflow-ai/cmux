@@ -55,7 +55,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
-import { shownPageWidgets } from "./newtab/pageWidgets";
+import { editedPageWidgets, editNewTabWidgets, shownPageWidgets } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -6506,6 +6506,15 @@ function AcpmuxPane() {
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
+              onEditWidgets={(edit) =>
+                editNewTabWidgets(edit, {
+                  callNative,
+                  show: (done) =>
+                    setNewTab(
+                      (current) => current && { ...current, pageWidgets: editedPageWidgets(current.pageWidgets, done) },
+                    ),
+                })
+              }
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

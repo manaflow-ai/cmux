@@ -315,6 +315,32 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-style") !== null);
       },
     },
+    // Minimal's widgets in the user's order (`tabs.newTabWidgets.order`) and its edit mode
+    // (newtab/WidgetEditing.tsx): right-click > Edit New Tab, and the widgets wiggle with their ✕.
+    "minimal-widgets-ordered": {
+      note: "Minimal with Recent Chats dragged over the project card in edit mode: the stage draws the widgets in the order the user left them.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "chats", "projects"] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        const chats = ctx.document.querySelector(".nt-chats");
+        const projects = ctx.document.querySelector(".nt-env");
+        if (!chats || !projects || !(chats.compareDocumentPosition(projects) & Node.DOCUMENT_POSITION_FOLLOWING))
+          throw new Error("Recent Chats should come before the project card");
+      },
+    },
+    "minimal-edit-mode": {
+      note: "Minimal's edit mode, as an iPhone's home screen: each widget wiggles (still with Reduce Motion or animations off) and has a ✕ that turns it off; drag one, or Option-Up / Option-Down, to move it. Add Widgets opens App Store Features on New Tab; Done or Escape ends it.",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "projects", "actions", "chats"] }),
+      snapshot: noChat(manySessions(12)),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-stage .nt-env") !== null);
+        await ctx.contextMenu({ selector: ".nt-env" });
+        await ctx.click({ role: "menuitem", name: "Edit New Tab" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-widget-frame .nt-widget-remove").length === 3);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-edit-bar") !== null);
+      },
+    },
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
     ...Object.fromEntries(
