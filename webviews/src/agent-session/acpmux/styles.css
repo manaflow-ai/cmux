@@ -299,6 +299,8 @@
    either theme; the kind dot stays. */
 .acpmux-project-badge[data-project-icon]{background:color-mix(in srgb,var(--agent-text) 7%,transparent)}
 .acpmux-project-badge>img{display:block;width:16px;height:16px;border-radius:3px;object-fit:contain}
+/* A language's or framework's glyph (ProjectBadge.tsx) in its own color on its tinted tile. */
+.acpmux-project-badge[data-project-glyph]>svg{display:block}
 .acpmux-project-check{display:inline-flex;align-items:center;justify-content:center;flex:none;width:16px;min-height:16px;margin-left:auto;color:var(--agent-text);font-size:13px}
 .acpmux-project-menu .acpmux-menu-description{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-project-menu .acpmux-menu-description::before{content:attr(data-path)}

@@ -305,12 +305,17 @@ public final class AgentPaneModel {
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
         case .projectIcon(let cwd):
-            // Off the main actor, cached by file and modification date; nil keeps the page's letters.
-            guard let src = await AgentPaneProjectIcons.shared.icon(for: cwd) else { return AgentPaneReply.success() }
-            return AgentPaneReply.success(["src": src])
+            // Off the main actor, cached by file and modification date; neither keeps the page's letters.
+            let answer = await AgentPaneProjectIcons.shared.answer(for: cwd)
+            var value: [String: Any] = [:]
+            if let src = answer.src { value["src"] = src }
+            if let glyph = answer.glyph { value["glyph"] = glyph }
+            return AgentPaneReply.success(value)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
-            return AgentPaneReply.success(["projects": await onListProjects(query)])
+            // Each folder's repository, so the pickers fold worktrees under their repository.
+            let projects = await onListProjects(query)
+            return AgentPaneReply.success(["projects": projects, "repos": await AgentPaneProjectRepoReader.replies(for: projects)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
