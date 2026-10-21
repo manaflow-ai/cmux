@@ -308,8 +308,10 @@ pub(super) fn loosens_gate(fields: &serde_json::Map<String, Value>) -> bool {
 
 /// Loosening an approval gate (review of 2fe73a9a): beyond the owner rule,
 /// only the verified cmux app connection (`client-hello` role main with its
-/// proof, origin `user`, server/app_trust.rs) whose process runs under no
-/// acpmux agent, and whose request does not narrow its origin. Every Chief
+/// proof, origin `user`, server/app_trust.rs) whose request does not
+/// narrow its origin. An agent cannot make the app's proof; cmux-next
+/// scans no processes (plans/cmux-next/pty-holder.md), so the proof is the
+/// boundary, not the caller's ancestry. Every Chief
 /// turn's environment names this daemon, and any unbound local client is
 /// the owner to [`require_owner`], so a turn could otherwise open a raw
 /// socket and have the daemon forward the loosening from its own pid, the
@@ -331,11 +333,7 @@ pub(super) fn require_app_owner(
     if narrowed != RequestOrigin::User {
         return refused(narrowed, "chief_loosen_needs_app");
     }
-    match super::origin_gate::peer_pid(mux, client) {
-        Some(pid) if !peer::under_acpmux_agent(pid) => Ok(()),
-        Some(_) => refused(RequestOrigin::Agent, "chief_loosen_under_agent"),
-        None => refused(RequestOrigin::User, "chief_loosen_unknown_peer"),
-    }
+    Ok(())
 }
 
 /// The tools-socket line of `operation` (optchat-chief's `engine`, `stop`
@@ -484,9 +482,6 @@ pub(super) fn ask(
         json!({"message": "no Chief tools socket on this platform"}),
     ))
 }
-
-#[path = "chief_control_peer.rs"]
-mod peer;
 
 #[cfg(all(test, unix))]
 #[path = "chief_control_tests.rs"]

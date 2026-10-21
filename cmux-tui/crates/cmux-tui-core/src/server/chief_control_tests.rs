@@ -346,11 +346,10 @@ fn only_the_verified_app_loosens_a_gate_and_the_owner_tightens_one() {
     );
 }
 
-/// The verified app's connection bound to an agent, or a peer process that
-/// runs under an acpmux agent, or one whose request narrows its origin, does
-/// not loosen a gate.
+/// The verified app's connection bound to an agent, or one whose request
+/// narrows its origin, does not loosen a gate.
 #[test]
-fn an_agent_bound_or_agent_run_peer_never_loosens_a_gate() {
+fn an_agent_bound_connection_never_loosens_a_gate() {
     let mux = Mux::new_for_test("chief-control-loosen-agent", crate::SurfaceOptions::default());
     let (_dir, sock, seen) = brain(json!({"text": "{}"}));
     // Bound to an agent's conversation: refused by the owner rule already.
@@ -378,47 +377,6 @@ fn an_agent_bound_or_agent_run_peer_never_loosens_a_gate() {
     let refused = settings_set(&mux, bound, LOOSEN[0], &sock);
     assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
     assert_eq!(refused["error"]["details"]["reason"], "chief_owner_only", "{refused}");
-    // A process under an acpmux agent: the agent itself (the session name
-    // acpmux sets is in its environment), and on Linux its child that
-    // cleared it (found through the parent).
-    let mut agent = std::process::Command::new("/bin/sh")
-        .args(["-c", "env -u ACPMUX_SESSION_NAME sleep 30; :"])
-        .env("ACPMUX_SESSION_NAME", "optchat-home-2079")
-        .spawn()
-        .unwrap();
-    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
-    let mut peers = vec![agent.id()];
-    #[cfg(target_os = "linux")]
-    {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            let children =
-                std::fs::read_to_string(format!("/proc/{0}/task/{0}/children", agent.id()))
-                    .unwrap_or_default();
-            if let Some(pid) = children.split_whitespace().next().and_then(|p| p.parse().ok()) {
-                peers.push(pid);
-                break;
-            }
-            assert!(Instant::now() < deadline, "the agent's child never started");
-            std::thread::yield_now();
-        }
-    }
-    let answers: Vec<Value> = peers
-        .iter()
-        .map(|pid| settings_set(&mux, verified_app(&mux, *pid), LOOSEN[0], &sock))
-        .collect();
-    let _ = agent.kill();
-    let _ = agent.wait();
-    for refused in answers {
-        assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
-        assert_eq!(refused["error"]["details"]["reason"], "chief_loosen_under_agent", "{refused}");
-    }
-    // No peer key: nothing says which process asks.
-    let unknown = mux.control_clients.register(ClientTransport::Unix, writer());
-    origin_gate::set_role_for_test(&mux, unknown, "main");
-    origin_gate::set_verified_app_for_test(&mux, unknown, true);
-    let refused = settings_set(&mux, unknown, LOOSEN[0], &sock);
-    assert_eq!(refused["error"]["details"]["reason"], "chief_loosen_unknown_peer", "{refused}");
     assert!(seen.lock().unwrap().is_empty(), "no loosening reached the brain");
 }
 

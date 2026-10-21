@@ -1230,7 +1230,7 @@ reaches the host the same way). No chat message
 changes them. The boundary is the running host and the daemon in front of
 it. The daemon forwards a loosening `chief.settings.set` only from the
 verified cmux app connection (`client-hello` role main with its proof, not
-bound to an agent and not a process under an acpmux agent); a plain local
+bound to an agent); a plain local
 client, an agent and any other program may only tighten or read. The host's
 tools socket then passes a loosening to `Brain::set_setting` only from that
 daemon: the process listening on the host's `--daemon-socket` (or the app's
