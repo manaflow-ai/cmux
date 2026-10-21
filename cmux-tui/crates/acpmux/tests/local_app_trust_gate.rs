@@ -43,6 +43,7 @@ fn paths(d: &Path) -> Paths {
         codex_config: d.join("home").join("config.toml"),
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
+        cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
     }
 }
 
@@ -195,6 +196,41 @@ async fn a_worktree_of_a_trusted_repo_starts_and_prompts_with_no_question() {
 
     assert_eq!(reason(&app.call("session/new", new(&forged)).await), "trust.pending");
     assert_eq!(reason(&app.call("session/new", new(&own)).await), "trust.pending");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A worktree cmux made (`~/.cmux/worktrees/<project>/<name>`) starts and prompts with no
+/// question, though nobody answered for its repository: on 2026-10-21 a lane's chat in
+/// `~/.cmux/worktrees/cmux/directional-motion` refused every send with `trust.pending`.
+#[tokio::test]
+async fn a_worktree_cmux_made_starts_and_prompts_with_no_question() {
+    let d = dir("cmux-worktree");
+    let hub = hub(&d);
+    let main = d.join("work");
+    let tree = d.join("home/.cmux/worktrees/work/directional-motion");
+    let gitdir = main.join(".git").join("worktrees").join("directional-motion");
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display())).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let new = json!({"cwd": tree, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
+    let r = app.call("session/new", new).await;
+    assert!(r.get("error").is_none(), "session/new in a cmux worktree: {r}");
+    let s = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    let r = app.prompt(&s, "hello-from-a-cmux-worktree").await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(app.agent_saw(&s, "hello-from-a-cmux-worktree").await);
+    // Its repository is still asked about.
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": main, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+        )
+        .await;
+    assert_eq!(reason(&r), "trust.pending");
     let _ = std::fs::remove_dir_all(&d);
 }
 

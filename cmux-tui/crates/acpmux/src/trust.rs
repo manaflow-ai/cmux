@@ -74,6 +74,9 @@ pub struct Paths {
     /// The folder that holds cmux's agent-home folders (`agent_home_root`): the private folder
     /// cmux makes for each new chat in a workspace without a folder. None: no such folder.
     pub agent_home: Option<PathBuf>,
+    /// The folder cmux makes its worktrees in (`cmux_worktrees_root`): a linked worktree at
+    /// `<root>/<project>/<name>` is one cmux made. None: no such folder.
+    pub cmux_worktrees: Option<PathBuf>,
 }
 
 impl Paths {
@@ -85,6 +88,7 @@ impl Paths {
             codex_config: user.join(".codex").join("config.toml"),
             record: crate::config::home().join("trust.json"),
             agent_home: agent_home_root(),
+            cmux_worktrees: cmux_worktrees_root(),
         })
     }
 }
@@ -93,6 +97,12 @@ impl Paths {
 /// the app makes each workspace's agent-home folder there.
 pub fn agent_home_root() -> Option<PathBuf> {
     dirs::data_dir().map(|data| data.join("cmux").join("agent-home"))
+}
+
+/// `~/.cmux/worktrees` (`cmux_git::worktree_root`), where cmux makes the worktrees for its chats
+/// and lanes, on every host.
+pub fn cmux_worktrees_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".cmux").join("worktrees"))
 }
 
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
@@ -446,6 +456,7 @@ mod security_tests {
             codex_config: root.join("config.toml"),
             record,
             agent_home: None,
+            cmux_worktrees: None,
         };
         let error =
             get(&paths, &cwd.to_string_lossy()).expect_err("a linked trust decision loaded");
@@ -473,6 +484,7 @@ mod scope_tests {
             codex_config: root.join("state/config.toml"),
             record: root.join("state/trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         };
         (root, paths)
     }
@@ -520,6 +532,57 @@ mod scope_tests {
         // Forgetting the repository's answer asks again everywhere.
         set(&paths, &main.to_string_lossy(), "unknown").unwrap();
         assert_eq!(read(&paths, &tree, &home)["level"], "unknown");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A worktree cmux made (`~/.cmux/worktrees/<project>/<name>`) is trusted by construction,
+    /// whatever its repository's answer is, unless a person or an agent said Don't trust. Only a
+    /// linked worktree git wrote at that depth is one: a plain folder there is not.
+    #[test]
+    fn a_worktree_cmux_made_is_trusted_with_no_question() {
+        let (root, mut paths) = scratch("cmux-worktree");
+        let home = root.join("home");
+        let worktrees = home.join(".cmux/worktrees");
+        paths.cmux_worktrees = Some(worktrees.clone());
+        let main = home.join("Projects/app");
+        let tree = worktrees.join("app/directional-motion");
+        repo_with_worktree(&main, &tree);
+        for folder in [tree.clone(), tree.join("src")] {
+            let reply = read(&paths, &folder, &home);
+            assert_eq!(reply["level"], "trusted", "{folder:?}: {reply}");
+            assert_eq!(reply["decided"], true, "{folder:?}: {reply}");
+            assert_eq!(
+                session_level(&paths, &folder.to_string_lossy(), "codex").unwrap().1,
+                Level::Trusted
+            );
+            assert_eq!(
+                web_session_level(&paths, &folder.to_string_lossy(), "claude").unwrap().1,
+                Level::Trusted
+            );
+        }
+        // The repository itself is still asked about.
+        assert_eq!(read(&paths, &main, &home)["level"], "unknown");
+        // A plain folder under the root is no worktree cmux made.
+        let plain = worktrees.join("app/plain");
+        std::fs::create_dir_all(&plain).unwrap();
+        assert_eq!(read(&paths, &plain, &home)["level"], "unknown");
+        // A person's Don't trust, for the repository or the worktree, still wins.
+        set(&paths, &main.to_string_lossy(), "untrusted").unwrap();
+        assert_eq!(read(&paths, &tree, &home)["level"], "untrusted");
+        set(&paths, &main.to_string_lossy(), "unknown").unwrap();
+        set(&paths, &tree.to_string_lossy(), "untrusted").unwrap();
+        assert_eq!(read(&paths, &tree.join("src"), &home)["level"], "untrusted");
+        set(&paths, &tree.to_string_lossy(), "unknown").unwrap();
+        // So does an agent's own untrusted level.
+        std::fs::write(
+            &paths.codex_config,
+            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", tree.display()),
+        )
+        .unwrap();
+        assert_eq!(
+            session_level(&paths, &tree.to_string_lossy(), "codex").unwrap().1,
+            Level::Untrusted
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
