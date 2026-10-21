@@ -510,6 +510,17 @@ async fn dispatch_request(
             // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
             let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
             let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            // Sent from inside another session (its proven caller token) with none of its own:
+            // that session's message, so the receiver's transcript does not show it as the person's.
+            let provenance = match (provenance, conn.caller()) {
+                (None, Some(caller)) if !conn.is_person() && caller != s.id => {
+                    hub.resolve(caller).ok().map(|from| {
+                        let name = from.meta().name;
+                        crate::prompt_provenance::session_message(&from.id, &name, &s.id)
+                    })
+                }
+                (provenance, _) => provenance,
+            };
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
