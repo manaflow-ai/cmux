@@ -181,7 +181,7 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         "start_session" => match request(method::MUX_SUBSESSION_START, args).await {
             Ok(r) => ok(
                 format!(
-                    "Started sub-session {} (sessionId {}, depth {}). The user sees it under your chat in the sidebar. It works in parallel; use wait_for_sessions to get its result.",
+                    "Started sub-session {} (sessionId {}, depth {}). The user sees it in your chat's Subagents summary. It works in parallel; use wait_for_sessions to get its result.",
                     r["shortName"].as_str().or(r["name"].as_str()).unwrap_or_default(),
                     r["sessionId"].as_str().unwrap_or_default(),
                     r["depth"]
