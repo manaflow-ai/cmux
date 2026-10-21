@@ -6,8 +6,78 @@ use crate::cli::output::print_json;
 use crate::client::Client;
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
-use std::process::Command;
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
+
+/// Where `host setup` installs acpmux and what its daemon runs.
+pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
+
+/// What a remote command answered.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RemoteOut {
+    pub ok: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// How the host commands reach a machine: ssh, or a fake in tests.
+pub(crate) trait Remote {
+    fn host(&self) -> &str;
+    /// Run one of acpmux's fixed scripts on the host; `stdin` is fed to it
+    /// (data never goes into the script text).
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut>;
+    /// Copy a local file to `remote` (a plain `~/` or absolute path).
+    fn push(&self, local: &Path, remote: &str) -> Result<()>;
+}
+
+pub(crate) struct SshRemote<'a>(pub &'a str);
+
+impl Remote for SshRemote<'_> {
+    fn host(&self) -> &str {
+        self.0
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        let mut child = Command::new("ssh")
+            .args(ssh_argv(self.0, script)?)
+            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .with_context(|| format!("ssh {}", self.0))?;
+        if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
+            pipe.write_all(bytes).with_context(|| format!("ssh {}: stdin", self.0))?;
+        }
+        let out = child.wait_with_output().with_context(|| format!("ssh {}", self.0))?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        // scp takes a path without `~/` as one under the remote home.
+        let remote = remote.strip_prefix("~/").unwrap_or(remote);
+        let status = Command::new("scp")
+            .args(scp_push_argv(self.0, &local.to_string_lossy(), remote)?)
+            .status()
+            .context("scp")?;
+        if !status.success() {
+            return Err(anyhow!("scp to {} failed", self.0));
+        }
+        Ok(())
+    }
+}
+
+/// A plain absolute or home path: safe in a remote shell script unquoted
+/// (a `~/` still expands) and as an scp path.
+pub(crate) fn plain_path(path: &str) -> bool {
+    (path.starts_with('/') || path.starts_with("~/"))
+        && path.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b))
+}
 
 /// An ssh destination given on the command line or taken from a peer URL,
 /// checked like a peer's (`peer::ssh_target`): never an ssh option.
@@ -49,9 +119,7 @@ fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
 pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
     let t =
         crate::peer::ssh_target(peer_url).map_err(|why| anyhow!("refusing that peer: {why}"))?;
-    let plain = (remote.starts_with('/') || remote.starts_with("~/"))
-        && remote.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b));
-    if !plain {
+    if !plain_path(remote) {
         return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
     }
     Ok(vec![
@@ -64,33 +132,40 @@ pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Resul
     ])
 }
 
-fn ssh(host: &str, script: &str) -> Result<String> {
-    let out = Command::new("ssh")
-        .args(ssh_argv(host, script)?)
-        .output()
-        .with_context(|| format!("ssh {host}"))?;
-    if !out.status.success() {
-        return Err(anyhow!("ssh {host} failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+/// Run `script` on the host; its trimmed output, or an error with its stderr.
+pub(crate) fn run(r: &dyn Remote, script: &str) -> Result<String> {
+    let out = r.exec(script, None)?;
+    if !out.ok {
+        return Err(anyhow!("ssh {} failed: {}", r.host(), out.stderr.trim()));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    Ok(out.stdout.trim().to_owned())
 }
 
-/// Copy this very binary to the remote `~/.local/bin/acpmux` (rm then mv,
-/// never in place: macOS kills a running binary that is overwritten).
-fn push_binary(host: &str) -> Result<String> {
-    let exe = std::env::current_exe()?;
-    ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
-    let status = Command::new("scp")
-        .args(scp_push_argv(host, &exe.to_string_lossy(), ".local/bin/acpmux.new")?)
-        .status()
-        .context("scp")?;
-    if !status.success() {
-        return Err(anyhow!("scp to {host} failed"));
+fn ssh(host: &str, script: &str) -> Result<String> {
+    run(&SshRemote(host), script)
+}
+
+/// The remote command that prints `bin`'s version line: a binary named
+/// `acpmux` is acpmux; any other (the app's `cmux-tui`) carries it as `acp`.
+pub(crate) fn version_cmd(bin: &str) -> String {
+    if bin.rsplit('/').next() == Some("acpmux") {
+        format!("{bin} --version")
+    } else {
+        format!("{bin} acp --version")
     }
-    ssh(
-        host,
-        "rm -f ~/.local/bin/acpmux && mv ~/.local/bin/acpmux.new ~/.local/bin/acpmux && chmod +x ~/.local/bin/acpmux && ~/.local/bin/acpmux --version",
-    )
+}
+
+/// Copy this very binary to the remote `bin` (rm then mv, never in place:
+/// macOS kills a running binary that is overwritten); its version line.
+pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
+    if !plain_path(bin) {
+        return Err(anyhow!("refusing that remote binary path (not a plain path)"));
+    }
+    let exe = std::env::current_exe()?;
+    let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
+    run(r, &format!("mkdir -p {dir} ~/.acpmux"))?;
+    r.push(&exe, &format!("{bin}.new"))?;
+    run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
 }
 
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -135,11 +210,12 @@ const SHUTDOWN_KEEPING_AGENTS: &str = "out=$(~/.local/bin/acpmux daemon shutdown
 
 /// Read the daemon's status after launchd (re)started it; a daemon that is
 /// still not running is an error, not a status line.
-fn launchd_status(host: &str, json: bool) -> Result<String> {
+fn launchd_status(r: &dyn Remote, json: bool) -> Result<String> {
+    let host = r.host();
     let status = if json {
-        ssh(host, &capped("~/.local/bin/acpmux --json daemon status", "head -c 400"))?
+        run(r, &capped("~/.local/bin/acpmux --json daemon status", "head -c 400"))?
     } else {
-        ssh(host, &capped("~/.local/bin/acpmux daemon status", "head -3"))?
+        run(r, &capped("~/.local/bin/acpmux daemon status", "head -3"))?
     };
     let stopped = status.starts_with("daemon not running")
         || serde_json::from_str::<Value>(&status)
@@ -167,7 +243,7 @@ fn restart_daemon(host: &str) -> Result<String> {
         "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
-    launchd_status(host, true)
+    launchd_status(&SshRemote(host), true)
 }
 
 /// Connect a peer now and answer once that attempt settled: add (or
@@ -184,6 +260,11 @@ async fn connect_peer(client: &Client, name: &str, url: Option<&str>) -> Result<
     }
 }
 
+/// The peer name a host gets by default: its first label, without `user@`.
+pub(crate) fn short_name(host: &str) -> String {
+    host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
+}
+
 pub(crate) async fn setup(
     client: Arc<Client>,
     host: &str,
@@ -191,61 +272,10 @@ pub(crate) async fn setup(
     port: u16,
     json_out: bool,
 ) -> Result<()> {
-    let name = name.unwrap_or_else(|| {
-        host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
-    });
-    let version = push_binary(host)?;
-    // Config: keep an existing one, but make sure the websocket listener and token exist.
-    let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
-    let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
-    let token = match kept.clone() {
-        Some(t) => t,
-        None => {
-            let mut b = [0u8; 24];
-            getrandom_fill(&mut b)?;
-            b.iter().map(|x| format!("{x:02x}")).collect()
-        }
-    };
-    // Keep the rest of the listener's settings (allowed origins and hosts,
-    // `tokenRotated`); a token made here is new, so it never rotates.
-    let mut websocket =
-        cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
-    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
-    websocket["token"] = json!(token);
-    if kept.is_none() {
-        websocket["tokenRotated"] = json!(1);
-    }
-    cfg["websocket"] = websocket;
-    if cfg.get("store").is_none() {
-        cfg["store"] = json!({"mode": "local"});
-    }
-    if cfg.get("permissionPolicy").is_none() {
-        cfg["permissionPolicy"] = json!("ask");
-    }
-    let cfg_text = serde_json::to_string_pretty(&cfg)?;
-    // The config holds the WebSocket token: owner-only, whatever the umask.
-    ssh(
-        host,
-        &format!(
-            "chmod 700 ~/.acpmux && umask 077 && cat > ~/.acpmux/config.json <<'ACPMUX_CFG' && chmod 600 ~/.acpmux/config.json\n{cfg_text}\nACPMUX_CFG"
-        ),
-    )?;
-    let os = ssh(host, "uname -s")?;
-    let status = if os == "Darwin" {
-        let home = ssh(host, "echo $HOME")?;
-        let plist = PLIST.replace("__HOME__", &home);
-        ssh(
-            host,
-            &format!(
-                "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
-            ),
-        )?;
-        std::thread::sleep(LAUNCHD_START_GRACE);
-        launchd_status(host, false)?
-    } else {
-        ssh(host, &restart_detached(false))?
-    };
+    let name = name.unwrap_or_else(|| short_name(host));
+    let remote = SshRemote(host);
+    let version = push_binary(&remote, DAEMON_BIN)?;
+    let status = install_daemon(&remote, port, false)?;
     // Register (or re-register) the peer.
     let url = if port == 47811 { format!("ssh://{host}") } else { format!("ssh://{host}:{port}") };
     // Always with the url: a known peer takes the host and port given now.
@@ -274,6 +304,62 @@ pub(crate) async fn setup(
     Ok(())
 }
 
+/// Configure and (re)start the daemon of the acpmux at [`DAEMON_BIN`]: keep
+/// an existing config but make sure the WebSocket listener on `port` and its
+/// token exist, then launchd on macOS, a detached start elsewhere. The
+/// daemon's status (JSON with `json`).
+pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<String> {
+    let existing = run(r, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
+    let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
+    let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
+    let token = match kept.clone() {
+        Some(t) => t,
+        None => {
+            let mut b = [0u8; 24];
+            getrandom_fill(&mut b)?;
+            b.iter().map(|x| format!("{x:02x}")).collect()
+        }
+    };
+    // Keep the rest of the listener's settings (allowed origins and hosts,
+    // `tokenRotated`); a token made here is new, so it never rotates.
+    let mut websocket =
+        cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
+    websocket["token"] = json!(token);
+    if kept.is_none() {
+        websocket["tokenRotated"] = json!(1);
+    }
+    cfg["websocket"] = websocket;
+    if cfg.get("store").is_none() {
+        cfg["store"] = json!({"mode": "local"});
+    }
+    if cfg.get("permissionPolicy").is_none() {
+        cfg["permissionPolicy"] = json!("ask");
+    }
+    let cfg_text = serde_json::to_string_pretty(&cfg)?;
+    // The config holds the WebSocket token: owner-only, whatever the umask.
+    run(
+        r,
+        &format!(
+            "chmod 700 ~/.acpmux && umask 077 && cat > ~/.acpmux/config.json <<'ACPMUX_CFG' && chmod 600 ~/.acpmux/config.json\n{cfg_text}\nACPMUX_CFG"
+        ),
+    )?;
+    let os = run(r, "uname -s")?;
+    if os != "Darwin" {
+        return run(r, &restart_detached(json));
+    }
+    let home = run(r, "echo $HOME")?;
+    let plist = PLIST.replace("__HOME__", &home);
+    run(
+        r,
+        &format!(
+            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
+        ),
+    )?;
+    std::thread::sleep(LAUNCHD_START_GRACE);
+    launchd_status(r, json)
+}
+
 /// Update one ssh peer, or every one, to this binary and restart it.
 pub(crate) async fn update(
     client: Arc<Client>,
@@ -298,7 +384,8 @@ pub(crate) async fn update(
     }
     let mut rows = Vec::new();
     for (n, host) in targets {
-        let outcome = push_binary(&host).and_then(|v| restart_daemon(&host).map(|s| (v, s)));
+        let outcome = push_binary(&SshRemote(&host), DAEMON_BIN)
+            .and_then(|v| restart_daemon(&host).map(|s| (v, s)));
         match outcome {
             Ok((version, status)) => {
                 if !json_out {
