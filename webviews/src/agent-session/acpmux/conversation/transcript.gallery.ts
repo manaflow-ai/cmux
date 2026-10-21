@@ -1034,6 +1034,32 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "steer-ended": {
+      note: "A turn Leo steered, once it ended: each part folds its own work, as Codex draws it. The call before the steer folds under Worked for over the prompt's part, the call after it under its own Worked for below the steer, timed from the steer, then the answer. Nothing moves above the steer it came after. Play: the steer's fold opens on its own call.",
+      snapshot: chat([
+        user("Fix the flaky login test", 3),
+        activity(
+          [
+            thought("The login test fails one run in five; check how the retry waits for the session."),
+            tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+          ],
+          2.8,
+        ),
+        assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 2.4),
+        user("Also check the logout path, it uses the same retry", 2.2, { id: "steer-ended-steer", continues: true }),
+        activity(
+          [tool("bun test src/auth/logout", "execute", "completed", { command: "bun test src/auth/logout" })],
+          1.8,
+        ),
+        assistant("Both paths now wait for the refresh before they retry, and both tests pass.", 1.2),
+        summary(1.2, { status: "completed", toolCount: 2, durationMs: 108_000 }),
+      ]),
+      play: async (ctx: PlayContext) => {
+        const fold = '[data-row-id="worked-steer-ended-steer"] .cv-worked';
+        await ctx.click({ selector: fold });
+        await ctx.waitFor(() => ctx.find({ selector: fold }).getAttribute("aria-expanded") === "true");
+      },
+    },
     "working-tokens": {
       note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
