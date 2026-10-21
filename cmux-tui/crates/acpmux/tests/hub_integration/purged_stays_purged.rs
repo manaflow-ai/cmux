@@ -58,7 +58,7 @@ async fn a_title_that_arrives_after_the_purge_does_not_bring_the_session_back() 
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // The title's own save runs right after its command prints.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     hub.shutdown_all().await;
     drop(hub);
 
