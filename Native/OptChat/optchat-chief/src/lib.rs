@@ -67,5 +67,6 @@ pub mod turn_caller;
 pub mod turn_retention;
 pub mod usage;
 pub mod version_tool;
+pub mod voice;
 pub mod wake;
 pub mod workspaces;

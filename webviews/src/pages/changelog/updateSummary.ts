@@ -5,31 +5,11 @@
 // version counts (the host serves their notes, ChangelogStore loads them); a build with reviewed
 // entries counts those, any other its readable commits. Internal work stays out (readableChange).
 // Pure: no DOM, no state.
+import { areaOf, type AreaKey } from "./areas";
 import { changeItems, localized, readableChanges } from "./model";
 import { changeArea, readableChange, shortTitle, tidyTitle } from "./readableChange";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-
-/** The areas people know, in the order a title is matched: the first that matches names it
-    (`updates.area.<key>`). A subject's own area label ("cmux-next sidebar: …") is matched first. */
-export const AREAS = [
-  ["sidebar", /\b(?:sidebar|workspace groups?)\b/i],
-  ["newTab", /\bnew tab\b/i],
-  ["composer", /\b(?:composer|dictation)\b/i],
-  ["agentChat", /\b(?:agents?|agent chat|agent pane|transcript|chats?|sub-sessions?)\b/i],
-  ["home", /\b(?:home|chief)\b/i],
-  ["tabs", /\b(?:tabs?|tab row)\b/i],
-  ["terminal", /\b(?:terminals?|shell|scrollback)\b/i],
-  ["browser", /\bbrowser\b/i],
-  ["palette", /\b(?:command )?palette\b/i],
-  ["settings", /\bsettings?\b/i],
-  ["updates", /\b(?:update card|updated card|restart to update|what's new|roll back)\b/i],
-  ["keyboard", /\b(?:shortcuts?|keys)\b/i],
-  ["panes", /\b(?:panes?|splits?)\b/i],
-  ["windows", /\bwindows?\b/i],
-] as const;
-
-export type AreaKey = (typeof AREAS)[number][0];
 
 /** One line of the card: a known area, else the category its changes share, and their phrases. */
 export interface SummaryRow {
@@ -55,14 +35,6 @@ interface Change {
   area?: AreaKey;
   /** The commit subject the title came from, for its own casing. */
   raw?: string;
-}
-
-function areaOf(title: string, label?: string): AreaKey | undefined {
-  for (const text of [label, title]) {
-    const hit = text ? AREAS.find(([, pattern]) => pattern.test(text)) : undefined;
-    if (hit) return hit[0];
-  }
-  return undefined;
 }
 
 /** The change as it reads after "Sidebar:": its first clause when the title is long, lowercased

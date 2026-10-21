@@ -24,6 +24,13 @@ use tokio::sync::Mutex;
 /// The session/update variants and ids this translator emits are plain ACP.
 pub const AGENT_NAME: &str = "claude-stdio";
 
+/// Whether a chat's saved `agentInfo` names this adapter, which always steers
+/// (`_meta.steering.supported` at initialize). A chat saved without `steering`
+/// and adopted since never initializes again, so its steering comes from this.
+pub fn steers_by_info(info: Option<&Value>) -> bool {
+    info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
+}
+
 /// Claude mode ids, offered as ACP session modes.
 /// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
 /// permission prompts itself, so `perms approve-edits` covers it for every
@@ -182,6 +189,8 @@ mod early_calls_tests;
 mod edit_diff_tests;
 mod inbound;
 mod outbound;
+#[cfg(test)]
+mod steer_now_tests;
 #[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
