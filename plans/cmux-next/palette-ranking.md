@@ -86,7 +86,7 @@ Leo 2026-10-20: keep the useful commands, push the rest down, consolidate; nothi
 - Tier: daily rows (about 40: New Tab, Split Right, Find, Settings…) lead their section on the empty query and get +120 inside a match class while typing; niche rows (ID copies, diagnostics, quit variants, preferences Settings shows better) close their section and get −120. A tier never crosses a match class, so a better match of a niche row still wins, and usage still lifts it.
 - Family: related rows fold into one row on the empty query. A family with a parent (Set Space Color… for the nine colors, Toggle Developer Tools for the 41 Developer Tools commands) lets the parent stand for it; a family without one draws its own row (Workspace: Move…, Tab: Move…, Animations…) that opens a page of the members. Members stay search results (−120), and the family row matches the members' titles.
 - Duplicate: a family of one; the row people know stands for it and matches its title.
-- Focus: a row the focused pane cannot run is left out of the empty list (`PaletteItem.hidesWhenQueryEmpty`); typing still finds it, last, with the reason.
+- Focus: a row the focused pane cannot run stays listed, last in its section, dimmed with the reason as its subtitle; while typing it also ranks after every runnable row.
 - Aliases: built-in words (`ActionDescriptor.paletteAliases`: font, theme, background, machine) work like a cmux.json alias and add to the user's own.
 
 ## 6. Landings

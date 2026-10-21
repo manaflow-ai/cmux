@@ -116,9 +116,6 @@ public final class RegistryPaletteProvider: PaletteProvider {
             item.suggestedRank = descriptor.paletteSuggestionRank
             item.keywords += ActionDescriptor.paletteAliases[actionID] ?? []
             item.rankBias = Self.rankBias(for: descriptor.paletteTier)
-            // The focused pane cannot run it: a search still finds it (with the reason), the
-            // empty list leaves it out.
-            item.hidesWhenQueryEmpty = !isEnabled
             tiers[item.id] = descriptor.paletteTier
             items.append(item)
         }

@@ -4,7 +4,7 @@ Every action the command palette offered on feat-cmux-next 55a6a413c5c8, with th
 
 - a. daily: first in its section, +120 inside a match class while typing.
 - b. standard: unchanged.
-- c. niche, family member or duplicate: last in its section or folded into one row on the empty query, −120 while typing. A row the focused pane cannot run is also left out of the empty list.
+- c. niche, family member or duplicate: last in its section or folded into one row on the empty query, −120 while typing. A row the focused pane cannot run stays listed, last in its section, dimmed with the reason.
 
 ## Summary
 
@@ -232,7 +232,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `space.setIcon` | Set Space Icon… |  | b. standard | its section, catalog order |
 | Workspace | `space.setTheme` | Set Space Theme… |  | b. standard | its section, catalog order |
 | Workspace | `space.switch` | Switch to Space… |  | b. standard | its section, catalog order |
-| Workspace | `toggleChecklistItemComplete` | Toggle Checklist Item Complete | ⌘ | b. standard | its section, catalog order |
+| Workspace | `toggleChecklistItemComplete` | Toggle Checklist Item Complete | ⌘
+ | b. standard | its section, catalog order |
 | Workspace | `toggleFocusedWorkspaceGroupCollapsed` | Toggle Group Collapse | ⌃⌘. | b. standard | its section, catalog order |
 | Workspace | `workspace.clearIcon` | Clear Workspace Icon |  | b. standard | its section, catalog order |
 | Workspace | `workspace.clearTheme` | Reset Workspace Theme |  | b. standard | its section, catalog order |
@@ -393,7 +394,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `swapPaneRight` | Swap Pane Right |  | c. family member | folded into Pane: Swap… |
 | Panes | `swapPaneUp` | Swap Pane Up |  | c. family member | folded into Pane: Swap… |
 | Panes | `toggleCanvasLayout` | Toggle Canvas Layout | ⌃⌘C | b. standard | its section, catalog order |
-| Panes | `toggleSplitZoom` | Toggle Pane Zoom | ⇧⌘ | a. daily | first in its section, +120 while typing |
+| Panes | `toggleSplitZoom` | Toggle Pane Zoom | ⇧⌘
+ | a. daily | first in its section, +120 while typing |
 | Panes | `triggerFlash` | Flash Focused Pane | ⇧⌘H | b. standard | its section, catalog order |
 | Screens | `screen.clearColor` | Remove Screen Color |  | b. standard | its section, catalog order |
 | Screens | `screen.clearIcon` | Remove Screen Icon |  | b. standard | its section, catalog order |
@@ -817,7 +819,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `splitBrowserRight` | Split Browser Right | ⌥⌘D | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDesignMode` | Toggle Browser Design Mode | ⌃⌥⌘D | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleBrowserDeveloperTools` | Toggle Developer Tools | ⌥⌘I | b. standard | its section, catalog order |
-| Browser and Viewers | `toggleBrowserFocusMode` | Toggle Browser Focus Mode | ⌥⌘ | b. standard | its section, catalog order |
+| Browser and Viewers | `toggleBrowserFocusMode` | Toggle Browser Focus Mode | ⌥⌘
+ | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleFileEditorWordWrap` | Toggle Word Wrap | ⌥Z | b. standard | its section, catalog order |
 | Browser and Viewers | `toggleReactGrab` | Toggle React Grab |  | c. niche | last in its section, −120 while typing |
 | Sidebar | `checklistAttachImages` | Attach Images to Checklist Item… |  | b. standard | its section, catalog order |
@@ -829,7 +832,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `fileExplorerCopyPath` | Copy Path |  | b. standard | its section, catalog order |
 | Sidebar | `fileExplorerCopyRelativePath` | Copy Relative Path |  | b. standard | its section, catalog order |
 | Sidebar | `fileExplorerOpenInCmux` | Open in cmux |  | b. standard | its section, catalog order |
-| Sidebar | `fileExplorerOpenSelection` | Open Selection |  | b. standard | its section, catalog order |
+| Sidebar | `fileExplorerOpenSelection` | Open Selection | 
+ | b. standard | its section, catalog order |
 | Sidebar | `fileExplorerOpenSelectionFinderAlias` | Open Selection (Finder Style) | ⌘ | b. standard | its section, catalog order |
 | Sidebar | `fileExplorerOpenWith` | Open With… |  | b. standard | its section, catalog order |
 | Sidebar | `fileExplorerReveal` | Reveal in Finder |  | b. standard | its section, catalog order |
@@ -970,7 +974,8 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `palette.launchCodexTeams` | Launch Codex Teams |  | b. standard | its section, catalog order |
 | Agents | `palette.newAgentChat` | New Agent Chat | ⌘I | a. daily | first in its section, +120 while typing |
 | Agents | `palette.openTerminalChatView` | Open Terminal as Chat |  | b. standard | its section, catalog order |
-| Agents | `palette.quickAgentChat` | Start Agent… | ⌃⌘ | a. daily | first in its section, +120 while typing |
+| Agents | `palette.quickAgentChat` | Start Agent… | ⌃⌘
+ | a. daily | first in its section, +120 while typing |
 | Agents | `palette.toggleDictation` | Toggle Dictation | ⌃⌘V | b. standard | its section, catalog order |
 | Agents | `stats.show` | Show Agent Stats |  | b. standard | its section, catalog order |
 | Agents | `tasks.new` | New Task |  | b. standard | its section, catalog order |

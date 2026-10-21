@@ -4,7 +4,8 @@ import CmuxNextActions
 import Testing
 
 /// The palette audit's order (plans/cmux-next/palette-ranking.md 5.4): a family folds into one row
-/// on the empty query and its members still match a query; daily rows lead and niche rows trail;
+/// on the empty query and its members still match a query; daily rows lead, niche rows trail and
+/// rows the focused pane cannot run come last;
 /// a built-in alias puts its command first; nothing is dropped.
 @MainActor
 struct PaletteFamilyRowsTests {
@@ -37,11 +38,15 @@ struct PaletteFamilyRowsTests {
         func item(_ id: String) -> PaletteItem {
             PaletteItem(id: id, title: id, primary: PaletteCommand(id: "run", title: "Run", effect: .perform {}))
         }
+        var disabled = item("e")
+        disabled.isEnabled = false
         let arranged = RegistryPaletteProvider.arranged(
-            [item("a"), item("b"), item("c"), item("d")],
-            tiers: ["a": .niche, "b": .standard, "c": .daily, "d": .niche]
+            [disabled, item("a"), item("b"), item("c"), item("d")],
+            tiers: ["a": .niche, "b": .standard, "c": .daily, "d": .niche, "e": .daily]
         )
-        #expect(arranged.map(\.id) == ["c", "b", "a", "d"])
+        // A row the focused pane cannot run stays listed, last.
+        #expect(arranged.map(\.id) == ["c", "b", "a", "d", "e"])
+        #expect(!arranged[4].hidesWhenQueryEmpty)
         #expect(RegistryPaletteProvider.rankBias(for: .daily) > 0)
         #expect(RegistryPaletteProvider.rankBias(for: .niche) < 0)
     }
