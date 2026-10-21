@@ -124,6 +124,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case windowBackground
     /// The sidebar's Now Playing card (u2437): Play/Pause and its hide rows.
     case nowPlayingCard
+    /// A row of the right sidebar's Files section: the explorer's actions on its selection
+    /// (the right-clicked row, which the list selects first).
+    case fileExplorerRow
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -139,6 +142,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
+        // The explorer's actions act on its selection, not a target.
+        case .fileExplorerRow: nil
         case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile

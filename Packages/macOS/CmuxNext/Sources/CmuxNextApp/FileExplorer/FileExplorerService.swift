@@ -22,7 +22,8 @@ final class FileExplorerService {
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
-            perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) })
+            perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
+            rowMenu: { [weak self] in self?.services?.registry.makeContextMenu(for: .fileExplorerRow) })
         sections.setObject(view, forKey: controller)
         return view
     }
@@ -58,8 +59,9 @@ final class FileExplorerService {
         return URL(fileURLWithPath: cwd, isDirectory: true)
     }
 
-    /// Runs an explorer action from the explorer itself (a key, a double-click, its menu): the
-    /// list has the keyboard, so `fileExplorerFocused` holds for this run.
+    /// Runs an explorer action from the explorer itself (a key, a double-click): the list has
+    /// the keyboard, so `fileExplorerFocused` holds for this run. Its right-click menu is the
+    /// registry's `fileExplorerRow` menu, whose rows imply the same fact.
     private func perform(_ id: ActionID) {
         guard let registry = services?.registry else { return }
         var invocation = ActionInvocation()

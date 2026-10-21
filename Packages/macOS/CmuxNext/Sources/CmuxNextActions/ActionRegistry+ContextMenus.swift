@@ -6,7 +6,8 @@ extension ActionRegistry {
     /// or disabled ones are shown disabled; runs of separators collapse.
     /// Items pass `target` to the handler. `implied` adds focus facts the
     /// target itself establishes (a right-clicked browser tab is a browser
-    /// even while a terminal has focus). `arguments` go to every item's run
+    /// even while a terminal has focus); an item is enabled by and runs with
+    /// them too (`ActionMenuPayload.implied`). `arguments` go to every item's run
     /// (a right-clicked link's `url`).
     public func makeContextMenu(
         for context: ActionMenuContext,
@@ -15,11 +16,12 @@ extension ActionRegistry {
         implied: ActionContext = [],
         arguments: [String: ActionValue] = [:]
     ) -> NSMenu {
-        let effective = self.context.union(Self.impliedContext(for: context)).union(implied)
+        let implied = Self.impliedContext(for: context).union(implied)
+        let effective = self.context.union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
         let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
-        menuItems(entries, target: target, context: effective, arguments: arguments, labels: labels).forEach(menu.addItem)
+        menuItems(entries, target: target, context: effective, implied: implied, arguments: arguments, labels: labels).forEach(menu.addItem)
         return menu
     }
 
@@ -43,11 +45,13 @@ extension ActionRegistry {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
         case .agentChat: .agentPaneFocused
+        // A right-clicked row is the explorer's even while another view has the keyboard.
+        case .fileExplorerRow: .fileExplorerFocused
         default: []
         }
     }
 
-    private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext,
+    private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
                            arguments: [String: ActionValue], labels: [ActionID: String] = [:]) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         for entry in entries {
@@ -58,7 +62,7 @@ extension ActionRegistry {
                 let invocation = ActionInvocation(target: target, arguments: arguments)
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
-                item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
+                item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 item.image = Self.menuIcon(descriptor.symbol)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
@@ -66,7 +70,7 @@ extension ActionRegistry {
                 ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
                 items.append(item)
             case .submenu(let id, let children):
-                let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
                 guard !childItems.isEmpty, let title = labels[id] ?? title(for: id) else { continue }
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
@@ -75,7 +79,7 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .folder(let folder, let children):
-                let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)

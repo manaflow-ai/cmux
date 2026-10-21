@@ -23,7 +23,6 @@ nonisolated enum FileExplorerStrings {
     static var revealInFinder: String { text("fileExplorer.menu.revealInFinder", "Reveal in Finder") }
     static var copyPath: String { text("fileExplorer.menu.copyPath", "Copy Path") }
     static var copyRelativePath: String { text("fileExplorer.menu.copyRelativePath", "Copy Relative Path") }
-    static var openWith: String { text("fileExplorer.menu.openWith", "Open With…") }
     static var findPlaceholder: String { text("find.placeholder", "Find in Folder") }
     static var findTitle: String { text("find.title", "Find") }
     /// The status line while ripgrep runs over `folder`.

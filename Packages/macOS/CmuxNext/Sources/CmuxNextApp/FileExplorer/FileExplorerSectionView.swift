@@ -10,6 +10,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let model: FileExplorerModel
     private let rootFolder: @MainActor @Sendable () -> URL?
     private let perform: @MainActor (String) -> Void
+    private let rowMenu: @MainActor () -> NSMenu?
     private let header = NSTextField(labelWithString: "")
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
@@ -22,10 +23,13 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
     ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
-    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void) {
+    ///   - rowMenu: A row's right-click menu, the registry's `fileExplorerRow` menu.
+    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
+         rowMenu: @escaping @MainActor () -> NSMenu?) {
         self.model = model
         self.rootFolder = rootFolder
         self.perform = perform
+        self.rowMenu = rowMenu
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
         observation = Task { [weak self] in
@@ -93,7 +97,7 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         table.target = self
         table.doubleAction = #selector(doubleClicked)
         table.perform = { [weak self] id in self?.perform(id) }
-        table.contextMenu = { [weak self] in self?.makeMenu() }
+        table.contextMenu = { [weak self] in self?.rowMenu() }
         table.setAccessibilityIdentifier("cmux.fileExplorer")
         scroll.documentView = table
         scroll.hasVerticalScroller = true
@@ -123,29 +127,6 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     @objc private func doubleClicked() {
         guard table.clickedRow >= 0 else { return }
         perform("fileExplorerOpenSelection")
-    }
-
-    private func makeMenu() -> NSMenu {
-        let menu = NSMenu()
-        let items: [(String, String)] = [
-            ("fileExplorerOpenInCmux", FileExplorerStrings.openInCmux),
-            ("fileExplorerOpenWith", FileExplorerStrings.openWith),
-            ("fileExplorerReveal", FileExplorerStrings.revealInFinder),
-            ("fileExplorerCopyPath", FileExplorerStrings.copyPath),
-            ("fileExplorerCopyRelativePath", FileExplorerStrings.copyRelativePath),
-        ]
-        for (id, title) in items {
-            let item = NSMenuItem(title: title, action: #selector(menuPicked(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = id
-            menu.addItem(item)
-        }
-        return menu
-    }
-
-    @objc private func menuPicked(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        perform(id)
     }
 
     // MARK: NSTableViewDataSource, NSTableViewDelegate
