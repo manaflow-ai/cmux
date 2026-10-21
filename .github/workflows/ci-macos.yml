@@ -4781,8 +4781,10 @@ jobs:
 
   macos-status:
     name: macOS status
-    # The placement jobs are here so the gate verdict can read the `if:` of
-    # the jobs that need them; their steps never fail a run.
+    # The placement jobs are here only so the gate verdict can read the `if:`
+    # of the jobs that need them. They are best effort (a 3-minute timeout or
+    # a lost runner can end them cancelled or failed), so the verdict step
+    # names them --context-only and never judges their own result.
     needs:
       - admission-placement
       - macos-compile-admission
@@ -4827,7 +4829,7 @@ jobs:
             "run_attempt": ${{ toJSON(github.run_attempt) }},
             "triggering_actor": ${{ toJSON(github.triggering_actor) }},
             "event": {"pull_request": {"head": {"repo": {"full_name": ${{ toJSON(github.event.pull_request.head.repo.full_name) }}}}}}}
-        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci-macos.yml --gate macos-status
+        run: python3 scripts/ci/gate_verdict.py --workflow .github/workflows/ci-macos.yml --gate macos-status --context-only admission-placement,late-placement
 
       # Compile-avoidance shadow (RFC #15391, Work 3). The package lane
       # classifies the pull request's package edits; when every edited

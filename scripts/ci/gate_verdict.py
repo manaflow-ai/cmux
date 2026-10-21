@@ -427,8 +427,12 @@ def evaluate(expression: str, context: dict[str, Any], status: dict[str, bool]) 
 PASSING = "success"
 
 
-def selected(job: Job, needs: dict[str, Any], context: dict[str, Any]) -> bool:
-    """Whether the job's own `if:` says it should have run, given what the gate sees."""
+def selected(job: Job, needs: dict[str, Any], context: dict[str, Any], *,
+             tolerate_variable_flips: bool = True) -> bool:
+    """Whether the job's own `if:` says it should have run, given what the gate sees.
+
+    With `tolerate_variable_flips` off this is plain routing: the `if:` as
+    GitHub evaluates it with these variables."""
     results = {}
     for name in job.needs:
         if name not in needs:
@@ -448,19 +452,51 @@ def selected(job: Job, needs: dict[str, Any], context: dict[str, Any]) -> bool:
     scope["needs"] = _Strict({name: {"result": needs[name].get("result"),
                                      "outputs": needs[name].get("outputs") or {}}
                               for name in job.needs}, deep=False)
-    value = evaluate(expression, scope, status)
-    if not _STATUS.search(expression):
+    implicit = not _STATUS.search(expression)
+    if implicit and not status["success"]:
         # A condition without a status function runs only when its needs passed.
-        return status["success"] and _truthy(value)
-    return _truthy(value)
+        return False
+    # Repository variables are read again here, after the job was routed, and
+    # an operator may have flipped one in between (or between re-run
+    # attempts). A skip that some value of the variables this `if:` reads
+    # explains is therefore accepted: a variable is a deliberate switch, not
+    # a routing signal, and reading it late must not red every PR in flight.
+    current = context.get("vars") or _Vars()
+    choices = _variable_choices(expression, current) if tolerate_variable_flips else [_Vars(current)]
+    for variables in choices:
+        scope["vars"] = variables
+        if not _truthy(evaluate(expression, scope, status)):
+            return False
+    return True
 
 
-def problems(jobs: dict[str, Job], gate: str, needs: dict[str, Any], context: dict[str, Any]) -> list[str]:
+_VAR_REF = re.compile(r"\bvars\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _variable_choices(expression: str, current: dict[str, Any]) -> list[dict[str, Any]]:
+    """The current variables, then each referenced one set to every value the
+    expression compares it with, or to unset."""
+    choices = [_Vars(current)]
+    literals = [match.group(0)[1:-1].replace("''", "'")
+                for match in re.finditer(r"'(?:[^']|'')*'", expression)]
+    for name in sorted(set(_VAR_REF.findall(expression))):
+        for value in ["", *literals, "x"]:
+            choices.append(_Vars({**current, name: value}))
+    return choices
+
+
+def problems(jobs: dict[str, Job], gate: str, needs: dict[str, Any], context: dict[str, Any],
+             context_only: frozenset[str] = frozenset()) -> list[str]:
+    """What keeps the gate from passing. `context_only` names best-effort needs
+    the gate reads only to evaluate other needs' `if:`; their own result,
+    whatever it is, is not a verdict."""
     found: list[str] = []
     for name in jobs[gate].needs:
         entry = needs.get(name)
         if entry is None:
             found.append(f"{name}: no result reached the gate")
+            continue
+        if name in context_only:
             continue
         result = entry.get("result")
         if result == PASSING:
@@ -495,14 +531,21 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--workflow", required=True, type=Path)
     parser.add_argument("--gate", required=True)
+    parser.add_argument("--context-only", default="",
+                        help="comma-separated best-effort needs read only for other needs' `if:`")
     args = parser.parse_args(argv)
+    context_only = frozenset(name for name in args.context_only.split(",") if name)
 
     jobs = read_jobs(args.workflow.read_text())
     if args.gate not in jobs:
         print(f"no job {args.gate!r} in {args.workflow}", file=sys.stderr)
         return 1
     needs = json.loads(os.environ.get("GATE_NEEDS") or "{}")
-    found = problems(jobs, args.gate, needs, context_from_environment(dict(os.environ)))
+    unknown = context_only - set(jobs[args.gate].needs)
+    if unknown:
+        print(f"--context-only names jobs {args.gate} does not need: {sorted(unknown)}", file=sys.stderr)
+        return 1
+    found = problems(jobs, args.gate, needs, context_from_environment(dict(os.environ)), context_only)
     if found:
         for line in found:
             print(f"::error::{line}")

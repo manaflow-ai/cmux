@@ -86,6 +86,15 @@ def verdict_step(path: str) -> dict:
     return steps[0]
 
 
+def context_only(path: str) -> frozenset[str]:
+    match = re.search(r"--context-only (\S+)", verdict_step(path)["run"])
+    return frozenset(match.group(1).split(",")) if match else frozenset()
+
+
+def reads_variables(job) -> bool:
+    return "vars." in (job.condition or "")
+
+
 REFERENCE = re.compile(r"\b(needs|inputs|vars|github)((?:\.[A-Za-z0-9_*-]+)+)")
 LITERAL = re.compile(r"'((?:[^']|'')*)'|\b(\d+)\b")
 _REF = r"(?:needs|inputs|vars|github)(?:\.[A-Za-z0-9_*-]+)+"
@@ -170,7 +179,7 @@ class Scenario:
                 job = self.jobs[name]
                 if any(need not in needs for need in job.needs):
                     continue
-                ran = verdict.selected(job, needs, self.context)
+                ran = verdict.selected(job, needs, self.context, tolerate_variable_flips=False)
                 needs[name] = {"result": "success" if ran else "skipped",
                                "outputs": dict(self.outputs.get(name, {})) if ran else {}}
                 pending.remove(name)
@@ -198,9 +207,10 @@ class WiringTests(unittest.TestCase):
             with self.subTest(path=path):
                 step = verdict_step(path)
                 self.assertNotIn("continue-on-error", step)
-                self.assertEqual(
-                    step["run"].strip(),
-                    f"python3 scripts/ci/gate_verdict.py --workflow {path} --gate {gate}")
+                expected = f"python3 scripts/ci/gate_verdict.py --workflow {path} --gate {gate}"
+                if context_only(path):
+                    expected += " --context-only " + ",".join(sorted(context_only(path)))
+                self.assertEqual(step["run"].strip(), expected)
                 self.assertEqual(step["env"]["GATE_NEEDS"], "${{ toJSON(needs) }}")
                 self.assertEqual(step["env"]["GATE_VARS"], "${{ toJSON(vars) }}")
                 self.assertEqual(step["env"]["GATE_INPUTS"], "${{ toJSON(inputs) }}")
@@ -257,32 +267,77 @@ class NeedsGraphWalk(unittest.TestCase):
     def test_absent_signals_fail_and_routed_skips_pass(self):
         for path, gate in GATES.items():
             rng = random.Random(f"{path}:20261020")
+            best_effort = context_only(path)
             selected_seen: set[str] = set()
             skipped_seen: set[str] = set()
             for index in range(SCENARIOS):
                 scenario = Scenario(path, rng)
                 needs = scenario.routed()
-                problems = verdict.problems(scenario.jobs, gate, needs, scenario.context)
-                self.assertEqual(problems, [], f"{path} scenario {index}: routed results must pass")
+
+                def check(broken):
+                    return verdict.problems(scenario.jobs, gate, broken, scenario.context, best_effort)
+
+                self.assertEqual(check(needs), [], f"{path} scenario {index}: routed results must pass")
                 for name, entry in needs.items():
                     if entry["result"] == "skipped":
                         skipped_seen.add(name)
                         mutations = ("failure", "cancelled")
                     else:
                         selected_seen.add(name)
-                        mutations = ("skipped", "cancelled", "failure")
+                        mutations = ("cancelled", "failure")
+                        # A skip a repository-variable flip explains is accepted.
+                        if not reads_variables(scenario.jobs[name]):
+                            mutations = ("skipped", *mutations)
                     for result in mutations:
-                        broken = {**needs, name: {"result": result, "outputs": {}}}
-                        found = verdict.problems(scenario.jobs, gate, broken, scenario.context)
-                        self.assertTrue(
-                            any(line.startswith(f"{name}:") for line in found),
-                            f"{path} scenario {index}: {gate} passed with {name} {result}")
+                        found = check({**needs, name: {"result": result, "outputs": {}}})
+                        mentions = any(line.startswith(f"{name}:") for line in found)
+                        if name in best_effort:
+                            self.assertFalse(mentions, f"{path} scenario {index}: best-effort {name} "
+                                                       f"{result} must not fail {gate}")
+                        else:
+                            self.assertTrue(mentions, f"{path} scenario {index}: {gate} passed with {name} {result}")
                     missing = {key: value for key, value in needs.items() if key != name}
-                    self.assertTrue(verdict.problems(scenario.jobs, gate, missing, scenario.context))
+                    self.assertTrue(check(missing))
             # The walk reached every need both ways, so no job escaped it.
             every = set(scenario.jobs[gate].needs)
             self.assertEqual(selected_seen, every, f"{path}: needs never selected")
             self.assertTrue(skipped_seen, f"{path}: no routed skip was exercised")
+
+    def test_best_effort_needs_cannot_hold_back_what_needs_them(self):
+        # A context-only need is never judged, so it must be one whose result
+        # cannot stop a dependent: every step continue-on-error, and every job
+        # that needs it runs whatever its result (a status function, and no
+        # read of its result).
+        for path, gate in GATES.items():
+            full = parsed(path)["jobs"]
+            jobs = jobs_of(path)
+            for name in context_only(path):
+                with self.subTest(path=path, job=name):
+                    self.assertIn(name, jobs[gate].needs)
+                    self.assertTrue(all(step.get("continue-on-error") is True
+                                        for step in full[name]["steps"]))
+                    for other, job in jobs.items():
+                        if other == gate or name not in job.needs:
+                            continue
+                        condition = verdict.strip_expression(job.condition or "")
+                        self.assertRegex(condition, verdict._STATUS, other)
+                        self.assertNotIn(f"needs.{name}.result", condition, other)
+
+    def test_variable_flip_between_routing_and_gate_is_not_red(self):
+        path = ".github/workflows/ci-macos.yml"
+        jobs = jobs_of(path)
+        job = jobs["late-placement"]
+        needs = {"macos-compile-admission": {"result": "success", "outputs": {}}}
+        github = {"event_name": "pull_request", "repository": "manaflow-ai/cmux",
+                  "repository_owner": "manaflow-ai", "run_attempt": "1", "triggering_actor": "a",
+                  "event": {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}}}
+        context = verdict.context_from_environment({
+            "GATE_VARS": json.dumps({"CI_PR_POOL_OWNED": "1", "GLAEDA_ROUTE_APP_ID": "7"}),
+            "GATE_GITHUB": json.dumps(github)})
+        # Routed with these variables, it runs ...
+        self.assertTrue(verdict.selected(job, needs, context, tolerate_variable_flips=False))
+        # ... but had CI_PR_POOL_OWNED been off when it was routed, its skip is explained.
+        self.assertFalse(verdict.selected(job, needs, context))
 
     def test_pr_21287_compile_admission_never_ran(self):
         # macOS compile admission sat queued until merge; had it ended without
@@ -301,7 +356,7 @@ class NeedsGraphWalk(unittest.TestCase):
                 "event": {"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}}}),
         })
         needs = {name: {"result": "skipped", "outputs": {}} for name in jobs["macos-status"].needs}
-        found = verdict.problems(jobs, "macos-status", needs, context)
+        found = verdict.problems(jobs, "macos-status", needs, context, context_only(path))
         self.assertEqual([line.split(":")[0] for line in found], ["macos-compile-admission"])
 
 
