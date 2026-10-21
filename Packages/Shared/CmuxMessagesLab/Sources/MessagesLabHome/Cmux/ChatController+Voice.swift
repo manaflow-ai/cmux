@@ -62,11 +62,9 @@ final class ComposeListeningLine: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// The field's font in italics.
-    static let font: NSFont = {
-        let base = ComposeView.font
-        return NSFont(descriptor: base.fontDescriptor.withSymbolicTraits(.italic), size: base.pointSize) ?? base
-    }()
+    /// The field's font in italics, made once (a `static let`, as the render_font rule wants).
+    static let font: NSFont = NSFont(descriptor: ComposeView.font.fontDescriptor.withSymbolicTraits(.italic),
+                                     size: ComposeView.font.pointSize) ?? ComposeView.font
 
     /// On the field's first line, its baseline on the placeholder's.
     func place(field f: CGRect, color: NSColor) {
