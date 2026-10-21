@@ -32,7 +32,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // hosts share and never reaches the model (AgentPaneScrollAnchors+Bridge). Not logged: it
         // names a row of the person's transcript.
         if let body = message.body as? [String: Any], let method = body["method"] as? String,
-           method.hasPrefix("chat.scrollAnchor") {
+           AgentPaneScrollAnchors.handles(method: method) {
             let params = body["params"] as? [String: Any]
             return replyHandler(AgentPaneScrollAnchors.reply(to: method, params: params), nil)
         }

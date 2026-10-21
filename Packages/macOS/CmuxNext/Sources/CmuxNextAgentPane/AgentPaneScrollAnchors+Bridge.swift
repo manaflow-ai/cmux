@@ -12,6 +12,13 @@ extension AgentPaneScrollAnchors {
     ///
     /// A chat's place is the chat's, not the pane's, so ``AgentPaneModel`` never sees these, as
     /// with `chat.tail`.
+    /// The ops this seam answers, which is what ``AgentPaneBridge`` branches on. Named rather than
+    /// matched by prefix so a later `chat.scrollAnchor…` op added to ``AgentPaneRequest`` reaches
+    /// the model instead of being swallowed here.
+    static func handles(method: String) -> Bool {
+        method == "chat.scrollAnchor" || method == "chat.scrollAnchor.get"
+    }
+
     static func reply(to method: String, params: [String: Any]?) -> [String: Any] {
         guard let session = params?["sessionId"] as? String, !session.isEmpty else {
             return AgentPaneReply.failure(code: "native.invalid_request", message: "A chat's place needs a sessionId")

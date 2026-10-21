@@ -9,7 +9,13 @@ import Testing
 /// talks to the pane's own host (``AgentPaneBridge``) instead, and that is the path a reader is on.
 /// The page sends the same two ops either way — `callNative` falls back to the `agentSession`
 /// handler when there is no page client — so this holds that path to the same promise: a chat the
-/// reader left in the middle reopens there, after a relaunch too.
+/// reader left in the middle reopens there.
+///
+/// What the pane's own host was missing is the chat's *durable* place. A tab open at a clean quit
+/// already came back where it was, through its wake state (`AgentPaneWakeState`, which goes
+/// straight to `window.cmuxAcpmuxActions` and so needed neither host); the per-chat store these
+/// ops write is what survives a crash, and what a different tab — or a tab closed and opened
+/// again — reads.
 @Suite(.serialized)
 @MainActor
 struct ChatScrollRestoreDefaultPathTests {
@@ -30,14 +36,12 @@ struct ChatScrollRestoreDefaultPathTests {
             AgentPaneScrollAnchors.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        // The default path: the setting that would move these ops to the page host is off.
-        #expect(AgentPaneTunables.pageHost.value == false)
-
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": "user-42", "offset": 120.5]))
 
-        // The next run (a relaunch, or after kill -9) reads it back, for that chat only.
+        // A fresh store — the next run after a crash, or another tab in this one — reads it back,
+        // for that chat only.
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         let place = Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) as? [String: Any]
         #expect(place?["rowId"] as? String == "user-42")
@@ -91,5 +95,28 @@ struct ChatScrollRestoreDefaultPathTests {
         #expect(Self.call("chat.scrollAnchor.get", [:])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor", ["sessionId": ""])["ok"] as? Bool == false)
         #expect(Self.call("chat.scrollAnchor.forget", ["sessionId": "s-5"])["ok"] as? Bool == false)
+        // Refused, and nothing written under any of those chats.
+        #expect(AgentPaneScrollAnchors.shared?.anchor(for: "s-5") == nil)
+        #expect(AgentPaneScrollAnchors.shared?.anchor(for: "") == nil)
+    }
+
+    /// The routing, not only the answer. ``AgentPaneModel`` has no case for either op, so the pane's
+    /// own host has to send them to this seam; take that branch out of ``AgentPaneBridge`` and a
+    /// chat stops keeping its place again, which is the bug. A `WKScriptMessage` cannot be made in
+    /// a test, so what is held is the predicate the bridge branches on and the model's lack of a
+    /// route — the two halves that have to agree.
+    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() {
+        for method in ["chat.scrollAnchor", "chat.scrollAnchor.get"] {
+            #expect(AgentPaneScrollAnchors.handles(method: method))
+            let request = AgentPaneRequest(body: ["method": method, "params": ["sessionId": "s-1"]])
+            guard case .unsupported(let named) = request else {
+                Issue.record("\(method) now decodes to \(request), so the bridge's route to this seam is dead code")
+                continue
+            }
+            #expect(named == method)
+        }
+        // Everything else stays the model's to answer or to refuse.
+        #expect(AgentPaneScrollAnchors.handles(method: "chat.scrollAnchor.forget") == false)
+        #expect(AgentPaneScrollAnchors.handles(method: "chat.tail") == false)
     }
 }
