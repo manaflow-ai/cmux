@@ -331,17 +331,6 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
-            // Stop all agents (coordinator 2026-10-20): the Chief's turn and every
-            // subagent (chief.stop {all}); a plain stop never stops a subagent.
-            // Option-click on the compose bar's stop button runs it too; its
-            // toast lists what stopped and offers Restart.
-            ActionDescriptor(
-                id: "home.stopAllAgents",
-                title: String(localized: "action.home.stopAllAgents", defaultValue: "Stop All Agents", bundle: .module),
-                keywords: ["chief", "home", "stop", "all", "agents", "subagents", "cancel"], category: .agents,
-                symbol: "stop.circle.fill", surfaces: [.palette, .menu], mainMenu: .file,
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
-            ),
             // The built-in Memory Inspector (memory-inspector-native-DESIGN.md): a
             // Chief's memory tree, search, and the owner's edits, deletes and undo,
             // in a native pane tab in the Home right column. Every build.

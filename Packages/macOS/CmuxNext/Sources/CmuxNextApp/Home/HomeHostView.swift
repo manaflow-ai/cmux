@@ -27,7 +27,7 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private var isChief = false
+    private(set) var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
@@ -40,9 +40,8 @@ final class HomeHostView: NSView {
     static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    private var control: HomeChiefControl
+    private(set) var control: HomeChiefControl
     private var stopObserver: (any NSObjectProtocol)?
-    private var stopAllObserver: (any NSObjectProtocol)?
     /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
     /// (else a paired server runs it).
     private var showsCloud = false
@@ -120,12 +119,9 @@ final class HomeHostView: NSView {
             // task-owner: one hop to the main actor for the toggle; only the front window's Home answers (the posted window)
             Task { @MainActor [target = (note.object as? NSWindow).map(ObjectIdentifier.init)] in if let self, HomeChiefSettingsPopover.answersToggle(for: target, in: self.window) { self.toggleChiefSettings() } }
         }
-        // The shared stop action (palette, the stop button, Esc and Cmd-.): the key window's Home stops its Chief.
+        // The stop button (HomeHostView+StopAll): a click, Esc and Cmd-. stop the Chief; Option-click stops all agents.
         let registry = services.registry
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
-        // Option-click on the stop button: Stop all agents (a plain stop ends the Chief's turn only).
-        transcript.onStopAll = { _ = registry.perform(HomeChiefControl.stopAllAction, invocation: ActionInvocation(origin: .user)) }
-        transcript.stopToolTip = HomeStopAllStrings.stopToolTip
+        wireStopButton(registry)
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         // An attachment or a path link opens in cmux on the right of Home, never in Finder (a
         // folder in a Files tab); right-click has Open With (HomeFileActions).
@@ -151,10 +147,6 @@ final class HomeHostView: NSView {
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
             Task { @MainActor in self?.stopIfFront() }
-        }
-        stopAllObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopAllNotification, object: nil, queue: .main) { [weak self] _ in
-            // task-owner: one hop to the main actor for the stop
-            Task { @MainActor in self?.stopAllIfFront() }
         }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
@@ -294,7 +286,6 @@ final class HomeHostView: NSView {
             settings.close()
             if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
             if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
-            if let stopAllObserver { NotificationCenter.default.removeObserver(stopAllObserver) }
             firstPage?.cancel()
             transcript.stop()
         }
@@ -350,31 +341,6 @@ final class HomeHostView: NSView {
         // task-owner: one chief.stop; ends with its answer
         Task {
             if await control.stop() != nil { NSSound.beep() }
-        }
-    }
-
-    /// Stop all agents reached this view: only the Home in the key window
-    /// acts, whether or not its Chief works (its subagents may). The toast
-    /// lists what stopped and offers Restart.
-    private func stopAllIfFront() {
-        guard isChief, window?.isKeyWindow == true, !isHiddenOrHasHiddenAncestor, let window else { return }
-        let control = control
-        // task-owner: one chief.stop {all}, then the toast; ends with the answer
-        Task { @MainActor [weak window] in
-            switch await control.stopAll() {
-            case .failure:
-                NSSound.beep()
-            case .success(let answer):
-                guard let window else { return }
-                let names = answer.subagents
-                let message = names.isEmpty ? HomeStopAllStrings.stoppedNone : HomeStopAllStrings.stopped(names)
-                let action = names.isEmpty ? nil : CmuxToast.Action(title: HomeStopAllStrings.restart)
-                let handle = CmuxToastCenter.shared.show(CmuxToast(id: "home.stopAllAgents", message: message, action: action), in: window)
-                handle.onAction = {
-                    // task-owner: one chief.stop {restart}; ends with its answer
-                    Task { @MainActor in if await control.restart(names) != nil { NSSound.beep() } }
-                }
-            }
         }
     }
 

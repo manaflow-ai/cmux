@@ -31,10 +31,9 @@ struct HomeChiefControl {
     static let stopAction: ActionID = "home.stopChief"
     static let stopNotification = Notification.Name("HomeHostView.stopChief")
     /// Stop all agents (the menu, the palette, Option-click on the stop
-    /// button): the key window's Home stops its Chief's turn and every
-    /// subagent, and its toast offers Restart.
+    /// button): the key window's Chief Home stops its Chief's turn and every
+    /// subagent, and its toast offers Restart (HomeHostView+StopAll).
     static let stopAllAction: ActionID = "home.stopAllAgents"
-    static let stopAllNotification = Notification.Name("HomeHostView.stopAllAgents")
 
     var isCloud: Bool { services.home.isCloudConversation(conversation) }
 
@@ -113,7 +112,7 @@ struct HomeChiefControl {
     func stopAll() async -> Result<ChiefStopAll, HomeChiefEngineError> {
         if isHosted { return .failure(.cloudStopUnsupported) }
         guard let connection else { return .failure(.unreachable) }
-        do {
+        do throws(ChiefControlError) {
             let answer = try await ChiefControlClient(connection).stopAllAgents(chief: named)
             Self.logger.info("home: stop all agents stopped \(answer.subagents.count, privacy: .public) subagent(s)")
             return .success(answer)
@@ -127,7 +126,7 @@ struct HomeChiefControl {
     /// every one went on, else why not.
     func restart(_ names: [String]) async -> HomeChiefEngineError? {
         guard let connection else { return .unreachable }
-        do {
+        do throws(ChiefControlError) {
             let answer = try await ChiefControlClient(connection).restartAgents(names, chief: named)
             guard answer.errors.isEmpty else {
                 Self.logger.error("home: restart: \(answer.errors.joined(separator: "; "), privacy: .public)")
@@ -148,6 +147,18 @@ enum HomeStopAllStrings {
     static var restart: String { String(localized: "home.stopAll.restart", defaultValue: "Restart", bundle: .module) }
     static var stoppedNone: String {
         String(localized: "home.stopAll.none", defaultValue: "No agents were running", bundle: .module)
+    }
+    static var stoppedChiefOnly: String {
+        String(localized: "home.stopAll.chiefOnly", defaultValue: "Stopped the Chief; no subagents were running", bundle: .module)
+    }
+    /// Why Stop All Agents is unavailable: the key window shows no Chief's Home.
+    static var unavailable: String {
+        String(localized: "home.stopAll.unavailable", defaultValue: "Stop All Agents works in a Chief's Home", bundle: .module)
+    }
+    /// The toast after Stop all agents: the subagents it stopped, else whether the Chief's turn stopped.
+    static func message(for answer: ChiefStopAll) -> String {
+        if !answer.subagents.isEmpty { return stopped(answer.subagents) }
+        return answer.stopped ? stoppedChiefOnly : stoppedNone
     }
     static func stopped(_ names: [String]) -> String {
         String(format: String(localized: "home.stopAll.stopped", defaultValue: "Stopped all agents: %@", bundle: .module),

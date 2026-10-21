@@ -81,14 +81,6 @@ public final class HomeNativeTranscriptView: NSView {
     public var onStop: () -> Void = {} {
         didSet { transcript.onStop = { [weak self] in self?.onStop() } }
     }
-    /// The host's Stop all agents (Option-click on the stop button).
-    public var onStopAll: () -> Void = {} {
-        didSet { transcript.onStopAll = { [weak self] in self?.onStopAll() } }
-    }
-    /// The stop button's tooltip while the Chief works.
-    public var stopToolTip: String? {
-        didSet { transcript.stopToolTip = stopToolTip }
-    }
     /// A chosen sent-bubble colour (opt in); nil keeps the style's (iMessage blue, or the theme's accent).
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
