@@ -4,6 +4,7 @@
 //! step whose dependency did not pass is `skip`. One JSON line per step as
 //! it finishes, then `{"report":{...}}`. Without `fix` nothing changes.
 
+use crate::cli::errors::{AppError, Code};
 use crate::cli::host_peering::{self, PeerTarget};
 use crate::cli::host_steps::{Report, Step, StepResult, StepState};
 use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
@@ -94,7 +95,9 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         println!("{} ({}): {verdict}", report.name, report.host);
     }
     if !report.ok {
-        std::process::exit(1);
+        // After the report: exit 1, with the error envelope on stderr.
+        let why = format!("{} ({}) needs attention", report.name, report.host);
+        return Err(AppError::new(Code::Runtime, "unhealthy", why).into());
     }
     Ok(())
 }
@@ -297,12 +300,17 @@ fn build_of(line: &str) -> Option<&str> {
 /// daemon) says through it (a cmux-tui as `cmux-tui acp …`); then a NUL and
 /// the daemon config. An app name may hold spaces: the glob's words stay
 /// whole and a pattern that matched nothing fails `-f`.
-const PROBE: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; cat ~/.acpmux/config.json 2>/dev/null"#;
+const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
 
-/// What [`PROBE`] found.
+/// [`PROBE_BINS`], then the remote daemon config.
+fn probe_script() -> String {
+    format!("{PROBE_BINS}cat {}/config.json 2>/dev/null", hosts::REMOTE_HOME)
+}
+
+/// What [`probe_script`] found.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct Probe {
-    /// Each acpmux on the host and its build, in [`PROBE`] order.
+    /// Each acpmux on the host and its build, in [`probe_script`] order.
     bins: Vec<(String, Option<String>)>,
     /// The first daemon that answered.
     running: Option<Running>,
@@ -429,10 +437,10 @@ impl Probe {
     }
 }
 
-/// Run [`PROBE`], then name the running daemon's executable (Linux
+/// Run [`probe_script`], then name the running daemon's executable (Linux
 /// `/proc`, else `ps`) and its command line. Reads only.
 fn probe(r: &dyn Remote) -> Result<Probe> {
-    let mut probe = parse_probe(&r.exec(PROBE, None)?.stdout);
+    let mut probe = parse_probe(&r.exec(&probe_script(), None)?.stdout);
     if let Some(pid) = probe.running.as_ref().map(|run| run.pid) {
         let script = format!(
             "readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}; printf '\\0'; ps -o args= -p {pid} 2>/dev/null; printf '\\0'; readlink -f {DAEMON_BIN} 2>/dev/null"
@@ -674,7 +682,8 @@ fn judge_daemon(host: &str, name: &str, probe: &Probe, port: u16) -> Verdict {
                 Step::Daemon,
                 format!("cmux's own daemon runs on {host}, but {why}"),
                 format!(
-                    "Give the daemon a WebSocket listener on 127.0.0.1:{port} with a token in ~/.acpmux/config.json on {host}, then restart cmux there."
+                    "Give the daemon a WebSocket listener on 127.0.0.1:{port} with a token in {}/config.json on {host}, then restart cmux there.",
+                    hosts::REMOTE_HOME
                 ),
             ));
         }

@@ -205,7 +205,7 @@ const APP_BIN: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acp
 const APP_EXE: &str = "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux";
 const TUI_BIN: &str = "/home/leo/.local/bin/cmux-tui";
 
-/// What [`PROBE`] prints for these binaries (path, build), with a daemon of
+/// What [`probe_script`] prints for these binaries (path, build), with a daemon of
 /// `daemon` (build, person key) answering through the first of them.
 fn probe_out(bins: &[(&str, &str)], daemon: Option<(&str, bool)>) -> String {
     let mut out = String::new();
@@ -234,7 +234,7 @@ fn host_with<'a>(
         assert!(stdin.is_none(), "a write: {script}");
         if script == "true" {
             out("")
-        } else if script == PROBE {
+        } else if script == probe_script().as_str() {
             out(probe_out(bins, daemon))
         } else if script.starts_with("readlink /proc/7/exe") {
             out(exe)
@@ -256,7 +256,7 @@ fn assert_read_only<F: Fn(&str, Option<&[u8]>) -> RemoteOut>(fake: &Fake<F>) {
     assert!(fake.pushes.borrow().is_empty());
     for (script, stdin) in fake.calls.borrow().iter() {
         assert!(!stdin, "{script}");
-        if script == PROBE {
+        if script == probe_script().as_str() {
             continue;
         }
         for writes in
@@ -270,7 +270,7 @@ fn assert_read_only<F: Fn(&str, Option<&[u8]>) -> RemoteOut>(fake: &Fake<F>) {
 #[test]
 fn the_probe_reads_only_and_parses_what_it_found() {
     for writes in ["mv ", "cat >", "ln ", "launchctl", "daemon start", "chmod", "mkdir", "rm "] {
-        assert!(!PROBE.contains(writes), "{writes}");
+        assert!(!probe_script().contains(writes), "{writes}");
     }
     let p = parse_probe(&probe_out(&[(APP_BIN, "a"), (LOCAL_BIN, "b")], Some(("a", true))));
     assert_eq!(
@@ -302,7 +302,7 @@ fn the_probe_finds_an_app_with_a_space_in_its_name() {
     let app_bin = apps.join("cmux NIGHTLY.app/Contents/Resources/bin");
     std::fs::create_dir_all(&app_bin).unwrap();
     std::fs::copy(&bin, app_bin.join("acpmux")).unwrap();
-    let script = PROBE.replace("/Applications/", &format!("{}/", apps.display()));
+    let script = probe_script().replace("/Applications/", &format!("{}/", apps.display()));
     let out = std::process::Command::new("sh")
         .args(["-c", &script])
         .env("HOME", &home)
@@ -437,7 +437,7 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
         }
         if script == "true" {
             out("")
-        } else if script == PROBE {
+        } else if script == probe_script().as_str() {
             out(probe_out(bins, Some((build, false))))
         } else if script.starts_with("readlink /proc/7/exe") {
             out(LOCAL_BIN)
@@ -479,7 +479,7 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
     let fake = Fake::new(|script, _| {
         if script == "true" {
             out("")
-        } else if script == PROBE {
+        } else if script == probe_script().as_str() {
             out("\0")
         } else if script.starts_with("printf 'bin=") {
             out("bin=\n")
@@ -602,7 +602,8 @@ fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
         paths.push(bin.to_string_lossy().into_owned());
     }
-    let script = PROBE.replace("/Applications/", &format!("{}/Applications/", home.display()));
+    let script =
+        probe_script().replace("/Applications/", &format!("{}/Applications/", home.display()));
     let out = std::process::Command::new("sh")
         .args(["-c", &script])
         .env("HOME", &home)
@@ -627,7 +628,7 @@ fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) ->
         let is_linked = *linked.borrow();
         if script == "true" {
             out("")
-        } else if script == PROBE {
+        } else if script == probe_script().as_str() {
             let mut bins = vec![(TUI_BIN, build)];
             if is_linked {
                 bins.insert(0, (LOCAL_BIN, build));
@@ -754,7 +755,7 @@ fn a_daemon_started_through_the_acpmux_link_stays_ours() {
     let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (TUI_BIN, build)];
     for (link_target, ours) in [(TUI_BIN, true), ("", false)] {
         let fake = Fake::new(|script, _| {
-            if script == PROBE {
+            if script == probe_script().as_str() {
                 out(probe_out(bins, Some((build, false))))
             } else if script.starts_with("readlink /proc/7/exe") {
                 out(format!("{TUI_BIN}\n\0{ARGS}\n\0{link_target}\n"))

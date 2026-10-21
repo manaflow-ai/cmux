@@ -15,6 +15,11 @@ use std::sync::Arc;
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
 
+/// The acpmux home on a remote ssh host, as a remote shell path: the
+/// default home its standalone daemon and a shipped cmux use there (this
+/// machine's own home comes from its resolver, `config.rs`).
+pub(crate) const REMOTE_HOME: &str = "~/.acpmux";
+
 /// What a remote command answered.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RemoteOut {
@@ -164,7 +169,7 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     }
     let exe = std::env::current_exe()?;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
-    run(r, &format!("mkdir -p {dir} ~/.acpmux"))?;
+    run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
     r.push(&exe, &format!("{bin}.new"))?;
     run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
 }
@@ -441,7 +446,7 @@ fn daemon_config(existing: &str, port: u16, fresh: &str) -> Value {
 /// unit or a detached start on Linux ([`linux_restart`]). The daemon's
 /// status (JSON with `json`).
 pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<String> {
-    let existing = run(r, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
+    let existing = run(r, &format!("cat {REMOTE_HOME}/config.json 2>/dev/null || echo '{{}}'"))?;
     let mut fresh = [0u8; 24];
     getrandom_fill(&mut fresh)?;
     let fresh: String = fresh.iter().map(|x| format!("{x:02x}")).collect();
@@ -451,7 +456,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
     run(
         r,
         &format!(
-            "mkdir -p ~/.acpmux && chmod 700 ~/.acpmux && umask 077 && cat > ~/.acpmux/config.json <<'ACPMUX_CFG' && chmod 600 ~/.acpmux/config.json\n{cfg_text}\nACPMUX_CFG"
+            "mkdir -p {REMOTE_HOME} && chmod 700 {REMOTE_HOME} && umask 077 && cat > {REMOTE_HOME}/config.json <<'ACPMUX_CFG' && chmod 600 {REMOTE_HOME}/config.json\n{cfg_text}\nACPMUX_CFG"
         ),
     )?;
     let os = run(r, "uname -s")?;
