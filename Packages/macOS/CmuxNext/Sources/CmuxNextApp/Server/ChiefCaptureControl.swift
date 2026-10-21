@@ -24,39 +24,33 @@ enum ChiefCaptureControl {
                 guard let chief = await localChief(services) else {
                     throw ControlError(code: "unavailable", message: "no local Chief machine connected within 30 s")
                 }
+                let machineID = await MainActor.run { chief.machineID }
                 var ids: [String] = []
                 for name in names {
                     let window = await MainActor.run { services.windows.targetWindow(preferring: services.windows.active?.state.id) }
                     ids.append(try await services.windows.createWorkspace(WorkspaceSpawn(name: name), on: chief.daemon, into: window))
                 }
                 if let collapse = call.params["collapse"]?.boolValue {
-                    try await MainActor.run { try fold(services, chief: chief.machineID, collapse: collapse) }
+                    try await MainActor.run { try fold(services, chief: machineID, collapse: collapse) }
                 }
                 if let index = call.params["card"]?.intValue {
                     guard ids.indices.contains(index) else { throw ControlError.invalidParams("card names no opened workspace") }
                     try await MainActor.run { try showCard(services, workspace: ids[index]) }
                 }
-                return .object(["machine": .string(chief.machineID), "workspaces": .array(ids.map(JSONValue.string))])
+                return .object(["machine": .string(machineID), "workspaces": .array(ids.map(JSONValue.string))])
             }.withDeadline(.fixed(.seconds(60))),
         ]
     }
 
     /// The local Chief machine once its daemon is connected; nil after 30 s.
+    @MainActor
     private static func localChief(_ services: AppServices) async -> ServerMachineSession? {
-        await withTaskGroup(of: ServerMachineSession?.self) { group in
-            group.addTask { @MainActor in
-                for await chief in ObservationStream({ services.machines.servers.first { $0.reach.isLocalChief && $0.isConnected } })
-                where chief != nil { return chief }
-                return nil
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(30))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+        let deadline = ContinuousClock.now + .seconds(30)
+        while ContinuousClock.now < deadline {
+            if let chief = services.machines.servers.first(where: { $0.reach.isLocalChief && $0.isConnected }) { return chief }
+            try? await Task.sleep(for: .milliseconds(250))
         }
+        return nil
     }
 
     @MainActor
