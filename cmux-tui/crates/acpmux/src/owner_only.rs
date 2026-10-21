@@ -63,9 +63,10 @@ const CHANGE_RIGHTS: u32 =
 const DIRECTORY_CHANGE_RIGHTS: u32 = CHANGE_RIGHTS | 0x40;
 /// Rights that let another identity replace an existing namespace component.
 /// Adding a sibling is harmless once every missing component is opened and
-/// authenticated after creation.
+/// authenticated after creation. `FILE_WRITE_DATA` (`FILE_ADD_FILE` for a
+/// directory) is included because `FSCTL_SET_REPARSE_POINT` requires it.
 const ANCESTOR_REPLACE_RIGHTS: u32 =
-    0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x4000_0000 | 0x1000_0000;
+    0x2 | 0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x4000_0000 | 0x1000_0000;
 const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
 const WRITE_DAC_ACCESS: u32 = 0x0004_0000;
 const WRITE_SECURITY_ACCESS: u32 = READ_CONTROL_ACCESS | WRITE_DAC_ACCESS;
