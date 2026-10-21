@@ -25,8 +25,7 @@ public nonisolated enum PageWebKitReason: String, Sendable, Hashable, CaseIterab
     case chromiumUnavailable = "chromium-unavailable"
     /// The Chromium page did not start or never reached the host; the page reopened in WebKit.
     case chromiumFailed = "chromium-failed"
-    /// Chromium's page scheme does not serve this page: only first-party pages
-    /// (`FirstPartyPages.ids`) are registered with it, and this page is not one (changelog, CodeRouter,
-    /// stats, files). Making it first-party also changes its CSP and lets it reach the daemon.
+    /// Chromium's page scheme does not serve this page: only the pages the app ships are registered
+    /// with it (CmuxNextApp `FirstPartyPageSchemes.descriptors`), and this page is not one.
     case notServedByChromium = "not-served-by-chromium"
 }
