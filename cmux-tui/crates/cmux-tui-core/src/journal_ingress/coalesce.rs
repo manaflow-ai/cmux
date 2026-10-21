@@ -102,15 +102,10 @@ pub(super) fn hold_terminal_output(
         if bytes >= COALESCE_MAX_BYTES {
             return;
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return;
-        }
-        // Every enqueue posts a wake, and so does writer shutdown; a
-        // disconnected wake channel means every sender is gone.
-        if receivers.wake.recv_timeout(remaining).is_err() {
-            return;
-        }
+        // Drain first: the first drain of the batch takes at most
+        // JOURNAL_TERMINAL_BATCH_CHUNKS events, and the wake for any event
+        // queued behind them was already consumed. Waiting before this drain
+        // would hold a queued barrier or receipt for the whole window.
         let terminal_drained = drain_lane(
             &receivers.terminal,
             batch,
@@ -128,6 +123,17 @@ pub(super) fn hold_terminal_output(
         receivers.state.stats.drained(JournalLane::Durable, durable_drained);
         if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
+            continue;
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        // Both lanes were empty after this drain, so any later event posts a
+        // new wake; so does writer shutdown. A disconnected wake channel
+        // means every sender is gone.
+        if receivers.wake.recv_timeout(remaining).is_err() {
+            return;
         }
     }
 }
