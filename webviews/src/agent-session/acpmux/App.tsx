@@ -2724,6 +2724,8 @@ export function VirtualTranscript({
       anchorNow.current = undefined;
     };
   }, [anchorNow]);
+  /// The older-history check (below), which every scroll event runs too.
+  const checkOlderNow = useRef<() => void>(() => {});
   const onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     pacing.scrolled();
     // Before the chat opens its offset moves only as pages land unseen: none of it is the reader's.
@@ -2731,6 +2733,7 @@ export function VirtualTranscript({
     // A hidden scroller has no height, so every offset would read as scrolled up (cx-t0zqt): the view
     // keeps following until the reader scrolls a visible one.
     if (event.currentTarget.clientHeight === 0) return;
+    checkOlderNow.current();
     const node = event.currentTarget;
     const next = node.scrollTop;
     const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
@@ -2876,7 +2879,12 @@ export function VirtualTranscript({
   // A read that drew no row above the first (records that draw nothing) moves historyFrom: ask again.
   const olderLoadKey = `${sessionKey}\u0000${rows[0]?.id ?? ""}\u0000${historyFrom ?? ""}`;
   const olderLoadRequested = useRef<string | undefined>(undefined);
-  useEffect(() => {
+  // The check reads the scroller's live offset, and runs on every scroll event as well as after
+  // each commit: a page that lands moves the view down (the anchoring above) and the reader's
+  // scroll back to the top could land in the same frame, so the rendered offset never changed
+  // and a check that ran only on a change of it never asked for the next page (the scroll to the
+  // first message stalled at the top after a few pages, perf100).
+  const checkOlder = () => {
     const node = ref.current;
     if (!canLoadOlder || !onLoadOlder || !node || node.clientHeight === 0) {
       olderLoadRequested.current = undefined;
@@ -2894,6 +2902,12 @@ export function VirtualTranscript({
       // Keep transient transport failures retryable without turning every render into a request.
       if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
     });
+  };
+  useLayoutEffect(() => {
+    checkOlderNow.current = checkOlder;
+  });
+  useEffect(() => {
+    checkOlderNow.current();
   }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;

@@ -24,6 +24,8 @@ public protocol PhoneBackend: Sendable {
     func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint
     /// The argv that streams the device log to a terminal (`cmux phone logs` opens it in a terminal tab).
     func logCommand(_ id: PhoneDeviceID) async throws -> [String]
+    /// The system appearance the phone shows now.
+    func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance
 }
 
 extension PhoneBackend {
@@ -37,6 +39,10 @@ extension PhoneBackend {
 
     public func accessibilityTree(_ id: PhoneDeviceID) async throws -> PhoneElement {
         throw PhoneError.unsupported(mode: id.mode, what: "the accessibility tree")
+    }
+
+    public func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
+        throw PhoneError.unsupported(mode: id.mode, what: "appearance")
     }
 }
 
