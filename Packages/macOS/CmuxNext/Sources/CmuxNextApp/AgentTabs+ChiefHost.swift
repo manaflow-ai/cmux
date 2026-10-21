@@ -36,7 +36,7 @@ struct ChiefHomeAcpmux {
 
     /// - Parameter ensureHost: starts the Chief brain host when none runs
     ///   (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
-    init(home: ChiefHome, ensureHost: @escaping @Sendable () async -> Void = {}) {
+    init(home: ChiefHome, ensureHost: @escaping @Sendable () async -> Void) {
         host = Self.host(muxHome: home.muxHome)
         let environment = Self.environment(home: home)
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
