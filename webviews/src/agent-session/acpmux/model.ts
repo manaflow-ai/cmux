@@ -500,13 +500,13 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and a steer's status line under it
-/// (SteerMark.tsx, `.cv-user__status`).
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
+/// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
 /// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
 const userMetaHeight = (row: AcpmuxRow) =>
   (row.text && !row.failed && !row.queued && row.from !== "chief" && !chiefEnvelope(row.text)
     ? META_GAP + META_ROW
-    : 0) + (row.steer ? USER_STATUS_HEIGHT : 0);
+    : 0) + (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
