@@ -433,6 +433,8 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // Its worktree back first, when cleanup reclaimed it (`worktree_care.rs`).
+        self.care_restore_for(session).await;
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
