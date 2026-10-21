@@ -240,6 +240,53 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     assert_eq!(st["peers"][0]["connected"], true);
 }
 
+/// Two daemons peered both ways answer `_acpmux/models` once: a daemon asks
+/// its peers for their harnesses only for its own clients, never for a peer.
+/// Asked for a peer too, the request went round the mesh without end (A asked
+/// B, which asked A, ...), each hop waiting up to 600 s with a whole model
+/// catalog held: huge-blue's and cosmic-gray's daemons grew about 1 GB an hour
+/// until huge-blue stalled at its 8 GiB memory.high (2026-10-21).
+#[tokio::test]
+async fn bidirectional_peers_answer_models_once_without_asking_back() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "models-a").await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "models-b").await;
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{b_port}"),
+        Some("tok".into()),
+        Some(b_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    b.add_peer(
+        "a",
+        &format!("ws://127.0.0.1:{a_port}"),
+        Some("tok".into()),
+        Some(a_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut ca = client(a.clone()).await;
+
+    let models = tokio::time::timeout(Duration::from_secs(5), ca.call("_acpmux/models", json!({})))
+        .await
+        .expect("_acpmux/models went round the peers and never answered")
+        .unwrap();
+    let mut harnesses: Vec<&str> = models["harnesses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|h| h["harness"].as_str())
+        .collect();
+    harnesses.sort_unstable();
+    // A's own, then B's own under its name, and nothing of A's back from B.
+    assert_eq!(harnesses, vec!["b/fake", "fake"], "{models}");
+}
+
 /// Two daemons peered both ways (a real pair on 10-14 grew names
 /// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
 /// sessions to a peer, both in the watch snapshot and in later changes, so a
