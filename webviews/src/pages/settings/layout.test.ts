@@ -47,11 +47,7 @@ function rules(css: string): Rule[] {
                 .replace(/\s+/g, " "),
             );
         }
-        out.push({
-          selectors: prelude.split(",").map((selector) => selector.trim()),
-          media,
-          declarations,
-        });
+        out.push({ selectors: prelude.split(",").map((selector) => selector.trim()), media, declarations });
       }
       index = close + 1;
     }
@@ -82,9 +78,7 @@ test("a narrow pane stacks the categories over one column; nothing is cut off", 
 });
 
 test("a wide pane keeps the sidebar column, which scrolls in a short pane", () => {
-  expect(computed(".settings", "grid-template-columns", 1000)).toBe(
-    "var(--sidebar-width) minmax(0, 1fr)",
-  );
+  expect(computed(".settings", "grid-template-columns", 1000)).toBe("var(--sidebar-width) minmax(0, 1fr)");
   expect(computed(".sidebar", "overflow-y", 1000)).toBe("auto");
   expect(computed(".sidebar", "max-height", 1000) ?? "none").toBe("none");
 });
@@ -95,10 +89,7 @@ const refinedSheet = readFileSync(new URL("./refined.css", import.meta.url), "ut
 function refined(selector: string, property: string, width: number): string | undefined {
   let value: string | undefined;
   for (const rule of rules(refinedSheet)) {
-    if (
-      !rule.selectors.includes(`:root[data-settings-look="refined"] ${selector}`) ||
-      !rule.declarations.has(property)
-    )
+    if (!rule.selectors.includes(`:root[data-settings-look="refined"] ${selector}`) || !rule.declarations.has(property))
       continue;
     if (rule.media) {
       const max = /max-width:\s*(\d+)px/.exec(rule.media);
@@ -114,9 +105,7 @@ test("the refined look stacks a narrow pane too: no side border, no side-cut con
   // card: the sidebar kept its right border and 18 px padding, the tabs their 30 px rows, and the
   // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
   expect(refined(".settings > .sidebar", "border-right", 480)).toBe("0");
-  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe(
-    "1px solid var(--polish-edge)",
-  );
+  expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe("1px solid var(--polish-edge)");
   expect(refined(".settings > .sidebar", "padding", 480)).toBe("10px 12px 8px");
   expect(refined(".settings .section-link", "padding", 480)).toBe("4px 8px");
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
@@ -124,9 +113,7 @@ test("the refined look stacks a narrow pane too: no side border, no side-cut con
   expect(refined(".settings > .content", "border-left", 480)).toBe("1px solid var(--polish-edge)");
   expect(refined(".settings > .content", "border-radius", 480)).toBe("0 0 12px 12px");
   // A wide pane keeps the column card.
-  expect(refined(".settings > .sidebar", "border-right", 1000)).toBe(
-    "1px solid var(--polish-edge)",
-  );
+  expect(refined(".settings > .sidebar", "border-right", 1000)).toBe("1px solid var(--polish-edge)");
   expect(refined(".settings > .content", "border-radius", 1000)).toBe("0 12px 12px 0");
 });
 
@@ -136,16 +123,12 @@ test("the refined look stacks a narrow pane too: no side border, no side-cut con
 test("only page.css imports the page's sheets", () => {
   const src = fileURLToPath(new URL("../../", import.meta.url));
   const sheets = new Set(
-    ["styles.css", "layout.css", "refined.css"].map((name) =>
-      fileURLToPath(new URL(`./${name}`, import.meta.url)),
-    ),
+    ["styles.css", "layout.css", "refined.css"].map((name) => fileURLToPath(new URL(`./${name}`, import.meta.url))),
   );
   const importers: string[] = [];
   for (const file of new Glob("**/*.{ts,tsx,css}").scanSync(src)) {
     const path = join(src, file);
-    for (const [, spec] of readFileSync(path, "utf8").matchAll(
-      /(?:import\s*\(?|@import)\s*["'](\.[^"']+\.css)["']/g,
-    )) {
+    for (const [, spec] of readFileSync(path, "utf8").matchAll(/(?:import\s*\(?|@import)\s*["'](\.[^"']+\.css)["']/g)) {
       if (sheets.has(resolve(dirname(path), spec!))) importers.push(relative(src, path));
     }
   }
