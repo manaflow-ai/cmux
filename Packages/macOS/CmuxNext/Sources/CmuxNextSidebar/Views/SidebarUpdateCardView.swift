@@ -294,6 +294,11 @@ final class SidebarUpdateCardView: NSView {
     // MARK: Click
 
     override func mouseDown(with event: NSEvent) {
+        // Control-click is a right click: AppKit's default opens the card's context menu.
+        if event.modifierFlags.contains(.control) {
+            super.mouseDown(with: event)
+            return
+        }
         // The card's own body (labels pass their clicks here); its controls take their own.
         clickStartedOnCard = true
     }

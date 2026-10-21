@@ -3,7 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
-import CmuxNextUpdater
+@testable import CmuxNextUpdater
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -11,7 +11,7 @@ import Testing
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch at the end of its row (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
-/// Debug Settings "Simulate pending update" shows the newest published notes.
+/// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
 @MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -109,10 +109,56 @@ import Testing
             ReleaseNotesIndexEntry(build: "102", shortVersion: "1.0.0-nightly.102", date: "2026-10-20", highlights: 0),
             ReleaseNotesIndexEntry(build: "101", shortVersion: "1.0.0-nightly.101", date: "2026-10-19", highlights: 1),
         ]
-        #expect(DebugUpdater.simulatedBuild(from: index) == "101")
-        #expect(DebugUpdater.simulatedBuild(from: index.map { var e = $0; e.highlights = 0; return e }) == "102")
-        #expect(DebugUpdater.simulatedBuild(from: []) == nil)
+        #expect(UpdateSimulation.build(from: index) == "101")
+        #expect(UpdateSimulation.build(from: index.map { var e = $0; e.highlights = 0; return e }) == "102")
+        #expect(UpdateSimulation.build(from: []) == nil)
+        // Builds of one day order by number, not as text ("99" sorts after "100").
+        let sameDay = [
+            ReleaseNotesIndexEntry(build: "99", shortVersion: "1.0.0-nightly.99", date: "2026-10-20", highlights: 1),
+            ReleaseNotesIndexEntry(build: "100", shortVersion: "1.0.0-nightly.100", date: "2026-10-20", highlights: 1),
+        ]
+        #expect(UpdateSimulation.build(from: sameDay) == "100")
         #expect(SidebarTunables.simulatePendingUpdate.defaultValue == false)
+    }
+
+    /// On the newest nightly the newest published notes are the running build's own. Staged under
+    /// that version, the gate that never offers the running build hid the card (#22804): the
+    /// simulation stages a pretend newer version and keeps the real notes.
+    @Test func theSimulationShowsTheCardOnTheNewestBuild() throws {
+        let updater = Self.updater(shortVersion: "1.0.0-nightly.100", build: "100")
+        let simulation = UpdateSimulation(updater: updater)
+        let own = ReleaseNotes(version: 1, build: "100", shortVersion: "1.0.0-nightly.100", date: "2026-10-20", highlights: [],
+                               changes: ["A real change"])
+        let version = try #require(simulation.stage(with: own))
+        #expect(version != updater.identity.shortVersion, "the simulation staged the running version")
+        #expect(updater.readyCard != nil, "the simulation on the newest build shows no card")
+        #expect(updater.stagedNotes == own, "the simulation dropped the real notes")
+        // Notes of a newer build keep their own version; an older one's never reads as an update to it.
+        let newer = ReleaseNotes(version: 1, build: "101", shortVersion: "1.0.0-nightly.101", date: "2026-10-21", highlights: [],
+                                 changes: [])
+        #expect(simulation.stage(with: newer) == "1.0.0-nightly.101")
+        let older = ReleaseNotes(version: 1, build: "99", shortVersion: "1.0.0-nightly.99", date: "2026-10-19", highlights: [],
+                                 changes: [])
+        #expect(simulation.stage(with: older) == UpdateSimulation.sampleVersion)
+        // Offline with nothing cached: the sample notes, still a card.
+        #expect(simulation.stage(with: nil) == UpdateSimulation.sampleVersion)
+        #expect(updater.readyCard != nil)
+        simulation.end()
+        #expect(updater.readyCard == nil, "turning the simulation off left the card")
+    }
+
+    /// An updater for a running app at `shortVersion` (`build`) with no Sparkle and nothing staged.
+    static func updater(shortVersion: String, build: String) -> UpdaterService {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-ready-card-style", shortVersion: shortVersion,
+                                           build: build, minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let defaults = UserDefaults(suiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
+                                     enableSparkle: false, recordsUpdates: false)
+        updater.announcementsFetch = false
+        updater.notesLoader = { _ in nil }
+        updater.start()
+        return updater
     }
 
     func eventually(_ timeout: Duration = .seconds(2), _ condition: () -> Bool) async -> Bool {

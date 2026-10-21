@@ -24,11 +24,11 @@ nonisolated extension SidebarTunables {
         help: "How the update card draws its Automatic Updates control: a themed switch or the checkbox.",
         default: .switchControl, code: "SidebarTunables.updateCardAutomaticControl")
 
-    /// Shows the Update Ready card and its preview for a pretend staged update with this build's
+    /// Shows the Update Ready card and its preview for a pretend staged update with the newest
     /// real, published notes (the app falls back to sample notes offline). Nothing downloads or
-    /// installs; turning it off follows the real updater again.
+    /// installs; turning it off follows the real updater again (`UpdateSimulation`).
     public static let simulatePendingUpdate = Tunable<Bool>.toggle(
         "sidebar.updateCard.simulatePending", .sidebar, "Simulate pending update",
-        help: "Shows the Update Ready card and its changelog preview with this build's published notes. Nothing installs.",
+        help: "Shows the Update Ready card and its changelog preview with the newest published notes. Nothing installs.",
         default: false, code: "SidebarTunables.simulatePendingUpdate")
 }

@@ -85,6 +85,8 @@ extension SidebarUpdateCardView {
             hoverCards()?.refitOwned(Self.notesID)
         } else {
             showNotes()
+            // Nothing to show yet (no page height, no window): a later hover opens an unpinned one.
+            if !notesAreShown { notesPinned = false }
         }
     }
 

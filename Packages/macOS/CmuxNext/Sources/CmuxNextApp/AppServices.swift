@@ -263,8 +263,6 @@ final class AppServices {
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
-    /// Debug Settings "Simulate pending update" (`observeSimulatedUpdate`).
-    var simulatedUpdateObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -450,7 +448,7 @@ final class AppServices {
         terminalDelegate.services = self
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self)
+        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
