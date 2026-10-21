@@ -60,11 +60,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let updatedAt: Date?
     /// When the session started, when the summary carries it.
     public let createdAt: Date?
+    /// What a read or snooze mark on the lane holds for beside its state, when `since` cannot say
+    /// it: another machine's chat tab's notice (``AgentPriorityMarks``). Nil: its `since`.
+    public let markKey: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
                 spawnedBy: String? = nil, cwd: String? = nil, pullRequests: [String] = [], chat: String? = nil,
-                updatedAt: Date? = nil, createdAt: Date? = nil) {
+                updatedAt: Date? = nil, createdAt: Date? = nil, markKey: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -84,6 +87,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.chat = chat
         self.updatedAt = updatedAt
         self.createdAt = createdAt
+        self.markKey = markKey
     }
 
     /// A person should look: it waits on them, failed or was lost.
