@@ -139892,7 +139892,7 @@
       }
     },
     "composer.queueSendNow": {
-      "comment": "Agent pane: button on a queued prompt that sends it now: steered into the running turn, or the turn stops and it runs next (cx-xtg0.4)",
+      "comment": "Agent pane: button on a queued prompt that sends it now: steered into the running turn (its current step stops so the agent reads it at once), or it runs next (cx-xtg0.4)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
