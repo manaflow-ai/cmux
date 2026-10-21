@@ -46,8 +46,7 @@ public final class MenuIdentityHeaderView: NSView, ThemedMenuItemView {
         super.viewDidMoveToWindow()
         guard let field else { return }
         if window == nil {
-            // The menu closed: a changed name is kept, as Chrome keeps it.
-            field.commit()
+            field.menuClosed(by: NSApp.currentEvent)
         } else {
             field.reset()
             // Typing renames at once, as in Chrome; the name starts selected.
@@ -96,6 +95,18 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
         onRename(name)
     }
 
+    /// The menu closed on `event`: a changed name is kept, as Chrome keeps it, unless Escape closed
+    /// it. The menu takes Escape before the field editor sees it, so `cancelOperation` never runs.
+    public func menuClosed(by event: NSEvent?) {
+        if let event, event.type == .keyDown, event.keyCode == Self.escapeKeyCode {
+            done = true
+            return
+        }
+        commit()
+    }
+
+    private static let escapeKeyCode: UInt16 = 53
+
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
@@ -103,8 +114,10 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
             closeMenu()
             return true
         case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
-            // The arrows leave the field for the menu's rows (the name typed so far is kept).
-            window?.makeFirstResponder(nil)
+            // The arrows leave the field for the menu's rows (the name typed so far is kept); the
+            // same press then moves the menu's highlight.
+            // Only once the field let go, so the press can't come back here.
+            if let window, window.makeFirstResponder(nil), let event = NSApp.currentEvent, event.type == .keyDown { window.sendEvent(event) }
             return true
         case #selector(NSResponder.cancelOperation(_:)):
             // Escape puts the name back and closes the menu, as Escape on any menu does.

@@ -1,0 +1,43 @@
+import AppKit
+
+/// The Home split's chat column: the page's chat (`content`, filling the column) with the chat's
+/// compose button over its top-left while the list shows avatars only. The button is the content's
+/// sibling, so a conversation or the New Message page the page adds to `content` never covers it.
+final class HomeChatColumnView: NSView {
+    let content: NSView
+    let compose: HomeChatComposeButton
+    /// The compose button's left inset and its centre's distance from the top: the list header's
+    /// row (`HomeSidebarHeaderLayout.band`), where the traffic lights sit.
+    static let composeInset: CGFloat = 12
+    static let composeCenterY: CGFloat = HomeSidebarHeaderLayout.band / 2
+
+    init(content: NSView, compose: HomeChatComposeButton) {
+        self.content = content
+        self.compose = compose
+        super.init(frame: content.frame)
+        content.frame = bounds
+        content.autoresizingMask = [.width, .height]
+        addSubview(content)
+        compose.isHidden = true
+        addSubview(compose)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    /// Shows the compose button while the list beside the chat shows avatars only.
+    var showsCompose: Bool {
+        get { !compose.isHidden }
+        set {
+            guard compose.isHidden == newValue else { return }
+            compose.isHidden = !newValue
+            needsLayout = true
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let side = HomeChatComposeButton.side
+        compose.frame = NSRect(x: Self.composeInset, y: bounds.height - Self.composeCenterY - side / 2, width: side, height: side)
+    }
+}

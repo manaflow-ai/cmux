@@ -316,6 +316,28 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            // A detached launch only queues its prompt, with --json too. Known
+            // before the create (a prompt file or words make the first prompt).
+            let one_shot = launch.first_prompt(&args, &Value::Null).is_some()
+                && (args.quiet || json_out || args.ephemeral)
+                && !(args.detach && launch.launches());
+            // Checked before the session exists, so a bad value leaves none behind.
+            let on_permission = OnPermission::parse(&args.on_permission)?;
+            // A route check an agent runs from its shell ("Reply with only: OK",
+            // `probe_prompt.rs`) is a throwaway, never the agent's subagent: a one-shot
+            // one goes as an ephemeral chat does once its reply is printed. A named
+            // one is kept, since the agent may check a worker is up before giving it
+            // its task; only `--ephemeral` purges that.
+            let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
+                && crate::probe_prompt::is_probe(&args.prompt.join(" "));
+            let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
+            // The daemon purges an ephemeral session when this connection ends
+            // (`server/ephemeral.rs`), however the CLI exits: killed during the
+            // turn, by a caller's timeout, or a lost connection. The kill after
+            // the reply below stays the normal path.
+            if ephemeral {
+                meta["ephemeral"] = json!(true);
+            }
             if let Some((w, _)) = &launch.worktree {
                 meta["worktree"] = w.clone();
             }
@@ -338,7 +360,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             p["cwd"] = json!(cwd);
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match client.request(method::SESSION_NEW, p).await {
+                None => match if ephemeral || probe {
+                    client.request_parentless(method::SESSION_NEW, p).await
+                } else {
+                    client.request(method::SESSION_NEW, p).await
+                } {
                     Ok(v) => v,
                     Err(e) => {
                         let found = match &key {
@@ -405,10 +431,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 return Ok(());
             }
             let first = launch.first_prompt(&args, &v);
-            // A detached launch only queues its prompt, with --json too.
-            let one_shot = first.is_some()
-                && (args.quiet || json_out || args.ephemeral)
-                && !(args.detach && launch.launches());
             if json_out && !one_shot {
                 let mut info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
@@ -430,13 +452,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
-                        on_permission: OnPermission::parse(&args.on_permission)?,
+                        on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
                     show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
-                    if args.ephemeral {
+                    if ephemeral {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
                             .await;
@@ -444,7 +466,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let r = outcome?;
                     if json_out {
                         print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": args.ephemeral}),
+                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
                         );
                     } else {
                         println!("{}", r.reply);
@@ -460,7 +482,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 let opts = CollectOpts {
                     timeout: args.timeout,
-                    on_permission: OnPermission::parse(&args.on_permission)?,
+                    on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
                 };

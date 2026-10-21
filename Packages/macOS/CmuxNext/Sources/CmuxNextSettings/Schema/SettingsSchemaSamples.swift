@@ -28,6 +28,13 @@ nonisolated enum SettingsSchemaSamples {
         case .choiceOrNumber(let choices, let number):
             return (choices.map { .string($0.value) } + numbers(number).accept,
                     [.string("__not_a_choice__"), .bool(true)] + numbers(number).refuse)
+        case .choiceOrURL(let choices, let urlKey):
+            let url = { (text: String) in JSONValue.object([urlKey: .string(text)]) }
+            return (choices.map { .string($0.value) } + [url("http://mini.tail1234.ts.net:7320"), url("https://100.101.102.103/")],
+                    [.string("__not_a_choice__"), .string(urlKey), .number(1), url("ftp://mini.tail1234.ts.net"),
+                     url("http://mini.tail1234.ts.net/path"), url("http://mini.tail1234.ts.net?x=1"), url("not a url"),
+                     .object([urlKey: .number(7320)]), .object(["__other__": .string("http://mini.tail1234.ts.net")]),
+                     .object([urlKey: .string("http://mini.tail1234.ts.net"), "__extra__": .string("x")])])
         case .number(let number):
             return numbers(number)
         case .color:
