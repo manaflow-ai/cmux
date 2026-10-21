@@ -1472,6 +1472,7 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
         tab_id: kept.clone(),
         cwd: Some("/tmp/project".into()),
         title: None,
+        on_show: false,
     }])
     .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");

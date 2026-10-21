@@ -56,7 +56,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+        log.append("silent install staged \(item.versionString) (\(item.displayVersionString))")
         model.clearDetectedUpdate()
+        quitInstallItem = item
         model.setState(.installing(.init(
             isAutoUpdate: true,
             retryTerminatingApplication: immediateInstallHandler,

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mockManagedKey } from "./mockProvider";
 import { categories } from "./categories";
+import { DENSITY_ROWS } from "./density";
 import type { SchemaRow } from "./schema";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -87,8 +88,14 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
-        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
-        if (row.key === "appearance.themeEdits") {
+        // The density card draws appearance.density and the custom density keys (SectionView).
+        if (DENSITY_ROWS.has(row.key)) {
+          if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
+          continue;
+        }
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row;
+        // the page has no editor for any string_map (browser.siteEngines is edited in cmux.json).
+        if (row.key === "appearance.themeEdits" || row.kind === "string_map") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }

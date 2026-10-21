@@ -156,8 +156,8 @@ final class DropHighlightView: NSView {
 
     func step(_ dt: Double) -> Bool {
         let token: MotionSpring = renderer.style == .morph ? .settle : DropOverlayTunables.spring.value
-        let parameters = Motion.spring(token)
-        let alphaParameters = Motion.spring(.track)
+        let parameters = Motion.panes.spring(token)
+        let alphaParameters = Motion.panes.spring(.track)
         let a = targetSpring.advance(dt, parameters: parameters, alphaParameters: alphaParameters)
         let b = regionSpring.advance(dt, parameters: parameters)
         apply()

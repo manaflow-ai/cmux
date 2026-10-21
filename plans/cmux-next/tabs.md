@@ -55,9 +55,10 @@ once at its trailing end.
 ## Favicons
 
 `BrowserTabIconState` is Chromium's `TabIcon` rule: throbber while the live
-page loads, else the favicon, else a globe. The throbber has Chromium's two
-states: waiting (the request is out, nothing committed yet) turns
-counter-clockwise, loading (committed) clockwise.
+page loads, else the favicon, else a globe. Unlike Chromium, the waiting state
+(the request is out, nothing committed yet) does not turn the other way: every
+cmux spinner turns clockwise on one shared clock (`SpinnerClock`; user
+2026-10-20, "synced and spinning in the same direction").
 
 `TabFaviconStore` resolves the live page's favicon URL, or the daemon
 record's for a tab without a live page. A live page's icon is fetched as

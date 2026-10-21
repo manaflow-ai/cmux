@@ -29,7 +29,7 @@ different), **n/a** (no Mac equivalent).
 | Ctrl-Enter adds `www.` and `.com` | desired TLD `com` (`AI`, `OEM::OnControlKeyChanged`) | none: loaded or searched the bare word | **fixed**: `.enterAddingTLD`, `OmnibarRules.desiredTLDURL` |
 | Escape: revert arrowed row, close card, revert text, then blur | `OEM::OnEscapeKeyPressed` | same steps (`OmnibarReducer+Popup.escape`) | match |
 | Cmd-L focuses, full URL, select all | `OVV::SetFocus(true)` | `.focusLocation` | match |
-| Opt-Cmd-F focuses a search with the default engine | `IDC_FOCUS_SEARCH`, `EnterKeywordModeForDefaultSearchProvider` | `browser.focusSearch` (Opt-Cmd-F in a browser tab; Search All Windows elsewhere) → `.searchWithDefaultEngine`, chip "Search Google" | **fixed**; tests `searchTheWebSearchesWithTheDefaultEngine`, `beginSearchWaitsForTheFocus`. Ctrl-K is Chrome's key on Windows and Linux only; on the Mac it stays the field's kill-line |
+| Opt-Cmd-F focuses a search with the default engine | `IDC_FOCUS_SEARCH`, `EnterKeywordModeForDefaultSearchProvider` | `browser.focusSearch` (palette, no default key: Opt-Cmd-F stays Search All Windows) → `.searchWithDefaultEngine`, chip "Search Google" | **fixed**; tests `searchTheWebSearchesWithTheDefaultEngine`, `beginSearchWaitsForTheFocus`. Ctrl-K is Chrome's key on Windows and Linux only; on the Mac it stays the field's kill-line |
 | Focus lost keeps typed text; next focus restores it, all selected | `OVV::OnBlur`, `SaveStateToTab` | `retainedText` | match |
 | Return to a tab that was being edited restores omnibox focus | `OmniboxEditModel::RestoreState` (`focus_state`) | `OmnibarFocusMemory` in `FocusCoordinator`: a tab left from its address bar gets `focusTarget(.addressBar)` back when a tab, pane or workspace change returns to it; a click in its page forgets it. The focus core's corpus is unchanged | **fixed**; tests `OmnibarFocusMemoryTests` |
 
@@ -86,6 +86,19 @@ different), **n/a** (no Mac equivalent).
 | Security chip, page info bubble | `LocationIconView`, `PageInfoBubbleView` | `PageInfoChipButton`, page info | match |
 | Right-click: Undo, Cut, Copy, Paste, Paste and Go, Delete, Select All | yes | AppKit menu plus Paste and Go | match |
 | Right-click: Always show full URLs; Manage search engines | yes | both, after the edit items. Always Show Full URLs writes `browser.omnibar.showFullURLs` (also in Settings > Browser > Address Bar); every bar shows `https://www.…` at rest. Manage Search Engines… opens Settings at Search Engine | **fixed**; tests `showFullURLsKeepsSchemeAndWWW`, `theBarFollowsTheSetting`, `theMenuTogglesFullURLsAndManagesEngines` |
+
+## Popup windows
+
+Popup windows (`window.open`, OAuth, extension windows) show the tab's omnibar
+(`OmnibarTabBinding`, 5ed4a14f8f1). A system sign-in window's bar is read-only.
+
+| Behavior | Chrome | cmux | Status |
+| --- | --- | --- | --- |
+| Cmd-L focuses the popup's location bar, whole URL selected | `IDC_FOCUS_LOCATION` in a `TYPE_POPUP` browser | the key router resolves the key in the popup's context (`routesPopupKey`): Focus Location Bar focuses the popup's omnibar, never the opener's. The read-only sign-in bar takes it too (select and copy) | **fixed**; tests `cmdLFocusesThePopupsOmnibar`, `cmdLFocusesThePopupOmnibarWithTheAddressSelected` |
+| Opt-Cmd-F in a popup | Search the Web (`IDC_FOCUS_SEARCH`) | Search All Windows, as in a tab (no default shortcut changes without the user's OK); the popup omnibar starts no search | differs by choice; test `optCmdFInAPopupIsNotSearchTheWeb` |
+| Extension omnibox keywords | the popup's profile's keywords | `AddressBarView.bindKeywords(of:)`, shared with the tab toolbar; Enter goes to the extension | **fixed**; test `anExtensionKeywordInAPopupGoesToTheExtension` |
+| Typed host that refuses https loads over http | `TypedNavigationUpgradeThrottle` | the popup binding keeps its own `HTTPSUpgradeFallback`, as the tab toolbar does | **fixed**; test `aTypedHostThatRefusesHTTPSLoadsOverHTTPInAPopup` |
+| Error page keeps the failed address in the bar | the error page commits it | `BrowserChromeView.omnibarURL(for:)` in the popup too | match |
 
 ## Accessibility
 

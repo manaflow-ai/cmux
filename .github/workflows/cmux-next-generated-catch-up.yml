@@ -19,9 +19,13 @@ on:
 permissions:
   contents: read
 
+# A newer move must not cancel a running catch-up: the base moves every few
+# minutes and a catch-up takes up to 20, so cancelling left every run unfinished
+# (38 of 40 cancelled, 2026-10-20). One run finishes; GitHub keeps only the
+# newest pending run behind it, which catches up from the newest base.
 concurrency:
   group: cmux-next-generated-catch-up
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   select:
@@ -52,6 +56,7 @@ jobs:
           echo "Conflicting PRs to catch up: $prs" >> "$GITHUB_STEP_SUMMARY"
 
   catch-up:
+    environment: ci-routing-agent
     needs: select
     if: needs.select.outputs.prs != '' && needs.select.outputs.prs != '[]'
     name: catch up #${{ matrix.pr.number }}

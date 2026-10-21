@@ -24,7 +24,7 @@ final class SidebarCardPresence {
     /// - Parameters:
     ///   - view: The card.
     ///   - policy: The motion settings, read at each change (`Motion.policy`).
-    init(_ view: NSView, policy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+    init(_ view: NSView, policy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         self.view = view
         self.policy = policy
     }

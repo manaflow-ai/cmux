@@ -34,6 +34,8 @@ struct HibernationPlanner {
         case formSubmission = "form_submission"  // the page shows a form result (BR-R1)
         /// An agent called the page within `BrowserHibernation.agentGrace` (`cmux browser`, MCP, the REPL).
         case agentDriving = "agent_driving"
+        /// Beside a pane's shown tab, or hovered (`browser.keepNeighborTabsAwake`).
+        case neighbor
     }
 
     struct Plan: Equatable {

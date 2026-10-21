@@ -4,7 +4,7 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
-  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
+  cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
@@ -27,6 +27,11 @@ USAGE
   cmux workspace [<selector>] log append <text> [--level <level>] [--source <value>]
   cmux workspace [<selector>] log list [--limit <1..200>]
   cmux workspace [<selector>] log clear
+  cmux workspace [<selector>] checklist list
+  cmux workspace [<selector>] checklist add <text> [--state todo|in_progress|done] [--origin user|agent] [--index <n>]
+  cmux workspace [<selector>] checklist update <item> [--text <text>] [--state todo|in_progress|done]
+    [--index <n>] [--attachments-json <json-array>]
+  cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
@@ -77,7 +82,8 @@ USAGE
   cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
-    [--viewport-width <fraction>] [--correlation-key <value>]
+    [--viewport-width <fraction>] [--focus] [--correlation-key <value>]
+    [--shell <script> | -- <argv...>]
   cmux pane <selector> focus direction <left|right|up|down>
   cmux pane <selector> neighbor <left|right|up|down>
   cmux pane <selector> swap --other-workspace <selector>
@@ -87,6 +93,11 @@ USAGE
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
   cmux pane <selector> tab ...
+
+split keeps the focus where it is unless --focus is given. With --shell or
+-- argv the new pane runs that command instead of a shell. To add a terminal
+to a pane that already exists, use `cmux tab create terminal --pane <selector>`
+instead of splitting again.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

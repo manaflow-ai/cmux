@@ -15,6 +15,7 @@ import {
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
   MARKDOWN_EDITED_OP,
+  MARKDOWN_LOAD_REMOTE_IMAGES_OP,
   MARKDOWN_SAVE_OP,
   MARKDOWN_SET_PREFERENCE_OP,
   isMarkdownConfig,
@@ -318,6 +319,20 @@ export class MarkdownStore {
         console.warn("cmux markdown setPreference failed", error);
       });
     }
+  }
+
+  /** A real click asked the host to approve guarded web images for this document. */
+  async loadRemoteImages(): Promise<void> {
+    const client = this.client;
+    const config = this.state.config;
+    if (!client || !config || config.remoteImageBase) return;
+    const path = config.path;
+    const answer = await client.call<{ remoteImageBase?: unknown }>(MARKDOWN_LOAD_REMOTE_IMAGES_OP, { path });
+    if (typeof answer?.remoteImageBase !== "string" || !answer.remoteImageBase) {
+      throw new Error("markdown remote-image approval is malformed");
+    }
+    const current = this.state.config;
+    if (current?.path === path) this.set({ config: { ...current, remoteImageBase: answer.remoteImageBase } });
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */

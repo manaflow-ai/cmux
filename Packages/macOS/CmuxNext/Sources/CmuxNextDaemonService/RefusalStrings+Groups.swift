@@ -24,7 +24,6 @@ nonisolated extension RefusalStrings {
     public static var noScreenshot: String { text("handlers.refusal.noScreenshot", "no screenshot found in the screenshot folder") }
     public static var noWorkingDirectory: String { text("handlers.refusal.noWorkingDirectory", "the tab has no known working directory") }
     public static func ghosttyRejected(_ binding: String) -> String { format("handlers.refusal.ghosttyRejected", "Ghostty rejected %@", binding) }
-    public static var textBoxUnported: String { text("handlers.refusal.textBoxUnported", "needs the TextBox composer, which cmux-next does not have yet") }
     public static func colorMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.colorMustBeOneOf", "color must be one of %@", choices) }
     public static func statusMustBeOneOf(_ choices: String) -> String { format("handlers.refusal.statusMustBeOneOf", "status must be one of %@", choices) }
     public static var resourceCardNotShown: String {

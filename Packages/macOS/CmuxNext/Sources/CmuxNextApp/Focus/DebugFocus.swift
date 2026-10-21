@@ -92,28 +92,16 @@ enum DebugFocus {
     }
 
     /// Model == AppKit == Ghostty == layout. Ghostty focus is expected only
-    /// for the key window's terminal. Overlays and child-window pages hold
-    /// keys outside this window's responder chain, so only their model side
-    /// is checked.
+    /// for the key window's terminal. The expected responder is the input
+    /// monitor's (W1), so the two never disagree: a child-window page or
+    /// DevTools leaves this window no responder, an overlay is not checked.
     private static func mismatches(state: FocusState, actual: FocusEvent.Responder, isKey: Bool, layoutFocus: String?,
                                    ghostty: [String], controller: WindowController) -> [String] {
         var problems: [String] = []
         let resolved = state.resolved
         if let pane = state.pane, layoutFocus != pane { problems.append("layout focus \(layoutFocus ?? "nil") != model pane \(pane)") }
-        let expected: FocusEvent.Responder? = switch resolved {
-        case .terminal(let pane, _): .content(pane: pane)
-        case .browserPage(let pane, _):
-            controller.focusApplier.focusedChildWindowPageID == nil ? .content(pane: pane) : nil
-        case .addressBar(let pane, _): .addressBar(pane: pane)
-        case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
-        case .devTools: nil
-        case .sidebar: .sidebar
-        case .sidebarField: .sidebarField
-        case .textField: .textField
-        case .emptyPane, .overlay, .none: nil
-        }
-        if let expected, expected != actual {
+        let childPage = controller.focusApplier.focusedChildWindowPageID == nil ? nil : resolved.tab
+        if let expected = InputInvariants.expectedResponder(resolved, childPage: childPage), expected != actual {
             problems.append("appkit \(FocusResponderClassifier.describe(actual)) != model \(resolved.kind)")
         }
         let ownTabs = Set(controller.content?.panes.values.compactMap(\.currentTabKey) ?? [])

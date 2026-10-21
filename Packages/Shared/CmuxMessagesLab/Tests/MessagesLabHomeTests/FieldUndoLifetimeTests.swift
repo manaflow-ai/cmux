@@ -2,10 +2,11 @@ import AppKit
 import Testing
 @testable import MessagesLabHome
 
-/// The compose field registers its typing undo on the window's undo stack, and
-/// an undo manager does not retain its targets. A field that left the window
-/// and was freed left those entries behind, so the next Edit > Undo in Home sent
-/// `_undoRedoTextOperation:` to a freed text view (cmux-next nightly
+/// The compose field registers its typing undo on the window's undo stack with
+/// its text storage as the target, and an undo manager does not retain its
+/// targets. A field that left the window and was freed left those entries
+/// behind, so the next Edit > Undo in Home sent `_undoRedoTextOperation:` to
+/// freed text (cmux-next nightly
 /// 3934935376001 crash, Lawrence 2026-10-19: "crashed after I pressed Option+1
 /// in Home"; Sentry CMUXTERM-MACOS-458K). Offscreen window, never ordered front.
 @MainActor @Suite(.serialized) struct FieldUndoLifetimeTests {
@@ -50,29 +51,28 @@ import Testing
         let window = window()
         let undo = try #require(window.undoManager)
         undo.groupsByEvent = false
-        weak var gone: FieldTextView?
+        var typed = false
         autoreleasepool {
             let field = field(in: window)
             type("¡", into: field, undo: undo)
-            #expect(undo.canUndo)
+            typed = undo.canUndo
             window.makeFirstResponder(nil)
             field.removeFromSuperview()
-            gone = field
         }
-        #expect(gone == nil, "the test needs the field freed to reproduce the crash")
-        // Before the fix the stack still held the freed field's typing, and the undo below crashed.
-        try #require(!undo.canUndo, "the window's undo stack still targets a freed compose field")
-        undo.undo()
+        #expect(typed)
+        // The typing undo targets the field's text storage, which goes with the field: an entry left
+        // on the stack is the crash (the test never runs it, so a red run fails here, not by crashing).
+        #expect(!undo.canUndo, "the window's undo stack still targets the gone compose field's text")
     }
 
     /// Cmd+1…9 selects a workspace or tab: the app's `TopPages.show` takes Home's page out of the
     /// window and frees it, as the menu's key equivalent does here. The next Edit > Undo must not
-    /// reach the freed field (tester report 2026-10-19: "crashes after cmd 123").
+    /// reach the gone field's text (tester report 2026-10-19: "crashes after cmd 123").
     @Test(arguments: 1...9) func cmdDigitAwayFromHomeThenUndoDoesNotReachAFreedField(digit: Int) throws {
         let window = window()
         let undo = try #require(window.undoManager)
         undo.groupsByEvent = false
-        final class Switcher: NSObject {
+        @MainActor final class Switcher: NSObject {
             var home: NSView?
             @objc func select(_ sender: Any?) { home?.removeFromSuperview(); home = nil }
         }
@@ -82,7 +82,7 @@ import Testing
         item.keyEquivalentModifierMask = [.command]
         item.target = switcher
         menu.addItem(item)
-        weak var gone: FieldTextView?
+        var typed = false
         autoreleasepool {
             let home = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
             window.contentView?.addSubview(home)
@@ -93,16 +93,16 @@ import Testing
             home.addSubview(field)
             window.makeFirstResponder(field)
             type("draft", into: field, undo: undo)
+            typed = undo.canUndo
             switcher.home = home
-            gone = field
             window.makeFirstResponder(nil)
             let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
                                        windowNumber: window.windowNumber, context: nil, characters: "\(digit)",
                                        charactersIgnoringModifiers: "\(digit)", isARepeat: false, keyCode: 18)!
             #expect(menu.performKeyEquivalent(with: key))
         }
-        #expect(gone == nil, "Cmd+\(digit) should free Home's field to reproduce the crash")
-        try #require(!undo.canUndo, "after Cmd+\(digit) the window's undo stack still targets a freed compose field")
-        undo.undo()
+        #expect(typed)
+        #expect(switcher.home == nil, "Cmd+\(digit) should take Home out of the window")
+        #expect(!undo.canUndo, "after Cmd+\(digit) the window's undo stack still targets the gone compose field's text")
     }
 }

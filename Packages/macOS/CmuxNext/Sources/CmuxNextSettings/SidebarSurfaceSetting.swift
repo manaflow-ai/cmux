@@ -25,6 +25,13 @@ public nonisolated struct SidebarSurfaceSetting: Sendable {
         return surface
     }
 
+    /// The surface `snapshot` draws: the key, else the `appearance.chromeStyle`
+    /// default, else ``fallback``.
+    public static func effective(in snapshot: CmuxConfigSnapshot) -> SidebarSurface {
+        var ignored: [SettingsDiagnostic] = [] // the parse reported them (`ChromePlacementSetting.parse`)
+        return parse(snapshot.root, unset: snapshot.chromeStyle.sidebarSurface ?? fallback, diagnostics: &ignored)
+    }
+
     static func descriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
             configPath, section: .appearance, group: group,
@@ -44,9 +51,7 @@ public nonisolated struct SidebarSurfaceSetting: Sendable {
 extension SettingsApplier {
     /// Copies `appearance.sidebarSurface` into `design`, writing only a change.
     static func applySidebarSurface(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
-        var ignored: [SettingsDiagnostic] = [] // the parse reported them (`ChromePlacementSetting.parse`)
-        let unset = snapshot.chromeStyle.sidebarSurface ?? SidebarSurfaceSetting.fallback
-        let surface = SidebarSurfaceSetting.parse(snapshot.root, unset: unset, diagnostics: &ignored)
+        let surface = SidebarSurfaceSetting.effective(in: snapshot)
         if design.sidebarSurface != surface { design.sidebarSurface = surface }
     }
 }

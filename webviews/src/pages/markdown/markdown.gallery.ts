@@ -154,6 +154,15 @@ graph LR
 Last paragraph ends the guide.
 `;
 
+const REMOTE_IMAGES = `# Web images
+
+Remote images stay private until you choose to load them.
+
+![Build status](https://images.example.test/build-status.png)
+
+<img src="https://images.example.test/architecture.png" alt="Architecture diagram">
+`;
+
 const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
 const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
 const TASK_NESTED =
@@ -289,6 +298,11 @@ export default markdownPageEntry({
       note: "Text selection across paragraphs, highlights, math, a list, a table, code and a diagram.",
       path: "/Users/you/src/atlas-web/SELECTION.md",
       text: SELECTION,
+    },
+    "remote-images-blocked": {
+      note: "Web images before this document receives reader approval.",
+      path: "/Users/you/src/atlas-web/REMOTE-IMAGES.md",
+      text: REMOTE_IMAGES,
     },
     long: {
       note: "A long document (40 sections).",

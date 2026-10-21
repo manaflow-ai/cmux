@@ -41,8 +41,9 @@ ones; do not reuse an old one for another control.
 AXPress and window screenshots: new workspace, new tab, split pane, switch
 tab, command palette open and close, Settings (a page tab) open and close,
 then closes the split, the tab and the workspace it made. Each step is judged
-by its result in the AX tree (a non-success AXPress code goes into the step's
-detail) and writes `manifest.json` and `shots/NN-step.png`.
+by its result in the AX tree and by its AXPress code: a press that acts but
+returns an error fails, since an agent that reads the error presses again (New
+Workspace and New Tab must also add exactly one row or tab). It writes `manifest.json` and `shots/NN-step.png`.
 
 ```bash
 ./scripts/reload.sh --tag ax-tour --launch          # or a fleet build of the tag

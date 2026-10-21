@@ -2,7 +2,7 @@
 //! installs learn that a newer release exists.
 //!
 //! The owner asks the install's registry (npm `cmux/latest`, PyPI `cmux`) for
-//! the latest release at most once a day and caches the answer in
+//! the latest release (and the `next` tag on npm) at most once a day and caches the answer in
 //! `update-check.json` at the state root; the interactive client prints one
 //! localized line with the update command when it exits. The check is off
 //! with `updates.checkAutomatically: false`, under `CI`, and for the app's
@@ -23,8 +23,10 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
-/// A local registry: answers every request with `body` and reports its path.
-fn registry(body: &'static str) -> (String, mpsc::Receiver<String>) {
+/// A local registry: answers each path in `routes` with its body, anything
+/// else with 404, and reports every requested path.
+fn registry(routes: &[(&'static str, &'static str)]) -> (String, mpsc::Receiver<String>) {
+    let routes: Vec<(&'static str, &'static str)> = routes.to_vec();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let (sender, receiver) = mpsc::channel();
@@ -41,18 +43,29 @@ fn registry(body: &'static str) -> (String, mpsc::Receiver<String>) {
                 }
             }
             let path = request_line.split_whitespace().nth(1).unwrap_or_default().to_string();
-            let _ = sender.send(path);
-            let _ = stream.write_all(
-                format!(
+            let response = match routes.iter().find(|(route, _)| *route == path) {
+                Some((_, body)) => format!(
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                     body.len()
-                )
-                .as_bytes(),
-            );
+                ),
+                None => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .to_string(),
+            };
+            let _ = sender.send(path);
+            let _ = stream.write_all(response.as_bytes());
         }
     });
     (format!("http://127.0.0.1:{port}/cmux/latest"), receiver)
 }
+
+/// Every path the registry was asked for so far.
+fn asked(requests: &mpsc::Receiver<String>) -> Vec<String> {
+    let mut paths: Vec<String> = requests.try_iter().collect();
+    paths.sort();
+    paths
+}
+
+const LATEST: (&str, &str) = ("/cmux/latest", r#"{"name":"cmux","version":"99.0.0"}"#);
 
 fn temp_dir(tag: &str) -> PathBuf {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
@@ -124,13 +137,13 @@ impl Drop for Owner {
 }
 
 #[test]
-fn update_notice_the_owner_caches_the_latest_release_once_a_day() {
-    let (url, requests) = registry(r#"{"name":"cmux","version":"99.0.0"}"#);
+fn tester_rollout_update_notice_the_owner_caches_the_latest_release_once_a_day() {
+    let (url, requests) = registry(&[LATEST]);
     let dir = temp_dir("check");
     let owner = Owner::start(&dir, &url, "un-check");
     let outcome = owner.outcome(0);
     assert!(outcome.contains("update-check: latest=99.0.0"), "{outcome}");
-    assert_eq!(requests.recv_timeout(Duration::from_secs(5)).unwrap(), "/cmux/latest");
+    assert!(asked(&requests).contains(&"/cmux/latest".to_string()));
     let cache: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(dir.join("state").join("update-check.json")).unwrap(),
     )
@@ -143,14 +156,14 @@ fn update_notice_the_owner_caches_the_latest_release_once_a_day() {
     let owner = Owner::start(&dir, &url, "un-check");
     let outcome = owner.outcome(1);
     assert!(outcome.contains("update-check: not due"), "{outcome}");
-    assert!(requests.try_recv().is_err(), "the registry was asked twice in one day");
+    assert_eq!(asked(&requests), Vec::<String>::new(), "the registry was asked twice in one day");
     drop(owner);
     let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn update_notice_is_off_when_the_setting_turns_it_off() {
-    let (url, requests) = registry(r#"{"name":"cmux","version":"99.0.0"}"#);
+fn tester_rollout_update_notice_is_off_when_the_setting_turns_it_off() {
+    let (url, requests) = registry(&[LATEST]);
     let dir = temp_dir("off");
     fs::write(dir.join("cmux-next.json"), r#"{ "updates": { "checkAutomatically": false } }"#)
         .unwrap();
@@ -161,6 +174,30 @@ fn update_notice_is_off_when_the_setting_turns_it_off() {
         "{outcome}"
     );
     assert!(requests.try_recv().is_err(), "the registry was asked with the check off");
+    drop(owner);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Testers on the `next` npm tag (a176's tester channel) must hear about a
+/// newer `next` build too: the owner asks for both tags and caches both.
+#[test]
+fn tester_rollout_update_notice_the_owner_also_caches_the_next_tag() {
+    let (url, requests) =
+        registry(&[LATEST, ("/cmux/next", r#"{"name":"cmux","version":"99.1.0-next.4"}"#)]);
+    let dir = temp_dir("next");
+    let owner = Owner::start(&dir, &url, "un-next");
+    let outcome = owner.outcome(0);
+    assert!(
+        outcome.contains("latest=99.0.0") && outcome.contains("next=99.1.0-next.4"),
+        "{outcome}"
+    );
+    assert_eq!(asked(&requests), ["/cmux/latest", "/cmux/next"]);
+    let cache: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(dir.join("state").join("update-check.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(cache["latest"], "99.0.0", "{cache}");
+    assert_eq!(cache["next"], "99.1.0-next.4", "{cache}");
     drop(owner);
     let _ = fs::remove_dir_all(&dir);
 }

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -82,6 +83,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pageBackdropARGB: UInt32?
     /// Bumped on each committed document, so a read of the previous one is dropped.
     @ObservationIgnored var pageBackdropDocument = 0
+    /// The theme surface whose color a cmux page keeps behind its transparent document (a
+    /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
+    /// turns white at its first real page like Chrome.
+    @ObservationIgnored public var pageThemeSurface: SurfaceKind? {
+        didSet { if pageThemeSurface != oldValue { applyPageBackground() } }
+    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -216,7 +223,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The tab's view moved or its theme scope changed: a page still on
     /// the theme color takes the new scope's color.
     func pageThemeDidChange() {
-        guard !pastFirstRealPage else { return }
+        guard !pastFirstRealPage || pageThemeSurface != nil else { return }
         applyPageBackground()
     }
 
@@ -229,6 +236,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     func applyPageBackground() {
         applyHostBackdrop()
         guard let browser = browserID, let shim = runtime.shim else { return }
+        if let pageThemeSurface {
+            _ = shim.browserSetBackgroundColor(browser, PageBackground.themeARGB(in: container, surface: pageThemeSurface))
+            return
+        }
         let argb = pastFirstRealPage ? ((BrowserResizeTunables.pageBackdrop.value ? pageBackdropARGB : nil) ?? PageBackground.engineDefaultARGB)
             : PageBackground.themeARGB(in: container, surface: .newTabPage)
         _ = shim.browserSetBackgroundColor(browser, argb)

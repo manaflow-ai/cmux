@@ -426,6 +426,21 @@ impl Mux {
         self.workspace_registry.lock().unwrap().session_journal_after(sequence, limit)
     }
 
+    /// Records in `(sequence, through]` other than `terminal.output`, at
+    /// most `limit`, and the sequence the read covered through (see
+    /// `WorkspaceRegistry::session_journal_without_output_after`).
+    pub(crate) fn session_journal_without_output_after(
+        &self,
+        sequence: u64,
+        through: u64,
+        limit: usize,
+    ) -> anyhow::Result<(Vec<crate::workspace_registry::SessionJournalRecord>, u64)> {
+        self.workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_without_output_after(sequence, through, limit)
+    }
+
     pub(crate) fn session_journal_reader(
         &self,
     ) -> anyhow::Result<Option<crate::workspace_registry::SessionJournalReader>> {
@@ -587,7 +602,7 @@ impl Mux {
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
         {
             self.report_internal_diagnostic(

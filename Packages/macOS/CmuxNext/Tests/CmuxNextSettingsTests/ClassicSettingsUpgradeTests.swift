@@ -127,4 +127,34 @@ import Testing
         #expect(try await settings.file.value(at: ["sidebar", "workspaceRow", "branch"]) == .bool(true))
         #expect(try await settings.file.value(at: ["sidebar", "workspaceRow", "directory"]) == .bool(true))
     }
+
+    /// A dotfiles setup: classic's `cmux.json` is a symlink into a dotfiles
+    /// repo. Next starts from a copy of its text, and its own settings
+    /// migration (which moves keys) never writes classic's file, so classic
+    /// after a downgrade, and the repo, keep every setting.
+    @Test func aSymlinkedClassicFileIsCopiedAndNeverWritten() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-classic-settings-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let config = home.appending(path: ".config/cmux")
+        let dotfiles = home.appending(path: "dotfiles")
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dotfiles, withIntermediateDirectories: true)
+        let original = Data(Self.classic.utf8)
+        try original.write(to: dotfiles.appending(path: "cmux.json"))
+        try FileManager.default.createSymbolicLink(at: config.appending(path: "cmux.json"), withDestinationURL: dotfiles.appending(path: "cmux.json"))
+        let url = try CmuxConfigFile.prepareDefaultURL(home: home, environment: [:])
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
+                                          managedWatchFiles: [])
+        await settings.reload()
+        try await settings.migrateClassicSettings()
+        // Next has the settings, in its own regular file.
+        #expect(try await settings.file.value(at: ["workspaces", "newPlacement"]) == .string("bottom"))
+        let next = try FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType
+        #expect(next == .typeRegular)
+        // Classic's file, through its link, is byte for byte what it was.
+        #expect(try Data(contentsOf: dotfiles.appending(path: "cmux.json")) == original)
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: config.appending(path: "cmux.json").path)
+            == dotfiles.appending(path: "cmux.json").path)
+    }
 }

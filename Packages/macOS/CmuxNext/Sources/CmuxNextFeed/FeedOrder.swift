@@ -13,11 +13,6 @@ public nonisolated enum FeedOrder {
         if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
         return a.id < b.id
     }
-
-    /// Variant `compact` (menu bar): open requests only.
-    public static func menubar(_ items: [FeedItem], now: Date) -> [FeedItem] {
-        items.filter { $0.isOpenRequest && $0.isActive(at: now) }.sorted(by: attention)
-    }
 }
 
 /// The badge (feed.md 3.7): open requests plus unread notices.

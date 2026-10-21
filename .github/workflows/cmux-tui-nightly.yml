@@ -161,12 +161,15 @@ jobs:
         run: npm install -g npm@11.5.1
 
       - name: Revalidate packed npm contract
+        env:
+          # Windows packages exist only when the dispatch asked for them.
+          WINDOWS_FLAG: ${{ inputs.include_windows == true && '--include-windows' || '' }}
         run: |
           python3 cmux-tui/dist/scripts/validate_package_contract.py \
             --npm-packages dist/npm-packages \
             --version "${{ needs.version.outputs.npm_version }}" \
             --notices-dir dist/package-notices \
-            --include-windows \
+            ${WINDOWS_FLAG:+"$WINDOWS_FLAG"} \
             --install-npm-package cmux-tui-linux-x64 \
             --install-npm-relay-package cmux-relay-linux-x64
 
@@ -197,6 +200,8 @@ jobs:
       # (relay-publish-npm.yml); nightlies never move relay dist-tags.
       # Linux and macOS testers install `cmux@next`.
       - name: Publish platform packages with next dist-tag
+        env:
+          INCLUDE_WINDOWS: ${{ inputs.include_windows == true }}
         run: |
           set -euo pipefail
           packages=(
@@ -204,8 +209,8 @@ jobs:
             cmux-tui-darwin-x64
             cmux-tui-linux-x64
             cmux-tui-linux-arm64
-            cmux-tui-win32-x64
           )
+          [[ "$INCLUDE_WINDOWS" != true ]] || packages+=(cmux-tui-win32-x64)
           for package in "${packages[@]}"; do
             echo "Publishing $package"
             npm publish --provenance --tag next "dist/npm-packages/$package"

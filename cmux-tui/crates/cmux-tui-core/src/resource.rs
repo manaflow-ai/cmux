@@ -144,6 +144,10 @@ pub enum ResourceOperation {
     ChiefProfileAvatarSet,
     #[serde(rename = "chief.profile.avatar.get")]
     ChiefProfileAvatarGet,
+    #[serde(rename = "chief.profile.history")]
+    ChiefProfileHistory,
+    #[serde(rename = "chief.profile.undo")]
+    ChiefProfileUndo,
     #[serde(rename = "participant.avatar.set")]
     ParticipantAvatarSet,
     #[serde(rename = "participant.avatar.get")]
@@ -634,6 +638,14 @@ pub enum ResourceOperation {
     WorkspaceLogClear,
     #[serde(rename = "workspace_log.list")]
     WorkspaceLogList,
+    #[serde(rename = "workspace_checklist.add")]
+    WorkspaceChecklistAdd,
+    #[serde(rename = "workspace_checklist.list")]
+    WorkspaceChecklistList,
+    #[serde(rename = "workspace_checklist.remove")]
+    WorkspaceChecklistRemove,
+    #[serde(rename = "workspace_checklist.update")]
+    WorkspaceChecklistUpdate,
     #[serde(rename = "workspace_progress.clear")]
     WorkspaceProgressClear,
     #[serde(rename = "workspace_progress.set")]

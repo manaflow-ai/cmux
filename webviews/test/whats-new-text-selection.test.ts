@@ -70,7 +70,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         summary: "Headers match the rows they hold",
         category: "new",
       },
-      { id: "scroll", title: "Wide tables scroll sideways", summary: null, category: "improved" },
+      { id: "scroll", title: "Tables scroll", summary: null, category: "improved" },
       {
         id: "long",
         title:
@@ -121,20 +121,23 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
 
       test("the Updated card's changes select with a drag and a double-click, and fire nothing", async () => {
         const page = await open("updated");
-        await dragAcross(page, ".wn-card-changes li");
-        expect(await selection(page)).toContain("groups at a");
+        // One line per area (updateSummary.ts): "Sidebar: workspace groups at a glance; …", then
+        // "Improved: tables scroll" (one line even at 244 px in DejaVu Sans, CI's fallback font).
+        await dragAcross(page, ".wn-card-areas li:nth-child(2)");
+        expect(await selection(page)).toContain("tables scroll");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
 
-        const word = page.locator(".wn-card-changes li").nth(1);
+        const word = page.locator(".wn-card-areas li .wn-card-phrases").nth(1);
         const box = (await word.boundingBox())!;
-        await page.mouse.dblclick(box.x + 20, box.y + box.height / 2);
-        expect((await selection(page)).trim()).toBe("Wide");
+        await page.mouse.dblclick(box.x + 12, box.y + box.height / 2);
+        expect((await selection(page)).trim()).toBe("tables");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         expect(await page.locator(".wn-card").count()).toBe(1);
 
         // Its eyebrow and the count of the rest are text too.
+        // The eyebrow says "Nightly · Oct 19"; the raw build is only its tooltip (e98d3a1ad827).
         await dragAcross(page, ".wn-card-eyebrow");
-        expect(await selection(page)).toContain("3845050");
+        expect(await selection(page)).toContain("Oct 19");
         await page.close();
       });
 
@@ -154,14 +157,15 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       // read and selected whole; a very long one stops at two lines.
       test("in a sidebar-wide card a long change wraps to two lines, never cut on one", async () => {
         const page = await open("updated", 244);
-        const rows = page.locator(".wn-card-changes li");
+        const rows = page.locator(".wn-card-areas li");
         const metrics = (index: number) =>
           rows.nth(index).evaluate((li) => ({
             height: li.getBoundingClientRect().height,
             line: parseFloat(getComputedStyle(li).lineHeight),
           }));
+        // The Sidebar line holds both workspace group changes; the Improved line is short.
+        const long = await metrics(0);
         const short = await metrics(1);
-        const long = await metrics(2);
         // One line for a short title; two lines (not one, not three) for the long one.
         expect(short.height).toBeLessThan(short.line * 1.5 + 4);
         expect(long.height).toBeGreaterThan(long.line * 1.5);

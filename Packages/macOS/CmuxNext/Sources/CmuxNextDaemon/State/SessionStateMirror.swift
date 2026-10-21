@@ -52,6 +52,8 @@ public struct SessionStateMirror: Sendable, Hashable {
     /// Newest first, at most `closedLimit`.
     public var closed: [ClosedItem] = []
     public var workspaceStatus: [ResourceID: WorkspaceStatus] = [:]
+    /// Each workspace's checklist (`workspace-checklist-v1`); a workspace without items is absent.
+    public var workspaceChecklists: [ResourceID: WorkspaceChecklist] = [:]
     public var ephemeralWorkspaces: Set<ResourceID> = []
     /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
     public var agentFolders: [ResourceID: String] = [:]
@@ -109,7 +111,8 @@ public struct SessionStateMirror: Sendable, Hashable {
             }
         case .workspaceRemoved(let id):
             let removed = [ephemeralWorkspaces.remove(id) != nil, agentFolders.removeValue(forKey: id) != nil,
-                           workspaceStatus.removeValue(forKey: id) != nil, workspaceNotes.removeValue(forKey: id) != nil]
+                           workspaceStatus.removeValue(forKey: id) != nil, workspaceNotes.removeValue(forKey: id) != nil,
+                           workspaceChecklists.removeValue(forKey: id) != nil]
             if removed.contains(true) { touched.insert(.workspace(id)) }
         case .screen(let id, let state):
             guard screens[id] != state else { return }
@@ -146,6 +149,14 @@ public struct SessionStateMirror: Sendable, Hashable {
             touched.insert(.workspace(status.workspaceID))
         case .statusRemoved(let workspace):
             guard workspaceStatus.removeValue(forKey: workspace) != nil else { return }
+            touched.insert(.workspace(workspace))
+        case .checklist(let checklist):
+            let value = checklist.items.isEmpty ? nil : checklist
+            guard workspaceChecklists[checklist.workspaceID] != value else { return }
+            workspaceChecklists[checklist.workspaceID] = value
+            touched.insert(.workspace(checklist.workspaceID))
+        case .checklistRemoved(let workspace):
+            guard workspaceChecklists.removeValue(forKey: workspace) != nil else { return }
             touched.insert(.workspace(workspace))
         case .screenGroup(let group):
             let old = screenGroups[group.id]

@@ -184,8 +184,11 @@ def check_first(label, extra=""):
     shown = wait(lambda: (lambda b: b if b and TASK_MARK in b[0].get("text", "") else None)(bubbles()), 30) or bubbles()
     first = shown[0] if shown else {}
     snap = snapshot(label)
-    row(f"{label}: first bubble is the Chief's task", f"text starts '{TASK_MARK}'", (first.get("text") or "")[:80],
-        (first.get("text") or "").startswith(TASK_MARK))
+    text = first.get("text") or ""
+    # The task as the Chief wrote it (its Title line first), without the view or the "Your task:" label.
+    row(f"{label}: first bubble is the Chief's task", f"the task with '{TASK_MARK}', no view or label", text[:120],
+        text.startswith("Title: Prompt bubble probe") and TASK_MARK in text and "<chat>" not in text
+        and "Your task:" not in text)
     row(f"{label}: marked as from the Chief", "From the Chief", str(first.get("from")), bool(first.get("from")))
     row(f"{label}: the Chief's view is one collapsed line", "a context summary", str(first.get("context")),
         bool(first.get("context")))

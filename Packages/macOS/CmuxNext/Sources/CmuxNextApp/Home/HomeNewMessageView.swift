@@ -49,6 +49,9 @@ final class HomeNewMessageView: NSView {
         addSubview(field.suggestions)
         let home = services.home
         field.contacts = { [weak home] in home?.contacts() ?? [] }
+        // Before anyone is chosen the list under To: offers the Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md).
+        field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
+        field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
         field.onDone = { [weak self] in self?.focusMessageBox() }
         field.onEscape = { [weak self] in
@@ -56,8 +59,12 @@ final class HomeNewMessageView: NSView {
             onEscape()
         }
         showComposer(carrying: "")
-        // task-owner: one read of the team and Chiefs for the suggestions
-        Task { await home.directory.refresh() }
+        field.refreshSuggestions()
+        // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
+        Task { [weak self] in
+            await home.directory.refresh()
+            self?.field.refreshSuggestions()
+        }
     }
 
     @available(*, unavailable)
@@ -235,8 +242,10 @@ final class HomeNewMessageView: NSView {
         let inner = NSRect(x: 0, y: -header, width: width, height: content.bounds.height + header)
         for view in [host as NSView?, composer as NSView?].compactMap({ $0 }) where view.frame != inner { view.frame = inner }
         let suggestions = field.suggestions
-        let height = min(suggestions.preferredHeight, max(0, bounds.height - fieldHeight - 20))
-        suggestions.frame = NSRect(x: 10, y: fieldHeight + 2, width: max(0, width - 20), height: height)
+        // Under the refusal line when it shows, so the Chiefs listed before anyone is chosen never hide it.
+        let listTop = notice.isHidden ? fieldHeight + 2 : notice.frame.maxY + 6
+        let height = min(suggestions.preferredHeight, max(0, bounds.height - listTop - 18))
+        suggestions.frame = NSRect(x: 10, y: listTop, width: max(0, width - 20), height: height)
     }
 }
 

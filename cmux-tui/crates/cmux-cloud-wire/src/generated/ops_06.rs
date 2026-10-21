@@ -4,6 +4,47 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes install.revoke declares.
+    InstallRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.
+    InstallSignOutOp {
+        name: "install.sign_out",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: InstallSignOutParams,
+        result: Install,
+        error: InstallSignOutError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InstallSignOutParams {}
+
+wire_errors! {
+    /// The error codes install.sign_out declares.
+    InstallSignOutError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
     IntegrationApprovalGetOp {
@@ -854,45 +895,4 @@ pub struct MessageEditParams {
     pub conversation: ConversationId,
     pub message_id: MessageId,
     pub parts: Vec<HomePart>,
-}
-
-wire_errors! {
-    /// The error codes message.edit declares.
-    MessageEditError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParts = "invalid_parts",
-        KindForbids = "kind_forbids",
-        NotAuthor = "not_author",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Retract one of your messages: its parts and reactions are cleared and it leaves search.
-    MessageRetractOp {
-        name: "message.retract",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: MessageRetractParams,
-        result: HomeConversationCommit,
-        error: MessageRetractError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MessageRetractParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
 }

@@ -126,7 +126,8 @@ final class InternalPageTabStore {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        let content = provider.makeView(for: key, in: windows[key])
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
         return view
@@ -171,7 +172,8 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        let content = provider.makeView(for: key, in: windows[key])
+        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
         views[key] = view
         return view

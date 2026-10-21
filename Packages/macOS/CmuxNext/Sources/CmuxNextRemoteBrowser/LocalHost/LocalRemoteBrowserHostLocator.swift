@@ -1,7 +1,8 @@
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+// In every configuration: the iPhone host streams the phone's browser tabs from it
+// (Release builds bundle it too); the DEBUG "Open Remote Browser Tab" UI stays DEBUG.
 /// The host's readiness line, `{"listening":"127.0.0.1:PORT"}`; nil for any
 /// other line or a non-loopback address.
 public nonisolated struct RemoteBrowserHostListening: Sendable, Equatable {
@@ -12,8 +13,9 @@ public nonisolated struct RemoteBrowserHostListening: Sendable, Equatable {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let address = object["listening"] as? String,
               address.hasPrefix("127.0.0.1:"),
-              let record = RemoteBrowserTabRecord(address: address) else { return nil }
-        endpoint = record.endpoint
+              let port = UInt16(address.dropFirst("127.0.0.1:".count)),
+              let loopback = RemoteRdLoopbackEndpoint(port: port) else { return nil }
+        endpoint = loopback
     }
 }
 
@@ -51,4 +53,4 @@ public nonisolated struct LocalRemoteBrowserHostLocator: Sendable {
         url.pathExtension == "app" ? url.appending(path: "Contents/MacOS/\(executableName)") : url
     }
 }
-#endif
+

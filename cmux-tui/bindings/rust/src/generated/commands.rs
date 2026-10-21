@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0.
+// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2115,6 +2115,16 @@ pub type MoveBrowserProfileResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveColumnRequest {
+    pub direction: T::ColumnMoveDirection,
+    pub pane: T::Id,
+}
+
+#[rustfmt::skip]
+pub type MoveColumnResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MovePersonalGroupRequest {
     pub group: String,
     pub index: u64,
@@ -2698,6 +2708,16 @@ pub struct PaneNeighborRequest {
     pub dir: T::PaneDirection,
     pub pane: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParkTabsRequest {
+    #[serde(alias = "tabs")]
+    pub surfaces: Vec<T::TabRef>,
+}
+
+#[rustfmt::skip]
+pub type ParkTabsResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3706,6 +3726,17 @@ pub struct TerminalReadRangeRequest {
 pub struct TerminalResourcesRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surfaces: Optional<Vec<T::Id>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TerminalResumeCommandRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub command: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -4733,6 +4764,10 @@ impl CmuxClient {
         self.execute(&MOVE_BROWSER_PROFILE_METADATA, &request)
     }
 
+    pub fn move_column(&mut self, request: MoveColumnRequest) -> Result<MoveColumnResult> {
+        self.execute(&MOVE_COLUMN_METADATA, &request)
+    }
+
     pub fn move_personal_group(&mut self, request: MovePersonalGroupRequest) -> Result<MovePersonalGroupResult> {
         self.execute(&MOVE_PERSONAL_GROUP_METADATA, &request)
     }
@@ -5017,6 +5052,10 @@ impl CmuxClient {
 
     pub fn pane_neighbor(&mut self, request: PaneNeighborRequest) -> Result<T::PaneNeighborResult> {
         self.execute(&PANE_NEIGHBOR_METADATA, &request)
+    }
+
+    pub fn park_tabs(&mut self, request: ParkTabsRequest) -> Result<ParkTabsResult> {
+        self.execute(&PARK_TABS_METADATA, &request)
     }
 
     pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
@@ -5517,6 +5556,10 @@ impl CmuxClient {
 
     pub fn terminal_resources(&mut self, request: TerminalResourcesRequest) -> Result<T::TerminalResourcesResult> {
         self.execute(&TERMINAL_RESOURCES_METADATA, &request)
+    }
+
+    pub fn terminal_resume_command(&mut self, request: TerminalResumeCommandRequest) -> Result<T::TerminalResumeCommandResult> {
+        self.execute(&TERMINAL_RESUME_COMMAND_METADATA, &request)
     }
 
     pub fn undo_layout(&mut self, request: UndoLayoutRequest) -> Result<UndoLayoutResult> {

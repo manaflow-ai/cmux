@@ -295,6 +295,10 @@ CEF pre-key hook, which run tier 2 only, so nothing runs twice. Only Command or
 Control chords are candidates, so typing, Option characters and IME input pass):
 1. Tier 0 registry actions.
 2. Browser focus mode on the focused page: stop, the page gets the key (then AppKit menus).
+   Esc Esc leaves it (classic cmux parity, `KeyRouter.routesFocusModeEscape`): the first
+   plain Escape still reaches the page and arms the exit (the omnibar badge reads "Esc
+   again to exit"), a second within 1.6 s leaves and is consumed; a held Escape's repeats
+   never count. Toggling focus mode on moves the keyboard into the page.
 3. Tier 1 registry actions. When the registry has no action for the chord and no
    terminal has the keyboard, the user's Ghostty keybinds for window, tab and split
    actions (`cmd+ctrl+h=goto_split:left`, read with `ghostty_config_trigger`, one chord
@@ -530,9 +534,10 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
   and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
   starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches
   there (with no text, it opens the site). An extension's own keyword wins over an engine's.
-- Opt-Cmd-F in a browser tab (`browser.focusSearch`, Chrome's Search the Web) focuses the
-  address bar in a session of the default engine. Outside a browser tab it stays Search All
-  Windows.
+- Search the Web (`browser.focusSearch`, Chrome's `IDC_FOCUS_SEARCH`) focuses the address bar
+  in a session of the default engine. It has no default key: Opt-Cmd-F stays Search All
+  Windows everywhere (a default key moves only with the user's OK); run it from the palette or
+  bind it in cmux.json.
 - `browser.omnibar.showFullURLs` (the field's menu: Always Show Full URLs) makes the resting
   text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
 - Enter on a scheme-less address that loads over https (`example.com`) marks the load an
