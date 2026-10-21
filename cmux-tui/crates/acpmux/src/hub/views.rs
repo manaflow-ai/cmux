@@ -422,6 +422,8 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": BUILD,
+            // The protocol surfaces this build serves (`capabilities.rs`).
+            "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
