@@ -91,8 +91,10 @@ import Testing
     @Test func revealingAnItemOpensEveryFoldAboveIt() {
         let defaults = UserDefaults(suiteName: "SidebarNeedsYouTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
-        let root = WorkspaceID("root"), mid = WorkspaceID("mid"), leaf = WorkspaceID("leaf"), other = WorkspaceID("other")
-        tree.state = SidebarSessionTreeState(parents: [mid: root, leaf: mid])
+        let root = WorkspaceID("root"), mid = WorkspaceID("mid"), leaf = WorkspaceID("leaf")
+        let other = WorkspaceID("other"), otherChild = WorkspaceID("other-child")
+        // `other` is a parent too: the tree keeps only folds of live parents.
+        tree.state = SidebarSessionTreeState(parents: [mid: root, leaf: mid, otherChild: other])
         tree.toggle(root)
         tree.toggle(mid)
         tree.toggle(other)

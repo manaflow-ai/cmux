@@ -201,18 +201,5 @@ public final class SidebarSessionTree {
         defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
     }
 
-    /// Opens every fold above `id` (the needs-you tray goes to a session a folded parent hides).
-    public func reveal(_ id: WorkspaceID) {
-        var seen: Set<WorkspaceID> = [id]
-        var current = id, opened = collapsed
-        while let parent = state?.parents[current], seen.insert(parent).inserted {
-            opened.remove(parent)
-            current = parent
-        }
-        guard opened != collapsed else { return }
-        collapsed = opened
-        defaults.set(collapsed.map(\.rawValue).sorted(), forKey: Self.collapsedKey)
-    }
-
     static let collapsedKey = "sidebar.sessionTree.collapsed"
 }
