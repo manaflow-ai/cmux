@@ -29,6 +29,9 @@ final class PendingWorkspaceRows {
     /// ends without one (`remove`). Not at the reply: the store can list the workspace a moment later, and a press in that
     /// gap would take the same name (the terminal path: remote, or a create with a command).
     @ObservationIgnored private var names: [String: (machine: MachineID, name: String)] = [:]
+    /// Rows whose daemon workspace has taken over the stand-in (the row stays until the sidebar document places it):
+    /// a close in that time leaves nothing to list, so `forget` drops the row once the store no longer holds it.
+    @ObservationIgnored private var takenOver: Set<String> = []
     /// Each window's sidebar, redrawn in the turn a row comes or goes: the row draws over the rows the
     /// sidebar shows already, not after a rows pass walks every workspace on a later hop.
     let redraws = SidebarRedraws()
@@ -43,6 +46,7 @@ final class PendingWorkspaceRows {
     func remove(_ id: String) {
         rows.removeAll { $0.id == id }
         names[id] = nil
+        takenOver.remove(id)
         redraws.run()
     }
 
@@ -58,10 +62,15 @@ final class PendingWorkspaceRows {
     /// room). Owning is not listing: a window owns a new workspace a moment
     /// before its room shows it (the pin can come after the workspace), and
     /// a row forgotten then left a gap.
-    func forget(in window: String, listed: Set<String>, elsewhere: (String) -> Bool) {
+    /// `held`: the store holds the workspace now (a taken-over row whose workspace closed before the document placed
+    /// it has nothing left to list, so it goes too).
+    func forget(in window: String, listed: Set<String>, held: (String) -> Bool, elsewhere: (String) -> Bool) {
         if !names.isEmpty { names = names.filter { !listed.contains($0.key) } } // listed: its name counts in the store now
-        func done(_ row: Row) -> Bool { row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
+        func done(_ row: Row) -> Bool {
+            row.window == window && (listed.contains(row.id) || elsewhere(row.id) || takenOver.contains(row.id) && !held(row.id))
+        }
         guard rows.contains(where: done) else { return }
+        for row in rows where done(row) { takenOver.remove(row.id) }
         rows.removeAll(where: done)
         redraws.run()
     }
@@ -73,7 +82,10 @@ final class PendingWorkspaceRows {
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
         Self.removing(ids(in: window) { id in
             guard let (workspace, daemon) = machines.workspace(id: id) else { return false }
-            return workspace.isProvisional || SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID)
+            if workspace.isProvisional { return true }
+            guard SidebarDocWiring.awaitsPlacement(workspace, session: daemon.store.registryID) else { return false }
+            takenOver.insert(id)
+            return true
         }, from: listed)
     }
 
