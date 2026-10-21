@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextPages
 
 /// The agent pane on the shared page host (react-pages.md, agent pane move P2): the bundled page at
@@ -38,6 +38,13 @@ extension AgentPaneView {
     /// The view that takes the keyboard when the chat is focused: Chromium's view when the page
     /// shows in Chromium (the `agent.chromium` spike), else the WebKit view.
     public var focusTarget: NSView { page?.focusView ?? webView }
+
+    /// The engine the chat shows in, for `debug.agent_pane engine`: `cef`, `webkit:<reason>` on the
+    /// page host (``PageWebKitReason``), or `webkit:own-host` on the pane's own WebKit host.
+    public var engineName: String {
+        guard let decision = page?.engineDecision else { return "webkit:own-host" }
+        return decision.engine == .cef ? "cef" : "webkit:\(decision.webKitReason?.rawValue ?? "none")"
+    }
 
     /// Gives the chat the keyboard unless ``focusTarget`` already has it.
     func focusChat() {
