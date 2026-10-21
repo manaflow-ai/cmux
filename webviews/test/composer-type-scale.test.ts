@@ -148,7 +148,7 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       "working",
       "working-stop",
       "working-steer",
-      "working-interrupt",
+      "working-queue",
       "queued",
       "queued-paused",
       "codex-model",

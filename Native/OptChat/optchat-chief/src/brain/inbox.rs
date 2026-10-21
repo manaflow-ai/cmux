@@ -244,6 +244,7 @@ impl Brain {
             return;
         }
         self.handled = message.seq;
+        self.note_main_message(&message);
         let Some(summary) = self.summary.as_ref() else {
             return;
         };
@@ -251,7 +252,8 @@ impl Brain {
         let has_images = message.parts.iter().any(|part| {
             matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
         });
-        if (!text.trim().is_empty() || has_images)
+        let has_files = message.parts.iter().any(super::files::is_file_part);
+        if (!text.trim().is_empty() || has_images || has_files)
             && chief_wakes(
                 &self.settings.membership.rule(false),
                 summary,
@@ -259,41 +261,39 @@ impl Brain {
                 |id| self.mux_messages.contains(id),
             )
         {
-            // An answer to a pending approval of the running turn: it
-            // answers, is logged, and is not a new message (it neither
-            // queues nor interrupts the turn).
-            match crate::approval::Answer::parse(&text) {
-                Some(answer) if self.has_approval(None) => {
-                    self.answer_approval(answer, &message, None);
-                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
-                        (self.log)(&format!("logging an approval failed: {e}"));
-                    }
+            let remote = message
+                .origin
+                .as_ref()
+                .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+            // The turn sees the images; the log keeps their references.
+            let images = match self.daemon.as_mut() {
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
+                _ => Vec::new(),
+            };
+            // The turn opens other files from this Mac; the line names where.
+            let files = match self.daemon.as_mut() {
+                Some(daemon) if has_files => {
+                    let root = self.file.attachments_dir();
+                    super::files::read_files(daemon.as_mut(), &message, &root)
                 }
-                _ => {
-                    let remote = message
-                        .origin
-                        .as_ref()
-                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
-                    // The turn sees the images; the log keeps their references.
-                    let images = match self.daemon.as_mut() {
-                        Some(daemon) if has_images => {
-                            super::images::read_images(daemon.as_mut(), &message)
-                        }
-                        _ => Vec::new(),
-                    };
-                    let logged = super::images::logged_text(&text, &images);
-                    self.queue_with_images(
-                        logged,
-                        images,
-                        Source::Message {
-                            seq: message.seq,
-                            id: message.id.clone(),
-                            remote,
-                        },
-                    );
-                    return;
-                }
-            }
+                _ => Vec::new(),
+            };
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
+            self.queue_with_images(
+                logged,
+                images,
+                Source::Message {
+                    seq: message.seq,
+                    id: message.id.clone(),
+                    remote,
+                    requires_approval: !self
+                        .settings
+                        .membership
+                        .is_owner_message(summary, &message),
+                },
+            );
+            return;
         }
         if !self.queued_messages_of(None) {
             self.state.logged_seq = self.handled;

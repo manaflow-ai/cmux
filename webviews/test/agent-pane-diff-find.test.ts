@@ -209,7 +209,7 @@ await requireBrowserLane("agent-pane-diff-find.test.ts", async () => {
     expect(await field.evaluate((node) => node === document.activeElement)).toBe(true);
     expect(await page.locator(".acpmux-scroll .acpmux-find").count()).toBe(0);
     await field.fill("retry");
-    const count = page.locator(".acpmux-diff-panel .acpmux-find__count");
+    const count = page.locator(".acpmux-diff-panel .acpmux-find .find-pill__count");
     await until(() => count.textContent(), "1 of 3");
     await until(async () => (await highlights(page)).count, 3);
     expect((await highlights(page)).active?.toLowerCase()).toBe("retry");

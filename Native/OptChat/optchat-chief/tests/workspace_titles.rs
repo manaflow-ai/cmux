@@ -98,6 +98,63 @@ fn tasks_go_into_topic_groups() {
     }
 }
 
+/// Real spawn tasks of 2026-10-20 (first line only, no `Group:` line) and the
+/// group a137 had to move each one into by hand (acp-chief-issues.md #9).
+/// The host must pick the same group itself, so no rename agent is needed.
+#[test]
+fn spawns_land_in_the_group_a137_picked_by_hand() {
+    let cases = [
+        (
+            "Full screen lag and layout\n\nUser (Oct 19): ...",
+            "Performance",
+        ),
+        ("Home streaming lag\n\nUser (Oct 20): ...", "Performance"),
+        (
+            "Tab switch rewrite 100x\n\nUser (u2873): ...",
+            "Performance",
+        ),
+        (
+            "Pre-push quality gate\n\nUser (Oct 20): ...",
+            "Nightly & CI",
+        ),
+        (
+            "Add Server UI redesign\n\nUser (Oct 20): ...",
+            "cmux-next app",
+        ),
+        (
+            "iOS Action Button Chief call\n\nUser (Oct 19): ...",
+            "cmux-next app",
+        ),
+        (
+            "Classic to Next migration\n\nUser (u3337): ...",
+            "cmux-next app",
+        ),
+        (
+            "Approve pairing from CLI\n\nUser (Oct 20): ...",
+            "Agents & routing",
+        ),
+        (
+            "Sidebar: no timestamps by default\n\nUser: ...",
+            "Sidebar & tabs",
+        ),
+        (
+            "Chiefs drive right browser\n\nUser: ...",
+            "Browser & parity",
+        ),
+        (
+            "Pane tab mute button clickable\n\nUser: ...",
+            "Sidebar & tabs",
+        ),
+        (
+            "ACP spawn and messaging fixes\n\nUser (Oct 20): ...",
+            "Agents & routing",
+        ),
+    ];
+    for (task, want) in cases {
+        assert_eq!(workspaces::topic_group(task), want, "task: {task}");
+    }
+}
+
 /// Records what the brain and spawner do to workspaces.
 #[derive(Default)]
 struct Recorder {
@@ -126,6 +183,12 @@ impl Workspaces for Recorder {
     }
     fn place(&self) -> String {
         "the test".into()
+    }
+    fn locate(&self, _key: &str) -> Option<workspaces::WorkspaceRef> {
+        Some(workspaces::WorkspaceRef {
+            id: "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e".into(),
+            session: "cmux-chief-h0me".into(),
+        })
     }
 }
 
@@ -199,6 +262,17 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     assert!(
         answer.contains("group \"Sidebar & tabs\""),
         "the spawn answer names the group: {answer}"
+    );
+    // a313: the reply gives the real ws_ id and how to move or pin it.
+    assert!(
+        answer.contains("ws_cbd7f86ef04cb1b8d1f2f7a235d6538e"),
+        "the spawn answer gives the workspace's ws_ id: {answer}"
+    );
+    assert!(
+        answer.contains(
+            "cmux --session cmux-chief-h0me workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
+        ),
+        "the spawn answer says how to move it: {answer}"
     );
     assert_eq!(
         *recorder.opened.lock().unwrap(),

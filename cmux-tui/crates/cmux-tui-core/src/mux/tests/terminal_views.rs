@@ -652,3 +652,27 @@ fn resize_audit_wide_grid_saturates_pixel_size_instead_of_failing() {
     assert!(result.is_ok(), "accepted grid size was rejected: {result:?}");
     assert_eq!(surface.size(), (8200, 24));
 }
+
+// Resize audit item 5: the hosted path refuses a grid over
+// `TERMINAL_CELL_AREA_MAX` cells, but the mux clamp and the local path
+// accept it, so the same request fails or succeeds by terminal kind. The
+// mux clamp is the one rule: it keeps the columns and caps the rows.
+#[test]
+fn resize_audit_grid_over_the_cell_area_limit_is_clamped_on_the_local_path() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    mux.resize_surface_for_client(surface.id, 0, 10_000, 401).unwrap();
+    assert_eq!(surface.size(), (10_000, 400), "the grid holds at most 4,000,000 cells");
+}
+
+// Resize audit item 7: the sizing engine clamps a viewport to 2 columns,
+// but a sized creation went through the mux clamp (1 column), so the same
+// report made a 1-column or a 2-column grid by entry point.
+#[test]
+fn resize_audit_sized_creation_uses_the_sizing_engine_minimum() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, Some((1, 24))).unwrap();
+    assert_eq!(surface.size(), (2, 24));
+    mux.resize_surface_for_client(surface.id, 0, 1, 24).unwrap();
+    assert_eq!(surface.size(), (2, 24));
+}

@@ -362,7 +362,8 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt is still watched so a second long queue can overflow
-        # on attempt three; that attempt is Blacksmith and is not watched again.
+        # on attempt three; that attempt takes a free Blacksmith slot, else the
+        # owned side label (next_macos_cascade.retry_label), and is not watched again.
         return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
@@ -1269,6 +1270,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                             log=log, deadline=deadline, floor_seconds=effective_seconds)
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}"
+    if outcome == "refused" and target.path == CMUX_NEXT_WORKFLOW_PATH and target.attempt > 1:
+        # A cmux-next re-run's next attempt takes the Blacksmith overflow, and a
+        # re-run of failed jobs would re-run a real failure with the refusal.
+        jobs = read(lambda: client.jobs(target.run_id, target.attempt), sleep, log)
+        other = [str(job.get("name")) for job in jobs if job.get("conclusion") in ("failure", "timed_out")
+                 and not carried(job, target.attempt_started_at) and not refused(job)]
+        if other:
+            return (f"not rescued: attempt {target.attempt} also failed for a reason that is not a refusal "
+                    f"({', '.join(sorted(other))})")
     log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
     while True:
         # From attempt 2 on, keep what passed: only the owned jobs are moved.

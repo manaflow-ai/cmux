@@ -95,9 +95,12 @@ nonisolated extension CloudHomeSource {
     /// previous account submitted is refused (`notAuthorized`, the store
     /// drops it) and never reaches the daemon under this account's lease.
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
-        if case .setTyping(let conversation, _) = intent.op {
-            // Typing is not in cloud-conversations-v1 part 1: nothing is sent or
-            // resent, so the key is not bound to the account.
+        if case .setTyping(let conversation, let on) = intent.op {
+            // Ephemeral (cloud-conversation-typing-v1): sent once, never resent, so the key is
+            // not bound to the account. A conversation nobody subscribes has no socket to carry
+            // it (`not_subscribed`); the next keystroke after it opens sends it again.
+            let (commands, _, _) = try requireEndpoint()
+            try await commands.typing(conversation.rawValue, on: on)
             return HomeOpResult(rev: 0, conversation: conversation)
         }
         let key = intent.key.rawValue
