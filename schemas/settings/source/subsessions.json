@@ -36,7 +36,7 @@
         {
           "key": "agents.subsessions.answerQuestions",
           "name": "subsessionsAnswerQuestions",
-          "note": "On: a session answers the questions (AskUserQuestion, Codex user input) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off: only the person answers them (subsessions.answers_off).",
+          "note": "On: a session answers the questions (AskUserQuestion, Codex user input) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).",
           "title": {
             "key": "settings.agents.subsessions.answerQuestions",
             "text": "Let Sessions Answer Their Sub-sessions' Questions"
@@ -46,7 +46,7 @@
             "text": "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "subagent",
             "sub-session",

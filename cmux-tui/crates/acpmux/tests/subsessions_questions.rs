@@ -155,6 +155,12 @@ async fn subsession_questions_a_parent_answers_its_childs_question_but_never_a_p
         .refused(ANSWER, json!({"sessionId": child, "permissionId": pid, "answers": answers}))
         .await;
     assert_eq!(e["data"]["reason"], "subsessions.caller_required", "{e}");
+    // Off by default: the person answers, and the refusal names the child.
+    let e = p
+        .refused(ANSWER, json!({"sessionId": child, "permissionId": pid, "answers": answers}))
+        .await;
+    assert_eq!(e["data"]["reason"], "subsessions.answers_off", "{e}");
+    std::fs::write(&settings, r#"{"agents": {"subsessions": {"answerQuestions": true}}}"#).unwrap();
     // Answers are checked as a person's are: every question, nothing blank.
     let e = p
         .refused(

@@ -17,7 +17,8 @@
 //!   A permission prompt, a plan approval (ExitPlanMode, `x.ai/exit_plan_mode`,
 //!   `cursor/create_plan`), a lasting grant and a question without
 //!   normalized items stay the person's, and the refusal names the child;
-//! - `agents.subsessions.answerQuestions` is on (the default). Off, every
+//! - the person turned `agents.subsessions.answerQuestions` on (off by
+//!   default: it loosens the rule that only the person answers). Off, every
 //!   question is the person's (`subsessions.answers_off`).
 //!
 //! The answers are checked as a person's are (`questions::check_answers`)

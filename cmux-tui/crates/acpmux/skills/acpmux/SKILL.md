@@ -28,12 +28,13 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 Start a session only when the user asked for one.
 
 When a sub-session asks a question (its AskUserQuestion or user input),
-`wait_for_sessions` returns and its row lists it under `questions`; answer it
-with `answer_question` (keys: each item's `id` or `prompt`). A permission
-request or a plan approval is not a question: only the user allows it, in
-cmux NEXT, so tell the user which sub-session waits. With Settings >
-Agents > Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions
-off, `answer_question` is refused (`subsessions.answers_off`): tell the user.
+`wait_for_sessions` returns and its row lists it under `questions`. Tell the
+user what it asks. Only when the user turned on Settings > Agents >
+Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions (off by
+default) may you answer it yourself with `answer_question` (keys: each item's
+`id` or `prompt`); otherwise it is refused (`subsessions.answers_off`). A
+permission request or a plan approval is never a question: only the user
+allows it, in cmux NEXT, so tell the user which sub-session waits.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
